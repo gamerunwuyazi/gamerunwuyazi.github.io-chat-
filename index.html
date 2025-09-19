@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>优化版聊天室</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #ffffff;
+            color: #333;
+            line-height: 1.6;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 8px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            min-height: 50px;
+        }
+        
+        .header h1 {
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        #changeNickname {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-size: 0.9rem;
+        }
+        
+        #changeNickname:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .sidebar {
+            width: 250px;
+            background-color: #f8f9fa;
+            border-right: 1px solid #ddd;
+            padding: 15px;
+            transition: all 0.3s ease;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+        
+        .sidebar.collapsed {
+            width: 50px;
+            padding: 10px;
+        }
+        
+        .sidebar.collapsed .online-users-content,
+        .sidebar.collapsed .offline-users-content {
+            display: none;
+        }
+        
+        .toggle-sidebar {
+            background: none;
+            border: none;
+            cursor: pointer;
+            margin-bottom: 15px;
+            font-size: 18px;
+            color: #6c757d;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 5px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+        
+        .toggle-sidebar:hover {
+            background-color: #e9ecef;
+        }
+        
+        .toggle-sidebar-text {
+            margin-left: 8px;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .sidebar.collapsed .toggle-sidebar-text {
+            display: none;
+        }
+        
+        .online-users,
+        .offline-users {
+            margin-top: 10px;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .online-users h3,
+        .offline-users h3 {
+            margin-bottom: 10px;
+            font-size: 1rem;
+            color: #495057;
+            border-bottom: 1px solid #dee2e6;
+            padding-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        
+        .toggle-section {
+            font-size: 12px;
+            color: #6c757d;
+            cursor: pointer;
+        }
+        
+        .user-list {
+            list-style: none;
+            overflow-y: auto;
+            flex: 1;
+            padding-right: 5px;
+        }
+        
+        .user-list.collapsed {
+            display: none;
+        }
+        
+        .user-list li {
+            padding: 8px 0;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid #f1f1f1;
+            transition: transform 0.2s;
+        }
+        
+        .user-list li:hover {
+            transform: translateX(5px);
+            background-color: #f1f1f1;
+            border-radius: 4px;
+        }
+        
+        .user-list li::before {
+            content: "●";
+            font-size: 12px;
+            margin-right: 8px;
+        }
+        
+        .online-users .user-list li::before {
+            color: #28a745;
+        }
+        
+        .offline-users .user-list li::before {
+            color: #6c757d;
+        }
+        
+        .last-online {
+            font-size: 10px;
+            color: #999;
+            margin-left: 8px;
+        }
+        
+        .chat-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #messageContainer {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .message {
+            background: #ffffff;
+            padding: 12px 15px;
+            margin-bottom: 12px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            max-width: 80%;
+            position: relative;
+            animation: fadeIn 0.3s ease;
+            min-height: auto;
+            word-wrap: break-word;
+        }
+        
+        .message.own-message {
+            background: #dcf8c6;
+            margin-left: 20%;
+            max-width: 80%;
+            display: block;
+        }
+        
+        .nickname {
+            font-weight: bold;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .message-content {
+            margin-bottom: 5px;
+            word-break: break-word;
+        }
+        
+        .message-image {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 8px;
+            margin-top: 5px;
+            cursor: pointer;
+        }
+        
+        .message-time {
+            font-size: 10px;
+            color: #999;
+            position: absolute;
+            right: 15px;
+            bottom: 5px;
+        }
+        
+        .delete-button {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0, 0, 0, 0.1);
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .message:hover .delete-button {
+            display: flex;
+        }
+        
+        .delete-button:hover {
+            background: rgba(220, 53, 69, 0.2);
+            color: #dc3545;
+        }
+        
+        .input-area {
+            padding: 12px 15px;
+            background-color: white;
+            border-top: 1px solid #ddd;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        #messageInput {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid #07c160;
+            border-radius: 20px;
+            font-size: 14px;
+            outline: none;
+            min-height: 40px;
+        }
+        
+        #sendButton {
+            padding: 10px 20px;
+            background: #07c160;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+            min-height: 40px;
+        }
+        
+        #sendButton:hover {
+            background: #06ad54;
+            transform: scale(1.05);
+        }
+        
+        .upload-container {
+            display: flex;
+            align-items: center;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            padding: 8px 15px;
+            min-height: 40px;
+        }
+        
+        .upload-container:hover {
+            background: #2980b9;
+        }
+        
+        #uploadButton {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            font-size: 14px;
+        }
+        
+        .upload-text {
+            margin-left: 5px;
+            white-space: nowrap;
+        }
+        
+        .status-bar {
+            padding: 8px 15px;
+            background: #f8f9fa;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #6c757d;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: #6c757d;
+            margin: auto;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            width: 320px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        .modal h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 1.2rem;
+        }
+        
+        .modal input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .modal button {
+            width: 100%;
+            padding: 10px;
+            background: #07c160;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        
+        .modal-tabs {
+            display: flex;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .modal-tab {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            user-select: none;
+        }
+        
+        .modal-tab.active {
+            background-color: #f8f9fa;
+            border-bottom: 2px solid #07c160;
+        }
+        
+        .modal-form {
+            display: none;
+        }
+        
+        .modal-form.active {
+            display: block;
+        }
+        
+        .image-preview-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .image-preview-content {
+            max-width: 90%;
+            max-height: 90%;
+        }
+        
+        .preview-img {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 8px;
+        }
+        
+        .close-preview {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 30px;
+            cursor: pointer;
+            background: rgba(0, 0, 0, 0.5);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .upload-progress {
+            width: 100%;
+            height: 4px;
+            background: #f0f0f0;
+            border-radius: 5px;
+            margin-top: 5px;
+            overflow: hidden;
+            display: none;
+        }
+        
+        .upload-progress-bar {
+            height: 100%;
+            background: #07c160;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid #ddd;
+                position: absolute;
+                top: 50px;
+                left: 0;
+                z-index: 100;
+                height: auto;
+                max-height: 50vh;
+                transform: translateX(0);
+            }
+            
+            .sidebar.collapsed {
+                width: 100%;
+                padding: 10px;
+                transform: translateY(-100%);
+                opacity: 0;
+                pointer-events: none;
+            }
+            
+            .message {
+                max-width: 90%;
+            }
+            
+            .message.own-message {
+                max-width: 90%;
+            }
+            
+            .upload-text {
+                display: none;
+            }
+            
+            .chat-main {
+                margin-top: 0;
+            }
+        }
+        
+        /* 在线人数统计样式 */
+        .online-count {
+            background-color: #07c160;
+            color: white;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 登录/注册模态框 -->
+    <div id="authModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-tabs">
+                <div class="modal-tab active" id="loginTab">登录</div>
+                <div class="modal-tab" id="registerTab">注册</div>
+            </div>
+            
+            <div class="modal-form active" id="loginForm">
+                <h3>登录聊天室</h3>
+                <input type="text" id="loginUsername" placeholder="用户名" required>
+                <input type="password" id="loginPassword" placeholder="密码" required>
+                <button id="loginButton">登录</button>
+                <div id="loginMessage" style="color: red; margin-top: 10px; display: none;"></div>
+            </div>
+            
+            <div class="modal-form" id="registerForm">
+                <h3>注册新账户</h3>
+                <input type="text" id="registerUsername" placeholder="用户名" required>
+                <input type="password" id="registerPassword" placeholder="密码" required>
+                <input type="text" id="registerNickname" placeholder="昵称" required>
+                <button id="registerButton">注册</button>
+                <div id="registerMessage" style="color: red; margin-top: 10px; display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 昵称设置模态框 -->
+    <div id="nicknameModal" class="modal">
+        <div class="modal-content">
+            <h3>修改昵称</h3>
+            <p>请输入新的昵称</p>
+            <input type="text" id="nicknameInput" placeholder="请输入昵称" maxlength="20">
+            <button id="saveNickname">保存</button>
+        </div>
+    </div>
+
+    <!-- 图片预览模态框 -->
+    <div id="imagePreviewModal" class="image-preview-modal">
+        <div class="close-preview">&times;</div>
+        <div class="image-preview-content">
+            <img id="previewImgElement" class="preview-img" src="" alt="预览图片">
+        </div>
+    </div>
+
+    <div class="header">
+        <h1>优化版聊天室 <span id="totalOnlineCount" class="online-count">0</span></h1>
+        <div class="user-info">
+            <span id="currentNickname">未登录</span>
+            <button id="changeNickname" style="display: none;">修改昵称</button>
+            <button id="logoutButton" style="display: none; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer;">退出</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="sidebar" id="sidebar">
+            <button class="toggle-sidebar" id="toggleSidebar">
+                ☰ <span class="toggle-sidebar-text">收起用户列表</span>
+            </button>
+            <div class="online-users-content">
+                <h3>在线用户 <span id="onlineCount">(0)</span></h3>
+                <ul class="user-list" id="userList">
+                    <li>暂无在线用户</li>
+                </ul>
+            </div>
+            <div class="offline-users-content">
+                <h3>离线用户 ▼</h3>
+                <ul class="user-list" id="offlineUserList">
+                    <li>暂无离线用户</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="chat-main">
+            <div id="messageContainer">
+                <div class="empty-state" id="emptyState">
+                    <h3>暂无消息</h3>
+                    <p>发送第一条消息开始聊天吧!</p>
+                </div>
+            </div>
+            
+            <div class="input-area">
+                <input type="text" id="messageInput" placeholder="请先登录" disabled>
+                <button id="sendButton" disabled>发送</button>
+                
+                <div class="upload-container">
+                    <button id="uploadButton" title="上传图片" disabled>
+                        📤 <span class="upload-text">上传图片</span>
+                    </button>
+                </div>
+                
+                <input type="file" id="fileInput" accept="image/*" style="display: none;" disabled>
+            </div>
+            
+            <div class="upload-progress" id="uploadProgress">
+                <div class="upload-progress-bar" id="uploadProgressBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div id="connectionStatus">连接状态: 连接中...</div>
+        <div id="messageCount">消息数量: 0</div>
+    </div>
+    
+    <!-- 使用CDN上的Socket.IO客户端库 -->
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 配置后端服务器地址
+        const SERVER_URL = 'http://152.136.175.209:3000';
+        
+        // 初始化变量和DOM元素
+        const socket = io(SERVER_URL);
+        let currentUser = null;
+        let isConnected = false;
+        let isSidebarCollapsed = false; // 默认展开
+        let hasReceivedHistory = false;
+        let offlineUsersCollapsed = false;
+        let onlineUsersList = []; // 存储在线用户列表
+        let autoScrollEnabled = true; // 自动滚动标志
+    
+        // 获取DOM元素
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const messageContainer = document.getElementById('messageContainer');
+        const emptyState = document.getElementById('emptyState');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const authModal = document.getElementById('authModal');
+        const loginTab = document.getElementById('loginTab');
+        const registerTab = document.getElementById('registerTab');
+        const loginForm = document.getElementById('loginForm');
+        const registerForm = document.getElementById('registerForm');
+        const loginUsername = document.getElementById('loginUsername');
+        const loginPassword = document.getElementById('loginPassword');
+        const loginButton = document.getElementById('loginButton');
+        const loginMessage = document.getElementById('loginMessage');
+        const registerUsername = document.getElementById('registerUsername');
+        const registerPassword = document.getElementById('registerPassword');
+        const registerNickname = document.getElementById('registerNickname');
+        const registerButton = document.getElementById('registerButton');
+        const registerMessage = document.getElementById('registerMessage');
+        const nicknameModal = document.getElementById('nicknameModal');
+        const nicknameInput = document.getElementById('nicknameInput');
+        const saveNicknameBtn = document.getElementById('saveNickname');
+        const changeNicknameBtn = document.getElementById('changeNickname');
+        const logoutButton = document.getElementById('logoutButton');
+        const currentNicknameSpan = document.getElementById('currentNickname');
+        const userList = document.getElementById('userList');
+        const offlineUserList = document.getElementById('offlineUserList');
+        const onlineCount = document.getElementById('onlineCount');
+        const totalOnlineCount = document.getElementById('totalOnlineCount');
+        const messageCount = document.getElementById('messageCount');
+        const uploadButton = document.getElementById('uploadButton');
+        const fileInput = document.getElementById('fileInput');
+        const uploadProgress = document.getElementById('uploadProgress');
+        const uploadProgressBar = document.getElementById('uploadProgressBar');
+        const sidebar = document.getElementById('sidebar');
+        const toggleSidebarBtn = document.getElementById('toggleSidebar');
+        const toggleSidebarText = document.querySelector('.toggle-sidebar-text');
+        const imagePreviewModal = document.getElementById('imagePreviewModal');
+        const previewImgElement = document.getElementById('previewImgElement');
+        const closePreviewBtn = document.querySelector('.close-preview');
+        const offlineUsersToggle = document.querySelector('.offline-users-content .toggle-section');
+    
+        // 初始化页面状态
+        updateSidebarState();
+        showAuthModal();
+    
+        // 检查是否有注册记录
+        function checkRegistrationStatus() {
+            const hasRegistered = getCookie('hasRegistered') === 'true';
+            if (hasRegistered) {
+                loginTab.click();
+            } else {
+                registerTab.click();
+            }
+        }
+    
+        // 获取Cookie
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
+        }
+    
+        // 设置Cookie
+        function setCookie(name, value, days) {
+            const expires = new Date();
+            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+            document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
+        }
+    
+        // 显示登录/注册模态框
+        function showAuthModal() {
+            authModal.style.display = 'flex';
+            checkRegistrationStatus();
+        }
+    
+        // 隐藏登录/注册模态框
+        function hideAuthModal() {
+            authModal.style.display = 'none';
+        }
+    
+        // 显示昵称设置模态框
+        function showNicknameModal() {
+            nicknameModal.style.display = 'flex';
+            nicknameInput.focus();
+        }
+    
+        // 隐藏昵称设置模态框
+        function hideNicknameModal() {
+            nicknameModal.style.display = 'none';
+        }
+    
+        // 更新连接状态
+        function updateConnectionStatus(status, message) {
+            if (connectionStatus) {
+                connectionStatus.textContent = `连接状态: ${message}`;
+                connectionStatus.style.color = status === 'connected' ? '#27ae60' : 
+                                            status === 'connecting' ? '#f39c12' : '#e74c3c';
+            }
+        }
+    
+        // 格式化时间
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        }
+    
+        // 格式化日期
+        function formatDate(timestamp) {
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffTime = Math.abs(now - date);
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays === 0) {
+                return '今天';
+            } else if (diffDays === 1) {
+                return '昨天';
+            } else if (diffDays < 7) {
+                return `${diffDays}天前`;
+            } else {
+                return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+            }
+        }
+    
+        // 检查是否滚动到底部
+        function isScrolledToBottom() {
+            const threshold = 100; // 距离底部的阈值
+            const distanceToBottom = messageContainer.scrollHeight - messageContainer.scrollTop - messageContainer.clientHeight;
+            return distanceToBottom <= threshold;
+        }
+    
+        // 滚动到消息容器底部
+        function scrollToBottom() {
+            if (autoScrollEnabled) {
+                messageContainer.scrollTo({
+                    top: messageContainer.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
+        }
+    
+        // 添加消息到界面
+        function addMessage(message, isOwn = false) {
+            if (emptyState.style.display !== 'none') {
+                emptyState.style.display = 'none';
+            }
+            
+            const messageElement = document.createElement('div');
+            messageElement.className = `message ${isOwn ? 'own-message' : ''}`;
+            messageElement.setAttribute('data-user-id', message.userId);
+            messageElement.setAttribute('data-message-id', message.id);
+            
+            let contentHtml = '';
+            if (message.imageUrl) {
+                contentHtml = `
+                    <div class="message-content">
+                        <img src="${SERVER_URL}${message.imageUrl}" class="message-image" alt="聊天图片" onclick="openImagePreview('${SERVER_URL}${message.imageUrl}')">
+                    </div>
+                `;
+            } else {
+                contentHtml = `
+                    <div class="message-content">${message.content}</div>
+                `;
+            }
+            
+            messageElement.innerHTML = `
+                <div class="nickname">${message.nickname}</div>
+                ${contentHtml}
+                <div class="message-time">${formatTime(message.timestamp)}</div>
+                ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
+            `;
+            
+            messageContainer.appendChild(messageElement);
+            
+            // 更新消息计数
+            if (messageCount) {
+                const count = messageContainer.querySelectorAll('.message').length;
+                messageCount.textContent = `消息数量: ${count}`;
+            }
+            
+            // 如果用户在看最新消息，自动滚动到底部
+            if (isScrolledToBottom()) {
+                scrollToBottom();
+            }
+        }
+    
+        // 更新消息中的昵称
+        function updateMessageNickname(userId, newNickname) {
+            const messages = document.querySelectorAll(`.message[data-user-id="${userId}"]`);
+            messages.forEach(message => {
+                const nicknameElement = message.querySelector('.nickname');
+                if (nicknameElement) {
+                    nicknameElement.textContent = newNickname;
+                }
+                
+                // 如果是当前用户的消息，更新删除按钮状态
+                if (userId === currentUser?.id) {
+                    message.classList.add('own-message');
+                    if (!message.querySelector('.delete-button')) {
+                        const messageId = message.getAttribute('data-message-id');
+                        const deleteButton = document.createElement('button');
+                        deleteButton.className = 'delete-button';
+                        deleteButton.setAttribute('data-id', messageId);
+                        deleteButton.setAttribute('title', '撤回消息');
+                        deleteButton.innerHTML = '×';
+                        message.appendChild(deleteButton);
+                    }
+                }
+            });
+        }
+    
+        // 图片预览功能
+        function openImagePreview(imageUrl) {
+            previewImgElement.src = imageUrl;
+            imagePreviewModal.style.display = 'flex';
+        }
+    
+        // 关闭图片预览
+        if (closePreviewBtn) {
+            closePreviewBtn.addEventListener('click', function() {
+                imagePreviewModal.style.display = 'none';
+            });
+        }
+    
+        // 点击模态框背景关闭预览
+        imagePreviewModal.addEventListener('click', function(e) {
+            if (e.target === imagePreviewModal) {
+                imagePreviewModal.style.display = 'none';
+            }
+        });
+    
+        // 更新用户列表
+        function updateUserList(users) {
+            if (!userList || !onlineCount) return;
+            
+            // 更新在线用户列表
+            onlineUsersList = users;
+            
+            userList.innerHTML = '';
+            onlineCount.textContent = `(${users.length})`;
+            totalOnlineCount.textContent = users.length;
+            
+            if (users.length === 0) {
+                userList.innerHTML = '<li>暂无在线用户</li>';
+                return;
+            }
+            
+            users.forEach(user => {
+                const li = document.createElement('li');
+                if (user.id == currentUser?.id) {
+                    li.innerHTML = `<strong>${user.nickname} (我)</strong>`;
+                } else {
+                    li.textContent = user.nickname;
+                }
+                userList.appendChild(li);
+            });
+    
+            // 如果在线用户数量>=2，自动展开侧边栏
+            if (users.length >= 2 && isSidebarCollapsed) {
+                toggleSidebar();
+            }
+            
+            // 刷新离线用户列表，确保在线用户不会显示在离线列表中
+            if (currentUser) {
+                loadOfflineUsers();
+            }
+        }
+    
+        // 更新离线用户列表
+        function updateOfflineUserList(users) {
+            if (!offlineUserList) return;
+            
+            offlineUserList.innerHTML = '';
+            
+            // 过滤掉在线用户
+            const offlineUsers = users.filter(offlineUser => 
+                !onlineUsersList.some(onlineUser => onlineUser.id == offlineUser.id)
+            );
+            
+            if (offlineUsers.length === 0) {
+                offlineUserList.innerHTML = '<li>暂无离线用户</li>';
+                return;
+            }
+            
+            offlineUsers.forEach(user => {
+                const li = document.createElement('li');
+                li.innerHTML = `${user.nickname} <span class="last-online">${formatDate(user.last_online)}</span>`;
+                offlineUserList.appendChild(li);
+            });
+        }
+    
+        // 加载离线用户列表
+        function loadOfflineUsers() {
+            fetch(`${SERVER_URL}/offline-users`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        updateOfflineUserList(data.users);
+                    }
+                })
+                .catch(error => {
+                    console.error('加载离线用户失败:', error);
+                });
+        }
+    
+        // 更新侧边栏状态
+        function updateSidebarState() {
+            sidebar.classList.toggle('collapsed', isSidebarCollapsed);
+            toggleSidebarText.textContent = isSidebarCollapsed ? '展开用户列表' : '收起用户列表';
+            
+            // 修复移动端展开问题
+            if (window.innerWidth <= 768) {
+                if (isSidebarCollapsed) {
+                    sidebar.style.transform = 'translateY(-100%)';
+                    sidebar.style.opacity = '0';
+                    sidebar.style.pointerEvents = 'none';
+                } else {
+                    sidebar.style.transform = 'translateY(0)';
+                    sidebar.style.opacity = '1';
+                    sidebar.style.pointerEvents = 'auto';
+                }
+            }
+        }
+    
+        // 切换侧边栏
+        function toggleSidebar() {
+            isSidebarCollapsed = !isSidebarCollapsed;
+            updateSidebarState();
+        }
+    
+        // 切换离线用户列表
+        function toggleOfflineUsers() {
+            offlineUsersCollapsed = !offlineUsersCollapsed;
+            offlineUserList.classList.toggle('collapsed', offlineUsersCollapsed);
+            
+            // 更新切换图标
+            const toggleIcon = document.querySelector('.offline-users-content .toggle-section');
+            toggleIcon.textContent = offlineUsersCollapsed ? '▼' : '▲';
+        }
+    
+        // 更新界面登录状态
+        function updateLoginState(isLoggedIn) {
+            if (isLoggedIn && currentUser) {
+                currentNicknameSpan.textContent = currentUser.nickname;
+                changeNicknameBtn.style.display = 'inline-block';
+                logoutButton.style.display = 'inline-block';
+                messageInput.disabled = false;
+                messageInput.placeholder = '输入消息后按回车发送';
+                sendButton.disabled = false;
+                uploadButton.disabled = false;
+                fileInput.disabled = false;
+                hideAuthModal();
+                
+                // 加载离线用户列表
+                loadOfflineUsers();
+            } else {
+                currentNicknameSpan.textContent = '未登录';
+                changeNicknameBtn.style.display = 'none';
+                logoutButton.style.display = 'none';
+                messageInput.disabled = true;
+                messageInput.placeholder = '请先登录';
+                sendButton.disabled = true;
+                uploadButton.disabled = true;
+                fileInput.disabled = true;
+                showAuthModal();
+            }
+        }
+    
+        // 监听消息容器的滚动事件
+        messageContainer.addEventListener('scroll', function() {
+            // 当用户手动向上滚动时，禁用自动滚动
+            if (!isScrolledToBottom()) {
+                autoScrollEnabled = false;
+            } else {
+                autoScrollEnabled = true;
+            }
+        });
+    
+        // Socket.IO 事件处理
+        socket.on('connect', () => {
+            console.log('已连接到服务器');
+            updateConnectionStatus('connected', '已连接');
+            isConnected = true;
+            
+            // 重置历史消息标记
+            hasReceivedHistory = false;
+            
+            // 如果有保存的用户信息，发送给服务器
+            const savedUserId = localStorage.getItem('chatUserId');
+            if (savedUserId && currentUser) {
+                socket.emit('user-joined', {
+                    id: currentUser.id,
+                    nickname: currentUser.nickname
+                });
+            }
+        });
+    
+        socket.on('disconnect', () => {
+            console.log('与服务器断开连接');
+            updateConnectionStatus('disconnected', '已断开');
+            isConnected = false;
+            
+            // 禁用输入框和按钮
+            messageInput.disabled = true;
+            sendButton.disabled = true;
+        });
+    
+        socket.on('reconnect', () => {
+            console.log('重新连接到服务器');
+            updateConnectionStatus('connected', '已重新连接');
+            isConnected = true;
+            
+            // 重新发送用户信息
+            if (currentUser) {
+                socket.emit('user-joined', {
+                    id: currentUser.id,
+                    nickname: currentUser.nickname
+                });
+            }
+        });
+    
+        socket.on('users-updated', (users) => {
+            updateUserList(users);
+        });
+    
+        socket.on('message-received', (message) => {
+            // 使用宽松相等比较，因为ID可能是字符串或数字
+            const isOwn = currentUser && message.userId == currentUser.id;
+            addMessage(message, isOwn);
+            
+            // 收到新消息时自动滚动到底部
+            scrollToBottom();
+        });
+    
+        socket.on('message-deleted', (messageId) => {
+            const messageElement = document.querySelector(`.message[data-message-id="${messageId}"]`);
+            if (messageElement) {
+                messageElement.remove();
+                
+                // 更新消息计数
+                if (messageCount) {
+                    const count = messageContainer.querySelectorAll('.message').length;
+                    messageCount.textContent = `消息数量: ${count}`;
+                }
+                
+                // 如果没有消息了，显示空状态
+                if (messageContainer.querySelectorAll('.message').length === 0) {
+                    emptyState.style.display = 'block';
+                }
+            }
+        });
+    
+        socket.on('chat-history', (messages) => {
+            // 防止重复加载历史消息
+            if (hasReceivedHistory) {
+                return;
+            }
+            
+            hasReceivedHistory = true;
+            
+            if (messages.length === 0) {
+                emptyState.style.display = 'block';
+                return;
+            }
+            
+            // 清空消息容器，防止重复消息
+            messageContainer.innerHTML = '';
+            emptyState.style.display = 'none';
+            
+            messages.forEach(message => {
+                // 使用宽松相等比较，因为ID可能是字符串或数字
+                const isOwn = currentUser && message.userId == currentUser.id;
+                addMessage(message, isOwn);
+            });
+            
+            // 更新消息计数
+            if (messageCount) {
+                const count = messages.length;
+                messageCount.textContent = `消息数量: ${count}`;
+            }
+            
+            // 加载历史消息后自动滚动到底部
+            scrollToBottom();
+        });
+    
+        socket.on('nickname-updated', (data) => {
+            if (data.userId == currentUser?.id) {
+                currentUser.nickname = data.newNickname;
+                currentNicknameSpan.textContent = data.newNickname;
+                
+                // 更新本地存储
+                localStorage.setItem('chatUserNickname', data.newNickname);
+            }
+            
+            // 更新消息中的昵称显示
+            updateMessageNickname(data.userId, data.newNickname);
+            
+            // 刷新离线用户列表
+            if (currentUser) {
+                loadOfflineUsers();
+            }
+        });
+    
+        socket.on('error', (error) => {
+            console.error('服务器错误:', error);
+            alert(`错误: ${error.message}`);
+        });
+    
+        // 事件监听
+        // 登录/注册标签切换
+        loginTab.addEventListener('click', () => {
+            loginTab.classList.add('active');
+            registerTab.classList.remove('active');
+            loginForm.classList.add('active');
+            registerForm.classList.remove('active');
+            loginMessage.style.display = 'none';
+            registerMessage.style.display = 'none';
+        });
+    
+        registerTab.addEventListener('click', () => {
+            registerTab.classList.add('active');
+            loginTab.classList.remove('active');
+            registerForm.classList.add('active');
+            loginForm.classList.remove('active');
+            loginMessage.style.display = 'none';
+            registerMessage.style.display = 'none';
+        });
+    
+        // 登录按钮
+        loginButton.addEventListener('click', () => {
+            const username = loginUsername.value.trim();
+            const password = loginPassword.value.trim();
+            
+            if (!username || !password) {
+                loginMessage.textContent = '请填写用户名和密码';
+                loginMessage.style.display = 'block';
+                return;
+            }
+            
+            fetch(`${SERVER_URL}/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    currentUser = {
+                        id: data.userId.toString(), // 确保ID是字符串
+                        nickname: data.nickname
+                    };
+                    
+                    // 保存用户ID到本地存储
+                    localStorage.setItem('chatUserId', currentUser.id);
+                    localStorage.setItem('chatUserNickname', currentUser.nickname);
+                    
+                    // 更新界面状态
+                    updateLoginState(true);
+                    
+                    // 发送用户加入事件
+                    if (isConnected) {
+                        socket.emit('user-joined', {
+                            id: currentUser.id,
+                            nickname: currentUser.nickname
+                        });
+                    }
+                } else {
+                    loginMessage.textContent = data.message;
+                    loginMessage.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                console.error('登录错误:', error);
+                loginMessage.textContent = '登录失败，请重试';
+                loginMessage.style.display = 'block';
+            });
+        });
+    
+        // 注册按钮
+        registerButton.addEventListener('click', () => {
+            const username = registerUsername.value.trim();
+            const password = registerPassword.value.trim();
+            const nickname = registerNickname.value.trim();
+            
+            if (!username || !password || !nickname) {
+                registerMessage.textContent = '请填写所有字段';
+                registerMessage.style.display = 'block';
+                return;
+            }
+            
+            fetch(`${SERVER_URL}/register`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password, nickname })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // 设置注册记录cookie
+                    setCookie('hasRegistered', 'true', 365);
+                    
+                    registerMessage.textContent = '注册成功，请登录';
+                    registerMessage.style.color = 'green';
+                    registerMessage.style.display = 'block';
+                    
+                    // 切换到登录标签
+                    setTimeout(() => {
+                        loginTab.click();
+                        loginUsername.value = username;
+                        loginPassword.value = '';
+                    }, 1000);
+                } else {
+                    registerMessage.textContent = data.message;
+                    registerMessage.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                console.error('注册错误:', error);
+                registerMessage.textContent = '注册失败，请重试';
+                registerMessage.style.display = 'block';
+            });
+        });
+    
+        // 修改昵称按钮
+        changeNicknameBtn.addEventListener('click', () => {
+            if (currentUser) {
+                nicknameInput.value = currentUser.nickname;
+            }
+            showNicknameModal();
+        });
+    
+        // 保存昵称按钮
+        saveNicknameBtn.addEventListener('click', () => {
+            const newNickname = nicknameInput.value.trim();
+            if (newNickname && currentUser) {
+                socket.emit('update-nickname', {
+                    userId: currentUser.id,
+                    newNickname: newNickname
+                });
+                hideNicknameModal();
+            }
+        });
+    
+        // 退出按钮
+        logoutButton.addEventListener('click', () => {
+            currentUser = null;
+            localStorage.removeItem('chatUserId');
+            localStorage.removeItem('chatUserNickname');
+            updateLoginState(false);
+            
+            // 清空消息列表
+            messageContainer.innerHTML = '';
+            emptyState.style.display = 'block';
+            
+            // 清空用户列表
+            userList.innerHTML = '<li>暂无在线用户</li>';
+            onlineCount.textContent = '(0)';
+            totalOnlineCount.textContent = '0';
+            onlineUsersList = [];
+        });
+    
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    
+        // 上传图片按钮事件
+        uploadButton.addEventListener('click', () => {
+            fileInput.click();
+        });
+    
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) {
+                uploadImage(e.target.files[0]);
+            }
+        });
+    
+        // 使用事件委托处理撤回按钮点击
+        messageContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-button')) {
+                const messageId = e.target.getAttribute('data-id');
+                socket.emit('delete-message', messageId);
+            }
+        });
+    
+        // 侧边栏切换事件
+        toggleSidebarBtn.addEventListener('click', toggleSidebar);
+    
+        // 离线用户列表切换事件
+        if (offlineUsersToggle) {
+            offlineUsersToggle.addEventListener('click', toggleOfflineUsers);
+        }
+    
+        // 离线用户标题点击事件
+        const offlineUsersHeader = document.querySelector('.offline-users-content h3');
+        if (offlineUsersHeader) {
+            offlineUsersHeader.addEventListener('click', toggleOfflineUsers);
+        }
+    
+        // 发送消息
+        function sendMessage() {
+            const content = messageInput.value.trim();
+            if (!content || !currentUser || !isConnected) return;
+    
+            socket.emit('send-message', {
+                userId: currentUser.id,
+                content: content
+            });
+    
+            messageInput.value = '';
+        }
+    
+        // 上传图片
+        function uploadImage(file) {
+            if (!file || !file.type.startsWith('image/')) {
+                alert('请选择有效的图片文件');
+                return;
+            }
+    
+            // 检查文件大小（限制为5MB）
+            if (file.size > 5 * 1024 * 1024) {
+                alert('图片大小不能超过5MB');
+                return;
+            }
+    
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('userId', currentUser.id);
+    
+            // 显示上传进度
+            uploadProgress.style.display = 'block';
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 5;
+                if (progress > 90) clearInterval(interval);
+                uploadProgressBar.style.width = `${progress}%`;
+            }, 100);
+    
+            // 使用fetch API上传文件
+            fetch(`${SERVER_URL}/upload`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                clearInterval(interval);
+                uploadProgressBar.style.width = '100%';
+                
+                setTimeout(() => {
+                    uploadProgress.style.display = 'none';
+                    uploadProgressBar.style.width = '0%';
+                }, 500);
+                
+                if (data.status === 'success') {
+                    console.log('图片上传成功');
+                } else {
+                    alert('图片上传失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                clearInterval(interval);
+                uploadProgress.style.display = 'none';
+                uploadProgressBar.style.width = '0%';
+                console.error('上传错误:', error);
+                alert('图片上传失败');
+            });
+        }
+    
+        // 检查本地存储是否有用户信息
+        const savedUserId = localStorage.getItem('chatUserId');
+        const savedUserNickname = localStorage.getItem('chatUserNickname');
+        
+        if (savedUserId && savedUserNickname) {
+            currentUser = {
+                id: savedUserId,
+                nickname: savedUserNickname
+            };
+            updateLoginState(true);
+            
+            // 如果已连接，发送用户加入事件
+            if (isConnected) {
+                socket.emit('user-joined', {
+                    id: currentUser.id,
+                    nickname: currentUser.nickname
+                });
+            }
+        }
+    
+        // 全局函数供图片点击调用
+        window.openImagePreview = openImagePreview;
+    });
+    </script>
+</body>
+</html>
