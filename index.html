@@ -2,13 +2,15 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>优化版聊天室</title>
     <style>
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
         }
         
         body {
@@ -19,6 +21,7 @@
             height: 100vh;
             display: flex;
             flex-direction: column;
+            overscroll-behavior: none;
         }
         
         .header {
@@ -30,6 +33,8 @@
             align-items: center;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             min-height: 50px;
+            position: relative;
+            z-index: 100;
         }
         
         .header h1 {
@@ -62,6 +67,7 @@
             display: flex;
             flex: 1;
             overflow: hidden;
+            position: relative;
         }
         
         .sidebar {
@@ -74,6 +80,7 @@
             display: flex;
             flex-direction: column;
             overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
         }
         
         .sidebar.collapsed {
@@ -150,6 +157,7 @@
             overflow-y: auto;
             flex: 1;
             padding-right: 5px;
+            -webkit-overflow-scrolling: touch;
         }
         
         .user-list.collapsed {
@@ -194,6 +202,7 @@
             flex: 1;
             display: flex;
             flex-direction: column;
+            position: relative;
         }
         
         #messageContainer {
@@ -203,6 +212,7 @@
             background-color: #f5f5f5;
             display: flex;
             flex-direction: column;
+            -webkit-overflow-scrolling: touch;
         }
         
         .message {
@@ -545,6 +555,31 @@
             .chat-main {
                 margin-top: 0;
             }
+            
+            /* 移动端优化 */
+            #messageInput, #sendButton, .upload-container {
+                min-height: 44px; /* 苹果推荐的最小触摸尺寸 */
+            }
+            
+            .input-area {
+                padding: 8px 10px;
+            }
+            
+            /* 防止iOS Safari的弹性滚动问题 */
+            #messageContainer {
+                -webkit-overflow-scrolling: touch;
+                overflow-anchor: none;
+            }
+            
+            /* 移动端消息时间显示优化 */
+            .message-time {
+                position: relative;
+                right: auto;
+                bottom: auto;
+                display: block;
+                text-align: right;
+                margin-top: 5px;
+            }
         }
         
         /* 在线人数统计样式 */
@@ -559,6 +594,18 @@
             justify-content: center;
             font-size: 12px;
             margin-left: 5px;
+        }
+        
+        /* 移动端触摸优化 */
+        button, input[type="button"], input[type="submit"] {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+        }
+        
+        /* 防止iOS缩放 */
+        input[type="text"], input[type="password"] {
+            font-size: 16px; /* 防止iOS缩放 */
         }
     </style>
 </head>
@@ -731,6 +778,40 @@
         // 初始化页面状态
         updateSidebarState();
         showAuthModal();
+        
+        // 移动端触摸事件优化
+        initMobileOptimizations();
+
+        // 移动端优化初始化
+        function initMobileOptimizations() {
+            // 防止iOS Safari的弹性滚动问题
+            document.addEventListener('touchmove', function(e) {
+                if (e.touches.length > 1) {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+            
+            // 防止双击缩放
+            let lastTouchEnd = 0;
+            document.addEventListener('touchend', function(event) {
+                const now = (new Date()).getTime();
+                if (now - lastTouchEnd <= 300) {
+                    event.preventDefault();
+                }
+                lastTouchEnd = now;
+            }, false);
+            
+            // 增加按钮的触摸反馈
+            const buttons = document.querySelectorAll('button, .upload-container');
+            buttons.forEach(button => {
+                button.addEventListener('touchstart', function() {
+                    this.style.opacity = '0.7';
+                });
+                button.addEventListener('touchend', function() {
+                    this.style.opacity = '1';
+                });
+            });
+        }
     
         // 检查是否有注册记录
         function checkRegistrationStatus() {
@@ -794,20 +875,33 @@
             return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
         }
     
-        // 格式化日期
+        // 修复的时间格式化函数 - 正确处理昨天/今天逻辑
         function formatDate(timestamp) {
             const date = new Date(timestamp);
             const now = new Date();
+            
+            // 转换为本地日期，忽略时间部分
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            
+            // 计算日期差异（以天为单位）
             const diffTime = Math.abs(now - date);
             const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
             
-            if (diffDays === 0) {
+            // 判断是否是今天
+            if (messageDate.getTime() === today.getTime()) {
                 return '今天';
-            } else if (diffDays === 1) {
+            } 
+            // 判断是否是昨天
+            else if (messageDate.getTime() === today.getTime() - 86400000) {
                 return '昨天';
-            } else if (diffDays < 7) {
+            } 
+            // 判断是否是一周内
+            else if (diffDays < 7) {
                 return `${diffDays}天前`;
-            } else {
+            } 
+            // 更早的日期
+            else {
                 return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
             }
         }
@@ -1065,7 +1159,19 @@
                 autoScrollEnabled = true;
             }
         });
-    
+        
+        // 移动端触摸事件监听
+        messageContainer.addEventListener('touchstart', function(e) {
+            // 防止触摸事件冒泡影响滚动
+            if (e.touches.length === 1) {
+                this.classList.add('scrolling');
+            }
+        });
+        
+        messageContainer.addEventListener('touchend', function() {
+            this.classList.remove('scrolling');
+        });
+
         // Socket.IO 事件处理
         socket.on('connect', () => {
             console.log('已连接到服务器');
