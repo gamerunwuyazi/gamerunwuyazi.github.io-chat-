@@ -1084,14 +1084,14 @@
                 ${contentHtml}
                 <div class="message-time">${formatTime(message.timestamp)}</div>
                 ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
-            `;
+                `;
             
             messageContainer.appendChild(messageElement);
             
             // 更新消息计数
             if (messageCount) {
                 const count = messageContainer.querySelectorAll('.message').length;
-                messageCount.textContent = `消息数量: ${count}`;
+                messageCount.textContent = 消息数量: ${count}`;
             }
             
             // 如果用户在看最新消息，自动滚动到底部
