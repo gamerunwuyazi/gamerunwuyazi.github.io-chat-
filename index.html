@@ -729,7 +729,6 @@
 
     <div class="header">
         <h1>优化版聊天室 <span id="totalOnlineCount" class="online-count">0</span></h1>
-        <div>不安全是指没有SSL证书，这个网站非常安全</div>
         <div class="user-info">
             <img id="currentAvatar" class="user-avatar" src="" alt="头像" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgdmlld0JveD0iMCAwIDQwIDQwIj48cmVjdCB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIGZpbGw9IiNjY2NjY2MiLz48dGV4dCB4PSIyMCIgeT0iMjAiIGZvbnQtc2l6ZT0iMTYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIGZpbGw9IiNmZmYiPuW+o+i/njwvdGV4dD48L3N2Zz4='">
             <span id="currentNickname">未登录</span>
@@ -885,14 +884,6 @@
         updateSidebarState();
         showAuthModal();
         
-        // 修复头像URL获取函数
-        function getAvatarUrl(avatarUrl) {
-            if (!avatarUrl || avatarUrl === 'null') {
-                return 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIGZpbGw9IiNjY2NjY2MiLz48dGV4dCB4PSIxMiIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIGZpbGw9IiNmZmYiPuW+o+i/njwvdGV4dD48L3N2Zz4=';
-            }
-            return `${SERVER_URL}${avatarUrl}`;
-        }
-        
         // 检查是否有注册记录
         function checkRegistrationStatus() {
             const hasRegistered = getCookie('hasRegistered') === 'true';
@@ -915,7 +906,7 @@
         function setCookie(name, value, days) {
             const expires = new Date();
             expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
-            document.cookie = `${name}=${value};expires=${expires.toUTCString();path=/`;
+            document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
         }
     
         // 显示登录/注册模态框
@@ -1039,17 +1030,17 @@
             return distanceToBottom <= threshold;
         }
     
-        // 滚动到消息容器底部 - 修复滚动问题
+        // 滚动到消息容器底部
         function scrollToBottom() {
-            setTimeout(() => {
+            if (autoScrollEnabled) {
                 messageContainer.scrollTo({
                     top: messageContainer.scrollHeight,
                     behavior: 'smooth'
                 });
-            }, 100);
+            }
         }
     
-        // 添加消息到界面 - 修复头像显示问题
+        // 添加消息到界面
         function addMessage(message, isOwn = false) {
             if (emptyState.style.display !== 'none') {
                 emptyState.style.display = 'none';
@@ -1073,25 +1064,25 @@
                 `;
             }
             
-            // 修复头像URL显示
-            const avatarSrc = getAvatarUrl(message.avatarUrl);
+            // 使用默认头像如果用户没有头像
+            const avatarSrc = message.avatarUrl ? `${SERVER_URL}${message.avatarUrl}` : 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIGZpbGw9IiNjY2NjY2MiLz48dGV4dCB4PSIxMiIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIGZpbGw9IiNmZmYiPuW+o+i/njwvdGV4dD48L3N2Zz4=';
             
             messageElement.innerHTML = `
                 <div class="message-header">
-                    <img src="${avatarSrc}" class="message-avatar" alt="${message.nickname}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIGZpbGw9IiNjY2NjY2MiLz48dGV4dCB4PSIxMiIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIGZpbGw9IiNmZmYiPuW+o+i/njwvdGV4dD48L3N2Zz4='">
+                    <img src="${avatarSrc}" class="message-avatar" alt="${message.nickname}">
                     <div class="nickname">${message.nickname}</div>
                 </div>
                 ${contentHtml}
                 <div class="message-time">${formatTime(message.timestamp)}</div>
                 ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
-                `;
+            `;
             
             messageContainer.appendChild(messageElement);
             
             // 更新消息计数
             if (messageCount) {
                 const count = messageContainer.querySelectorAll('.message').length;
-                messageCount.textContent = 消息数量: ${count}`;
+                messageCount.textContent = `消息数量: ${count}`;
             }
             
             // 如果用户在看最新消息，自动滚动到底部
@@ -1125,13 +1116,13 @@
             });
         }
     
-        // 更新消息中的头像 - 修复头像显示问题
+        // 更新消息中的头像
         function updateMessageAvatar(userId, newAvatarUrl) {
             const messages = document.querySelectorAll(`.message[data-user-id="${userId}"]`);
             messages.forEach(message => {
                 const avatarElement = message.querySelector('.message-avatar');
                 if (avatarElement) {
-                    avatarElement.src = getAvatarUrl(newAvatarUrl);
+                    avatarElement.src = newAvatarUrl ? `${SERVER_URL}${newAvatarUrl}` : 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIGZpbGw9IiNjY2NjY2MiLz48dGV4dCB4PSIxMiIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIGZpbGw9IiNmZmYiPuW+o+i/njwvdGV4dD48L3N2Zz4=';
                 }
             });
         }
@@ -1156,7 +1147,7 @@
             }
         });
     
-        // 更新用户列表 - 修复头像显示问题
+        // 更新用户列表
         function updateUserList(users) {
             if (!userList || !onlineCount) return;
             
@@ -1174,16 +1165,16 @@
             
             users.forEach(user => {
                 const li = document.createElement('li');
-                const avatarSrc = getAvatarUrl(user.avatarUrl);
+                const avatarSrc = user.avatarUrl ? `${SERVER_URL}${user.avatarUrl}` : 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIGZpbGw9IiNjY2NjY2MiLz48dGV4dCB4PSIxMiIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIGZpbGw9IiNmZmYiPuW+o+i/njwvdGV4dD48L3N2Zz4=';
                 
                 if (user.id == currentUser?.id) {
                     li.innerHTML = `
-                        <img src="${avatarSrc}" style="width: 16px; height: 16px; border-radius: 50%; margin-right: 8px;" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48cmVjdCB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIGZpbGw9IiNjY2NjY2MiLz48dGV4dCB4PSI4IiB5PSI4IiBmb250LXNpemU9IjgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIGZpbGw9IiNmZmYiPuW+o+i/njwvdGV4dD48L3N2Zz4='">
+                        <img src="${avatarSrc}" style="width: 16px; height: 16px; border-radius: 50%; margin-right: 8px;">
                         <strong>${user.nickname} (我)</strong>
                     `;
                 } else {
                     li.innerHTML = `
-                        <img src="${avatarSrc}" style="width: 16px; height: 16px; border-radius: 50%; margin-right: 8px;" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48cmVjdCB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIGZpbGw9IiNjY2NjY2MiLz48dGV4dCB4PSI4IiB5PSI4IiBmb250LXNpemU9IjgiIHRleHQtYW5jaG9y=">
+                        <img src="${avatarSrc}" style="width: 16px; height: 16px; border-radius: 50%; margin-right: 8px;">
                         ${user.nickname}
                     `;
                 }
@@ -1373,13 +1364,15 @@
             toggleIcon.textContent = userGroupsCollapsed ? '▼' : '▲';
         }
     
-        // 更新界面登录状态 - 修复头像显示问题
+        // 更新界面登录状态
         function updateLoginState(isLoggedIn) {
             if (isLoggedIn && currentUser) {
                 currentNicknameSpan.textContent = currentUser.nickname;
                 
                 // 设置头像
-                currentAvatarImg.src = getAvatarUrl(currentUser.avatarUrl);
+                if (currentUser.avatarUrl) {
+                    currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl}`;
+                }
                 
                 changeNicknameBtn.style.display = 'inline-block';
                 changeAvatarBtn.style.display = 'inline-block';
@@ -1397,7 +1390,7 @@
                 loadUserGroups();
             } else {
                 currentNicknameSpan.textContent = '未登录';
-                currentAvatarImg.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgdmlld0JveD0iMCAwIDQwIDQwIj48cmVjdCB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIGZpbGw9IiNjY2NjY2MiLz48dGV4dCB4PSIyMCIgeT0iMjAiIGZvbnQtc2l6ZT0iMTYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIGZpbGw=">
+                currentAvatarImg.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgdmlld0JveD0iMCAwIDQwIDQwIj48cmVjdCB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIGZpbGw9IiNjY2NjY2MiLz48dGV4dCB4PSIyMCIgeT0iMjAiIGZvbnQtc2l6ZT0iMTYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIGZpbGw9IiNmZmYiPuW+o+i/njwvdGV4dD48L3N2Zz4=';
                 changeNicknameBtn.style.display = 'none';
                 changeAvatarBtn.style.display = 'none';
                 createGroupBtn.style.display = 'none';
@@ -1551,7 +1544,7 @@
         socket.on('avatar-updated', (data) => {
             if (data.userId == currentUser?.id) {
                 currentUser.avatarUrl = data.avatarUrl;
-                currentAvatarImg.src = getAvatarUrl(data.avatarUrl);
+                currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
                 
                 // 更新本地存储
                 localStorage.setItem('chatUserAvatar', data.avatarUrl);
@@ -1750,7 +1743,7 @@
                 if (data.status === 'success') {
                     // 更新当前用户头像
                     currentUser.avatarUrl = data.avatarUrl;
-                    currentAvatarImg.src = getAvatarUrl(data.avatarUrl);
+                    currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
                     
                     // 更新本地存储
                     localStorage.setItem('chatUserAvatar', data.avatarUrl);
@@ -1857,7 +1850,7 @@
         });
     
         // 上传图片按钮事件
-        uploadButton.addEventListener('click', () {
+        uploadButton.addEventListener('click', () => {
             fileInput.click();
         });
     
