@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=1200, initial-scale=1.0">
-    <title>优化版聊天室</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: http: ws: wss: data: blob: 'unsafe-inline' 'unsafe-eval';">
+    <title>安全优化版聊天室</title>
     <style>
         /* 强制禁用移动端响应式样式 */
         @media (max-width: 768px) {
@@ -58,12 +59,6 @@
                 text-align: right !important;
                 margin-top: 0 !important;
             }
-            
-            /* 移动端按钮优化 */
-            #changeNickname, #changeAvatar, #createGroup {
-                min-height: 44px !important;
-                min-width: 44px !important;
-            }
         }
         
         /* 其余CSS样式保持不变 */
@@ -106,14 +101,13 @@
         }
         
         .user-avatar {
-            width: 40px;
-            height: 40px;
+            width: 30px;
+            height: 30px;
             border-radius: 50%;
             object-fit: cover;
-            border: 2px solid rgba(255, 255, 255, 0.3);
         }
         
-        #changeNickname, #changeAvatar, #createGroup {
+        #changeNickname {
             background: rgba(255, 255, 255, 0.2);
             border: none;
             color: white;
@@ -122,10 +116,24 @@
             cursor: pointer;
             transition: background 0.3s;
             font-size: 0.9rem;
-            margin-left: 5px;
         }
         
-        #changeNickname:hover, #changeAvatar:hover, #createGroup:hover {
+        #changeNickname:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        #changeAvatar {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-size: 0.9rem;
+        }
+        
+        #changeAvatar:hover {
             background: rgba(255, 255, 255, 0.3);
         }
         
@@ -133,6 +141,7 @@
             display: flex;
             flex: 1;
             overflow: hidden;
+            height: calc(100vh - 100px); /* 减去header和status-bar的高度 */
         }
         
         .sidebar {
@@ -141,10 +150,11 @@
             border-right: 1px solid #ddd;
             padding: 15px;
             transition: all 0.3s ease;
-            overflow-y: auto;
+            overflow-y: auto; /* 独立滚动条 */
             display: flex;
             flex-direction: column;
             overflow-x: hidden;
+            height: 100%; /* 充满容器高度 */
         }
         
         .sidebar.collapsed {
@@ -154,7 +164,7 @@
         
         .sidebar.collapsed .online-users-content,
         .sidebar.collapsed .offline-users-content,
-        .sidebar.collapsed .user-groups-content {
+        .sidebar.collapsed .group-section {
             display: none;
         }
         
@@ -191,7 +201,7 @@
         
         .online-users,
         .offline-users,
-        .user-groups {
+        .group-section {
             margin-top: 10px;
             flex: 1;
             min-height: 0;
@@ -201,7 +211,7 @@
         
         .online-users h3,
         .offline-users h3,
-        .user-groups h3 {
+        .group-section h3 {
             margin-bottom: 10px;
             font-size: 1rem;
             color: #495057;
@@ -264,19 +274,24 @@
             margin-left: 8px;
         }
         
+        /* 聊天主区域布局 */
         .chat-main {
             flex: 1;
             display: flex;
             flex-direction: column;
+            height: 100%; /* 充满容器高度 */
+            overflow: hidden; /* 防止双重滚动 */
         }
         
+        /* 消息容器独立滚动 */
         #messageContainer {
             flex: 1;
-            overflow-y: auto;
+            overflow-y: auto; /* 独立滚动条 */
             padding: 15px;
             background-color: #f5f5f5;
             display: flex;
             flex-direction: column;
+            min-height: 0; /* 重要：允许内容溢出 */
         }
         
         .message {
@@ -306,11 +321,11 @@
         }
         
         .message-avatar {
-            width: 24px;
-            height: 24px;
+            width: 20px;
+            height: 20px;
             border-radius: 50%;
-            object-fit: cover;
             margin-right: 8px;
+            object-fit: cover;
         }
         
         .nickname {
@@ -322,6 +337,59 @@
         .message-content {
             margin-bottom: 5px;
             word-break: break-word;
+        }
+        
+        .message-content h1, .message-content h2, .message-content h3 {
+            margin: 10px 0 5px 0;
+            color: #2c3e50;
+        }
+        
+        .message-content p {
+            margin: 5px 0;
+        }
+        
+        .message-content ul, .message-content ol {
+            margin: 5px 0 5px 20px;
+        }
+        
+        .message-content li {
+            margin: 2px 0;
+        }
+        
+        .message-content blockquote {
+            border-left: 3px solid #07c160;
+            margin: 5px 0;
+            padding-left: 10px;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .message-content code {
+            background-color: #f1f1f1;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .message-content pre {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 5px 0;
+        }
+        
+        .message-content pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .message-content strong {
+            font-weight: bold;
+        }
+        
+        .message-content em {
+            font-style: italic;
         }
         
         .message-image {
@@ -373,6 +441,17 @@
             display: flex;
             gap: 10px;
             align-items: center;
+            flex-shrink: 0; /* 防止收缩 */
+        }
+        
+        #groupMessageContainer {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
         }
         
         #messageInput {
@@ -383,6 +462,7 @@
             font-size: 14px;
             outline: none;
             min-height: 40px;
+            font-family: inherit;
         }
         
         #sendButton {
@@ -470,8 +550,20 @@
             border-radius: 10px;
             width: 320px;
             box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
-            max-height: 80vh;
-            overflow-y: auto;
+            position: relative;
+        }
+        
+        .close-modal {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+        
+        .close-modal:hover {
+            color: #333;
         }
         
         .modal h3 {
@@ -591,8 +683,8 @@
             width: 100px;
             height: 100px;
             border-radius: 50%;
-            overflow: hidden;
             margin: 10px auto;
+            overflow: hidden;
             border: 2px solid #ddd;
         }
         
@@ -602,33 +694,23 @@
             object-fit: cover;
         }
         
-        .user-checkbox {
+        .member-checkbox {
             margin-right: 8px;
         }
         
-        .user-select-item {
-            display: flex;
-            align-items: center;
+        .member-item {
             padding: 8px;
             border-bottom: 1px solid #f1f1f1;
+            display: flex;
+            align-items: center;
         }
         
-        .user-select-item:hover {
-            background-color: #f9f9f9;
-        }
-        
-        .group-list {
-            list-style: none;
-        }
-        
-        .group-list li {
-            padding: 10px;
-            border-bottom: 1px solid #eee;
-            cursor: pointer;
-        }
-        
-        .group-list li:hover {
-            background-color: #f5f5f5;
+        .member-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin: 10px 0;
         }
         
         @keyframes fadeIn {
@@ -649,11 +731,1913 @@
             font-size: 12px;
             margin-left: 5px;
         }
+        
+        /* 群组聊天界面 */
+        #groupChat {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+        }
+        
+        .group-header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 8px 20px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            min-height: 50px;
+        }
+        
+        #backToMain {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            cursor: pointer;
+            margin-right: 15px;
+        }
+        
+        /* Markdown工具栏样式 */
+        .markdown-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        
+        .markdown-btn {
+            padding: 5px 10px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        
+        .markdown-btn:hover {
+            background: #07c160;
+            color: white;
+            border-color: #07c160;
+        }
+        
+        .preview-area {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 10px;
+            background: white;
+            min-height: 100px;
+            display: none;
+        }
+        
+        .preview-toggle {
+            background: none;
+            border: none;
+            color: #07c160;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
-    <h1>网站维护中</h1>
+    <!-- 登录/注册模态框 -->
+    <div id="authModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <div class="modal-tabs">
+                <div class="modal-tab active" id="loginTab">登录</div>
+                <div class="modal-tab" id="registerTab">注册</div>
+            </div>
+            
+            <div class="modal-form active" id="loginForm">
+                <h3>登录聊天室</h3>
+                <input type="text" id="loginUsername" placeholder="用户名" required maxlength="20">
+                <input type="password" id="loginPassword" placeholder="密码" required maxlength="100">
+                <button id="loginButton">登录</button>
+                <div id="loginMessage" style="color: red; margin-top: 10px; display: none;"></div>
+            </div>
+            
+            <div class="modal-form" id="registerForm">
+                <h3>注册新账户</h3>
+                <input type="text" id="registerUsername" placeholder="用户名（3-20位字母数字）" required maxlength="20">
+                <input type="password" id="registerPassword" placeholder="密码（至少6位）" required maxlength="100">
+                <input type="text" id="registerNickname" placeholder="昵称（1-20位）" required maxlength="20">
+                <button id="registerButton">注册</button>
+                <div id="registerMessage" style="color: red; margin-top: 10px; display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 昵称设置模态框 -->
+    <div id="nicknameModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h3>修改昵称</h3>
+            <p>请输入新的昵称</p>
+            <input type="text" id="nicknameInput" placeholder="请输入昵称" maxlength="20">
+            <button id="saveNickname">保存</button>
+        </div>
+    </div>
+
+    <!-- 头像设置模态框 -->
+    <div id="avatarModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h3>上传头像</h3>
+            <input type="file" id="avatarInput" accept="image/*">
+            <div class="avatar-preview" id="avatarPreview"></div>
+            <button id="uploadAvatarButton">上传头像</button>
+            <div id="avatarMessage" style="margin-top: 10px;"></div>
+        </div>
+    </div>
+
+    <!-- 创建群组模态框 -->
+    <div id="createGroupModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h3>创建群组</h3>
+            <input type="text" id="groupNameInput" placeholder="群组名称" required maxlength="20">
+            <textarea id="groupDescriptionInput" placeholder="群组描述（可选）" maxlength="200"></textarea>
+            
+            <h4>选择成员（至少选择2人）</h4>
+            <div class="member-list" id="groupMembersList">
+                <div>加载中...</div>
+            </div>
+            
+            <button id="createGroupButton">创建群组</button>
+            <div id="createGroupMessage" style="margin-top: 10px;"></div>
+        </div>
+    </div>
+
+    <!-- 图片预览模态框 -->
+    <div id="imagePreviewModal" class="image-preview-modal">
+        <div class="close-preview">&times;</div>
+        <div class="image-preview-content">
+            <img id="previewImgElement" class="preview-img" src="" alt="预览图片">
+        </div>
+    </div>
+
+    <!-- 主聊天界面 -->
+    <div id="mainChat">
+        <div class="header">
+            <h1>安全优化版聊天室 <span id="totalOnlineCount" class="online-count">0</span></h1>
+            <div class="user-info">
+                <img id="currentAvatar" class="user-avatar" src="" alt="头像" style="display: none;">
+                <span id="currentNickname">未登录</span>
+                <button id="changeAvatar" style="display: none;">更改头像</button>
+                <button id="changeNickname" style="display: none;">修改昵称</button>
+                <button id="createGroup" style="display: none; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer;">创建群组</button>
+                <button id="logoutButton" style="display: none; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer;">退出</button>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="sidebar" id="sidebar">
+                <button class="toggle-sidebar" id="toggleSidebar">
+                    ☰ <span class="toggle-sidebar-text">收起用户列表</span>
+                </button>
+                <div class="online-users-content">
+                    <h3>在线用户 <span id="onlineCount">(0)</span></h3>
+                    <ul class="user-list" id="userList">
+                        <li>暂无在线用户</li>
+                    </ul>
+                </div>
+                <div class="offline-users-content">
+                    <h3>离线用户 ▼</h3>
+                    <ul class="user-list" id="offlineUserList">
+                        <li>暂无离线用户</li>
+                    </ul>
+                </div>
+                <div class="group-section">
+                    <h3>我的群组 ▼</h3>
+                    <ul class="user-list" id="groupList">
+                        <li>暂无群组</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="chat-main">
+                <div class="markdown-toolbar" id="markdownToolbar" style="display: none;">
+                    <button class="markdown-btn" data-insert="**粗体**">粗体</button>
+                    <button class="markdown-btn" data-insert="_斜体_">斜体</button>
+                    <button class="markdown-btn" data-insert="`代码`">代码</button>
+                    <button class="markdown-btn" data-insert="```\n代码块\n```">代码块</button>
+                    <button class="markdown-btn" data-insert="# 标题">标题</button>
+                    <button class="markdown-btn" data-insert="- 列表项">列表</button>
+                    <button class="markdown-btn" data-insert="> 引用">引用</button>
+                    <button class="markdown-btn" data-insert="[链接](http://)">链接</button>
+                    <button class="preview-toggle" id="togglePreview">预览</button>
+                </div>
+                
+                <div class="preview-area" id="previewArea"></div>
+                
+                <div id="messageContainer">
+                    <div class="empty-state" id="emptyState">
+                        <h3>暂无消息</h3>
+                        <p>发送第一条消息开始聊天吧!</p>
+                    </div>
+                </div>
+                
+                <div class="input-area">
+                    <input type="text" id="messageInput" placeholder="请先登录" disabled>
+                    <button id="sendButton" disabled>发送</button>
+                    
+                    <div class="upload-container">
+                        <button id="uploadButton" title="上传图片" disabled>
+                            📤 <span class="upload-text">上传图片</span>
+                        </button>
+                    </div>
+                    
+                    <input type="file" id="fileInput" accept="image/*" style="display: none;" disabled>
+                </div>
+                
+                <div class="upload-progress" id="uploadProgress">
+                    <div class="upload-progress-bar" id="uploadProgressBar"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="status-bar">
+            <div id="connectionStatus">连接状态: 连接中...</div>
+            <div id="messageCount">消息数量: 0</div>
+            <div id="storageStatus">存储状态: 未知</div>
+        </div>
+    </div>
+
+    <!-- 群组聊天界面 -->
+    <div id="groupChat">
+        <div class="group-header">
+            <button id="backToMain">← 返回</button>
+            <h1 id="groupTitle">群组聊天</h1>
+        </div>
+        
+        <div class="container">
+            <div class="sidebar">
+                <h3>群组成员</h3>
+                <ul class="user-list" id="groupMemberList">
+                    <li>加载中...</li>
+                </ul>
+            </div>
+            
+            <div class="chat-main">
+                <div class="markdown-toolbar" id="groupMarkdownToolbar" style="display: none;">
+                    <button class="markdown-btn" data-insert="**粗体**">粗体</button>
+                    <button class="markdown-btn" data-insert="_斜体_">斜体</button>
+                    <button class="markdown-btn" data-insert="`代码`">代码</button>
+                    <button class="markdown-btn" data-insert="```\n代码块\n```">代码块</button>
+                    <button class="markdown-btn" data-insert="# 标题">标题</button>
+                    <button class="markdown-btn" data-insert="- 列表项">列表</button>
+                    <button class="markdown-btn" data-insert="> 引用">引用</button>
+                    <button class="markdown-btn" data-insert="[链接](http://)">链接</button>
+                    <button class="preview-toggle" id="groupTogglePreview">预览</button>
+                </div>
+                
+                <div class="preview-area" id="groupPreviewArea"></div>
+                
+                <div id="groupMessageContainer">
+                    <div class="empty-state">
+                        <h3>暂无消息</h3>
+                        <p>发送第一条消息开始群聊吧!</p>
+                    </div>
+                </div>
+                
+                <div class="input-area">
+                    <input type="text" id="groupMessageInput" placeholder="输入群组消息..." disabled>
+                    <button id="sendGroupMessage" disabled>发送</button>
+                    
+                    <div class="upload-container">
+                        <button id="groupUploadButton" title="上传图片" disabled>
+                            📤 <span class="upload-text">上传图片</span>
+                        </button>
+                    </div>
+                    
+                    <input type="file" id="groupFileInput" accept="image/*" style="display: none;" disabled>
+                </div>
+            </div>
+        </div>
+    </div>
     
+    <!-- 使用CDN上的Socket.IO客户端库 -->
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 配置后端服务器地址
+        const SERVER_URL = 'http://152.136.175.209:3000';
+        
+        // 初始化变量和DOM元素
+        const socket = io(SERVER_URL);
+        let currentUser = null;
+        let currentSessionToken = null;
+        let isConnected = false;
+        let isSidebarCollapsed = false;
+        let hasReceivedHistory = false;
+        let offlineUsersCollapsed = false;
+        let onlineUsersList = [];
+        let autoScrollEnabled = true;
+        let allUsers = []; // 存储所有用户列表，用于建群选择
+        let currentGroupId = null;
+        let currentGroupName = '';
+        let showPreview = false;
     
+        // 获取DOM元素
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const messageContainer = document.getElementById('messageContainer');
+        const emptyState = document.getElementById('emptyState');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const authModal = document.getElementById('authModal');
+        const loginTab = document.getElementById('loginTab');
+        const registerTab = document.getElementById('registerTab');
+        const loginForm = document.getElementById('loginForm');
+        const registerForm = document.getElementById('registerForm');
+        const loginUsername = document.getElementById('loginUsername');
+        const loginPassword = document.getElementById('loginPassword');
+        const loginButton = document.getElementById('loginButton');
+        const loginMessage = document.getElementById('loginMessage');
+        const registerUsername = document.getElementById('registerUsername');
+        const registerPassword = document.getElementById('registerPassword');
+        const registerNickname = document.getElementById('registerNickname');
+        const registerButton = document.getElementById('registerButton');
+        const registerMessage = document.getElementById('registerMessage');
+        const nicknameModal = document.getElementById('nicknameModal');
+        const nicknameInput = document.getElementById('nicknameInput');
+        const saveNicknameBtn = document.getElementById('saveNickname');
+        const changeNicknameBtn = document.getElementById('changeNickname');
+        const changeAvatarBtn = document.getElementById('changeAvatar');
+        const logoutButton = document.getElementById('logoutButton');
+        const currentNicknameSpan = document.getElementById('currentNickname');
+        const currentAvatarImg = document.getElementById('currentAvatar');
+        const userList = document.getElementById('userList');
+        const offlineUserList = document.getElementById('offlineUserList');
+        const groupList = document.getElementById('groupList');
+        const onlineCount = document.getElementById('onlineCount');
+        const totalOnlineCount = document.getElementById('totalOnlineCount');
+        const messageCount = document.getElementById('messageCount');
+        const storageStatus = document.getElementById('storageStatus');
+        const uploadButton = document.getElementById('uploadButton');
+        const fileInput = document.getElementById('fileInput');
+        const uploadProgress = document.getElementById('uploadProgress');
+        const uploadProgressBar = document.getElementById('uploadProgressBar');
+        const sidebar = document.getElementById('sidebar');
+        const toggleSidebarBtn = document.getElementById('toggleSidebar');
+        const toggleSidebarText = document.querySelector('.toggle-sidebar-text');
+        const imagePreviewModal = document.getElementById('imagePreviewModal');
+        const previewImgElement = document.getElementById('previewImgElement');
+        const closePreviewBtn = document.querySelector('.close-preview');
+        const avatarModal = document.getElementById('avatarModal');
+        const avatarInput = document.getElementById('avatarInput');
+        const avatarPreview = document.getElementById('avatarPreview');
+        const uploadAvatarButton = document.getElementById('uploadAvatarButton');
+        const avatarMessage = document.getElementById('avatarMessage');
+        const createGroupBtn = document.getElementById('createGroup');
+        const createGroupModal = document.getElementById('createGroupModal');
+        const groupNameInput = document.getElementById('groupNameInput');
+        const groupDescriptionInput = document.getElementById('groupDescriptionInput');
+        const groupMembersList = document.getElementById('groupMembersList');
+        const createGroupButton = document.getElementById('createGroupButton');
+        const createGroupMessage = document.getElementById('createGroupMessage');
+        const mainChat = document.getElementById('mainChat');
+        const groupChat = document.getElementById('groupChat');
+        const backToMainBtn = document.getElementById('backToMain');
+        const groupTitle = document.getElementById('groupTitle');
+        const groupMessageContainer = document.getElementById('groupMessageContainer');
+        const groupMessageInput = document.getElementById('groupMessageInput');
+        const sendGroupMessageBtn = document.getElementById('sendGroupMessage');
+        const groupUploadButton = document.getElementById('groupUploadButton');
+        const groupFileInput = document.getElementById('groupFileInput');
+        const groupMemberList = document.getElementById('groupMemberList');
+        const markdownToolbar = document.getElementById('markdownToolbar');
+        const groupMarkdownToolbar = document.getElementById('groupMarkdownToolbar');
+        const previewArea = document.getElementById('previewArea');
+        const groupPreviewArea = document.getElementById('groupPreviewArea');
+        const togglePreviewBtn = document.getElementById('togglePreview');
+        const groupTogglePreviewBtn = document.getElementById('groupTogglePreview');
+        
+        // 初始化页面布局
+        function initializeLayout() {
+            // 确保主聊天界面默认显示
+            mainChat.style.display = 'block';
+            groupChat.style.display = 'none';
+            
+            // 设置正确的flex布局
+            document.querySelector('.container').style.display = 'flex';
+            document.querySelector('.chat-main').style.display = 'flex';
+            document.querySelector('.chat-main').style.flexDirection = 'column';
+            
+            // 确保消息容器有正确的滚动设置
+            messageContainer.style.flex = '1';
+            messageContainer.style.overflowY = 'auto';
+            messageContainer.style.minHeight = '0';
+            
+            // 确保群组消息容器也有正确的滚动设置
+            groupMessageContainer.style.flex = '1';
+            groupMessageContainer.style.overflowY = 'auto';
+            groupMessageContainer.style.minHeight = '0';
+            
+            // 确保侧边栏有正确的滚动设置
+            sidebar.style.overflowY = 'auto';
+            sidebar.style.minHeight = '0';
+        }
+        
+        // 模态框关闭功能
+        document.querySelectorAll('.close-modal').forEach(closeBtn => {
+            closeBtn.addEventListener('click', function() {
+                this.closest('.modal').style.display = 'none';
+            });
+        });
+        
+        // 点击模态框背景关闭
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    this.style.display = 'none';
+                }
+            });
+        });
+        
+        // 初始化页面状态
+        initializeLayout();
+        updateSidebarState();
+        showAuthModal();
+        checkStorageStatus();
+    
+        // 检查存储状态
+        function checkStorageStatus() {
+            if (!currentUser || !currentSessionToken) return;
+            
+            fetch(`${SERVER_URL}/avatar-storage`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        storageStatus.textContent = `存储状态: ${data.storageInfo.message}`;
+                        if (data.storageInfo.full) {
+                            storageStatus.style.color = '#e74c3c';
+                        } else {
+                            storageStatus.style.color = '#6c757d';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('获取存储状态失败:', error);
+                });
+        }
+    
+        // 检查是否有注册记录
+        function checkRegistrationStatus() {
+            const hasRegistered = getCookie('hasRegistered') === 'true';
+            if (hasRegistered) {
+                loginTab.click();
+            } else {
+                registerTab.click();
+            }
+        }
+    
+        // 获取Cookie
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
+        }
+    
+        // 设置Cookie
+        function setCookie(name, value, days) {
+            const expires = new Date();
+            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+            document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
+        }
+    
+        // 显示登录/注册模态框
+        function showAuthModal() {
+            authModal.style.display = 'flex';
+            checkRegistrationStatus();
+        }
+    
+        // 隐藏登录/注册模态框
+        function hideAuthModal() {
+            authModal.style.display = 'none';
+        }
+    
+        // 显示昵称设置模态框
+        function showNicknameModal() {
+            nicknameModal.style.display = 'flex';
+            if (currentUser) {
+                nicknameInput.value = currentUser.nickname;
+            }
+            nicknameInput.focus();
+        }
+    
+        // 隐藏昵称设置模态框
+        function hideNicknameModal() {
+            nicknameModal.style.display = 'none';
+        }
+    
+        // 显示头像设置模态框
+        function showAvatarModal() {
+            avatarModal.style.display = 'flex';
+            avatarInput.value = '';
+            avatarPreview.innerHTML = '';
+            avatarMessage.textContent = '';
+        }
+    
+        // 隐藏头像设置模态框
+        function hideAvatarModal() {
+            avatarModal.style.display = 'none';
+        }
+    
+        // 显示创建群组模态框
+        function showCreateGroupModal() {
+            // 加载用户列表
+            loadAllUsers();
+            createGroupModal.style.display = 'flex';
+        }
+    
+        // 隐藏创建群组模态框
+        function hideCreateGroupModal() {
+            createGroupModal.style.display = 'none';
+        }
+    
+        // 加载所有用户列表
+        function loadAllUsers() {
+            if (!currentUser || !currentSessionToken) return;
+            
+            fetch(`${SERVER_URL}/offline-users`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        allUsers = data.users;
+                        
+                        // 过滤掉当前用户
+                        const otherUsers = allUsers.filter(user => user.id != currentUser.id);
+                        
+                        // 更新选择列表
+                        groupMembersList.innerHTML = '';
+                        if (otherUsers.length === 0) {
+                            groupMembersList.innerHTML = '<div>暂无其他用户</div>';
+                            return;
+                        }
+                        
+                        otherUsers.forEach(user => {
+                            const memberItem = document.createElement('div');
+                            memberItem.className = 'member-item';
+                            memberItem.innerHTML = `
+                                <input type="checkbox" class="member-checkbox" value="${user.id}" id="member-${user.id}">
+                                <label for="member-${user.id}">${user.nickname}</label>
+                            `;
+                            groupMembersList.appendChild(memberItem);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('加载用户列表失败:', error);
+                    groupMembersList.innerHTML = '<div>加载失败</div>';
+                });
+        }
+        
+        // 切换到群组聊天
+        function showGroupChat(groupId, groupName) {
+            currentGroupId = groupId;
+            currentGroupName = groupName;
+            
+            // 更新界面 - 使用更安全的方式切换显示
+            mainChat.style.display = 'none';
+            groupChat.style.display = 'flex';
+            groupTitle.textContent = groupName;
+            
+            // 重置群组消息容器
+            groupMessageContainer.innerHTML = `
+                <div class="empty-state">
+                    <h3>暂无消息</h3>
+                    <p>发送第一条消息开始群聊吧!</p>
+                </div>
+            `;
+            
+            // 加入Socket.IO房间
+            socket.emit('join-group', { 
+                groupId: groupId,
+                userId: currentUser.id,
+                sessionToken: currentSessionToken
+            });
+            
+            // 加载群组成员
+            loadGroupMembers(groupId);
+            
+            // 启用群组聊天输入
+            groupMessageInput.disabled = false;
+            groupMessageInput.placeholder = '输入群组消息后按回车发送';
+            sendGroupMessageBtn.disabled = false;
+            groupUploadButton.disabled = false;
+            groupFileInput.disabled = false;
+            groupMarkdownToolbar.style.display = 'flex';
+            
+            // 确保布局正确
+            initializeLayout();
+        }
+        
+        // 返回主聊天室
+        function backToMainChat() {
+            if (currentGroupId) {
+                socket.emit('leave-group', { groupId: currentGroupId });
+                currentGroupId = null;
+                currentGroupName = '';
+            }
+            
+            groupChat.style.display = 'none';
+            mainChat.style.display = 'block';
+            
+            // 禁用群组聊天输入
+            groupMessageInput.disabled = true;
+            groupMessageInput.placeholder = '请先加入群组';
+            sendGroupMessageBtn.disabled = true;
+            groupUploadButton.disabled = true;
+            groupFileInput.disabled = true;
+            groupMarkdownToolbar.style.display = 'none';
+            groupPreviewArea.style.display = 'none';
+            
+            // 确保布局正确
+            initializeLayout();
+        }
+        
+        // 加载群组成员
+        function loadGroupMembers(groupId) {
+            if (!currentUser || !currentSessionToken) return;
+            
+            fetch(`${SERVER_URL}/group-members/${groupId}`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        groupMemberList.innerHTML = '';
+                        
+                        if (data.members.length === 0) {
+                            groupMemberList.innerHTML = '<li>暂无成员</li>';
+                            return;
+                        }
+                        
+                        data.members.forEach(member => {
+                            const li = document.createElement('li');
+                            const avatarHtml = member.avatarUrl ? 
+                                `<img src="${SERVER_URL}${member.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px;">` : 
+                                '';
+                            
+                            if (member.id == currentUser.id) {
+                                li.innerHTML = `${avatarHtml}<strong>${member.nickname} (我)</strong>`;
+                            } else {
+                                li.innerHTML = `${avatarHtml}${member.nickname}`;
+                            }
+                            groupMemberList.appendChild(li);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('加载群组成员失败:', error);
+                    groupMemberList.innerHTML = '<li>加载失败</li>';
+                });
+        }
+    
+        // 更新连接状态
+        function updateConnectionStatus(status, message) {
+            if (connectionStatus) {
+                connectionStatus.textContent = `连接状态: ${message}`;
+                connectionStatus.style.color = status === 'connected' ? '#27ae60' : 
+                                            status === 'connecting' ? '#f39c12' : '#e74c3c';
+            }
+        }
+    
+        // 格式化时间
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        }
+    
+        // 格式化日期
+        function formatDate(timestamp) {
+            const date = new Date(timestamp);
+            const now = new Date();
+            
+            // 转换为本地日期，忽略时间部分
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            
+            // 计算日期差异（以天为单位）
+            const diffTime = Math.abs(now - date);
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            
+            // 判断是否是今天
+            if (messageDate.getTime() === today.getTime()) {
+                return '今天';
+            } 
+            // 判断是否是昨天
+            else if (messageDate.getTime() === today.getTime() - 86400000) {
+                return '昨天';
+            } 
+            // 判断是否是一周内
+            else if (diffDays < 7) {
+                return `${diffDays}天前`;
+            } 
+            // 更早的日期
+            else {
+                return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+            }
+        }
+    
+        // 检查是否滚动到底部
+        function isScrolledToBottom(container) {
+            const threshold = 100; // 距离底部的阈值
+            const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+            return distanceToBottom <= threshold;
+        }
+    
+        // 滚动到消息容器底部
+        function scrollToBottom(container) {
+            if (autoScrollEnabled) {
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
+        }
+    
+        // 添加消息到界面
+        function addMessage(message, isOwn = false, isGroup = false) {
+            const targetContainer = isGroup ? groupMessageContainer : messageContainer;
+            const targetEmptyState = isGroup ? groupMessageContainer.querySelector('.empty-state') : emptyState;
+            
+            if (targetEmptyState && targetEmptyState.style.display !== 'none') {
+                targetEmptyState.style.display = 'none';
+            }
+            
+            const messageElement = document.createElement('div');
+            messageElement.className = `message ${isOwn ? 'own-message' : ''}`;
+            messageElement.setAttribute('data-user-id', message.userId);
+            messageElement.setAttribute('data-message-id', message.id);
+            
+            let contentHtml = '';
+            if (message.imageUrl) {
+                contentHtml = `
+                    <div class="message-content">
+                        <img src="${SERVER_URL}${message.imageUrl}" class="message-image" alt="聊天图片" onclick="openImagePreview('${SERVER_URL}${message.imageUrl}')">
+                    </div>
+                `;
+            } else {
+                // 使用服务器返回的已渲染HTML内容
+                contentHtml = `
+                    <div class="message-content">${message.content}</div>
+                `;
+            }
+            
+            const avatarHtml = message.avatarUrl ? 
+                `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="${message.nickname}">` : 
+                '';
+            
+            messageElement.innerHTML = `
+                <div class="message-header">
+                    ${avatarHtml}
+                    <div class="nickname">${message.nickname}</div>
+                </div>
+                ${contentHtml}
+                <div class="message-time">${formatTime(message.timestamp)}</div>
+                ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
+            `;
+            
+            targetContainer.appendChild(messageElement);
+            
+            // 更新消息计数（仅主聊天室）
+            if (!isGroup && messageCount) {
+                const count = messageContainer.querySelectorAll('.message').length;
+                messageCount.textContent = `消息数量: ${count}`;
+            }
+            
+            // 如果用户在看最新消息，自动滚动到底部
+            if (isScrolledToBottom(targetContainer)) {
+                scrollToBottom(targetContainer);
+            }
+        }
+    
+        // 更新消息中的昵称
+        function updateMessageNickname(userId, newNickname) {
+            // 更新主聊天室消息
+            const messages = document.querySelectorAll(`#messageContainer .message[data-user-id="${userId}"]`);
+            messages.forEach(message => {
+                const nicknameElement = message.querySelector('.nickname');
+                if (nicknameElement) {
+                    nicknameElement.textContent = newNickname;
+                }
+                
+                // 如果是当前用户的消息，更新删除按钮状态
+                if (userId === currentUser?.id) {
+                    message.classList.add('own-message');
+                    if (!message.querySelector('.delete-button')) {
+                        const messageId = message.getAttribute('data-message-id');
+                        const deleteButton = document.createElement('button');
+                        deleteButton.className = 'delete-button';
+                        deleteButton.setAttribute('data-id', messageId);
+                        deleteButton.setAttribute('title', '撤回消息');
+                        deleteButton.innerHTML = '×';
+                        message.appendChild(deleteButton);
+                    }
+                }
+            });
+            
+            // 更新群组消息
+            const groupMessages = document.querySelectorAll(`#groupMessageContainer .message[data-user-id="${userId}"]`);
+            groupMessages.forEach(message => {
+                const nicknameElement = message.querySelector('.nickname');
+                if (nicknameElement) {
+                    nicknameElement.textContent = newNickname;
+                }
+            });
+        }
+    
+        // 图片预览功能
+        function openImagePreview(imageUrl) {
+            previewImgElement.src = imageUrl;
+            imagePreviewModal.style.display = 'flex';
+        }
+    
+        // 关闭图片预览
+        if (closePreviewBtn) {
+            closePreviewBtn.addEventListener('click', function() {
+                imagePreviewModal.style.display = 'none';
+            });
+        }
+    
+        // 点击模态框背景关闭预览
+        imagePreviewModal.addEventListener('click', function(e) {
+            if (e.target === imagePreviewModal) {
+                imagePreviewModal.style.display = 'none';
+            }
+        });
+    
+        // 更新用户列表
+        function updateUserList(users) {
+            if (!userList || !onlineCount) return;
+            
+            // 更新在线用户列表
+            onlineUsersList = users;
+            
+            userList.innerHTML = '';
+            onlineCount.textContent = `(${users.length})`;
+            totalOnlineCount.textContent = users.length;
+            
+            if (users.length === 0) {
+                userList.innerHTML = '<li>暂无在线用户</li>';
+                return;
+            }
+            
+            users.forEach(user => {
+                const li = document.createElement('li');
+                const avatarHtml = user.avatarUrl ? 
+                    `<img src="${SERVER_URL}${user.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px;">` : 
+                    '';
+                
+                if (user.id == currentUser?.id) {
+                    li.innerHTML = `${avatarHtml}<strong>${user.nickname} (我)</strong>`;
+                } else {
+                    li.innerHTML = `${avatarHtml}${user.nickname}`;
+                }
+                userList.appendChild(li);
+            });
+    
+            // 如果在线用户数量>=2，自动展开侧边栏
+            if (users.length >= 2 && isSidebarCollapsed) {
+                toggleSidebar();
+            }
+            
+            // 刷新离线用户列表，确保在线用户不会显示在离线列表中
+            if (currentUser) {
+                loadOfflineUsers();
+            }
+        }
+    
+        // 更新离线用户列表
+        function updateOfflineUserList(users) {
+            if (!offlineUserList) return;
+            
+            offlineUserList.innerHTML = '';
+            
+            // 过滤掉在线用户
+            const offlineUsers = users.filter(offlineUser => 
+                !onlineUsersList.some(onlineUser => onlineUser.id == offlineUser.id)
+            );
+            
+            if (offlineUsers.length === 0) {
+                offlineUserList.innerHTML = '<li>暂无离线用户</li>';
+                return;
+            }
+            
+            offlineUsers.forEach(user => {
+                const li = document.createElement('li');
+                li.innerHTML = `${user.nickname} <span class="last-online">${formatDate(user.last_online)}</span>`;
+                offlineUserList.appendChild(li);
+            });
+        }
+    
+        // 加载离线用户列表
+        function loadOfflineUsers() {
+            if (!currentUser || !currentSessionToken) return;
+            
+            fetch(`${SERVER_URL}/offline-users`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        updateOfflineUserList(data.users);
+                    }
+                })
+                .catch(error => {
+                    console.error('加载离线用户失败:', error);
+                });
+        }
+    
+        // 加载用户群组列表
+        function loadUserGroups() {
+            if (!currentUser || !currentSessionToken) return;
+            
+            fetch(`${SERVER_URL}/user-groups/${currentUser.id}`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        updateGroupList(data.groups);
+                    }
+                })
+                .catch(error => {
+                    console.error('加载群组列表失败:', error);
+                });
+        }
+    
+        // 更新群组列表
+        function updateGroupList(groups) {
+            if (!groupList) return;
+            
+            groupList.innerHTML = '';
+            
+            if (groups.length === 0) {
+                groupList.innerHTML = '<li>暂无群组</li>';
+                return;
+            }
+            
+            groups.forEach(group => {
+                const li = document.createElement('li');
+                li.textContent = group.name;
+                li.setAttribute('data-group-id', group.id);
+                li.style.cursor = 'pointer';
+                
+                li.addEventListener('click', function() {
+                    const groupId = this.getAttribute('data-group-id');
+                    showGroupChat(groupId, group.name);
+                });
+                
+                groupList.appendChild(li);
+            });
+        }
+    
+        // 更新侧边栏状态
+        function updateSidebarState() {
+            sidebar.classList.toggle('collapsed', isSidebarCollapsed);
+            toggleSidebarText.textContent = isSidebarCollapsed ? '展开用户列表' : '收起用户列表';
+        }
+    
+        // 切换侧边栏
+        function toggleSidebar() {
+            isSidebarCollapsed = !isSidebarCollapsed;
+            updateSidebarState();
+        }
+    
+        // 更新界面登录状态
+        function updateLoginState(isLoggedIn) {
+            if (isLoggedIn && currentUser) {
+                currentNicknameSpan.textContent = currentUser.nickname;
+                
+                // 显示头像
+                if (currentUser.avatarUrl) {
+                    currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl}`;
+                    currentAvatarImg.style.display = 'inline';
+                }
+                
+                changeNicknameBtn.style.display = 'inline-block';
+                changeAvatarBtn.style.display = 'inline-block';
+                createGroupBtn.style.display = 'inline-block';
+                logoutButton.style.display = 'inline-block';
+                messageInput.disabled = false;
+                messageInput.placeholder = '输入消息后按回车发送';
+                sendButton.disabled = false;
+                uploadButton.disabled = false;
+                fileInput.disabled = false;
+                markdownToolbar.style.display = 'flex';
+                hideAuthModal();
+                
+                // 加载离线用户列表和群组列表
+                loadOfflineUsers();
+                loadUserGroups();
+            } else {
+                currentNicknameSpan.textContent = '未登录';
+                currentAvatarImg.style.display = 'none';
+                changeNicknameBtn.style.display = 'none';
+                changeAvatarBtn.style.display = 'none';
+                createGroupBtn.style.display = 'none';
+                logoutButton.style.display = 'none';
+                messageInput.disabled = true;
+                messageInput.placeholder = '请先登录';
+                sendButton.disabled = true;
+                uploadButton.disabled = true;
+                fileInput.disabled = true;
+                markdownToolbar.style.display = 'none';
+                previewArea.style.display = 'none';
+                showAuthModal();
+            }
+        }
+    
+        // 监听消息容器的滚动事件
+        messageContainer.addEventListener('scroll', function() {
+            // 当用户手动向上滚动时，禁用自动滚动
+            if (!isScrolledToBottom(this)) {
+                autoScrollEnabled = false;
+            } else {
+                autoScrollEnabled = true;
+            }
+        });
+        
+        // 群组消息容器滚动事件
+        groupMessageContainer.addEventListener('scroll', function() {
+            // 当用户手动向上滚动时，禁用自动滚动
+            if (!isScrolledToBottom(this)) {
+                autoScrollEnabled = false;
+            } else {
+                autoScrollEnabled = true;
+            }
+        });
+        
+        // Markdown工具栏按钮事件
+        function setupMarkdownToolbar(toolbar, textarea, previewArea) {
+            toolbar.querySelectorAll('.markdown-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const insertText = this.getAttribute('data-insert');
+                    const start = textarea.selectionStart;
+                    const end = textarea.selectionEnd;
+                    const selectedText = textarea.value.substring(start, end);
+                    
+                    let newText = insertText;
+                    
+                    // 处理选中的文本
+                    if (selectedText) {
+                        if (insertText.includes('**')) {
+                            newText = `**${selectedText}**`;
+                        } else if (insertText.includes('_')) {
+                            newText = `_${selectedText}_`;
+                        } else if (insertText.includes('`') && !insertText.includes('```')) {
+                            newText = `\`${selectedText}\``;
+                        } else if (insertText.includes('>')) {
+                            newText = `> ${selectedText}`;
+                        } else if (insertText.includes('#')) {
+                            newText = `# ${selectedText}`;
+                        } else if (insertText.includes('-')) {
+                            newText = `- ${selectedText}`;
+                        }
+                    }
+                    
+                    textarea.value = textarea.value.substring(0, start) + newText + textarea.value.substring(end);
+                    textarea.focus();
+                    textarea.setSelectionRange(start + newText.length, start + newText.length);
+                    
+                    // 更新预览
+                    updatePreview(textarea, previewArea);
+                });
+            });
+        }
+        
+        // 更新Markdown预览
+        function updatePreview(textarea, previewArea) {
+            if (showPreview) {
+                const markdownText = textarea.value;
+                const htmlContent = marked.parse(markdownText);
+                previewArea.innerHTML = htmlContent;
+            }
+        }
+        
+        // 切换预览显示
+        function togglePreview(textarea, previewArea, toggleBtn) {
+            showPreview = !showPreview;
+            if (showPreview) {
+                previewArea.style.display = 'block';
+                toggleBtn.textContent = '隐藏预览';
+                updatePreview(textarea, previewArea);
+            } else {
+                previewArea.style.display = 'none';
+                toggleBtn.textContent = '预览';
+            }
+        }
+        
+        // 初始化Markdown工具栏
+        setupMarkdownToolbar(markdownToolbar, messageInput, previewArea);
+        setupMarkdownToolbar(groupMarkdownToolbar, groupMessageInput, groupPreviewArea);
+        
+        // 预览切换事件
+        togglePreviewBtn.addEventListener('click', function() {
+            togglePreview(messageInput, previewArea, this);
+        });
+        
+        groupTogglePreviewBtn.addEventListener('click', function() {
+            togglePreview(groupMessageInput, groupPreviewArea, this);
+        });
+        
+        // 输入框内容变化时更新预览
+        messageInput.addEventListener('input', function() {
+            updatePreview(this, previewArea);
+        });
+        
+        groupMessageInput.addEventListener('input', function() {
+            updatePreview(this, groupPreviewArea);
+        });
+        
+        // Socket.IO 事件处理
+        socket.on('connect', () => {
+            console.log('已连接到服务器');
+            updateConnectionStatus('connected', '已连接');
+            isConnected = true;
+            
+            // 重置历史消息标记
+            hasReceivedHistory = false;
+            
+            // 如果有保存的用户信息，发送给服务器
+            if (currentUser && currentSessionToken) {
+                socket.emit('user-joined', {
+                    id: currentUser.id,
+                    nickname: currentUser.nickname,
+                    avatarUrl: currentUser.avatarUrl,
+                    sessionToken: currentSessionToken
+                });
+            }
+        });
+    
+        socket.on('disconnect', () => {
+            console.log('与服务器断开连接');
+            updateConnectionStatus('disconnected', '已断开');
+            isConnected = false;
+            
+            // 禁用输入框和按钮
+            messageInput.disabled = true;
+            sendButton.disabled = true;
+            groupMessageInput.disabled = true;
+            sendGroupMessageBtn.disabled = true;
+        });
+    
+        socket.on('reconnect', () => {
+            console.log('重新连接到服务器');
+            updateConnectionStatus('connected', '已重新连接');
+            isConnected = true;
+            
+            // 重新发送用户信息
+            if (currentUser && currentSessionToken) {
+                socket.emit('user-joined', {
+                    id: currentUser.id,
+                    nickname: currentUser.nickname,
+                    avatarUrl: currentUser.avatarUrl,
+                    sessionToken: currentSessionToken
+                });
+            }
+        });
+    
+        socket.on('users-updated', (users) => {
+            updateUserList(users);
+        });
+    
+        socket.on('message-received', (message) => {
+            // 使用宽松相等比较，因为ID可能是字符串或数字
+            const isOwn = currentUser && message.userId == currentUser.id;
+            
+            // 如果是群组消息且当前正在查看该群组
+            if (message.groupId && currentGroupId && message.groupId == currentGroupId) {
+                addMessage(message, isOwn, true);
+            } 
+            // 如果是全局消息且当前在主聊天室
+            else if (!message.groupId && mainChat.style.display !== 'none') {
+                addMessage(message, isOwn, false);
+            }
+        });
+        
+        // 群组创建事件
+        socket.on('group-created', (data) => {
+            // 刷新群组列表
+            loadUserGroups();
+        });
+    
+        socket.on('message-deleted', (messageId) => {
+            // 在主聊天室中删除消息
+            const messageElement = document.querySelector(`#messageContainer .message[data-message-id="${messageId}"]`);
+            if (messageElement) {
+                messageElement.remove();
+                
+                // 更新消息计数
+                if (messageCount) {
+                    const count = messageContainer.querySelectorAll('.message').length;
+                    messageCount.textContent = `消息数量: ${count}`;
+                }
+                
+                // 如果没有消息了，显示空状态
+                if (messageContainer.querySelectorAll('.message').length === 0) {
+                    emptyState.style.display = 'block';
+                }
+            }
+            
+            // 在群组聊天中删除消息
+            const groupMessageElement = document.querySelector(`#groupMessageContainer .message[data-message-id="${messageId}"]`);
+            if (groupMessageElement) {
+                groupMessageElement.remove();
+                
+                // 如果没有消息了，显示空状态
+                if (groupMessageContainer.querySelectorAll('.message').length === 0) {
+                    groupMessageContainer.innerHTML = `
+                        <div class="empty-state">
+                            <h3>暂无消息</h3>
+                            <p>发送第一条消息开始群聊吧!</p>
+                        </div>
+                    `;
+                }
+            }
+        });
+        
+        // 会话过期事件
+        socket.on('session-expired', () => {
+            alert('会话已过期，请重新登录');
+            logout();
+        });
+    
+        socket.on('chat-history', (messages) => {
+            // 防止重复加载历史消息
+            if (hasReceivedHistory) {
+                return;
+            }
+            
+            hasReceivedHistory = true;
+            
+            if (messages.length === 0) {
+                emptyState.style.display = 'block';
+                return;
+            }
+            
+            // 清空消息容器，防止重复消息
+            messageContainer.innerHTML = '';
+            emptyState.style.display = 'none';
+            
+            messages.forEach(message => {
+                // 渲染历史消息的Markdown
+                if (message.content && !message.imageUrl) {
+                    message.content = marked.parse(message.content);
+                }
+                
+                // 使用宽松相等比较，因为ID可能是字符串或数字
+                const isOwn = currentUser && message.userId == currentUser.id;
+                addMessage(message, isOwn, false);
+            });
+            
+            // 更新消息计数
+            if (messageCount) {
+                const count = messages.length;
+                messageCount.textContent = `消息数量: ${count}`;
+            }
+            
+            // 加载历史消息后自动滚动到底部
+            scrollToBottom(messageContainer);
+        });
+        
+        // 接收群组聊天历史
+        socket.on('group-chat-history', (data) => {
+            groupMessageContainer.innerHTML = '';
+            
+            if (data.messages.length === 0) {
+                groupMessageContainer.innerHTML = `
+                    <div class="empty-state">
+                        <h3>暂无消息</h3>
+                        <p>发送第一条消息开始群聊吧!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            data.messages.forEach(message => {
+                // 渲染历史消息的Markdown
+                if (message.content && !message.imageUrl) {
+                    message.content = marked.parse(message.content);
+                }
+                
+                const isOwn = currentUser && message.userId == currentUser.id;
+                addMessage(message, isOwn, true);
+            });
+            
+            // 加载历史消息后自动滚动到底部
+            scrollToBottom(groupMessageContainer);
+        });
+    
+        socket.on('nickname-updated', (data) => {
+            if (data.userId == currentUser?.id) {
+                currentUser.nickname = data.newNickname;
+                currentNicknameSpan.textContent = data.newNickname;
+                
+                // 更新本地存储
+                localStorage.setItem('chatUserNickname', data.newNickname);
+            }
+            
+            // 更新消息中的昵称显示
+            updateMessageNickname(data.userId, data.newNickname);
+            
+            // 刷新离线用户列表
+            if (currentUser) {
+                loadOfflineUsers();
+            }
+        });
+    
+        socket.on('error', (error) => {
+            console.error('服务器错误:', error);
+            alert(`错误: ${error.message}`);
+        });
+    
+        // 事件监听
+        // 登录/注册标签切换
+        loginTab.addEventListener('click', () => {
+            loginTab.classList.add('active');
+            registerTab.classList.remove('active');
+            loginForm.classList.add('active');
+            registerForm.classList.remove('active');
+            loginMessage.style.display = 'none';
+            registerMessage.style.display = 'none';
+        });
+    
+        registerTab.addEventListener('click', () => {
+            registerTab.classList.add('active');
+            loginTab.classList.remove('active');
+            registerForm.classList.add('active');
+            loginForm.classList.remove('active');
+            loginMessage.style.display = 'none';
+            registerMessage.style.display = 'none';
+        });
+    
+        // 登录按钮
+        loginButton.addEventListener('click', () => {
+            const username = loginUsername.value.trim();
+            const password = loginPassword.value.trim();
+            
+            if (!username || !password) {
+                loginMessage.textContent = '请填写用户名和密码';
+                loginMessage.style.display = 'block';
+                return;
+            }
+            
+            fetch(`${SERVER_URL}/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    currentUser = {
+                        id: data.userId.toString(),
+                        nickname: data.nickname,
+                        avatarUrl: data.avatarUrl
+                    };
+                    currentSessionToken = data.sessionToken;
+                    
+                    // 保存用户信息到本地存储
+                    localStorage.setItem('chatUserId', currentUser.id);
+                    localStorage.setItem('chatUserNickname', currentUser.nickname);
+                    localStorage.setItem('chatSessionToken', currentSessionToken);
+                    if (currentUser.avatarUrl) {
+                        localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
+                    }
+                    
+                    // 更新界面状态
+                    updateLoginState(true);
+                    
+                    // 发送用户加入事件
+                    if (isConnected) {
+                        socket.emit('user-joined', {
+                            id: currentUser.id,
+                            nickname: currentUser.nickname,
+                            avatarUrl: currentUser.avatarUrl,
+                            sessionToken: currentSessionToken
+                        });
+                    }
+                    
+                    // 检查存储状态
+                    checkStorageStatus();
+                } else {
+                    loginMessage.textContent = data.message;
+                    loginMessage.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                console.error('登录错误:', error);
+                loginMessage.textContent = '登录失败，请重试';
+                loginMessage.style.display = 'block';
+            });
+        });
+    
+        // 注册按钮
+        registerButton.addEventListener('click', () => {
+            const username = registerUsername.value.trim();
+            const password = registerPassword.value.trim();
+            const nickname = registerNickname.value.trim();
+            
+            if (!username || !password || !nickname) {
+                registerMessage.textContent = '请填写所有字段';
+                registerMessage.style.display = 'block';
+                return;
+            }
+            
+            fetch(`${SERVER_URL}/register`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password, nickname })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // 设置注册记录cookie
+                    setCookie('hasRegistered', 'true', 365);
+                    
+                    registerMessage.textContent = '注册成功，请登录';
+                    registerMessage.style.color = 'green';
+                    registerMessage.style.display = 'block';
+                    
+                    // 切换到登录标签
+                    setTimeout(() => {
+                        loginTab.click();
+                        loginUsername.value = username;
+                        loginPassword.value = '';
+                    }, 1000);
+                } else {
+                    registerMessage.textContent = data.message;
+                    registerMessage.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                console.error('注册错误:', error);
+                registerMessage.textContent = '注册失败，请重试';
+                registerMessage.style.display = 'block';
+            });
+        });
+    
+        // 修改昵称按钮
+        changeNicknameBtn.addEventListener('click', showNicknameModal);
+    
+        // 保存昵称按钮
+        saveNicknameBtn.addEventListener('click', () => {
+            const newNickname = nicknameInput.value.trim();
+            if (newNickname && currentUser && currentSessionToken) {
+                socket.emit('update-nickname', {
+                    userId: currentUser.id,
+                    newNickname: newNickname,
+                    sessionToken: currentSessionToken
+                });
+                hideNicknameModal();
+            }
+        });
+    
+        // 更改头像按钮
+        changeAvatarBtn.addEventListener('click', showAvatarModal);
+    
+        // 头像预览
+        avatarInput.addEventListener('change', function(e) {
+            if (e.target.files && e.target.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    avatarPreview.innerHTML = `<img src="${e.target.result}">`;
+                };
+                reader.readAsDataURL(e.target.files[0]);
+            }
+        });
+    
+        // 上传头像按钮
+        uploadAvatarButton.addEventListener('click', function() {
+            const file = avatarInput.files[0];
+            if (!file) {
+                avatarMessage.textContent = '请选择头像文件';
+                avatarMessage.style.color = 'red';
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('avatar', file);
+            formData.append('userId', currentUser.id);
+            
+            fetch(`${SERVER_URL}/upload-avatar`, {
+                method: 'POST',
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // 更新当前用户头像
+                    currentUser.avatarUrl = data.avatarUrl;
+                    currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
+                    currentAvatarImg.style.display = 'inline';
+                    
+                    // 更新本地存储
+                    localStorage.setItem('chatUserAvatar', data.avatarUrl);
+                    
+                    // 更新消息中的头像
+                    updateMessageAvatar(currentUser.id, data.avatarUrl);
+                    
+                    avatarMessage.textContent = `头像上传成功。${data.storageInfo}`;
+                    avatarMessage.style.color = 'green';
+                    
+                    // 更新存储状态
+                    checkStorageStatus();
+                    
+                    // 3秒后关闭模态框
+                    setTimeout(() => {
+                        hideAvatarModal();
+                    }, 3000);
+                } else {
+                    avatarMessage.textContent = data.message;
+                    avatarMessage.style.color = 'red';
+                }
+            })
+            .catch(error => {
+                console.error('上传错误:', error);
+                avatarMessage.textContent = '头像上传失败';
+                avatarMessage.style.color = 'red';
+            });
+        });
+    
+        // 更新消息中的头像
+        function updateMessageAvatar(userId, avatarUrl) {
+            // 更新主聊天室消息
+            const messages = document.querySelectorAll(`#messageContainer .message[data-user-id="${userId}"]`);
+            messages.forEach(message => {
+                const avatarElement = message.querySelector('.message-avatar');
+                if (avatarElement) {
+                    avatarElement.src = `${SERVER_URL}${avatarUrl}`;
+                } else {
+                    const messageHeader = message.querySelector('.message-header');
+                    if (messageHeader) {
+                        const newAvatar = document.createElement('img');
+                        newAvatar.className = 'message-avatar';
+                        newAvatar.src = `${SERVER_URL}${avatarUrl}`;
+                        newAvatar.alt = '头像';
+                        messageHeader.insertBefore(newAvatar, messageHeader.firstChild);
+                    }
+                }
+            });
+            
+            // 更新群组消息
+            const groupMessages = document.querySelectorAll(`#groupMessageContainer .message[data-user-id="${userId}"]`);
+            groupMessages.forEach(message => {
+                const avatarElement = message.querySelector('.message-avatar');
+                if (avatarElement) {
+                    avatarElement.src = `${SERVER_URL}${avatarUrl}`;
+                } else {
+                    const messageHeader = message.querySelector('.message-header');
+                    if (messageHeader) {
+                        const newAvatar = document.createElement('img');
+                        newAvatar.className = 'message-avatar';
+                        newAvatar.src = `${SERVER_URL}${avatarUrl}`;
+                        newAvatar.alt = '头像';
+                        messageHeader.insertBefore(newAvatar, messageHeader.firstChild);
+                    }
+                }
+            });
+        }
+    
+        // 创建群组按钮
+        createGroupBtn.addEventListener('click', showCreateGroupModal);
+    
+        // 创建群组提交按钮
+        createGroupButton.addEventListener('click', function() {
+            const groupName = groupNameInput.value.trim();
+            const description = groupDescriptionInput.value.trim();
+            
+            // 获取选中的成员
+            const selectedMembers = [];
+            document.querySelectorAll('.member-checkbox:checked').forEach(checkbox => {
+                selectedMembers.push(checkbox.value);
+            });
+            
+            if (!groupName) {
+                createGroupMessage.textContent = '请输入群组名称';
+                createGroupMessage.style.color = 'red';
+                return;
+            }
+            
+            if (selectedMembers.length < 2) {
+                createGroupMessage.textContent = '请选择至少2名其他成员';
+                createGroupMessage.style.color = 'red';
+                return;
+            }
+            
+            fetch(`${SERVER_URL}/create-group`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                },
+                body: JSON.stringify({
+                    userId: currentUser.id,
+                    groupName: groupName,
+                    description: description,
+                    memberIds: selectedMembers
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    createGroupMessage.textContent = '群组创建成功';
+                    createGroupMessage.style.color = 'green';
+                    
+                    // 更新群组列表
+                    loadUserGroups();
+                    
+                    // 清空表单
+                    groupNameInput.value = '';
+                    groupDescriptionInput.value = '';
+                    document.querySelectorAll('.member-checkbox').forEach(checkbox => {
+                        checkbox.checked = false;
+                    });
+                    
+                    // 3秒后关闭模态框
+                    setTimeout(() => {
+                        hideCreateGroupModal();
+                    }, 3000);
+                } else {
+                    createGroupMessage.textContent = data.message;
+                    createGroupMessage.style.color = 'red';
+                }
+            })
+            .catch(error => {
+                console.error('创建群组错误:', error);
+                createGroupMessage.textContent = '创建群组失败';
+                createGroupMessage.style.color = 'red';
+            });
+        });
+    
+        // 退出登录
+        function logout() {
+            currentUser = null;
+            currentSessionToken = null;
+            localStorage.removeItem('chatUserId');
+            localStorage.removeItem('chatUserNickname');
+            localStorage.removeItem('chatUserAvatar');
+            localStorage.removeItem('chatSessionToken');
+            updateLoginState(false);
+            
+            // 清空消息列表
+            messageContainer.innerHTML = '';
+            emptyState.style.display = 'block';
+            
+            // 清空群组消息列表
+            groupMessageContainer.innerHTML = `
+                <div class="empty-state">
+                    <h3>暂无消息</h3>
+                    <p>发送第一条消息开始群聊吧!</p>
+                </div>
+            `;
+            
+            // 清空用户列表
+            userList.innerHTML = '<li>暂无在线用户</li>';
+            onlineCount.textContent = '(0)';
+            totalOnlineCount.textContent = '0';
+            onlineUsersList = [];
+            
+            // 返回主聊天室
+            backToMainChat();
+        }
+    
+        // 退出按钮
+        logoutButton.addEventListener('click', logout);
+    
+        // 发送消息
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+        
+        // 发送群组消息
+        sendGroupMessageBtn.addEventListener('click', sendGroupMessage);
+        groupMessageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendGroupMessage();
+        });
+    
+        // 上传图片按钮事件
+        uploadButton.addEventListener('click', () => {
+            fileInput.click();
+        });
+        
+        // 群组上传图片按钮事件
+        groupUploadButton.addEventListener('click', () => {
+            groupFileInput.click();
+        });
+    
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) {
+                uploadImage(e.target.files[0], false);
+            }
+        });
+        
+        groupFileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) {
+                uploadImage(e.target.files[0], true);
+            }
+        });
+    
+        // 使用事件委托处理撤回按钮点击
+        messageContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-button')) {
+                const messageId = e.target.getAttribute('data-id');
+                socket.emit('delete-message', {
+                    messageId: messageId,
+                    userId: currentUser.id,
+                    sessionToken: currentSessionToken
+                });
+            }
+        });
+        
+        groupMessageContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-button')) {
+                const messageId = e.target.getAttribute('data-id');
+                socket.emit('delete-message', {
+                    messageId: messageId,
+                    userId: currentUser.id,
+                    sessionToken: currentSessionToken
+                });
+            }
+        });
+    
+        // 侧边栏切换事件
+        toggleSidebarBtn.addEventListener('click', toggleSidebar);
+        
+        // 返回主聊天室按钮
+        backToMainBtn.addEventListener('click', backToMainChat);
+    
+        // 发送消息
+        function sendMessage() {
+            const content = messageInput.value.trim();
+            if (!content || !currentUser || !isConnected || !currentSessionToken) return;
+    
+            socket.emit('send-message', {
+                userId: currentUser.id,
+                content: content,
+                sessionToken: currentSessionToken
+            });
+    
+            messageInput.value = '';
+            previewArea.style.display = 'none';
+            togglePreviewBtn.textContent = '预览';
+            showPreview = false;
+        }
+        
+        // 发送群组消息
+        function sendGroupMessage() {
+            const content = groupMessageInput.value.trim();
+            if (!content || !currentUser || !isConnected || !currentGroupId || !currentSessionToken) return;
+    
+            socket.emit('send-message', {
+                userId: currentUser.id,
+                content: content,
+                groupId: currentGroupId,
+                sessionToken: currentSessionToken
+            });
+    
+            groupMessageInput.value = '';
+            groupPreviewArea.style.display = 'none';
+            groupTogglePreviewBtn.textContent = '预览';
+            showPreview = false;
+        }
+    
+        // 上传图片
+        function uploadImage(file, isGroup) {
+            if (!file || !file.type.startsWith('image/')) {
+                alert('请选择有效的图片文件');
+                return;
+            }
+    
+            // 检查文件大小（限制为5MB）
+            if (file.size > 5 * 1024 * 1024) {
+                alert('图片大小不能超过5MB');
+                return;
+            }
+    
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('userId', currentUser.id);
+            
+            if (isGroup && currentGroupId) {
+                formData.append('groupId', currentGroupId);
+            }
+    
+            // 显示上传进度
+            uploadProgress.style.display = 'block';
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 5;
+                if (progress > 90) clearInterval(interval);
+                uploadProgressBar.style.width = `${progress}%`;
+            }, 100);
+    
+            // 使用fetch API上传文件
+            fetch(`${SERVER_URL}/upload`, {
+                method: 'POST',
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                clearInterval(interval);
+                uploadProgressBar.style.width = '100%';
+                
+                setTimeout(() => {
+                    uploadProgress.style.display = 'none';
+                    uploadProgressBar.style.width = '0%';
+                }, 500);
+                
+                if (data.status === 'success') {
+                    console.log('图片上传成功');
+                } else {
+                    alert('图片上传失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                clearInterval(interval);
+                uploadProgress.style.display = 'none';
+                uploadProgressBar.style.width = '0%';
+                console.error('上传错误:', error);
+                alert('图片上传失败');
+            });
+        }
+    
+        // 检查本地存储是否有用户信息
+        const savedUserId = localStorage.getItem('chatUserId');
+        const savedUserNickname = localStorage.getItem('chatUserNickname');
+        const savedUserAvatar = localStorage.getItem('chatUserAvatar');
+        const savedSessionToken = localStorage.getItem('chatSessionToken');
+        
+        if (savedUserId && savedUserNickname && savedSessionToken) {
+            currentUser = {
+                id: savedUserId,
+                nickname: savedUserNickname,
+                avatarUrl: savedUserAvatar
+            };
+            currentSessionToken = savedSessionToken;
+            updateLoginState(true);
+            
+            // 如果已连接，发送用户加入事件
+            if (isConnected) {
+                socket.emit('user-joined', {
+                    id: currentUser.id,
+                    nickname: currentUser.nickname,
+                    avatarUrl: currentUser.avatarUrl,
+                    sessionToken: currentSessionToken
+                });
+            }
+        }
+    
+        // 全局函数供图片点击调用
+        window.openImagePreview = openImagePreview;
+    });
+    </script>
 </body>
 </html>
