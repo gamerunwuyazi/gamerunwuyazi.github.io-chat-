@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=1200, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: http: ws: wss: data: blob: 'unsafe-inline' 'unsafe-eval';">
     <title>安全优化版聊天室</title>
     <style>
         /* 强制禁用移动端响应式样式 */
@@ -61,7 +60,7 @@
             }
         }
         
-        /* 其余CSS样式保持不变 */
+        /* 基础样式 */
         * {
             box-sizing: border-box;
             margin: 0;
@@ -141,7 +140,7 @@
             display: flex;
             flex: 1;
             overflow: hidden;
-            height: calc(100vh - 100px); /* 减去header和status-bar的高度 */
+            height: calc(100vh - 100px);
         }
         
         .sidebar {
@@ -150,11 +149,11 @@
             border-right: 1px solid #ddd;
             padding: 15px;
             transition: all 0.3s ease;
-            overflow-y: auto; /* 独立滚动条 */
+            overflow-y: auto;
             display: flex;
             flex-direction: column;
             overflow-x: hidden;
-            height: 100%; /* 充满容器高度 */
+            height: 100%;
         }
         
         .sidebar.collapsed {
@@ -279,19 +278,19 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            height: 100%; /* 充满容器高度 */
-            overflow: hidden; /* 防止双重滚动 */
+            height: 100%;
+            overflow: hidden;
         }
         
         /* 消息容器独立滚动 */
         #messageContainer {
             flex: 1;
-            overflow-y: auto; /* 独立滚动条 */
+            overflow-y: auto;
             padding: 15px;
             background-color: #f5f5f5;
             display: flex;
             flex-direction: column;
-            min-height: 0; /* 重要：允许内容溢出 */
+            min-height: 0;
         }
         
         .message {
@@ -339,6 +338,7 @@
             word-break: break-word;
         }
         
+        /* Markdown消息样式 */
         .message-content h1, .message-content h2, .message-content h3 {
             margin: 10px 0 5px 0;
             color: #2c3e50;
@@ -346,6 +346,7 @@
         
         .message-content p {
             margin: 5px 0;
+            line-height: 1.4;
         }
         
         .message-content ul, .message-content ol {
@@ -362,6 +363,7 @@
             padding-left: 10px;
             color: #666;
             font-style: italic;
+            background: #f9f9f9;
         }
         
         .message-content code {
@@ -369,6 +371,7 @@
             padding: 2px 4px;
             border-radius: 3px;
             font-family: 'Courier New', monospace;
+            font-size: 0.9em;
         }
         
         .message-content pre {
@@ -377,6 +380,7 @@
             border-radius: 5px;
             overflow-x: auto;
             margin: 5px 0;
+            border: 1px solid #e9ecef;
         }
         
         .message-content pre code {
@@ -390,6 +394,11 @@
         
         .message-content em {
             font-style: italic;
+        }
+        
+        .message-content a {
+            color: #07c160;
+            text-decoration: underline;
         }
         
         .message-image {
@@ -441,7 +450,7 @@
             display: flex;
             gap: 10px;
             align-items: center;
-            flex-shrink: 0; /* 防止收缩 */
+            flex-shrink: 0;
         }
         
         #groupMessageContainer {
@@ -454,8 +463,16 @@
             min-height: 0;
         }
         
-        #messageInput {
+        /* Markdown编辑器容器 */
+        .markdown-editor-container {
+            position: relative;
             flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* 输入框样式 */
+        #messageInput, #groupMessageInput {
             padding: 10px 15px;
             border: 1px solid #07c160;
             border-radius: 20px;
@@ -463,6 +480,74 @@
             outline: none;
             min-height: 40px;
             font-family: inherit;
+            resize: vertical;
+            min-height: 60px;
+            max-height: 150px;
+            width: 100%;
+        }
+        
+        /* Markdown切换按钮 */
+        .markdown-toggle {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+        
+        .markdown-toggle.active {
+            background: #07c160;
+        }
+        
+        .markdown-toggle:hover {
+            background: #5a6268;
+        }
+        
+        .markdown-toggle.active:hover {
+            background: #06ad54;
+        }
+        
+        /* Markdown工具栏样式 */
+        .markdown-toolbar {
+            display: none;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            width: 100%;
+        }
+        
+        .markdown-toolbar.active {
+            display: flex;
+        }
+        
+        .markdown-btn {
+            padding: 5px 10px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        
+        .markdown-btn:hover {
+            background: #07c160;
+            color: white;
+            border-color: #07c160;
         }
         
         #sendButton {
@@ -758,53 +843,6 @@
             cursor: pointer;
             margin-right: 15px;
         }
-        
-        /* Markdown工具栏样式 */
-        .markdown-toolbar {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 5px;
-            margin-bottom: 10px;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 5px;
-            border: 1px solid #ddd;
-        }
-        
-        .markdown-btn {
-            padding: 5px 10px;
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 12px;
-            transition: all 0.2s;
-        }
-        
-        .markdown-btn:hover {
-            background: #07c160;
-            color: white;
-            border-color: #07c160;
-        }
-        
-        .preview-area {
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            padding: 10px;
-            margin-top: 10px;
-            background: white;
-            min-height: 100px;
-            display: none;
-        }
-        
-        .preview-toggle {
-            background: none;
-            border: none;
-            color: #07c160;
-            cursor: pointer;
-            font-size: 12px;
-            margin-top: 5px;
-        }
     </style>
 </head>
 <body>
@@ -815,8 +853,8 @@
             <div class="modal-tabs">
                 <div class="modal-tab active" id="loginTab">登录</div>
                 <div class="modal-tab" id="registerTab">注册</div>
-                <div>网站修复中，每天记得查看进度<div>
             </div>
+            <div>因维护注册信息已删除，请重新注册</div>
             
             <div class="modal-form active" id="loginForm">
                 <h3>登录聊天室</h3>
@@ -926,19 +964,17 @@
             </div>
             
             <div class="chat-main">
-                <div class="markdown-toolbar" id="markdownToolbar" style="display: none;">
-                    <button class="markdown-btn" data-insert="**粗体**">粗体</button>
-                    <button class="markdown-btn" data-insert="_斜体_">斜体</button>
-                    <button class="markdown-btn" data-insert="`代码`">代码</button>
-                    <button class="markdown-btn" data-insert="```\n代码块\n```">代码块</button>
-                    <button class="markdown-btn" data-insert="# 标题">标题</button>
-                    <button class="markdown-btn" data-insert="- 列表项">列表</button>
-                    <button class="markdown-btn" data-insert="> 引用">引用</button>
-                    <button class="markdown-btn" data-insert="[链接](http://)">链接</button>
-                    <button class="preview-toggle" id="togglePreview">预览</button>
+                <!-- Markdown工具栏 -->
+                <div class="markdown-toolbar" id="markdownToolbar">
+                    <button class="markdown-btn" data-prefix="**" data-suffix="**">粗体</button>
+                    <button class="markdown-btn" data-prefix="_" data-suffix="_">斜体</button>
+                    <button class="markdown-btn" data-prefix="`" data-suffix="`">代码</button>
+                    <button class="markdown-btn" data-prefix="```\n" data-suffix="\n```">代码块</button>
+                    <button class="markdown-btn" data-prefix="# ">标题</button>
+                    <button class="markdown-btn" data-prefix="- ">列表</button>
+                    <button class="markdown-btn" data-prefix="> ">引用</button>
+                    <button class="markdown-btn" data-prefix="[链接](" data-suffix=")">链接</button>
                 </div>
-                
-                <div class="preview-area" id="previewArea"></div>
                 
                 <div id="messageContainer">
                     <div class="empty-state" id="emptyState">
@@ -948,7 +984,10 @@
                 </div>
                 
                 <div class="input-area">
-                    <input type="text" id="messageInput" placeholder="请先登录" disabled>
+                    <div class="markdown-editor-container">
+                        <textarea id="messageInput" placeholder="请先登录" disabled></textarea>
+                        <button class="markdown-toggle" id="markdownToggle" title="切换Markdown编辑器">MD</button>
+                    </div>
                     <button id="sendButton" disabled>发送</button>
                     
                     <div class="upload-container">
@@ -989,19 +1028,17 @@
             </div>
             
             <div class="chat-main">
-                <div class="markdown-toolbar" id="groupMarkdownToolbar" style="display: none;">
-                    <button class="markdown-btn" data-insert="**粗体**">粗体</button>
-                    <button class="markdown-btn" data-insert="_斜体_">斜体</button>
-                    <button class="markdown-btn" data-insert="`代码`">代码</button>
-                    <button class="markdown-btn" data-insert="```\n代码块\n```">代码块</button>
-                    <button class="markdown-btn" data-insert="# 标题">标题</button>
-                    <button class="markdown-btn" data-insert="- 列表项">列表</button>
-                    <button class="markdown-btn" data-insert="> 引用">引用</button>
-                    <button class="markdown-btn" data-insert="[链接](http://)">链接</button>
-                    <button class="preview-toggle" id="groupTogglePreview">预览</button>
+                <!-- 群组Markdown工具栏 -->
+                <div class="markdown-toolbar" id="groupMarkdownToolbar">
+                    <button class="markdown-btn" data-prefix="**" data-suffix="**">粗体</button>
+                    <button class="markdown-btn" data-prefix="_" data-suffix="_">斜体</button>
+                    <button class="markdown-btn" data-prefix="`" data-suffix="`">代码</button>
+                    <button class="markdown-btn" data-prefix="```\n" data-suffix="\n```">代码块</button>
+                    <button class="markdown-btn" data-prefix="# ">标题</button>
+                    <button class="markdown-btn" data-prefix="- ">列表</button>
+                    <button class="markdown-btn" data-prefix="> ">引用</button>
+                    <button class="markdown-btn" data-prefix="[链接](" data-suffix=")">链接</button>
                 </div>
-                
-                <div class="preview-area" id="groupPreviewArea"></div>
                 
                 <div id="groupMessageContainer">
                     <div class="empty-state">
@@ -1011,7 +1048,10 @@
                 </div>
                 
                 <div class="input-area">
-                    <input type="text" id="groupMessageInput" placeholder="输入群组消息..." disabled>
+                    <div class="markdown-editor-container">
+                        <textarea id="groupMessageInput" placeholder="输入群组消息..." disabled></textarea>
+                        <button class="markdown-toggle" id="groupMarkdownToggle" title="切换Markdown编辑器">MD</button>
+                    </div>
                     <button id="sendGroupMessage" disabled>发送</button>
                     
                     <div class="upload-container">
@@ -1035,19 +1075,26 @@
         const SERVER_URL = 'http://152.136.175.209:3000';
         
         // 初始化变量和DOM元素
-        const socket = io(SERVER_URL);
+        const socket = io(SERVER_URL, {
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            timeout: 20000
+        });
+        
         let currentUser = null;
         let currentSessionToken = null;
         let isConnected = false;
         let isSidebarCollapsed = false;
         let hasReceivedHistory = false;
-        let offlineUsersCollapsed = false;
         let onlineUsersList = [];
         let autoScrollEnabled = true;
-        let allUsers = []; // 存储所有用户列表，用于建群选择
+        let allUsers = [];
         let currentGroupId = null;
         let currentGroupName = '';
-        let showPreview = false;
+        let markdownEnabled = false;
+        let groupMarkdownEnabled = false;
     
         // 获取DOM元素
         const messageInput = document.getElementById('messageInput');
@@ -1118,33 +1165,26 @@
         const groupMemberList = document.getElementById('groupMemberList');
         const markdownToolbar = document.getElementById('markdownToolbar');
         const groupMarkdownToolbar = document.getElementById('groupMarkdownToolbar');
-        const previewArea = document.getElementById('previewArea');
-        const groupPreviewArea = document.getElementById('groupPreviewArea');
-        const togglePreviewBtn = document.getElementById('togglePreview');
-        const groupTogglePreviewBtn = document.getElementById('groupTogglePreview');
+        const markdownToggle = document.getElementById('markdownToggle');
+        const groupMarkdownToggle = document.getElementById('groupMarkdownToggle');
         
         // 初始化页面布局
         function initializeLayout() {
-            // 确保主聊天界面默认显示
             mainChat.style.display = 'block';
             groupChat.style.display = 'none';
             
-            // 设置正确的flex布局
             document.querySelector('.container').style.display = 'flex';
             document.querySelector('.chat-main').style.display = 'flex';
             document.querySelector('.chat-main').style.flexDirection = 'column';
             
-            // 确保消息容器有正确的滚动设置
             messageContainer.style.flex = '1';
             messageContainer.style.overflowY = 'auto';
             messageContainer.style.minHeight = '0';
             
-            // 确保群组消息容器也有正确的滚动设置
             groupMessageContainer.style.flex = '1';
             groupMessageContainer.style.overflowY = 'auto';
             groupMessageContainer.style.minHeight = '0';
             
-            // 确保侧边栏有正确的滚动设置
             sidebar.style.overflowY = 'auto';
             sidebar.style.minHeight = '0';
         }
@@ -1169,8 +1209,7 @@
         initializeLayout();
         updateSidebarState();
         showAuthModal();
-        checkStorageStatus();
-    
+        
         // 检查存储状态
         function checkStorageStatus() {
             if (!currentUser || !currentSessionToken) return;
@@ -1262,7 +1301,6 @@
     
         // 显示创建群组模态框
         function showCreateGroupModal() {
-            // 加载用户列表
             loadAllUsers();
             createGroupModal.style.display = 'flex';
         }
@@ -1287,10 +1325,8 @@
                     if (data.status === 'success') {
                         allUsers = data.users;
                         
-                        // 过滤掉当前用户
                         const otherUsers = allUsers.filter(user => user.id != currentUser.id);
                         
-                        // 更新选择列表
                         groupMembersList.innerHTML = '';
                         if (otherUsers.length === 0) {
                             groupMembersList.innerHTML = '<div>暂无其他用户</div>';
@@ -1319,12 +1355,10 @@
             currentGroupId = groupId;
             currentGroupName = groupName;
             
-            // 更新界面 - 使用更安全的方式切换显示
             mainChat.style.display = 'none';
             groupChat.style.display = 'flex';
             groupTitle.textContent = groupName;
             
-            // 重置群组消息容器
             groupMessageContainer.innerHTML = `
                 <div class="empty-state">
                     <h3>暂无消息</h3>
@@ -1332,25 +1366,20 @@
                 </div>
             `;
             
-            // 加入Socket.IO房间
             socket.emit('join-group', { 
                 groupId: groupId,
                 userId: currentUser.id,
                 sessionToken: currentSessionToken
             });
             
-            // 加载群组成员
             loadGroupMembers(groupId);
             
-            // 启用群组聊天输入
             groupMessageInput.disabled = false;
             groupMessageInput.placeholder = '输入群组消息后按回车发送';
             sendGroupMessageBtn.disabled = false;
             groupUploadButton.disabled = false;
             groupFileInput.disabled = false;
-            groupMarkdownToolbar.style.display = 'flex';
             
-            // 确保布局正确
             initializeLayout();
         }
         
@@ -1365,16 +1394,15 @@
             groupChat.style.display = 'none';
             mainChat.style.display = 'block';
             
-            // 禁用群组聊天输入
             groupMessageInput.disabled = true;
             groupMessageInput.placeholder = '请先加入群组';
             sendGroupMessageBtn.disabled = true;
             groupUploadButton.disabled = true;
             groupFileInput.disabled = true;
-            groupMarkdownToolbar.style.display = 'none';
-            groupPreviewArea.style.display = 'none';
+            groupMarkdownToolbar.classList.remove('active');
+            groupMarkdownToggle.classList.remove('active');
+            groupMarkdownEnabled = false;
             
-            // 确保布局正确
             initializeLayout();
         }
         
@@ -1439,35 +1467,26 @@
             const date = new Date(timestamp);
             const now = new Date();
             
-            // 转换为本地日期，忽略时间部分
             const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
             
-            // 计算日期差异（以天为单位）
             const diffTime = Math.abs(now - date);
             const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
             
-            // 判断是否是今天
             if (messageDate.getTime() === today.getTime()) {
                 return '今天';
-            } 
-            // 判断是否是昨天
-            else if (messageDate.getTime() === today.getTime() - 86400000) {
+            } else if (messageDate.getTime() === today.getTime() - 86400000) {
                 return '昨天';
-            } 
-            // 判断是否是一周内
-            else if (diffDays < 7) {
+            } else if (diffDays < 7) {
                 return `${diffDays}天前`;
-            } 
-            // 更早的日期
-            else {
+            } else {
                 return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
             }
         }
     
         // 检查是否滚动到底部
         function isScrolledToBottom(container) {
-            const threshold = 100; // 距离底部的阈值
+            const threshold = 100;
             const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
             return distanceToBottom <= threshold;
         }
@@ -1504,7 +1523,6 @@
                     </div>
                 `;
             } else {
-                // 使用服务器返回的已渲染HTML内容
                 contentHtml = `
                     <div class="message-content">${message.content}</div>
                 `;
@@ -1526,13 +1544,11 @@
             
             targetContainer.appendChild(messageElement);
             
-            // 更新消息计数（仅主聊天室）
             if (!isGroup && messageCount) {
                 const count = messageContainer.querySelectorAll('.message').length;
                 messageCount.textContent = `消息数量: ${count}`;
             }
             
-            // 如果用户在看最新消息，自动滚动到底部
             if (isScrolledToBottom(targetContainer)) {
                 scrollToBottom(targetContainer);
             }
@@ -1540,7 +1556,6 @@
     
         // 更新消息中的昵称
         function updateMessageNickname(userId, newNickname) {
-            // 更新主聊天室消息
             const messages = document.querySelectorAll(`#messageContainer .message[data-user-id="${userId}"]`);
             messages.forEach(message => {
                 const nicknameElement = message.querySelector('.nickname');
@@ -1548,7 +1563,6 @@
                     nicknameElement.textContent = newNickname;
                 }
                 
-                // 如果是当前用户的消息，更新删除按钮状态
                 if (userId === currentUser?.id) {
                     message.classList.add('own-message');
                     if (!message.querySelector('.delete-button')) {
@@ -1563,7 +1577,6 @@
                 }
             });
             
-            // 更新群组消息
             const groupMessages = document.querySelectorAll(`#groupMessageContainer .message[data-user-id="${userId}"]`);
             groupMessages.forEach(message => {
                 const nicknameElement = message.querySelector('.nickname');
@@ -1597,7 +1610,6 @@
         function updateUserList(users) {
             if (!userList || !onlineCount) return;
             
-            // 更新在线用户列表
             onlineUsersList = users;
             
             userList.innerHTML = '';
@@ -1623,12 +1635,10 @@
                 userList.appendChild(li);
             });
     
-            // 如果在线用户数量>=2，自动展开侧边栏
             if (users.length >= 2 && isSidebarCollapsed) {
                 toggleSidebar();
             }
             
-            // 刷新离线用户列表，确保在线用户不会显示在离线列表中
             if (currentUser) {
                 loadOfflineUsers();
             }
@@ -1640,7 +1650,6 @@
             
             offlineUserList.innerHTML = '';
             
-            // 过滤掉在线用户
             const offlineUsers = users.filter(offlineUser => 
                 !onlineUsersList.some(onlineUser => onlineUser.id == offlineUser.id)
             );
@@ -1742,7 +1751,6 @@
             if (isLoggedIn && currentUser) {
                 currentNicknameSpan.textContent = currentUser.nickname;
                 
-                // 显示头像
                 if (currentUser.avatarUrl) {
                     currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl}`;
                     currentAvatarImg.style.display = 'inline';
@@ -1757,10 +1765,8 @@
                 sendButton.disabled = false;
                 uploadButton.disabled = false;
                 fileInput.disabled = false;
-                markdownToolbar.style.display = 'flex';
                 hideAuthModal();
                 
-                // 加载离线用户列表和群组列表
                 loadOfflineUsers();
                 loadUserGroups();
             } else {
@@ -1775,160 +1781,172 @@
                 sendButton.disabled = true;
                 uploadButton.disabled = true;
                 fileInput.disabled = true;
-                markdownToolbar.style.display = 'none';
-                previewArea.style.display = 'none';
+                markdownToolbar.classList.remove('active');
+                markdownToggle.classList.remove('active');
+                markdownEnabled = false;
                 showAuthModal();
             }
         }
     
-        // 监听消息容器的滚动事件
-        messageContainer.addEventListener('scroll', function() {
-            // 当用户手动向上滚动时，禁用自动滚动
-            if (!isScrolledToBottom(this)) {
-                autoScrollEnabled = false;
-            } else {
-                autoScrollEnabled = true;
-            }
-        });
+        // 初始化Markdown编辑器
+        function initializeMarkdownEditor() {
+            // 主聊天室Markdown切换
+            markdownToggle.addEventListener('click', function() {
+                markdownEnabled = !markdownEnabled;
+                this.classList.toggle('active', markdownEnabled);
+                markdownToolbar.classList.toggle('active', markdownEnabled);
+                
+                if (markdownEnabled) {
+                    this.title = '关闭Markdown编辑器';
+                    messageInput.placeholder = '输入Markdown格式文本...';
+                } else {
+                    this.title = '打开Markdown编辑器';
+                    messageInput.placeholder = '输入消息后按回车发送';
+                }
+            });
+            
+            // 群组聊天室Markdown切换
+            groupMarkdownToggle.addEventListener('click', function() {
+                groupMarkdownEnabled = !groupMarkdownEnabled;
+                this.classList.toggle('active', groupMarkdownEnabled);
+                groupMarkdownToolbar.classList.toggle('active', groupMarkdownEnabled);
+                
+                if (groupMarkdownEnabled) {
+                    this.title = '关闭Markdown编辑器';
+                    groupMessageInput.placeholder = '输入Markdown格式文本...';
+                } else {
+                    this.title = '打开Markdown编辑器';
+                    groupMessageInput.placeholder = '输入群组消息后按回车发送';
+                }
+            });
+            
+            // Markdown工具栏按钮事件
+            setupMarkdownToolbar(markdownToolbar, messageInput);
+            setupMarkdownToolbar(groupMarkdownToolbar, groupMessageInput);
+        }
         
-        // 群组消息容器滚动事件
-        groupMessageContainer.addEventListener('scroll', function() {
-            // 当用户手动向上滚动时，禁用自动滚动
-            if (!isScrolledToBottom(this)) {
-                autoScrollEnabled = false;
-            } else {
-                autoScrollEnabled = true;
-            }
-        });
-        
-        // Markdown工具栏按钮事件
-        function setupMarkdownToolbar(toolbar, textarea, previewArea) {
+        // 设置Markdown工具栏
+        function setupMarkdownToolbar(toolbar, textarea) {
             toolbar.querySelectorAll('.markdown-btn').forEach(btn => {
                 btn.addEventListener('click', function() {
-                    const insertText = this.getAttribute('data-insert');
+                    const prefix = this.getAttribute('data-prefix') || '';
+                    const suffix = this.getAttribute('data-suffix') || '';
+                    
                     const start = textarea.selectionStart;
                     const end = textarea.selectionEnd;
                     const selectedText = textarea.value.substring(start, end);
+                    const textToInsert = prefix + selectedText + suffix;
                     
-                    let newText = insertText;
-                    
-                    // 处理选中的文本
-                    if (selectedText) {
-                        if (insertText.includes('**')) {
-                            newText = `**${selectedText}**`;
-                        } else if (insertText.includes('_')) {
-                            newText = `_${selectedText}_`;
-                        } else if (insertText.includes('`') && !insertText.includes('```')) {
-                            newText = `\`${selectedText}\``;
-                        } else if (insertText.includes('>')) {
-                            newText = `> ${selectedText}`;
-                        } else if (insertText.includes('#')) {
-                            newText = `# ${selectedText}`;
-                        } else if (insertText.includes('-')) {
-                            newText = `- ${selectedText}`;
-                        }
-                    }
-                    
-                    textarea.value = textarea.value.substring(0, start) + newText + textarea.value.substring(end);
+                    textarea.value = textarea.value.substring(0, start) + textToInsert + textarea.value.substring(end);
                     textarea.focus();
-                    textarea.setSelectionRange(start + newText.length, start + newText.length);
                     
-                    // 更新预览
-                    updatePreview(textarea, previewArea);
+                    const newCursorPos = start + prefix.length + selectedText.length;
+                    textarea.setSelectionRange(newCursorPos, newCursorPos);
                 });
             });
         }
         
-        // 更新Markdown预览
-        function updatePreview(textarea, previewArea) {
-            if (showPreview) {
-                const markdownText = textarea.value;
-                const htmlContent = marked.parse(markdownText);
-                previewArea.innerHTML = htmlContent;
-            }
+        // 自动调整输入框高度
+        function autoResizeTextarea(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = textarea.scrollHeight + 'px';
         }
         
-        // 切换预览显示
-        function togglePreview(textarea, previewArea, toggleBtn) {
-            showPreview = !showPreview;
-            if (showPreview) {
-                previewArea.style.display = 'block';
-                toggleBtn.textContent = '隐藏预览';
-                updatePreview(textarea, previewArea);
-            } else {
-                previewArea.style.display = 'none';
-                toggleBtn.textContent = '预览';
-            }
-        }
-        
-        // 初始化Markdown工具栏
-        setupMarkdownToolbar(markdownToolbar, messageInput, previewArea);
-        setupMarkdownToolbar(groupMarkdownToolbar, groupMessageInput, groupPreviewArea);
-        
-        // 预览切换事件
-        togglePreviewBtn.addEventListener('click', function() {
-            togglePreview(messageInput, previewArea, this);
-        });
-        
-        groupTogglePreviewBtn.addEventListener('click', function() {
-            togglePreview(groupMessageInput, groupPreviewArea, this);
-        });
-        
-        // 输入框内容变化时更新预览
         messageInput.addEventListener('input', function() {
-            updatePreview(this, previewArea);
+            autoResizeTextarea(this);
         });
         
         groupMessageInput.addEventListener('input', function() {
-            updatePreview(this, groupPreviewArea);
+            autoResizeTextarea(this);
         });
         
+        // 初始化Markdown编辑器
+        initializeMarkdownEditor();
+        
+        // 监听消息容器的滚动事件
+        messageContainer.addEventListener('scroll', function() {
+            if (!isScrolledToBottom(this)) {
+                autoScrollEnabled = false;
+            } else {
+                autoScrollEnabled = true;
+            }
+        });
+        
+        groupMessageContainer.addEventListener('scroll', function() {
+            if (!isScrolledToBottom(this)) {
+                autoScrollEnabled = false;
+            } else {
+                autoScrollEnabled = true;
+            }
+        });
+        
+        function sendUserJoinedEvent() {
+            if (!currentUser || !currentSessionToken) {
+                console.error('❌ 无法发送用户加入事件: 用户信息不完整');
+                return;
+            }
+            
+            console.log('📤 发送用户加入事件:', {
+                userId: currentUser.id,
+                nickname: currentUser.nickname,
+                sessionToken: currentSessionToken ? `${currentSessionToken.substring(0, 10)}...` : 'undefined'
+            });
+            
+            socket.emit('user-joined', {
+                userId: currentUser.id,
+                nickname: currentUser.nickname,
+                avatarUrl: currentUser.avatarUrl,
+                sessionToken: currentSessionToken
+            });
+        }
+        
         // Socket.IO 事件处理
+        // 在 Socket.IO 连接成功后，修复用户加入事件的数据格式
         socket.on('connect', () => {
-            console.log('已连接到服务器');
+            console.log('✅ 已成功连接到服务器');
             updateConnectionStatus('connected', '已连接');
             isConnected = true;
             
             // 重置历史消息标记
             hasReceivedHistory = false;
             
-            // 如果有保存的用户信息，发送给服务器
+            // 如果有用户信息且已登录，发送用户加入事件
             if (currentUser && currentSessionToken) {
-                socket.emit('user-joined', {
-                    id: currentUser.id,
-                    nickname: currentUser.nickname,
-                    avatarUrl: currentUser.avatarUrl,
-                    sessionToken: currentSessionToken
-                });
+                console.log('🔗 连接建立，自动发送用户加入事件');
+                sendUserJoinedEvent();
             }
         });
-    
-        socket.on('disconnect', () => {
-            console.log('与服务器断开连接');
-            updateConnectionStatus('disconnected', '已断开');
-            isConnected = false;
-            
-            // 禁用输入框和按钮
-            messageInput.disabled = true;
-            sendButton.disabled = true;
-            groupMessageInput.disabled = true;
-            sendGroupMessageBtn.disabled = true;
+        
+        socket.on('connecting', () => {
+            console.log('🔄 正在连接服务器...');
+            updateConnectionStatus('connecting', '连接中...');
         });
-    
-        socket.on('reconnect', () => {
-            console.log('重新连接到服务器');
+        
+        socket.on('reconnect', (attemptNumber) => {
+            console.log(`✅ 第${attemptNumber}次重新连接成功`);
             updateConnectionStatus('connected', '已重新连接');
-            isConnected = true;
             
-            // 重新发送用户信息
+            // 重新发送用户加入事件
             if (currentUser && currentSessionToken) {
-                socket.emit('user-joined', {
-                    id: currentUser.id,
-                    nickname: currentUser.nickname,
-                    avatarUrl: currentUser.avatarUrl,
-                    sessionToken: currentSessionToken
-                });
+                console.log('🔄 重新连接后发送用户加入事件');
+                sendUserJoinedEvent();
             }
+        });
+    
+        socket.on('disconnect', (reason) => {
+            console.log('❌ 与服务器断开连接, 原因:', reason);
+            updateConnectionStatus('disconnected', `已断开: ${reason}`);
+            isConnected = false;
+        });
+        
+        socket.on('connect_error', (error) => {
+            console.error('连接错误:', error);
+            updateConnectionStatus('error', `连接错误: ${error.message}`);
+        });
+        
+        socket.on('reconnect', (attemptNumber) => {
+            console.log(`✅ 第${attemptNumber}次重新连接到服务器`);
+            updateConnectionStatus('connected', '已重新连接');
         });
     
         socket.on('users-updated', (users) => {
@@ -1936,49 +1954,39 @@
         });
     
         socket.on('message-received', (message) => {
-            // 使用宽松相等比较，因为ID可能是字符串或数字
             const isOwn = currentUser && message.userId == currentUser.id;
             
-            // 如果是群组消息且当前正在查看该群组
             if (message.groupId && currentGroupId && message.groupId == currentGroupId) {
                 addMessage(message, isOwn, true);
-            } 
-            // 如果是全局消息且当前在主聊天室
-            else if (!message.groupId && mainChat.style.display !== 'none') {
+            } else if (!message.groupId && mainChat.style.display !== 'none') {
                 addMessage(message, isOwn, false);
             }
         });
         
         // 群组创建事件
         socket.on('group-created', (data) => {
-            // 刷新群组列表
             loadUserGroups();
         });
     
         socket.on('message-deleted', (messageId) => {
-            // 在主聊天室中删除消息
             const messageElement = document.querySelector(`#messageContainer .message[data-message-id="${messageId}"]`);
             if (messageElement) {
                 messageElement.remove();
                 
-                // 更新消息计数
                 if (messageCount) {
                     const count = messageContainer.querySelectorAll('.message').length;
                     messageCount.textContent = `消息数量: ${count}`;
                 }
                 
-                // 如果没有消息了，显示空状态
                 if (messageContainer.querySelectorAll('.message').length === 0) {
                     emptyState.style.display = 'block';
                 }
             }
             
-            // 在群组聊天中删除消息
             const groupMessageElement = document.querySelector(`#groupMessageContainer .message[data-message-id="${messageId}"]`);
             if (groupMessageElement) {
                 groupMessageElement.remove();
                 
-                // 如果没有消息了，显示空状态
                 if (groupMessageContainer.querySelectorAll('.message').length === 0) {
                     groupMessageContainer.innerHTML = `
                         <div class="empty-state">
@@ -1997,7 +2005,6 @@
         });
     
         socket.on('chat-history', (messages) => {
-            // 防止重复加载历史消息
             if (hasReceivedHistory) {
                 return;
             }
@@ -2009,28 +2016,19 @@
                 return;
             }
             
-            // 清空消息容器，防止重复消息
             messageContainer.innerHTML = '';
             emptyState.style.display = 'none';
             
             messages.forEach(message => {
-                // 渲染历史消息的Markdown
-                if (message.content && !message.imageUrl) {
-                    message.content = marked.parse(message.content);
-                }
-                
-                // 使用宽松相等比较，因为ID可能是字符串或数字
                 const isOwn = currentUser && message.userId == currentUser.id;
                 addMessage(message, isOwn, false);
             });
             
-            // 更新消息计数
             if (messageCount) {
                 const count = messages.length;
                 messageCount.textContent = `消息数量: ${count}`;
             }
             
-            // 加载历史消息后自动滚动到底部
             scrollToBottom(messageContainer);
         });
         
@@ -2049,16 +2047,10 @@
             }
             
             data.messages.forEach(message => {
-                // 渲染历史消息的Markdown
-                if (message.content && !message.imageUrl) {
-                    message.content = marked.parse(message.content);
-                }
-                
                 const isOwn = currentUser && message.userId == currentUser.id;
                 addMessage(message, isOwn, true);
             });
             
-            // 加载历史消息后自动滚动到底部
             scrollToBottom(groupMessageContainer);
         });
     
@@ -2067,14 +2059,11 @@
                 currentUser.nickname = data.newNickname;
                 currentNicknameSpan.textContent = data.newNickname;
                 
-                // 更新本地存储
                 localStorage.setItem('chatUserNickname', data.newNickname);
             }
             
-            // 更新消息中的昵称显示
             updateMessageNickname(data.userId, data.newNickname);
             
-            // 刷新离线用户列表
             if (currentUser) {
                 loadOfflineUsers();
             }
@@ -2116,6 +2105,10 @@
                 return;
             }
             
+            // 禁用登录按钮防止重复点击
+            loginButton.disabled = true;
+            loginButton.textContent = '登录中...';
+            
             fetch(`${SERVER_URL}/login`, {
                 method: 'POST',
                 headers: {
@@ -2141,30 +2134,46 @@
                         localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
                     }
                     
+                    console.log('✅ 登录成功:', {
+                        userId: currentUser.id,
+                        nickname: currentUser.nickname,
+                        sessionToken: currentSessionToken ? `${currentSessionToken.substring(0, 10)}...` : 'undefined'
+                    });
+                    
                     // 更新界面状态
                     updateLoginState(true);
                     
-                    // 发送用户加入事件
-                    if (isConnected) {
-                        socket.emit('user-joined', {
-                            id: currentUser.id,
-                            nickname: currentUser.nickname,
-                            avatarUrl: currentUser.avatarUrl,
-                            sessionToken: currentSessionToken
-                        });
-                    }
-                    
                     // 检查存储状态
                     checkStorageStatus();
+                    
+                    // 如果Socket已连接，立即发送用户加入事件
+                    if (isConnected) {
+                        console.log('🔗 Socket已连接，立即发送用户加入事件');
+                        sendUserJoinedEvent();
+                    } else {
+                        console.log('⏳ Socket未连接，等待连接建立');
+                        // 设置连接监听，连接成功后发送用户加入事件
+                        const connectionListener = () => {
+                            console.log('🔗 Socket连接建立，发送用户加入事件');
+                            sendUserJoinedEvent();
+                            socket.off('connect', connectionListener);
+                        };
+                        socket.on('connect', connectionListener);
+                    }
+                    
                 } else {
                     loginMessage.textContent = data.message;
                     loginMessage.style.display = 'block';
+                    loginButton.disabled = false;
+                    loginButton.textContent = '登录';
                 }
             })
             .catch(error => {
                 console.error('登录错误:', error);
                 loginMessage.textContent = '登录失败，请重试';
                 loginMessage.style.display = 'block';
+                loginButton.disabled = false;
+                loginButton.textContent = '登录';
             });
         });
     
@@ -2190,14 +2199,12 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    // 设置注册记录cookie
                     setCookie('hasRegistered', 'true', 365);
                     
                     registerMessage.textContent = '注册成功，请登录';
                     registerMessage.style.color = 'green';
                     registerMessage.style.display = 'block';
                     
-                    // 切换到登录标签
                     setTimeout(() => {
                         loginTab.click();
                         loginUsername.value = username;
@@ -2269,24 +2276,19 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    // 更新当前用户头像
                     currentUser.avatarUrl = data.avatarUrl;
                     currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
                     currentAvatarImg.style.display = 'inline';
                     
-                    // 更新本地存储
                     localStorage.setItem('chatUserAvatar', data.avatarUrl);
                     
-                    // 更新消息中的头像
                     updateMessageAvatar(currentUser.id, data.avatarUrl);
                     
                     avatarMessage.textContent = `头像上传成功。${data.storageInfo}`;
                     avatarMessage.style.color = 'green';
                     
-                    // 更新存储状态
                     checkStorageStatus();
                     
-                    // 3秒后关闭模态框
                     setTimeout(() => {
                         hideAvatarModal();
                     }, 3000);
@@ -2304,7 +2306,6 @@
     
         // 更新消息中的头像
         function updateMessageAvatar(userId, avatarUrl) {
-            // 更新主聊天室消息
             const messages = document.querySelectorAll(`#messageContainer .message[data-user-id="${userId}"]`);
             messages.forEach(message => {
                 const avatarElement = message.querySelector('.message-avatar');
@@ -2322,7 +2323,6 @@
                 }
             });
             
-            // 更新群组消息
             const groupMessages = document.querySelectorAll(`#groupMessageContainer .message[data-user-id="${userId}"]`);
             groupMessages.forEach(message => {
                 const avatarElement = message.querySelector('.message-avatar');
@@ -2349,7 +2349,6 @@
             const groupName = groupNameInput.value.trim();
             const description = groupDescriptionInput.value.trim();
             
-            // 获取选中的成员
             const selectedMembers = [];
             document.querySelectorAll('.member-checkbox:checked').forEach(checkbox => {
                 selectedMembers.push(checkbox.value);
@@ -2387,17 +2386,14 @@
                     createGroupMessage.textContent = '群组创建成功';
                     createGroupMessage.style.color = 'green';
                     
-                    // 更新群组列表
                     loadUserGroups();
                     
-                    // 清空表单
                     groupNameInput.value = '';
                     groupDescriptionInput.value = '';
                     document.querySelectorAll('.member-checkbox').forEach(checkbox => {
                         checkbox.checked = false;
                     });
                     
-                    // 3秒后关闭模态框
                     setTimeout(() => {
                         hideCreateGroupModal();
                     }, 3000);
@@ -2423,11 +2419,9 @@
             localStorage.removeItem('chatSessionToken');
             updateLoginState(false);
             
-            // 清空消息列表
             messageContainer.innerHTML = '';
             emptyState.style.display = 'block';
             
-            // 清空群组消息列表
             groupMessageContainer.innerHTML = `
                 <div class="empty-state">
                     <h3>暂无消息</h3>
@@ -2435,13 +2429,11 @@
                 </div>
             `;
             
-            // 清空用户列表
             userList.innerHTML = '<li>暂无在线用户</li>';
             onlineCount.textContent = '(0)';
             totalOnlineCount.textContent = '0';
             onlineUsersList = [];
             
-            // 返回主聊天室
             backToMainChat();
         }
     
@@ -2451,13 +2443,19 @@
         // 发送消息
         sendButton.addEventListener('click', sendMessage);
         messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendMessage();
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
         });
         
         // 发送群组消息
         sendGroupMessageBtn.addEventListener('click', sendGroupMessage);
         groupMessageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendGroupMessage();
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendGroupMessage();
+            }
         });
     
         // 上传图片按钮事件
@@ -2465,7 +2463,6 @@
             fileInput.click();
         });
         
-        // 群组上传图片按钮事件
         groupUploadButton.addEventListener('click', () => {
             groupFileInput.click();
         });
@@ -2523,9 +2520,7 @@
             });
     
             messageInput.value = '';
-            previewArea.style.display = 'none';
-            togglePreviewBtn.textContent = '预览';
-            showPreview = false;
+            autoResizeTextarea(messageInput);
         }
         
         // 发送群组消息
@@ -2541,9 +2536,7 @@
             });
     
             groupMessageInput.value = '';
-            groupPreviewArea.style.display = 'none';
-            groupTogglePreviewBtn.textContent = '预览';
-            showPreview = false;
+            autoResizeTextarea(groupMessageInput);
         }
     
         // 上传图片
@@ -2553,7 +2546,6 @@
                 return;
             }
     
-            // 检查文件大小（限制为5MB）
             if (file.size > 5 * 1024 * 1024) {
                 alert('图片大小不能超过5MB');
                 return;
@@ -2567,7 +2559,6 @@
                 formData.append('groupId', currentGroupId);
             }
     
-            // 显示上传进度
             uploadProgress.style.display = 'block';
             let progress = 0;
             const interval = setInterval(() => {
@@ -2576,7 +2567,6 @@
                 uploadProgressBar.style.width = `${progress}%`;
             }, 100);
     
-            // 使用fetch API上传文件
             fetch(`${SERVER_URL}/upload`, {
                 method: 'POST',
                 headers: {
@@ -2625,7 +2615,6 @@
             currentSessionToken = savedSessionToken;
             updateLoginState(true);
             
-            // 如果已连接，发送用户加入事件
             if (isConnected) {
                 socket.emit('user-joined', {
                     id: currentUser.id,
