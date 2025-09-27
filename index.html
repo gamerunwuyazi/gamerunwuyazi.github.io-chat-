@@ -817,11 +817,17 @@
             margin-left: 5px;
         }
         
-        /* 群组聊天界面 */
+        /* 群组聊天界面 - 修复CSS显示问题 */
         #groupChat {
             display: none;
             flex-direction: column;
-            height: 100%;
+            height: 100vh;
+            width: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            background: white;
+            z-index: 100;
         }
         
         .group-header {
@@ -832,6 +838,7 @@
             align-items: center;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             min-height: 50px;
+            width: 100%;
         }
         
         #backToMain {
@@ -842,12 +849,57 @@
             border-radius: 15px;
             cursor: pointer;
             margin-right: 15px;
+            font-size: 14px;
+        }
+        
+        #backToMain:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .group-chat-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            height: calc(100vh - 50px);
+        }
+        
+        .group-sidebar {
+            width: 200px;
+            background-color: #f8f9fa;
+            border-right: 1px solid #ddd;
+            padding: 15px;
+            overflow-y: auto;
+        }
+        
+        .group-chat-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        /* 修复群组消息容器 */
+        #groupMessageContainer {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .group-input-area {
+            padding: 12px 15px;
+            background-color: white;
+            border-top: 1px solid #ddd;
+            display: flex;
+            gap: 10px;
+            align-items: center;
         }
     </style>
 </head>
 <body>
-    <!-- 原有HTML结构保持不变 -->
-<!-- 登录/注册模态框 -->
+    <!-- 登录/注册模态框 -->
     <div id="authModal" class="modal">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
@@ -855,7 +907,6 @@
                 <div class="modal-tab active" id="loginTab">登录</div>
                 <div class="modal-tab" id="registerTab">注册</div>
             </div>
-            <div>因维护注册信息已删除，请重新注册</div>
             
             <div class="modal-form active" id="loginForm">
                 <h3>登录聊天室</h3>
@@ -940,24 +991,29 @@
         </div>
 
         <div class="container">
+            <!-- 修复侧边栏：删除多余容器，直接显示群组列表 -->
             <div class="sidebar" id="sidebar">
                 <button class="toggle-sidebar" id="toggleSidebar">
                     ☰ <span class="toggle-sidebar-text">收起用户列表</span>
                 </button>
-                <div class="online-users-content">
+                
+                <div class="online-users">
                     <h3>在线用户 <span id="onlineCount">(0)</span></h3>
                     <ul class="user-list" id="userList">
                         <li>暂无在线用户</li>
                     </ul>
                 </div>
-                <div class="offline-users-content">
-                    <h3>离线用户 ▼</h3>
+                
+                <div class="offline-users">
+                    <h3>离线用户 <span class="toggle-section">▼</span></h3>
                     <ul class="user-list" id="offlineUserList">
                         <li>暂无离线用户</li>
                     </ul>
                 </div>
+                
+                <!-- 修复群组列表：删除多余容器，直接显示群组 -->
                 <div class="group-section">
-                    <h3>我的群组 ▼</h3>
+                    <h3>我的群组 <span class="toggle-section">▼</span></h3>
                     <ul class="user-list" id="groupList">
                         <li>暂无群组</li>
                     </ul>
@@ -967,14 +1023,14 @@
             <div class="chat-main">
                 <!-- Markdown工具栏 -->
                 <div class="markdown-toolbar" id="markdownToolbar">
-                    <button class="markdown-btn" data-prefix="**" data-suffix="**">粗体</button>
-                    <button class="markdown-btn" data-prefix="_" data-suffix="_">斜体</button>
-                    <button class="markdown-btn" data-prefix="`" data-suffix="`">代码</button>
-                    <button class="markdown-btn" data-prefix="```\n" data-suffix="\n```">代码块</button>
-                    <button class="markdown-btn" data-prefix="# ">标题</button>
-                    <button class="markdown-btn" data-prefix="- ">列表</button>
-                    <button class="markdown-btn" data-prefix="> ">引用</button>
-                    <button class="markdown-btn" data-prefix="[链接](" data-suffix=")">链接</button>
+                    <button class="markdown-btn" data-prefix="**" data-suffix="**" data-sample="粗体文本">粗体</button>
+                    <button class="markdown-btn" data-prefix="_" data-suffix="_" data-sample="斜体文本">斜体</button>
+                    <button class="markdown-btn" data-prefix="`" data-suffix="`" data-sample="代码">代码</button>
+                    <button class="markdown-btn" data-prefix="```\n" data-suffix="\n```" data-sample="代码块">代码块</button>
+                    <button class="markdown-btn" data-prefix="# " data-sample="标题">标题</button>
+                    <button class="markdown-btn" data-prefix="- " data-sample="列表项">列表</button>
+                    <button class="markdown-btn" data-prefix="> " data-sample="引用文本">引用</button>
+                    <button class="markdown-btn" data-prefix="[链接](" data-suffix=")" data-sample="链接文本">链接</button>
                 </div>
                 
                 <div id="messageContainer">
@@ -1013,32 +1069,32 @@
         </div>
     </div>
 
-    <!-- 群组聊天界面 -->
+    <!-- 群组聊天界面 - 修复CSS显示 -->
     <div id="groupChat">
         <div class="group-header">
-            <button id="backToMain">← 返回</button>
+            <button id="backToMain">← 返回主聊天室</button>
             <h1 id="groupTitle">群组聊天</h1>
         </div>
         
-        <div class="container">
-            <div class="sidebar">
+        <div class="group-chat-container">
+            <div class="group-sidebar">
                 <h3>群组成员</h3>
                 <ul class="user-list" id="groupMemberList">
                     <li>加载中...</li>
                 </ul>
             </div>
             
-            <div class="chat-main">
+            <div class="group-chat-main">
                 <!-- 群组Markdown工具栏 -->
                 <div class="markdown-toolbar" id="groupMarkdownToolbar">
-                    <button class="markdown-btn" data-prefix="**" data-suffix="**">粗体</button>
-                    <button class="markdown-btn" data-prefix="_" data-suffix="_">斜体</button>
-                    <button class="markdown-btn" data-prefix="`" data-suffix="`">代码</button>
-                    <button class="markdown-btn" data-prefix="```\n" data-suffix="\n```">代码块</button>
-                    <button class="markdown-btn" data-prefix="# ">标题</button>
-                    <button class="markdown-btn" data-prefix="- ">列表</button>
-                    <button class="markdown-btn" data-prefix="> ">引用</button>
-                    <button class="markdown-btn" data-prefix="[链接](" data-suffix=")">链接</button>
+                    <button class="markdown-btn" data-prefix="**" data-suffix="**" data-sample="粗体文本">粗体</button>
+                    <button class="markdown-btn" data-prefix="_" data-suffix="_" data-sample="斜体文本">斜体</button>
+                    <button class="markdown-btn" data-prefix="`" data-suffix="`" data-sample="代码">代码</button>
+                    <button class="markdown-btn" data-prefix="```\n" data-suffix="\n```" data-sample="代码块">代码块</button>
+                    <button class="markdown-btn" data-prefix="# " data-sample="标题">标题</button>
+                    <button class="markdown-btn" data-prefix="- " data-sample="列表项">列表</button>
+                    <button class="markdown-btn" data-prefix="> " data-sample="引用文本">引用</button>
+                    <button class="markdown-btn" data-prefix="[链接](" data-suffix=")" data-sample="链接文本">链接</button>
                 </div>
                 
                 <div id="groupMessageContainer">
@@ -1048,7 +1104,7 @@
                     </div>
                 </div>
                 
-                <div class="input-area">
+                <div class="group-input-area">
                     <div class="markdown-editor-container">
                         <textarea id="groupMessageInput" placeholder="输入群组消息..." disabled></textarea>
                         <button class="markdown-toggle" id="groupMarkdownToggle" title="切换Markdown编辑器">MD</button>
@@ -1066,7 +1122,6 @@
             </div>
         </div>
     </div>
-    
 
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -1171,24 +1226,21 @@
                 .replace(/'/g, "&#039;");
         }
     
-        // 修复2：处理服务器返回的已解析HTML（移除引号和多余包装）
+        // 修复2：处理服务器返回的已解析HTML
         function safeMarkdownParse(content) {
             if (!content) return '';
-            
-            console.log('原始内容:', content);
             
             // 如果内容已经是HTML格式（包含标签），直接返回
             if (content.includes('<') && content.includes('>')) {
                 // 移除可能包裹的引号
                 let cleanedContent = content.replace(/^"|"$/g, '');
-                // 移除多余的<p>包装:cite[1]:cite[6]
+                // 移除多余的<p>包装
                 cleanedContent = cleanedContent.replace(/^<p>|<\/p>$/g, '');
                 cleanedContent = cleanedContent.replace(/<p><br><\/p>/g, '<br>');
-                console.log('清理后内容:', cleanedContent);
                 return cleanedContent;
             }
             
-            // 如果是纯文本，使用marked解析（如果需要）
+            // 如果是纯文本，使用marked解析
             if (typeof marked !== 'undefined') {
                 try {
                     marked.setOptions({
@@ -1216,13 +1268,24 @@
             if (!element || !(element instanceof Element)) return;
             element.textContent = text !== null && text !== undefined ? String(text) : '';
         }
-    
-        function safeSetAttribute(element, attr, value) {
-            if (!element || !(element instanceof Element) || !attr) return;
-            element.setAttribute(attr, value !== null && value !== undefined ? String(value) : '');
+        
+        function startAutoRefresh() {
+          // 每30秒检查一次在线用户
+          setInterval(() => {
+            if (isConnected && currentUser) {
+              socket.emit('get-online-users');
+            }
+          }, 30000);
+          
+          // 每60秒检查一次存储状态
+          setInterval(() => {
+            if (currentUser) {
+              checkStorageStatus();
+            }
+          }, 60000);
         }
     
-        // 修复4：更新用户列表函数 - 确保正确显示所有用户
+        // 修复4：更新用户列表函数
         function updateUserList(users) {
             console.log('🔄 更新用户列表，数据:', users);
             
@@ -1264,7 +1327,7 @@
                 
                 // 用户头像
                 const avatarHtml = user.avatarUrl ? 
-                    `<img src="${SERVER_URL}${user.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px;">` : 
+                    `<img src="${SERVER_URL}${user.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">` : 
                     '';
                 
                 // 用户信息
@@ -1335,7 +1398,67 @@
             });
         }
     
-        // 修复7：模态框事件绑定函数
+        // 修复7：Markdown工具栏功能
+        function initializeMarkdownToolbar() {
+            // 主聊天室Markdown工具栏
+            const markdownButtons = markdownToolbar.querySelectorAll('.markdown-btn');
+            markdownButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const prefix = this.getAttribute('data-prefix') || '';
+                    const suffix = this.getAttribute('data-suffix') || '';
+                    const sample = this.getAttribute('data-sample') || '示例文本';
+                    
+                    insertMarkdownSyntax(messageInput, prefix, suffix, sample);
+                });
+            });
+            
+            // 群组聊天室Markdown工具栏
+            const groupMarkdownButtons = groupMarkdownToolbar.querySelectorAll('.markdown-btn');
+            groupMarkdownButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const prefix = this.getAttribute('data-prefix') || '';
+                    const suffix = this.getAttribute('data-suffix') || '';
+                    const sample = this.getAttribute('data-sample') || '示例文本';
+                    
+                    insertMarkdownSyntax(groupMessageInput, prefix, suffix, sample);
+                });
+            });
+            
+            // Markdown切换按钮
+            markdownToggle.addEventListener('click', function() {
+                markdownEnabled = !markdownEnabled;
+                this.classList.toggle('active', markdownEnabled);
+                markdownToolbar.classList.toggle('active', markdownEnabled);
+            });
+            
+            groupMarkdownToggle.addEventListener('click', function() {
+                groupMarkdownEnabled = !groupMarkdownEnabled;
+                this.classList.toggle('active', groupMarkdownEnabled);
+                groupMarkdownToolbar.classList.toggle('active', groupMarkdownEnabled);
+            });
+        }
+        
+        function insertMarkdownSyntax(textarea, prefix, suffix, sample) {
+            if (!textarea) return;
+            
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const selectedText = textarea.value.substring(start, end);
+            const textToInsert = selectedText || sample;
+            
+            const newText = prefix + textToInsert + suffix;
+            textarea.value = textarea.value.substring(0, start) + newText + textarea.value.substring(end);
+            
+            // 设置光标位置
+            const newCursorPos = start + prefix.length + textToInsert.length;
+            textarea.setSelectionRange(newCursorPos, newCursorPos);
+            textarea.focus();
+            
+            // 自动调整高度
+            autoResizeTextarea(textarea);
+        }
+    
+        // 修复8：模态框事件绑定函数
         function initializeModalEvents() {
             console.log('初始化模态框事件');
             
@@ -1511,7 +1634,7 @@
             });
         }
     
-        // 修复8：显示/隐藏模态框函数
+        // 修复9：显示/隐藏模态框函数
         function showNicknameModal() {
             nicknameModal.style.display = 'flex';
             if (currentUser) {
@@ -1548,7 +1671,8 @@
             });
             createGroupMessage.textContent = '';
         }
-        // 修复9：群组相关功能
+        
+        // 修复10：群组相关功能
         function loadUserGroups() {
             if (!currentUser || !currentSessionToken) {
                 console.log('未登录，无法加载群组列表');
@@ -1580,32 +1704,57 @@
         }
     
         function updateGroupList(groups) {
-            console.log('更新群组列表，数据:', groups);
-            
             if (!groupList) {
-                console.error('groupList元素未找到');
+                console.error('groupList元素未找到，检查HTML结构');
                 return;
             }
             
+            console.log('更新群组列表，接收到的数据:', groups);
+            
+            // 清空现有内容
             groupList.innerHTML = '';
             
-            if (!groups || !Array.isArray(groups) || groups.length === 0) {
-                groupList.innerHTML = '<li>暂无群组</li>';
+            // 检查数据有效性
+            if (!groups || !Array.isArray(groups)) {
+                groupList.innerHTML = '<li>群组数据无效</li>';
                 return;
             }
             
-            groups.forEach(group => {
+            if (groups.length === 0) {
+                groupList.innerHTML = '<li>暂无群组，点击"创建群组"开始聊天</li>';
+                return;
+            }
+            
+            // 正确使用map函数渲染列表
+            groups.forEach((group, index) => {
                 const li = document.createElement('li');
-                li.style.padding = '8px 0';
-                li.style.borderBottom = '1px solid #f1f1f1';
+                li.style.padding = '10px';
+                li.style.borderBottom = '1px solid #eee';
                 li.style.cursor = 'pointer';
+                li.style.transition = 'background-color 0.2s';
                 
+                // 确保数据存在
                 const groupName = group.name || '未命名群组';
-                const groupId = group.id ? String(group.id) : '';
+                const groupId = group.id ? String(group.id) : `temp-${index}`;
                 
-                li.textContent = groupName;
+                li.innerHTML = `
+                    <div style="display: flex; align-items: center;">
+                        <span style="margin-right: 8px;">💬</span>
+                        <span>${escapeHtml(groupName)}</span>
+                    </div>
+                `;
+                
                 li.setAttribute('data-group-id', groupId);
                 li.setAttribute('data-group-name', groupName);
+                
+                // 添加交互效果
+                li.addEventListener('mouseenter', function() {
+                    this.style.backgroundColor = '#f5f5f5';
+                });
+                
+                li.addEventListener('mouseleave', function() {
+                    this.style.backgroundColor = '';
+                });
                 
                 li.addEventListener('click', function() {
                     const groupId = this.getAttribute('data-group-id');
@@ -1614,19 +1763,10 @@
                     showGroupChat(groupId, groupName);
                 });
                 
-                li.addEventListener('mouseenter', function() {
-                    this.style.backgroundColor = '#f1f1f1';
-                    this.style.borderRadius = '4px';
-                });
-                
-                li.addEventListener('mouseleave', function() {
-                    this.style.backgroundColor = '';
-                });
-                
                 groupList.appendChild(li);
             });
             
-            console.log('群组列表更新完成，共', groups.length, '个群组');
+            console.log(`群组列表更新完成，共渲染 ${groups.length} 个群组`);
         }
     
         function loadAllUsers() {
@@ -1713,6 +1853,7 @@
             groupMessageInput.placeholder = '输入群组消息后按回车发送';
             sendGroupMessageBtn.disabled = false;
             groupUploadButton.disabled = false;
+            groupFileInput.disabled = false;
         }
     
         function loadGroupMembers(groupId) {
@@ -1757,7 +1898,7 @@
                 li.style.alignItems = 'center';
                 
                 const avatarHtml = member.avatarUrl ? 
-                    `<img src="${SERVER_URL}${member.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px;">` : 
+                    `<img src="${SERVER_URL}${member.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">` : 
                     '';
                 
                 if (member.id == currentUser.id) {
@@ -1783,9 +1924,10 @@
             groupMessageInput.placeholder = '请先加入群组';
             sendGroupMessageBtn.disabled = true;
             groupUploadButton.disabled = true;
+            groupFileInput.disabled = true;
         }
     
-        // 修复10：消息处理函数
+        // 修复11：消息处理函数
         function addMessage(message, isOwn = false, isGroup = false) {
             const targetContainer = isGroup ? groupMessageContainer : messageContainer;
             const targetEmptyState = isGroup ? groupMessageContainer.querySelector('.empty-state') : emptyState;
@@ -1855,7 +1997,7 @@
             scrollToBottom(targetContainer);
         }
     
-        // 修复11：连接状态和存储状态
+        // 修复12：连接状态和存储状态
         function updateConnectionStatus(status, message) {
             if (!connectionStatus) return;
             
@@ -1890,8 +2032,20 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    storageStatus.textContent = `存储状态: ${data.storageInfo.message}`;
-                    storageStatus.style.color = data.storageInfo.full ? '#e74c3c' : '#27ae60';
+                    // 修复存储空间显示问题
+                    const storageInfo = data.storageInfo;
+                    let displayText = '';
+                    
+                    if (storageInfo.sizeInGB) {
+                        displayText = `存储: ${storageInfo.sizeInGB}GB/5GB`;
+                    } else if (storageInfo.size) {
+                        displayText = `存储: ${storageInfo.size.toFixed(2)}MB/5000MB`;
+                    } else {
+                        displayText = storageInfo.message || '存储状态未知';
+                    }
+                    
+                    storageStatus.textContent = `存储状态: ${displayText}`;
+                    storageStatus.style.color = storageInfo.full ? '#e74c3c' : '#27ae60';
                 } else {
                     storageStatus.textContent = '存储状态: 获取失败';
                     storageStatus.style.color = '#e74c3c';
@@ -1904,7 +2058,7 @@
             });
         }
     
-        // 修复12：辅助函数
+        // 修复13：辅助函数
         function formatTime(timestamp) {
             const date = new Date(timestamp);
             return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
@@ -1949,7 +2103,7 @@
             toggleSidebarText.textContent = isSidebarCollapsed ? '展开用户列表' : '收起用户列表';
         }
     
-        // 修复13：登录状态管理
+        // 修复14：登录状态管理
         function updateLoginState(isLoggedIn) {
             if (isLoggedIn && currentUser) {
                 safeSetTextContent(currentNicknameSpan, currentUser.nickname);
@@ -1976,9 +2130,14 @@
                 loadUserGroups();
                 checkStorageStatus();
                 
-                // 如果已连接，请求用户列表
-                if (isConnected) {
-                    socket.emit('get-online-users');
+                // 如果已连接，立即加入聊天室
+                if (isConnected && socket) {
+                    socket.emit('user-joined', {
+                        userId: currentUser.id,
+                        nickname: currentUser.nickname,
+                        avatarUrl: currentUser.avatarUrl,
+                        sessionToken: currentSessionToken
+                    });
                 }
                 
             } else {
@@ -2021,7 +2180,7 @@
             backToMainChat();
         }
     
-        // 修复14：消息发送函数
+        // 修复15：消息发送函数
         function sendMessage() {
             const content = messageInput.value.trim();
             if (!content || !currentUser || !isConnected || !currentSessionToken) {
@@ -2061,7 +2220,7 @@
             autoResizeTextarea(groupMessageInput);
         }
     
-        // 修复15：Socket.IO事件处理
+        // 修复16：Socket.IO事件处理
         const socket = io(SERVER_URL, {
             transports: ['websocket', 'polling'],
             reconnection: true,
@@ -2071,22 +2230,23 @@
         });
     
         socket.on('connect', () => {
-            console.log('✅ 已成功连接到服务器');
-            isConnected = true;
-            updateConnectionStatus('connected', '已连接');
-            checkStorageStatus();
+          console.log('✅ 已成功连接到服务器');
+          isConnected = true;
+          updateConnectionStatus('connected', '已连接');
+          checkStorageStatus();
+          
+          // 修复：登录后立即加入聊天室
+          if (currentUser && currentSessionToken) {
+            socket.emit('user-joined', {
+              userId: currentUser.id,
+              nickname: currentUser.nickname,
+              avatarUrl: currentUser.avatarUrl,
+              sessionToken: currentSessionToken
+            });
             
-            if (currentUser && currentSessionToken) {
-                socket.emit('user-joined', {
-                    userId: currentUser.id,
-                    nickname: currentUser.nickname,
-                    avatarUrl: currentUser.avatarUrl,
-                    sessionToken: currentSessionToken
-                });
-                
-                // 主动请求用户列表
-                socket.emit('get-online-users');
-            }
+            // 立即请求在线用户列表
+            socket.emit('get-online-users');
+          }
         });
     
         socket.on('connecting', () => {
@@ -2106,44 +2266,70 @@
         });
     
         socket.on('reconnect', (attemptNumber) => {
-            console.log(`✅ 第${attemptNumber}次重新连接成功`);
-            updateConnectionStatus('connected', '已重新连接');
-            checkStorageStatus();
+          console.log(`✅ 第${attemptNumber}次重新连接成功`);
+          updateConnectionStatus('connected', '已重新连接');
+          checkStorageStatus();
+          
+          // 重新加入聊天室
+          if (currentUser && currentSessionToken) {
+            socket.emit('user-joined', {
+              userId: currentUser.id,
+              nickname: currentUser.nickname,
+              avatarUrl: currentUser.avatarUrl,
+              sessionToken: currentSessionToken
+            });
+            
+            // 重新请求在线用户列表
+            socket.emit('get-online-users');
+            
+            // 如果正在群组聊天，重新加入群组
+            if (currentGroupId) {
+              socket.emit('join-group', { 
+                groupId: currentGroupId,
+                userId: currentUser.id,
+                sessionToken: currentSessionToken
+              });
+            }
+          }
         });
     
         socket.on('users-updated', (users) => {
-            console.log('📨 收到用户列表更新:', users);
-            updateUserList(users);
+          console.log('📨 收到用户列表更新事件:', users);
+          updateUserList(users);
         });
     
         socket.on('online-users', (users) => {
-            console.log('📨 收到在线用户列表:', users);
-            updateUserList(users);
+          console.log('📨 收到在线用户列表:', users);
+          updateUserList(users);
         });
     
         socket.on('message-received', (message) => {
-            console.log('💬 收到消息:', message);
-            const isOwn = currentUser && message.userId == currentUser.id;
-            
-            if (message.groupId && currentGroupId && message.groupId == currentGroupId) {
-                addMessage(message, isOwn, true);
-            } else if (!message.groupId && mainChat.style.display !== 'none') {
-                addMessage(message, isOwn, false);
-            }
+          console.log('💬 收到新消息:', message);
+          const isOwn = currentUser && message.userId == currentUser.id;
+          
+          // 判断消息类型并显示
+          if (message.groupId && currentGroupId && message.groupId == currentGroupId) {
+            // 群组消息
+            addMessage(message, isOwn, true);
+          } else if (!message.groupId && mainChat.style.display !== 'none') {
+            // 全局消息
+            addMessage(message, isOwn, false);
+          }
         });
     
-        socket.on('message-deleted', (messageId) => {
-            console.log('🗑️ 消息被撤回:', messageId);
-            
-            const messageElement = document.querySelector(`.message[data-message-id="${messageId}"]`);
-            if (messageElement) {
-                messageElement.remove();
-            }
-            
-            if (messageCount) {
-                const count = messageContainer.querySelectorAll('.message').length;
-                messageCount.textContent = `消息数量: ${count}`;
-            }
+        socket.on('message-deleted', (data) => {
+          console.log('🗑️ 消息被删除:', data);
+          
+          const messageElement = document.querySelector(`.message[data-message-id="${data.messageId}"]`);
+          if (messageElement) {
+            messageElement.remove();
+          }
+          
+          // 更新消息计数
+          if (messageCount) {
+            const count = messageContainer.querySelectorAll('.message').length;
+            messageCount.textContent = `消息数量: ${count}`;
+          }
         });
     
         socket.on('chat-history', (messages) => {
@@ -2172,8 +2358,9 @@
         });
     
         socket.on('group-created', (data) => {
-            console.log('群组创建成功:', data);
-            loadUserGroups();
+          console.log('📨 收到群组创建事件:', data);
+          // 立即刷新群组列表
+          loadUserGroups();
         });
     
         socket.on('group-chat-history', (data) => {
@@ -2199,11 +2386,15 @@
         });
     
         socket.on('nickname-updated', (data) => {
-            if (data.userId == currentUser?.id) {
-                currentUser.nickname = data.newNickname;
-                safeSetTextContent(currentNicknameSpan, data.newNickname);
-                localStorage.setItem('chatUserNickname', data.newNickname);
-            }
+          console.log('📨 收到昵称更新:', data);
+          if (data.userId == currentUser?.id) {
+            currentUser.nickname = data.newNickname;
+            safeSetTextContent(currentNicknameSpan, data.newNickname);
+            localStorage.setItem('chatUserNickname', data.newNickname);
+            
+            // 刷新用户列表显示
+            socket.emit('get-online-users');
+          }
         });
     
         socket.on('session-expired', () => {
@@ -2216,7 +2407,7 @@
             alert(`错误: ${error.message}`);
         });
     
-        // 修复16：事件监听器初始化
+        // 修复17：事件监听器初始化
         function initializeEventListeners() {
             console.log('初始化事件监听器');
             
@@ -2292,11 +2483,14 @@
                 }
             });
     
+            // 初始化Markdown工具栏
+            initializeMarkdownToolbar();
+            
             // 初始化模态框事件
             initializeModalEvents();
         }
     
-        // 修复17：登录注册处理
+        // 修复18：登录注册处理
         function handleLogin() {
             const username = loginUsername.value.trim();
             const password = loginPassword.value.trim();
@@ -2335,6 +2529,16 @@
                     }
                     
                     updateLoginState(true);
+                    
+                    // 修复：登录后立即加入聊天室，不需要刷新
+                    if (isConnected && socket) {
+                        socket.emit('user-joined', {
+                            userId: currentUser.id,
+                            nickname: currentUser.nickname,
+                            avatarUrl: currentUser.avatarUrl,
+                            sessionToken: currentSessionToken
+                        });
+                    }
                     
                 } else {
                     loginMessage.textContent = data.message;
@@ -2394,7 +2598,7 @@
             });
         }
     
-        // 修复18：图片上传函数
+        // 修复19：图片上传函数
         function uploadImage(file, isGroup) {
             if (!file || !file.type.startsWith('image/')) {
                 alert('请选择有效的图片文件');
@@ -2455,7 +2659,7 @@
             });
         }
     
-        // 修复19：应用初始化
+        // 修复20：应用初始化
         function initializeApp() {
             console.log('🚀 初始化聊天室应用');
             
@@ -2484,10 +2688,12 @@
             updateConnectionStatus('connecting', '连接中...');
             checkStorageStatus();
             
+            startAutoRefresh();
+            
             console.log('✅ 应用初始化完成');
         }
     
-        // 修复20：全局函数和启动
+        // 修复21：全局函数和启动
         window.openImagePreview = function(imageUrl) {
             previewImgElement.src = imageUrl;
             imagePreviewModal.style.display = 'flex';
