@@ -846,7 +846,8 @@
     </style>
 </head>
 <body>
-    <!-- 登录/注册模态框 -->
+    <!-- 原有HTML结构保持不变 -->
+<!-- 登录/注册模态框 -->
     <div id="authModal" class="modal">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
@@ -1066,23 +1067,14 @@
         </div>
     </div>
     
-    <!-- 使用CDN上的Socket.IO客户端库 -->
+
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // 配置后端服务器地址
         const SERVER_URL = 'http://152.136.175.209:3000';
         
-        // 初始化变量和DOM元素
-        const socket = io(SERVER_URL, {
-            transports: ['websocket', 'polling'],
-            reconnection: true,
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000,
-            timeout: 20000
-        });
-        
+        // 初始化变量
         let currentUser = null;
         let currentSessionToken = null;
         let isConnected = false;
@@ -1167,126 +1159,370 @@
         const groupMarkdownToolbar = document.getElementById('groupMarkdownToolbar');
         const markdownToggle = document.getElementById('markdownToggle');
         const groupMarkdownToggle = document.getElementById('groupMarkdownToggle');
-        
-        // 初始化页面布局
-        function initializeLayout() {
-            mainChat.style.display = 'block';
-            groupChat.style.display = 'none';
-            
-            document.querySelector('.container').style.display = 'flex';
-            document.querySelector('.chat-main').style.display = 'flex';
-            document.querySelector('.chat-main').style.flexDirection = 'column';
-            
-            messageContainer.style.flex = '1';
-            messageContainer.style.overflowY = 'auto';
-            messageContainer.style.minHeight = '0';
-            
-            groupMessageContainer.style.flex = '1';
-            groupMessageContainer.style.overflowY = 'auto';
-            groupMessageContainer.style.minHeight = '0';
-            
-            sidebar.style.overflowY = 'auto';
-            sidebar.style.minHeight = '0';
+    
+        // 修复1：安全的HTML处理函数
+        function escapeHtml(unsafe) {
+            if (unsafe === null || unsafe === undefined) return '';
+            return String(unsafe)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
         }
-        
-        // 模态框关闭功能
-        document.querySelectorAll('.close-modal').forEach(closeBtn => {
-            closeBtn.addEventListener('click', function() {
-                this.closest('.modal').style.display = 'none';
-            });
-        });
-        
-        // 点击模态框背景关闭
-        document.querySelectorAll('.modal').forEach(modal => {
-            modal.addEventListener('click', function(e) {
-                if (e.target === this) {
-                    this.style.display = 'none';
+    
+        // 修复2：处理服务器返回的已解析HTML（移除引号和多余包装）
+        function safeMarkdownParse(content) {
+            if (!content) return '';
+            
+            console.log('原始内容:', content);
+            
+            // 如果内容已经是HTML格式（包含标签），直接返回
+            if (content.includes('<') && content.includes('>')) {
+                // 移除可能包裹的引号
+                let cleanedContent = content.replace(/^"|"$/g, '');
+                // 移除多余的<p>包装:cite[1]:cite[6]
+                cleanedContent = cleanedContent.replace(/^<p>|<\/p>$/g, '');
+                cleanedContent = cleanedContent.replace(/<p><br><\/p>/g, '<br>');
+                console.log('清理后内容:', cleanedContent);
+                return cleanedContent;
+            }
+            
+            // 如果是纯文本，使用marked解析（如果需要）
+            if (typeof marked !== 'undefined') {
+                try {
+                    marked.setOptions({
+                        sanitize: true,
+                        breaks: true,
+                        gfm: true
+                    });
+                    return marked.parse(content);
+                } catch (error) {
+                    console.error('Markdown解析错误:', error);
+                    return escapeHtml(content);
                 }
+            }
+            
+            return escapeHtml(content);
+        }
+    
+        // 修复3：安全的DOM操作函数
+        function safeSetInnerHTML(element, html) {
+            if (!element || !(element instanceof Element)) return;
+            element.innerHTML = html;
+        }
+    
+        function safeSetTextContent(element, text) {
+            if (!element || !(element instanceof Element)) return;
+            element.textContent = text !== null && text !== undefined ? String(text) : '';
+        }
+    
+        function safeSetAttribute(element, attr, value) {
+            if (!element || !(element instanceof Element) || !attr) return;
+            element.setAttribute(attr, value !== null && value !== undefined ? String(value) : '');
+        }
+    
+        // 修复4：更新用户列表函数 - 确保正确显示所有用户
+        function updateUserList(users) {
+            console.log('🔄 更新用户列表，数据:', users);
+            
+            if (!userList || !onlineCount) {
+                console.error('用户列表元素未找到');
+                return;
+            }
+            
+            if (!users || !Array.isArray(users)) {
+                console.error('用户数据无效:', users);
+                userList.innerHTML = '<li>用户数据格式错误</li>';
+                return;
+            }
+            
+            onlineUsersList = users;
+            
+            userList.innerHTML = '';
+            safeSetTextContent(onlineCount, `(${users.length})`);
+            safeSetTextContent(totalOnlineCount, users.length.toString());
+            
+            if (users.length === 0) {
+                userList.innerHTML = '<li>暂无在线用户</li>';
+                return;
+            }
+            
+            users.forEach(user => {
+                const li = document.createElement('li');
+                li.style.padding = '8px 0';
+                li.style.borderBottom = '1px solid #f1f1f1';
+                li.style.display = 'flex';
+                li.style.alignItems = 'center';
+                
+                // 在线状态指示器
+                const statusIndicator = document.createElement('span');
+                statusIndicator.innerHTML = '●';
+                statusIndicator.style.color = '#28a745';
+                statusIndicator.style.marginRight = '8px';
+                statusIndicator.style.fontSize = '12px';
+                
+                // 用户头像
+                const avatarHtml = user.avatarUrl ? 
+                    `<img src="${SERVER_URL}${user.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px;">` : 
+                    '';
+                
+                // 用户信息
+                const userInfo = document.createElement('span');
+                const isCurrentUser = currentUser && user.id == currentUser.id;
+                const displayName = isCurrentUser ? `${user.nickname} (我)` : user.nickname;
+                
+                userInfo.innerHTML = `${avatarHtml}${escapeHtml(displayName)}`;
+                if (isCurrentUser) {
+                    userInfo.style.fontWeight = 'bold';
+                }
+                
+                li.appendChild(statusIndicator);
+                li.appendChild(userInfo);
+                userList.appendChild(li);
             });
-        });
-        
-        // 初始化页面状态
-        initializeLayout();
-        updateSidebarState();
-        showAuthModal();
-        
-        // 检查存储状态
-        function checkStorageStatus() {
+            
+            console.log('✅ 用户列表更新完成，显示', users.length, '个用户');
+            
+            // 加载离线用户列表
+            if (currentUser) {
+                loadOfflineUsers();
+            }
+        }
+    
+        // 修复5：加载离线用户列表
+        function loadOfflineUsers() {
             if (!currentUser || !currentSessionToken) return;
             
-            fetch(`${SERVER_URL}/avatar-storage`, {
+            fetch(`${SERVER_URL}/offline-users`, {
                 headers: {
                     'user-id': currentUser.id,
                     'session-token': currentSessionToken
                 }
             })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    updateOfflineUserList(data.users);
+                }
+            })
+            .catch(error => {
+                console.error('加载离线用户失败:', error);
+            });
+        }
+    
+        // 修复6：更新离线用户列表
+        function updateOfflineUserList(users) {
+            if (!offlineUserList) return;
+            
+            offlineUserList.innerHTML = '';
+            
+            const offlineUsers = users.filter(offlineUser => 
+                !onlineUsersList.some(onlineUser => onlineUser.id == offlineUser.id)
+            );
+            
+            if (offlineUsers.length === 0) {
+                offlineUserList.innerHTML = '<li>暂无离线用户</li>';
+                return;
+            }
+            
+            offlineUsers.forEach(user => {
+                const li = document.createElement('li');
+                li.style.padding = '8px 0';
+                li.style.borderBottom = '1px solid #f1f1f1';
+                li.innerHTML = `${escapeHtml(user.nickname)} <span class="last-online">${formatDate(user.last_online)}</span>`;
+                offlineUserList.appendChild(li);
+            });
+        }
+    
+        // 修复7：模态框事件绑定函数
+        function initializeModalEvents() {
+            console.log('初始化模态框事件');
+            
+            // 关闭按钮事件
+            document.querySelectorAll('.close-modal').forEach(closeBtn => {
+                closeBtn.addEventListener('click', function() {
+                    this.closest('.modal').style.display = 'none';
+                });
+            });
+            
+            // 模态框背景点击关闭
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        this.style.display = 'none';
+                    }
+                });
+            });
+            
+            // 登录/注册标签切换
+            loginTab.addEventListener('click', () => {
+                loginTab.classList.add('active');
+                registerTab.classList.remove('active');
+                loginForm.classList.add('active');
+                registerForm.classList.remove('active');
+                loginMessage.style.display = 'none';
+            });
+            
+            registerTab.addEventListener('click', () => {
+                registerTab.classList.add('active');
+                loginTab.classList.remove('active');
+                registerForm.classList.add('active');
+                loginForm.classList.remove('active');
+                registerMessage.style.display = 'none';
+            });
+            
+            // 修改昵称按钮
+            changeNicknameBtn.addEventListener('click', showNicknameModal);
+            
+            // 保存昵称
+            saveNicknameBtn.addEventListener('click', () => {
+                const newNickname = nicknameInput.value.trim();
+                if (newNickname && currentUser && currentSessionToken) {
+                    socket.emit('update-nickname', {
+                        userId: currentUser.id,
+                        newNickname: newNickname,
+                        sessionToken: currentSessionToken
+                    });
+                    hideNicknameModal();
+                }
+            });
+            
+            // 更改头像按钮
+            changeAvatarBtn.addEventListener('click', showAvatarModal);
+            
+            // 头像预览
+            avatarInput.addEventListener('change', function(e) {
+                if (e.target.files && e.target.files[0]) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        avatarPreview.innerHTML = `<img src="${e.target.result}">`;
+                    };
+                    reader.readAsDataURL(e.target.files[0]);
+                }
+            });
+            
+            // 上传头像
+            uploadAvatarButton.addEventListener('click', function() {
+                const file = avatarInput.files[0];
+                if (!file) {
+                    avatarMessage.textContent = '请选择头像文件';
+                    avatarMessage.style.color = 'red';
+                    return;
+                }
+                
+                const formData = new FormData();
+                formData.append('avatar', file);
+                
+                fetch(`${SERVER_URL}/upload-avatar`, {
+                    method: 'POST',
+                    headers: {
+                        'user-id': currentUser.id,
+                        'session-token': currentSessionToken
+                    },
+                    body: formData
+                })
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        storageStatus.textContent = `存储状态: ${data.storageInfo.message}`;
-                        if (data.storageInfo.full) {
-                            storageStatus.style.color = '#e74c3c';
-                        } else {
-                            storageStatus.style.color = '#6c757d';
-                        }
+                        currentUser.avatarUrl = data.avatarUrl;
+                        currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
+                        currentAvatarImg.style.display = 'inline';
+                        
+                        localStorage.setItem('chatUserAvatar', data.avatarUrl);
+                        avatarMessage.textContent = '头像上传成功';
+                        avatarMessage.style.color = 'green';
+                        
+                        setTimeout(() => {
+                            hideAvatarModal();
+                        }, 2000);
+                    } else {
+                        avatarMessage.textContent = data.message;
+                        avatarMessage.style.color = 'red';
                     }
                 })
                 .catch(error => {
-                    console.error('获取存储状态失败:', error);
+                    console.error('上传错误:', error);
+                    avatarMessage.textContent = '头像上传失败';
+                    avatarMessage.style.color = 'red';
                 });
+            });
+            
+            // 创建群组按钮
+            createGroupBtn.addEventListener('click', showCreateGroupModal);
+            
+            // 创建群组
+            createGroupButton.addEventListener('click', function() {
+                const groupName = groupNameInput.value.trim();
+                const description = groupDescriptionInput.value.trim();
+                
+                const selectedMembers = [];
+                document.querySelectorAll('.member-checkbox:checked').forEach(checkbox => {
+                    selectedMembers.push(checkbox.value);
+                });
+                
+                if (!groupName) {
+                    createGroupMessage.textContent = '请输入群组名称';
+                    createGroupMessage.style.color = 'red';
+                    return;
+                }
+                
+                if (selectedMembers.length < 2) {
+                    createGroupMessage.textContent = '请选择至少2名其他成员';
+                    createGroupMessage.style.color = 'red';
+                    return;
+                }
+                
+                fetch(`${SERVER_URL}/create-group`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'user-id': currentUser.id,
+                        'session-token': currentSessionToken
+                    },
+                    body: JSON.stringify({
+                        userId: currentUser.id,
+                        groupName: groupName,
+                        description: description,
+                        memberIds: selectedMembers
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        createGroupMessage.textContent = '群组创建成功';
+                        createGroupMessage.style.color = 'green';
+                        
+                        loadUserGroups();
+                        
+                        setTimeout(() => {
+                            hideCreateGroupModal();
+                        }, 2000);
+                    } else {
+                        createGroupMessage.textContent = data.message;
+                        createGroupMessage.style.color = 'red';
+                    }
+                })
+                .catch(error => {
+                    console.error('创建群组错误:', error);
+                    createGroupMessage.textContent = '创建群组失败';
+                    createGroupMessage.style.color = 'red';
+                });
+            });
         }
     
-        // 检查是否有注册记录
-        function checkRegistrationStatus() {
-            const hasRegistered = getCookie('hasRegistered') === 'true';
-            if (hasRegistered) {
-                loginTab.click();
-            } else {
-                registerTab.click();
-            }
-        }
-    
-        // 获取Cookie
-        function getCookie(name) {
-            const value = `; ${document.cookie}`;
-            const parts = value.split(`; ${name}=`);
-            if (parts.length === 2) return parts.pop().split(';').shift();
-            return null;
-        }
-    
-        // 设置Cookie
-        function setCookie(name, value, days) {
-            const expires = new Date();
-            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
-            document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
-        }
-    
-        // 显示登录/注册模态框
-        function showAuthModal() {
-            authModal.style.display = 'flex';
-            checkRegistrationStatus();
-        }
-    
-        // 隐藏登录/注册模态框
-        function hideAuthModal() {
-            authModal.style.display = 'none';
-        }
-    
-        // 显示昵称设置模态框
+        // 修复8：显示/隐藏模态框函数
         function showNicknameModal() {
             nicknameModal.style.display = 'flex';
             if (currentUser) {
                 nicknameInput.value = currentUser.nickname;
             }
-            nicknameInput.focus();
         }
     
-        // 隐藏昵称设置模态框
         function hideNicknameModal() {
             nicknameModal.style.display = 'none';
         }
     
-        // 显示头像设置模态框
         function showAvatarModal() {
             avatarModal.style.display = 'flex';
             avatarInput.value = '';
@@ -1294,23 +1530,105 @@
             avatarMessage.textContent = '';
         }
     
-        // 隐藏头像设置模态框
         function hideAvatarModal() {
             avatarModal.style.display = 'none';
         }
     
-        // 显示创建群组模态框
         function showCreateGroupModal() {
-            loadAllUsers();
             createGroupModal.style.display = 'flex';
+            loadAllUsers();
         }
     
-        // 隐藏创建群组模态框
         function hideCreateGroupModal() {
             createGroupModal.style.display = 'none';
+            groupNameInput.value = '';
+            groupDescriptionInput.value = '';
+            document.querySelectorAll('.member-checkbox').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            createGroupMessage.textContent = '';
+        }
+        // 修复9：群组相关功能
+        function loadUserGroups() {
+            if (!currentUser || !currentSessionToken) {
+                console.log('未登录，无法加载群组列表');
+                return;
+            }
+            
+            console.log('加载用户群组列表，用户ID:', currentUser.id);
+            
+            fetch(`${SERVER_URL}/user-groups/${currentUser.id}`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('群组列表响应:', data);
+                if (data.status === 'success') {
+                    updateGroupList(data.groups);
+                } else {
+                    console.error('获取群组列表失败:', data.message);
+                    groupList.innerHTML = '<li>加载失败: ' + data.message + '</li>';
+                }
+            })
+            .catch(error => {
+                console.error('加载群组列表失败:', error);
+                groupList.innerHTML = '<li>加载失败: 网络错误</li>';
+            });
         }
     
-        // 加载所有用户列表
+        function updateGroupList(groups) {
+            console.log('更新群组列表，数据:', groups);
+            
+            if (!groupList) {
+                console.error('groupList元素未找到');
+                return;
+            }
+            
+            groupList.innerHTML = '';
+            
+            if (!groups || !Array.isArray(groups) || groups.length === 0) {
+                groupList.innerHTML = '<li>暂无群组</li>';
+                return;
+            }
+            
+            groups.forEach(group => {
+                const li = document.createElement('li');
+                li.style.padding = '8px 0';
+                li.style.borderBottom = '1px solid #f1f1f1';
+                li.style.cursor = 'pointer';
+                
+                const groupName = group.name || '未命名群组';
+                const groupId = group.id ? String(group.id) : '';
+                
+                li.textContent = groupName;
+                li.setAttribute('data-group-id', groupId);
+                li.setAttribute('data-group-name', groupName);
+                
+                li.addEventListener('click', function() {
+                    const groupId = this.getAttribute('data-group-id');
+                    const groupName = this.getAttribute('data-group-name');
+                    console.log('点击群组:', groupId, groupName);
+                    showGroupChat(groupId, groupName);
+                });
+                
+                li.addEventListener('mouseenter', function() {
+                    this.style.backgroundColor = '#f1f1f1';
+                    this.style.borderRadius = '4px';
+                });
+                
+                li.addEventListener('mouseleave', function() {
+                    this.style.backgroundColor = '';
+                });
+                
+                groupList.appendChild(li);
+            });
+            
+            console.log('群组列表更新完成，共', groups.length, '个群组');
+        }
+    
         function loadAllUsers() {
             if (!currentUser || !currentSessionToken) return;
             
@@ -1320,44 +1638,56 @@
                     'session-token': currentSessionToken
                 }
             })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        allUsers = data.users;
-                        
-                        const otherUsers = allUsers.filter(user => user.id != currentUser.id);
-                        
-                        groupMembersList.innerHTML = '';
-                        if (otherUsers.length === 0) {
-                            groupMembersList.innerHTML = '<div>暂无其他用户</div>';
-                            return;
-                        }
-                        
-                        otherUsers.forEach(user => {
-                            const memberItem = document.createElement('div');
-                            memberItem.className = 'member-item';
-                            memberItem.innerHTML = `
-                                <input type="checkbox" class="member-checkbox" value="${user.id}" id="member-${user.id}">
-                                <label for="member-${user.id}">${user.nickname}</label>
-                            `;
-                            groupMembersList.appendChild(memberItem);
-                        });
-                    }
-                })
-                .catch(error => {
-                    console.error('加载用户列表失败:', error);
-                    groupMembersList.innerHTML = '<div>加载失败</div>';
-                });
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    allUsers = data.users;
+                    updateGroupMembersList(data.users);
+                }
+            })
+            .catch(error => {
+                console.error('加载用户列表失败:', error);
+                groupMembersList.innerHTML = '<div>加载失败</div>';
+            });
         }
-        
-        // 切换到群组聊天
+    
+        function updateGroupMembersList(users) {
+            if (!groupMembersList) return;
+            
+            groupMembersList.innerHTML = '';
+            
+            const otherUsers = users.filter(user => user.id != currentUser.id);
+            
+            if (otherUsers.length === 0) {
+                groupMembersList.innerHTML = '<div>暂无其他用户</div>';
+                return;
+            }
+            
+            otherUsers.forEach(user => {
+                const memberItem = document.createElement('div');
+                memberItem.className = 'member-item';
+                memberItem.innerHTML = `
+                    <input type="checkbox" class="member-checkbox" value="${user.id}" id="member-${user.id}">
+                    <label for="member-${user.id}">${escapeHtml(user.nickname)}</label>
+                `;
+                groupMembersList.appendChild(memberItem);
+            });
+        }
+    
         function showGroupChat(groupId, groupName) {
+            if (!groupId || !groupName) {
+                console.error('群组ID或名称为空');
+                return;
+            }
+            
+            console.log('切换到群组聊天:', groupId, groupName);
+            
             currentGroupId = groupId;
             currentGroupName = groupName;
             
             mainChat.style.display = 'none';
             groupChat.style.display = 'flex';
-            groupTitle.textContent = groupName;
+            safeSetTextContent(groupTitle, groupName);
             
             groupMessageContainer.innerHTML = `
                 <div class="empty-state">
@@ -1366,24 +1696,79 @@
                 </div>
             `;
             
-            socket.emit('join-group', { 
-                groupId: groupId,
-                userId: currentUser.id,
-                sessionToken: currentSessionToken
-            });
+            // 加入群组
+            if (socket && isConnected) {
+                socket.emit('join-group', { 
+                    groupId: groupId,
+                    userId: currentUser.id,
+                    sessionToken: currentSessionToken
+                });
+            }
             
+            // 加载群组成员
             loadGroupMembers(groupId);
             
+            // 启用输入框
             groupMessageInput.disabled = false;
             groupMessageInput.placeholder = '输入群组消息后按回车发送';
             sendGroupMessageBtn.disabled = false;
             groupUploadButton.disabled = false;
-            groupFileInput.disabled = false;
-            
-            initializeLayout();
         }
-        
-        // 返回主聊天室
+    
+        function loadGroupMembers(groupId) {
+            if (!currentUser || !currentSessionToken) return;
+            
+            fetch(`${SERVER_URL}/group-members/${groupId}`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    updateGroupMemberList(data.members);
+                } else {
+                    console.error('加载群组成员失败:', data.message);
+                    groupMemberList.innerHTML = '<li>加载失败</li>';
+                }
+            })
+            .catch(error => {
+                console.error('加载群组成员失败:', error);
+                groupMemberList.innerHTML = '<li>加载失败</li>';
+            });
+        }
+    
+        function updateGroupMemberList(members) {
+            if (!groupMemberList) return;
+            
+            groupMemberList.innerHTML = '';
+            
+            if (!members || !Array.isArray(members) || members.length === 0) {
+                groupMemberList.innerHTML = '<li>暂无成员</li>';
+                return;
+            }
+            
+            members.forEach(member => {
+                const li = document.createElement('li');
+                li.style.padding = '8px 0';
+                li.style.borderBottom = '1px solid #f1f1f1';
+                li.style.display = 'flex';
+                li.style.alignItems = 'center';
+                
+                const avatarHtml = member.avatarUrl ? 
+                    `<img src="${SERVER_URL}${member.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px;">` : 
+                    '';
+                
+                if (member.id == currentUser.id) {
+                    li.innerHTML = `${avatarHtml}<strong>${escapeHtml(member.nickname)} (我)</strong>`;
+                } else {
+                    li.innerHTML = `${avatarHtml}${escapeHtml(member.nickname)}`;
+                }
+                groupMemberList.appendChild(li);
+            });
+        }
+    
         function backToMainChat() {
             if (currentGroupId) {
                 socket.emit('leave-group', { groupId: currentGroupId });
@@ -1398,110 +1783,9 @@
             groupMessageInput.placeholder = '请先加入群组';
             sendGroupMessageBtn.disabled = true;
             groupUploadButton.disabled = true;
-            groupFileInput.disabled = true;
-            groupMarkdownToolbar.classList.remove('active');
-            groupMarkdownToggle.classList.remove('active');
-            groupMarkdownEnabled = false;
-            
-            initializeLayout();
-        }
-        
-        // 加载群组成员
-        function loadGroupMembers(groupId) {
-            if (!currentUser || !currentSessionToken) return;
-            
-            fetch(`${SERVER_URL}/group-members/${groupId}`, {
-                headers: {
-                    'user-id': currentUser.id,
-                    'session-token': currentSessionToken
-                }
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        groupMemberList.innerHTML = '';
-                        
-                        if (data.members.length === 0) {
-                            groupMemberList.innerHTML = '<li>暂无成员</li>';
-                            return;
-                        }
-                        
-                        data.members.forEach(member => {
-                            const li = document.createElement('li');
-                            const avatarHtml = member.avatarUrl ? 
-                                `<img src="${SERVER_URL}${member.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px;">` : 
-                                '';
-                            
-                            if (member.id == currentUser.id) {
-                                li.innerHTML = `${avatarHtml}<strong>${member.nickname} (我)</strong>`;
-                            } else {
-                                li.innerHTML = `${avatarHtml}${member.nickname}`;
-                            }
-                            groupMemberList.appendChild(li);
-                        });
-                    }
-                })
-                .catch(error => {
-                    console.error('加载群组成员失败:', error);
-                    groupMemberList.innerHTML = '<li>加载失败</li>';
-                });
         }
     
-        // 更新连接状态
-        function updateConnectionStatus(status, message) {
-            if (connectionStatus) {
-                connectionStatus.textContent = `连接状态: ${message}`;
-                connectionStatus.style.color = status === 'connected' ? '#27ae60' : 
-                                            status === 'connecting' ? '#f39c12' : '#e74c3c';
-            }
-        }
-    
-        // 格式化时间
-        function formatTime(timestamp) {
-            const date = new Date(timestamp);
-            return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-        }
-    
-        // 格式化日期
-        function formatDate(timestamp) {
-            const date = new Date(timestamp);
-            const now = new Date();
-            
-            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-            
-            const diffTime = Math.abs(now - date);
-            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-            
-            if (messageDate.getTime() === today.getTime()) {
-                return '今天';
-            } else if (messageDate.getTime() === today.getTime() - 86400000) {
-                return '昨天';
-            } else if (diffDays < 7) {
-                return `${diffDays}天前`;
-            } else {
-                return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
-            }
-        }
-    
-        // 检查是否滚动到底部
-        function isScrolledToBottom(container) {
-            const threshold = 100;
-            const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-            return distanceToBottom <= threshold;
-        }
-    
-        // 滚动到消息容器底部
-        function scrollToBottom(container) {
-            if (autoScrollEnabled) {
-                container.scrollTo({
-                    top: container.scrollHeight,
-                    behavior: 'smooth'
-                });
-            }
-        }
-    
-        // 添加消息到界面
+        // 修复10：消息处理函数
         function addMessage(message, isOwn = false, isGroup = false) {
             const targetContainer = isGroup ? groupMessageContainer : messageContainer;
             const targetEmptyState = isGroup ? groupMessageContainer.querySelector('.empty-state') : emptyState;
@@ -1523,8 +1807,10 @@
                     </div>
                 `;
             } else {
+                // 使用修复后的Markdown解析
+                const parsedContent = safeMarkdownParse(message.content);
                 contentHtml = `
-                    <div class="message-content">${message.content}</div>
+                    <div class="message-content">${parsedContent}</div>
                 `;
             }
             
@@ -1535,7 +1821,7 @@
             messageElement.innerHTML = `
                 <div class="message-header">
                     ${avatarHtml}
-                    <div class="nickname">${message.nickname}</div>
+                    <div class="nickname">${escapeHtml(message.nickname)}</div>
                 </div>
                 ${contentHtml}
                 <div class="message-time">${formatTime(message.timestamp)}</div>
@@ -1544,212 +1830,129 @@
             
             targetContainer.appendChild(messageElement);
             
+            // 添加撤回按钮事件监听
+            if (isOwn) {
+                const deleteButton = messageElement.querySelector('.delete-button');
+                if (deleteButton) {
+                    deleteButton.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        const messageId = this.getAttribute('data-id');
+                        console.log('撤回消息:', messageId);
+                        socket.emit('delete-message', {
+                            messageId: messageId,
+                            userId: currentUser.id,
+                            sessionToken: currentSessionToken
+                        });
+                    });
+                }
+            }
+            
             if (!isGroup && messageCount) {
                 const count = messageContainer.querySelectorAll('.message').length;
                 messageCount.textContent = `消息数量: ${count}`;
             }
             
-            if (isScrolledToBottom(targetContainer)) {
-                scrollToBottom(targetContainer);
+            scrollToBottom(targetContainer);
+        }
+    
+        // 修复11：连接状态和存储状态
+        function updateConnectionStatus(status, message) {
+            if (!connectionStatus) return;
+            
+            if (status === 'connected') {
+                connectionStatus.textContent = '连接状态: 已连接';
+                connectionStatus.style.color = '#27ae60';
+            } else if (status === 'connecting') {
+                connectionStatus.textContent = '连接状态: 连接中...';
+                connectionStatus.style.color = '#f39c12';
+            } else if (status === 'disconnected') {
+                connectionStatus.textContent = '连接状态: 已断开';
+                connectionStatus.style.color = '#e74c3c';
+            } else {
+                connectionStatus.textContent = `连接状态: ${message}`;
+                connectionStatus.style.color = '#e74c3c';
             }
         }
     
-        // 更新消息中的昵称
-        function updateMessageNickname(userId, newNickname) {
-            const messages = document.querySelectorAll(`#messageContainer .message[data-user-id="${userId}"]`);
-            messages.forEach(message => {
-                const nicknameElement = message.querySelector('.nickname');
-                if (nicknameElement) {
-                    nicknameElement.textContent = newNickname;
-                }
-                
-                if (userId === currentUser?.id) {
-                    message.classList.add('own-message');
-                    if (!message.querySelector('.delete-button')) {
-                        const messageId = message.getAttribute('data-message-id');
-                        const deleteButton = document.createElement('button');
-                        deleteButton.className = 'delete-button';
-                        deleteButton.setAttribute('data-id', messageId);
-                        deleteButton.setAttribute('title', '撤回消息');
-                        deleteButton.innerHTML = '×';
-                        message.appendChild(deleteButton);
-                    }
-                }
-            });
-            
-            const groupMessages = document.querySelectorAll(`#groupMessageContainer .message[data-user-id="${userId}"]`);
-            groupMessages.forEach(message => {
-                const nicknameElement = message.querySelector('.nickname');
-                if (nicknameElement) {
-                    nicknameElement.textContent = newNickname;
-                }
-            });
-        }
-    
-        // 图片预览功能
-        function openImagePreview(imageUrl) {
-            previewImgElement.src = imageUrl;
-            imagePreviewModal.style.display = 'flex';
-        }
-    
-        // 关闭图片预览
-        if (closePreviewBtn) {
-            closePreviewBtn.addEventListener('click', function() {
-                imagePreviewModal.style.display = 'none';
-            });
-        }
-    
-        // 点击模态框背景关闭预览
-        imagePreviewModal.addEventListener('click', function(e) {
-            if (e.target === imagePreviewModal) {
-                imagePreviewModal.style.display = 'none';
-            }
-        });
-    
-        // 更新用户列表
-        function updateUserList(users) {
-            if (!userList || !onlineCount) return;
-            
-            onlineUsersList = users;
-            
-            userList.innerHTML = '';
-            onlineCount.textContent = `(${users.length})`;
-            totalOnlineCount.textContent = users.length;
-            
-            if (users.length === 0) {
-                userList.innerHTML = '<li>暂无在线用户</li>';
+        function checkStorageStatus() {
+            if (!currentUser || !currentSessionToken) {
+                storageStatus.textContent = '存储状态: 未登录';
+                storageStatus.style.color = '#6c757d';
                 return;
             }
             
-            users.forEach(user => {
-                const li = document.createElement('li');
-                const avatarHtml = user.avatarUrl ? 
-                    `<img src="${SERVER_URL}${user.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px;">` : 
-                    '';
-                
-                if (user.id == currentUser?.id) {
-                    li.innerHTML = `${avatarHtml}<strong>${user.nickname} (我)</strong>`;
+            fetch(`${SERVER_URL}/avatar-storage`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    storageStatus.textContent = `存储状态: ${data.storageInfo.message}`;
+                    storageStatus.style.color = data.storageInfo.full ? '#e74c3c' : '#27ae60';
                 } else {
-                    li.innerHTML = `${avatarHtml}${user.nickname}`;
-                }
-                userList.appendChild(li);
-            });
-    
-            if (users.length >= 2 && isSidebarCollapsed) {
-                toggleSidebar();
-            }
-            
-            if (currentUser) {
-                loadOfflineUsers();
-            }
-        }
-    
-        // 更新离线用户列表
-        function updateOfflineUserList(users) {
-            if (!offlineUserList) return;
-            
-            offlineUserList.innerHTML = '';
-            
-            const offlineUsers = users.filter(offlineUser => 
-                !onlineUsersList.some(onlineUser => onlineUser.id == offlineUser.id)
-            );
-            
-            if (offlineUsers.length === 0) {
-                offlineUserList.innerHTML = '<li>暂无离线用户</li>';
-                return;
-            }
-            
-            offlineUsers.forEach(user => {
-                const li = document.createElement('li');
-                li.innerHTML = `${user.nickname} <span class="last-online">${formatDate(user.last_online)}</span>`;
-                offlineUserList.appendChild(li);
-            });
-        }
-    
-        // 加载离线用户列表
-        function loadOfflineUsers() {
-            if (!currentUser || !currentSessionToken) return;
-            
-            fetch(`${SERVER_URL}/offline-users`, {
-                headers: {
-                    'user-id': currentUser.id,
-                    'session-token': currentSessionToken
+                    storageStatus.textContent = '存储状态: 获取失败';
+                    storageStatus.style.color = '#e74c3c';
                 }
             })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        updateOfflineUserList(data.users);
-                    }
-                })
-                .catch(error => {
-                    console.error('加载离线用户失败:', error);
-                });
-        }
-    
-        // 加载用户群组列表
-        function loadUserGroups() {
-            if (!currentUser || !currentSessionToken) return;
-            
-            fetch(`${SERVER_URL}/user-groups/${currentUser.id}`, {
-                headers: {
-                    'user-id': currentUser.id,
-                    'session-token': currentSessionToken
-                }
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        updateGroupList(data.groups);
-                    }
-                })
-                .catch(error => {
-                    console.error('加载群组列表失败:', error);
-                });
-        }
-    
-        // 更新群组列表
-        function updateGroupList(groups) {
-            if (!groupList) return;
-            
-            groupList.innerHTML = '';
-            
-            if (groups.length === 0) {
-                groupList.innerHTML = '<li>暂无群组</li>';
-                return;
-            }
-            
-            groups.forEach(group => {
-                const li = document.createElement('li');
-                li.textContent = group.name;
-                li.setAttribute('data-group-id', group.id);
-                li.style.cursor = 'pointer';
-                
-                li.addEventListener('click', function() {
-                    const groupId = this.getAttribute('data-group-id');
-                    showGroupChat(groupId, group.name);
-                });
-                
-                groupList.appendChild(li);
+            .catch(error => {
+                console.error('获取存储状态失败:', error);
+                storageStatus.textContent = '存储状态: 网络错误';
+                storageStatus.style.color = '#e74c3c';
             });
         }
     
-        // 更新侧边栏状态
-        function updateSidebarState() {
+        // 修复12：辅助函数
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        }
+    
+        function formatDate(timestamp) {
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffTime = Math.abs(now - date);
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays === 0) return '今天';
+            if (diffDays === 1) return '昨天';
+            if (diffDays < 7) return `${diffDays}天前`;
+            
+            return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+        }
+    
+        function isScrolledToBottom(container) {
+            const threshold = 100;
+            const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+            return distanceToBottom <= threshold;
+        }
+    
+        function scrollToBottom(container) {
+            if (autoScrollEnabled) {
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
+        }
+    
+        function autoResizeTextarea(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = textarea.scrollHeight + 'px';
+        }
+    
+        function toggleSidebar() {
+            isSidebarCollapsed = !isSidebarCollapsed;
             sidebar.classList.toggle('collapsed', isSidebarCollapsed);
             toggleSidebarText.textContent = isSidebarCollapsed ? '展开用户列表' : '收起用户列表';
         }
     
-        // 切换侧边栏
-        function toggleSidebar() {
-            isSidebarCollapsed = !isSidebarCollapsed;
-            updateSidebarState();
-        }
-    
-        // 更新界面登录状态
+        // 修复13：登录状态管理
         function updateLoginState(isLoggedIn) {
             if (isLoggedIn && currentUser) {
-                currentNicknameSpan.textContent = currentUser.nickname;
+                safeSetTextContent(currentNicknameSpan, currentUser.nickname);
                 
                 if (currentUser.avatarUrl) {
                     currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl}`;
@@ -1760,200 +1963,166 @@
                 changeAvatarBtn.style.display = 'inline-block';
                 createGroupBtn.style.display = 'inline-block';
                 logoutButton.style.display = 'inline-block';
+                
                 messageInput.disabled = false;
                 messageInput.placeholder = '输入消息后按回车发送';
                 sendButton.disabled = false;
                 uploadButton.disabled = false;
                 fileInput.disabled = false;
-                hideAuthModal();
                 
-                loadOfflineUsers();
+                authModal.style.display = 'none';
+                
+                // 登录后立即加载数据
                 loadUserGroups();
+                checkStorageStatus();
+                
+                // 如果已连接，请求用户列表
+                if (isConnected) {
+                    socket.emit('get-online-users');
+                }
+                
             } else {
-                currentNicknameSpan.textContent = '未登录';
+                safeSetTextContent(currentNicknameSpan, '未登录');
                 currentAvatarImg.style.display = 'none';
+                
                 changeNicknameBtn.style.display = 'none';
                 changeAvatarBtn.style.display = 'none';
                 createGroupBtn.style.display = 'none';
                 logoutButton.style.display = 'none';
+                
                 messageInput.disabled = true;
                 messageInput.placeholder = '请先登录';
                 sendButton.disabled = true;
                 uploadButton.disabled = true;
                 fileInput.disabled = true;
-                markdownToolbar.classList.remove('active');
-                markdownToggle.classList.remove('active');
-                markdownEnabled = false;
-                showAuthModal();
+                
+                authModal.style.display = 'flex';
             }
         }
     
-        // 初始化Markdown编辑器
-        function initializeMarkdownEditor() {
-            // 主聊天室Markdown切换
-            markdownToggle.addEventListener('click', function() {
-                markdownEnabled = !markdownEnabled;
-                this.classList.toggle('active', markdownEnabled);
-                markdownToolbar.classList.toggle('active', markdownEnabled);
-                
-                if (markdownEnabled) {
-                    this.title = '关闭Markdown编辑器';
-                    messageInput.placeholder = '输入Markdown格式文本...';
-                } else {
-                    this.title = '打开Markdown编辑器';
-                    messageInput.placeholder = '输入消息后按回车发送';
-                }
-            });
+        function logout() {
+            currentUser = null;
+            currentSessionToken = null;
             
-            // 群组聊天室Markdown切换
-            groupMarkdownToggle.addEventListener('click', function() {
-                groupMarkdownEnabled = !groupMarkdownEnabled;
-                this.classList.toggle('active', groupMarkdownEnabled);
-                groupMarkdownToolbar.classList.toggle('active', groupMarkdownEnabled);
-                
-                if (groupMarkdownEnabled) {
-                    this.title = '关闭Markdown编辑器';
-                    groupMessageInput.placeholder = '输入Markdown格式文本...';
-                } else {
-                    this.title = '打开Markdown编辑器';
-                    groupMessageInput.placeholder = '输入群组消息后按回车发送';
-                }
-            });
+            localStorage.removeItem('chatUserId');
+            localStorage.removeItem('chatUserNickname');
+            localStorage.removeItem('chatUserAvatar');
+            localStorage.removeItem('chatSessionToken');
             
-            // Markdown工具栏按钮事件
-            setupMarkdownToolbar(markdownToolbar, messageInput);
-            setupMarkdownToolbar(groupMarkdownToolbar, groupMessageInput);
+            updateLoginState(false);
+            
+            messageContainer.innerHTML = '';
+            emptyState.style.display = 'block';
+            
+            userList.innerHTML = '<li>暂无在线用户</li>';
+            safeSetTextContent(onlineCount, '(0)');
+            safeSetTextContent(totalOnlineCount, '0');
+            
+            backToMainChat();
         }
-        
-        // 设置Markdown工具栏
-        function setupMarkdownToolbar(toolbar, textarea) {
-            toolbar.querySelectorAll('.markdown-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const prefix = this.getAttribute('data-prefix') || '';
-                    const suffix = this.getAttribute('data-suffix') || '';
-                    
-                    const start = textarea.selectionStart;
-                    const end = textarea.selectionEnd;
-                    const selectedText = textarea.value.substring(start, end);
-                    const textToInsert = prefix + selectedText + suffix;
-                    
-                    textarea.value = textarea.value.substring(0, start) + textToInsert + textarea.value.substring(end);
-                    textarea.focus();
-                    
-                    const newCursorPos = start + prefix.length + selectedText.length;
-                    textarea.setSelectionRange(newCursorPos, newCursorPos);
-                });
-            });
-        }
-        
-        // 自动调整输入框高度
-        function autoResizeTextarea(textarea) {
-            textarea.style.height = 'auto';
-            textarea.style.height = textarea.scrollHeight + 'px';
-        }
-        
-        messageInput.addEventListener('input', function() {
-            autoResizeTextarea(this);
-        });
-        
-        groupMessageInput.addEventListener('input', function() {
-            autoResizeTextarea(this);
-        });
-        
-        // 初始化Markdown编辑器
-        initializeMarkdownEditor();
-        
-        // 监听消息容器的滚动事件
-        messageContainer.addEventListener('scroll', function() {
-            if (!isScrolledToBottom(this)) {
-                autoScrollEnabled = false;
-            } else {
-                autoScrollEnabled = true;
-            }
-        });
-        
-        groupMessageContainer.addEventListener('scroll', function() {
-            if (!isScrolledToBottom(this)) {
-                autoScrollEnabled = false;
-            } else {
-                autoScrollEnabled = true;
-            }
-        });
-        
-        function sendUserJoinedEvent() {
-            if (!currentUser || !currentSessionToken) {
-                console.error('❌ 无法发送用户加入事件: 用户信息不完整');
+    
+        // 修复14：消息发送函数
+        function sendMessage() {
+            const content = messageInput.value.trim();
+            if (!content || !currentUser || !isConnected || !currentSessionToken) {
+                console.log('发送消息条件不满足');
                 return;
             }
+    
+            console.log('📤 发送消息:', content);
             
-            console.log('📤 发送用户加入事件:', {
+            socket.emit('send-message', {
                 userId: currentUser.id,
-                nickname: currentUser.nickname,
-                sessionToken: currentSessionToken ? `${currentSessionToken.substring(0, 10)}...` : 'undefined'
-            });
-            
-            socket.emit('user-joined', {
-                userId: currentUser.id,
-                nickname: currentUser.nickname,
-                avatarUrl: currentUser.avatarUrl,
+                content: content,
                 sessionToken: currentSessionToken
             });
+    
+            messageInput.value = '';
+            autoResizeTextarea(messageInput);
         }
-        
-        // Socket.IO 事件处理
-        // 在 Socket.IO 连接成功后，修复用户加入事件的数据格式
+    
+        function sendGroupMessage() {
+            const content = groupMessageInput.value.trim();
+            if (!content || !currentUser || !isConnected || !currentGroupId || !currentSessionToken) {
+                console.log('发送群组消息条件不满足');
+                return;
+            }
+    
+            console.log('📤 发送群组消息:', content);
+            
+            socket.emit('send-message', {
+                userId: currentUser.id,
+                content: content,
+                groupId: currentGroupId,
+                sessionToken: currentSessionToken
+            });
+    
+            groupMessageInput.value = '';
+            autoResizeTextarea(groupMessageInput);
+        }
+    
+        // 修复15：Socket.IO事件处理
+        const socket = io(SERVER_URL, {
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            timeout: 20000
+        });
+    
         socket.on('connect', () => {
             console.log('✅ 已成功连接到服务器');
-            updateConnectionStatus('connected', '已连接');
             isConnected = true;
+            updateConnectionStatus('connected', '已连接');
+            checkStorageStatus();
             
-            // 重置历史消息标记
-            hasReceivedHistory = false;
-            
-            // 如果有用户信息且已登录，发送用户加入事件
             if (currentUser && currentSessionToken) {
-                console.log('🔗 连接建立，自动发送用户加入事件');
-                sendUserJoinedEvent();
+                socket.emit('user-joined', {
+                    userId: currentUser.id,
+                    nickname: currentUser.nickname,
+                    avatarUrl: currentUser.avatarUrl,
+                    sessionToken: currentSessionToken
+                });
+                
+                // 主动请求用户列表
+                socket.emit('get-online-users');
             }
         });
-        
+    
         socket.on('connecting', () => {
             console.log('🔄 正在连接服务器...');
             updateConnectionStatus('connecting', '连接中...');
         });
-        
-        socket.on('reconnect', (attemptNumber) => {
-            console.log(`✅ 第${attemptNumber}次重新连接成功`);
-            updateConnectionStatus('connected', '已重新连接');
-            
-            // 重新发送用户加入事件
-            if (currentUser && currentSessionToken) {
-                console.log('🔄 重新连接后发送用户加入事件');
-                sendUserJoinedEvent();
-            }
-        });
     
         socket.on('disconnect', (reason) => {
             console.log('❌ 与服务器断开连接, 原因:', reason);
-            updateConnectionStatus('disconnected', `已断开: ${reason}`);
             isConnected = false;
+            updateConnectionStatus('disconnected', `已断开: ${reason}`);
         });
-        
+    
         socket.on('connect_error', (error) => {
             console.error('连接错误:', error);
             updateConnectionStatus('error', `连接错误: ${error.message}`);
         });
-        
+    
         socket.on('reconnect', (attemptNumber) => {
-            console.log(`✅ 第${attemptNumber}次重新连接到服务器`);
+            console.log(`✅ 第${attemptNumber}次重新连接成功`);
             updateConnectionStatus('connected', '已重新连接');
+            checkStorageStatus();
         });
     
         socket.on('users-updated', (users) => {
+            console.log('📨 收到用户列表更新:', users);
+            updateUserList(users);
+        });
+    
+        socket.on('online-users', (users) => {
+            console.log('📨 收到在线用户列表:', users);
             updateUserList(users);
         });
     
         socket.on('message-received', (message) => {
+            console.log('💬 收到消息:', message);
             const isOwn = currentUser && message.userId == currentUser.id;
             
             if (message.groupId && currentGroupId && message.groupId == currentGroupId) {
@@ -1962,61 +2131,32 @@
                 addMessage(message, isOwn, false);
             }
         });
-        
-        // 群组创建事件
-        socket.on('group-created', (data) => {
-            loadUserGroups();
-        });
     
         socket.on('message-deleted', (messageId) => {
-            const messageElement = document.querySelector(`#messageContainer .message[data-message-id="${messageId}"]`);
+            console.log('🗑️ 消息被撤回:', messageId);
+            
+            const messageElement = document.querySelector(`.message[data-message-id="${messageId}"]`);
             if (messageElement) {
                 messageElement.remove();
-                
-                if (messageCount) {
-                    const count = messageContainer.querySelectorAll('.message').length;
-                    messageCount.textContent = `消息数量: ${count}`;
-                }
-                
-                if (messageContainer.querySelectorAll('.message').length === 0) {
-                    emptyState.style.display = 'block';
-                }
             }
             
-            const groupMessageElement = document.querySelector(`#groupMessageContainer .message[data-message-id="${messageId}"]`);
-            if (groupMessageElement) {
-                groupMessageElement.remove();
-                
-                if (groupMessageContainer.querySelectorAll('.message').length === 0) {
-                    groupMessageContainer.innerHTML = `
-                        <div class="empty-state">
-                            <h3>暂无消息</h3>
-                            <p>发送第一条消息开始群聊吧!</p>
-                        </div>
-                    `;
-                }
+            if (messageCount) {
+                const count = messageContainer.querySelectorAll('.message').length;
+                messageCount.textContent = `消息数量: ${count}`;
             }
-        });
-        
-        // 会话过期事件
-        socket.on('session-expired', () => {
-            alert('会话已过期，请重新登录');
-            logout();
         });
     
         socket.on('chat-history', (messages) => {
-            if (hasReceivedHistory) {
-                return;
-            }
+            if (hasReceivedHistory) return;
             
             hasReceivedHistory = true;
+            messageContainer.innerHTML = '';
             
             if (messages.length === 0) {
                 emptyState.style.display = 'block';
                 return;
             }
             
-            messageContainer.innerHTML = '';
             emptyState.style.display = 'none';
             
             messages.forEach(message => {
@@ -2025,15 +2165,19 @@
             });
             
             if (messageCount) {
-                const count = messages.length;
-                messageCount.textContent = `消息数量: ${count}`;
+                messageCount.textContent = `消息数量: ${messages.length}`;
             }
             
             scrollToBottom(messageContainer);
         });
-        
-        // 接收群组聊天历史
+    
+        socket.on('group-created', (data) => {
+            console.log('群组创建成功:', data);
+            loadUserGroups();
+        });
+    
         socket.on('group-chat-history', (data) => {
+            console.log('收到群组聊天历史:', data);
             groupMessageContainer.innerHTML = '';
             
             if (data.messages.length === 0) {
@@ -2057,16 +2201,14 @@
         socket.on('nickname-updated', (data) => {
             if (data.userId == currentUser?.id) {
                 currentUser.nickname = data.newNickname;
-                currentNicknameSpan.textContent = data.newNickname;
-                
+                safeSetTextContent(currentNicknameSpan, data.newNickname);
                 localStorage.setItem('chatUserNickname', data.newNickname);
             }
-            
-            updateMessageNickname(data.userId, data.newNickname);
-            
-            if (currentUser) {
-                loadOfflineUsers();
-            }
+        });
+    
+        socket.on('session-expired', () => {
+            alert('会话已过期，请重新登录');
+            logout();
         });
     
         socket.on('error', (error) => {
@@ -2074,28 +2216,88 @@
             alert(`错误: ${error.message}`);
         });
     
-        // 事件监听
-        // 登录/注册标签切换
-        loginTab.addEventListener('click', () => {
-            loginTab.classList.add('active');
-            registerTab.classList.remove('active');
-            loginForm.classList.add('active');
-            registerForm.classList.remove('active');
-            loginMessage.style.display = 'none';
-            registerMessage.style.display = 'none';
-        });
+        // 修复16：事件监听器初始化
+        function initializeEventListeners() {
+            console.log('初始化事件监听器');
+            
+            // 发送消息事件
+            sendButton.addEventListener('click', sendMessage);
+            messageInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
     
-        registerTab.addEventListener('click', () => {
-            registerTab.classList.add('active');
-            loginTab.classList.remove('active');
-            registerForm.classList.add('active');
-            loginForm.classList.remove('active');
-            loginMessage.style.display = 'none';
-            registerMessage.style.display = 'none';
-        });
+            sendGroupMessageBtn.addEventListener('click', sendGroupMessage);
+            groupMessageInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendGroupMessage();
+                }
+            });
     
-        // 登录按钮
-        loginButton.addEventListener('click', () => {
+            // 侧边栏切换
+            toggleSidebarBtn.addEventListener('click', toggleSidebar);
+    
+            // 返回主聊天室
+            backToMainBtn.addEventListener('click', backToMainChat);
+    
+            // 退出登录
+            logoutButton.addEventListener('click', logout);
+    
+            // 图片上传
+            uploadButton.addEventListener('click', () => fileInput.click());
+            groupUploadButton.addEventListener('click', () => groupFileInput.click());
+    
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    uploadImage(e.target.files[0], false);
+                }
+            });
+    
+            groupFileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    uploadImage(e.target.files[0], true);
+                }
+            });
+    
+            // 登录注册按钮
+            loginButton.addEventListener('click', handleLogin);
+            registerButton.addEventListener('click', handleRegister);
+    
+            // 输入框自动调整高度
+            messageInput.addEventListener('input', function() {
+                autoResizeTextarea(this);
+            });
+            
+            groupMessageInput.addEventListener('input', function() {
+                autoResizeTextarea(this);
+            });
+    
+            // 消息容器滚动事件
+            messageContainer.addEventListener('scroll', function() {
+                if (!isScrolledToBottom(this)) {
+                    autoScrollEnabled = false;
+                } else {
+                    autoScrollEnabled = true;
+                }
+            });
+    
+            groupMessageContainer.addEventListener('scroll', function() {
+                if (!isScrolledToBottom(this)) {
+                    autoScrollEnabled = false;
+                } else {
+                    autoScrollEnabled = true;
+                }
+            });
+    
+            // 初始化模态框事件
+            initializeModalEvents();
+        }
+    
+        // 修复17：登录注册处理
+        function handleLogin() {
             const username = loginUsername.value.trim();
             const password = loginPassword.value.trim();
             
@@ -2105,7 +2307,6 @@
                 return;
             }
             
-            // 禁用登录按钮防止重复点击
             loginButton.disabled = true;
             loginButton.textContent = '登录中...';
             
@@ -2126,7 +2327,6 @@
                     };
                     currentSessionToken = data.sessionToken;
                     
-                    // 保存用户信息到本地存储
                     localStorage.setItem('chatUserId', currentUser.id);
                     localStorage.setItem('chatUserNickname', currentUser.nickname);
                     localStorage.setItem('chatSessionToken', currentSessionToken);
@@ -2134,32 +2334,7 @@
                         localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
                     }
                     
-                    console.log('✅ 登录成功:', {
-                        userId: currentUser.id,
-                        nickname: currentUser.nickname,
-                        sessionToken: currentSessionToken ? `${currentSessionToken.substring(0, 10)}...` : 'undefined'
-                    });
-                    
-                    // 更新界面状态
                     updateLoginState(true);
-                    
-                    // 检查存储状态
-                    checkStorageStatus();
-                    
-                    // 如果Socket已连接，立即发送用户加入事件
-                    if (isConnected) {
-                        console.log('🔗 Socket已连接，立即发送用户加入事件');
-                        sendUserJoinedEvent();
-                    } else {
-                        console.log('⏳ Socket未连接，等待连接建立');
-                        // 设置连接监听，连接成功后发送用户加入事件
-                        const connectionListener = () => {
-                            console.log('🔗 Socket连接建立，发送用户加入事件');
-                            sendUserJoinedEvent();
-                            socket.off('connect', connectionListener);
-                        };
-                        socket.on('connect', connectionListener);
-                    }
                     
                 } else {
                     loginMessage.textContent = data.message;
@@ -2175,10 +2350,9 @@
                 loginButton.disabled = false;
                 loginButton.textContent = '登录';
             });
-        });
+        }
     
-        // 注册按钮
-        registerButton.addEventListener('click', () => {
+        function handleRegister() {
             const username = registerUsername.value.trim();
             const password = registerPassword.value.trim();
             const nickname = registerNickname.value.trim();
@@ -2199,8 +2373,6 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    setCookie('hasRegistered', 'true', 365);
-                    
                     registerMessage.textContent = '注册成功，请登录';
                     registerMessage.style.color = 'green';
                     registerMessage.style.display = 'block';
@@ -2220,326 +2392,9 @@
                 registerMessage.textContent = '注册失败，请重试';
                 registerMessage.style.display = 'block';
             });
-        });
-    
-        // 修改昵称按钮
-        changeNicknameBtn.addEventListener('click', showNicknameModal);
-    
-        // 保存昵称按钮
-        saveNicknameBtn.addEventListener('click', () => {
-            const newNickname = nicknameInput.value.trim();
-            if (newNickname && currentUser && currentSessionToken) {
-                socket.emit('update-nickname', {
-                    userId: currentUser.id,
-                    newNickname: newNickname,
-                    sessionToken: currentSessionToken
-                });
-                hideNicknameModal();
-            }
-        });
-    
-        // 更改头像按钮
-        changeAvatarBtn.addEventListener('click', showAvatarModal);
-    
-        // 头像预览
-        avatarInput.addEventListener('change', function(e) {
-            if (e.target.files && e.target.files[0]) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    avatarPreview.innerHTML = `<img src="${e.target.result}">`;
-                };
-                reader.readAsDataURL(e.target.files[0]);
-            }
-        });
-    
-        // 上传头像按钮
-        uploadAvatarButton.addEventListener('click', function() {
-            const file = avatarInput.files[0];
-            if (!file) {
-                avatarMessage.textContent = '请选择头像文件';
-                avatarMessage.style.color = 'red';
-                return;
-            }
-            
-            const formData = new FormData();
-            formData.append('avatar', file);
-            formData.append('userId', currentUser.id);
-            
-            fetch(`${SERVER_URL}/upload-avatar`, {
-                method: 'POST',
-                headers: {
-                    'user-id': currentUser.id,
-                    'session-token': currentSessionToken
-                },
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    currentUser.avatarUrl = data.avatarUrl;
-                    currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
-                    currentAvatarImg.style.display = 'inline';
-                    
-                    localStorage.setItem('chatUserAvatar', data.avatarUrl);
-                    
-                    updateMessageAvatar(currentUser.id, data.avatarUrl);
-                    
-                    avatarMessage.textContent = `头像上传成功。${data.storageInfo}`;
-                    avatarMessage.style.color = 'green';
-                    
-                    checkStorageStatus();
-                    
-                    setTimeout(() => {
-                        hideAvatarModal();
-                    }, 3000);
-                } else {
-                    avatarMessage.textContent = data.message;
-                    avatarMessage.style.color = 'red';
-                }
-            })
-            .catch(error => {
-                console.error('上传错误:', error);
-                avatarMessage.textContent = '头像上传失败';
-                avatarMessage.style.color = 'red';
-            });
-        });
-    
-        // 更新消息中的头像
-        function updateMessageAvatar(userId, avatarUrl) {
-            const messages = document.querySelectorAll(`#messageContainer .message[data-user-id="${userId}"]`);
-            messages.forEach(message => {
-                const avatarElement = message.querySelector('.message-avatar');
-                if (avatarElement) {
-                    avatarElement.src = `${SERVER_URL}${avatarUrl}`;
-                } else {
-                    const messageHeader = message.querySelector('.message-header');
-                    if (messageHeader) {
-                        const newAvatar = document.createElement('img');
-                        newAvatar.className = 'message-avatar';
-                        newAvatar.src = `${SERVER_URL}${avatarUrl}`;
-                        newAvatar.alt = '头像';
-                        messageHeader.insertBefore(newAvatar, messageHeader.firstChild);
-                    }
-                }
-            });
-            
-            const groupMessages = document.querySelectorAll(`#groupMessageContainer .message[data-user-id="${userId}"]`);
-            groupMessages.forEach(message => {
-                const avatarElement = message.querySelector('.message-avatar');
-                if (avatarElement) {
-                    avatarElement.src = `${SERVER_URL}${avatarUrl}`;
-                } else {
-                    const messageHeader = message.querySelector('.message-header');
-                    if (messageHeader) {
-                        const newAvatar = document.createElement('img');
-                        newAvatar.className = 'message-avatar';
-                        newAvatar.src = `${SERVER_URL}${avatarUrl}`;
-                        newAvatar.alt = '头像';
-                        messageHeader.insertBefore(newAvatar, messageHeader.firstChild);
-                    }
-                }
-            });
         }
     
-        // 创建群组按钮
-        createGroupBtn.addEventListener('click', showCreateGroupModal);
-    
-        // 创建群组提交按钮
-        createGroupButton.addEventListener('click', function() {
-            const groupName = groupNameInput.value.trim();
-            const description = groupDescriptionInput.value.trim();
-            
-            const selectedMembers = [];
-            document.querySelectorAll('.member-checkbox:checked').forEach(checkbox => {
-                selectedMembers.push(checkbox.value);
-            });
-            
-            if (!groupName) {
-                createGroupMessage.textContent = '请输入群组名称';
-                createGroupMessage.style.color = 'red';
-                return;
-            }
-            
-            if (selectedMembers.length < 2) {
-                createGroupMessage.textContent = '请选择至少2名其他成员';
-                createGroupMessage.style.color = 'red';
-                return;
-            }
-            
-            fetch(`${SERVER_URL}/create-group`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'user-id': currentUser.id,
-                    'session-token': currentSessionToken
-                },
-                body: JSON.stringify({
-                    userId: currentUser.id,
-                    groupName: groupName,
-                    description: description,
-                    memberIds: selectedMembers
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    createGroupMessage.textContent = '群组创建成功';
-                    createGroupMessage.style.color = 'green';
-                    
-                    loadUserGroups();
-                    
-                    groupNameInput.value = '';
-                    groupDescriptionInput.value = '';
-                    document.querySelectorAll('.member-checkbox').forEach(checkbox => {
-                        checkbox.checked = false;
-                    });
-                    
-                    setTimeout(() => {
-                        hideCreateGroupModal();
-                    }, 3000);
-                } else {
-                    createGroupMessage.textContent = data.message;
-                    createGroupMessage.style.color = 'red';
-                }
-            })
-            .catch(error => {
-                console.error('创建群组错误:', error);
-                createGroupMessage.textContent = '创建群组失败';
-                createGroupMessage.style.color = 'red';
-            });
-        });
-    
-        // 退出登录
-        function logout() {
-            currentUser = null;
-            currentSessionToken = null;
-            localStorage.removeItem('chatUserId');
-            localStorage.removeItem('chatUserNickname');
-            localStorage.removeItem('chatUserAvatar');
-            localStorage.removeItem('chatSessionToken');
-            updateLoginState(false);
-            
-            messageContainer.innerHTML = '';
-            emptyState.style.display = 'block';
-            
-            groupMessageContainer.innerHTML = `
-                <div class="empty-state">
-                    <h3>暂无消息</h3>
-                    <p>发送第一条消息开始群聊吧!</p>
-                </div>
-            `;
-            
-            userList.innerHTML = '<li>暂无在线用户</li>';
-            onlineCount.textContent = '(0)';
-            totalOnlineCount.textContent = '0';
-            onlineUsersList = [];
-            
-            backToMainChat();
-        }
-    
-        // 退出按钮
-        logoutButton.addEventListener('click', logout);
-    
-        // 发送消息
-        sendButton.addEventListener('click', sendMessage);
-        messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
-        
-        // 发送群组消息
-        sendGroupMessageBtn.addEventListener('click', sendGroupMessage);
-        groupMessageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendGroupMessage();
-            }
-        });
-    
-        // 上传图片按钮事件
-        uploadButton.addEventListener('click', () => {
-            fileInput.click();
-        });
-        
-        groupUploadButton.addEventListener('click', () => {
-            groupFileInput.click();
-        });
-    
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files && e.target.files[0]) {
-                uploadImage(e.target.files[0], false);
-            }
-        });
-        
-        groupFileInput.addEventListener('change', (e) => {
-            if (e.target.files && e.target.files[0]) {
-                uploadImage(e.target.files[0], true);
-            }
-        });
-    
-        // 使用事件委托处理撤回按钮点击
-        messageContainer.addEventListener('click', (e) => {
-            if (e.target.classList.contains('delete-button')) {
-                const messageId = e.target.getAttribute('data-id');
-                socket.emit('delete-message', {
-                    messageId: messageId,
-                    userId: currentUser.id,
-                    sessionToken: currentSessionToken
-                });
-            }
-        });
-        
-        groupMessageContainer.addEventListener('click', (e) => {
-            if (e.target.classList.contains('delete-button')) {
-                const messageId = e.target.getAttribute('data-id');
-                socket.emit('delete-message', {
-                    messageId: messageId,
-                    userId: currentUser.id,
-                    sessionToken: currentSessionToken
-                });
-            }
-        });
-    
-        // 侧边栏切换事件
-        toggleSidebarBtn.addEventListener('click', toggleSidebar);
-        
-        // 返回主聊天室按钮
-        backToMainBtn.addEventListener('click', backToMainChat);
-    
-        // 发送消息
-        function sendMessage() {
-            const content = messageInput.value.trim();
-            if (!content || !currentUser || !isConnected || !currentSessionToken) return;
-    
-            socket.emit('send-message', {
-                userId: currentUser.id,
-                content: content,
-                sessionToken: currentSessionToken
-            });
-    
-            messageInput.value = '';
-            autoResizeTextarea(messageInput);
-        }
-        
-        // 发送群组消息
-        function sendGroupMessage() {
-            const content = groupMessageInput.value.trim();
-            if (!content || !currentUser || !isConnected || !currentGroupId || !currentSessionToken) return;
-    
-            socket.emit('send-message', {
-                userId: currentUser.id,
-                content: content,
-                groupId: currentGroupId,
-                sessionToken: currentSessionToken
-            });
-    
-            groupMessageInput.value = '';
-            autoResizeTextarea(groupMessageInput);
-        }
-    
-        // 上传图片
+        // 修复18：图片上传函数
         function uploadImage(file, isGroup) {
             if (!file || !file.type.startsWith('image/')) {
                 alert('请选择有效的图片文件');
@@ -2600,33 +2455,59 @@
             });
         }
     
-        // 检查本地存储是否有用户信息
-        const savedUserId = localStorage.getItem('chatUserId');
-        const savedUserNickname = localStorage.getItem('chatUserNickname');
-        const savedUserAvatar = localStorage.getItem('chatUserAvatar');
-        const savedSessionToken = localStorage.getItem('chatSessionToken');
-        
-        if (savedUserId && savedUserNickname && savedSessionToken) {
-            currentUser = {
-                id: savedUserId,
-                nickname: savedUserNickname,
-                avatarUrl: savedUserAvatar
-            };
-            currentSessionToken = savedSessionToken;
-            updateLoginState(true);
+        // 修复19：应用初始化
+        function initializeApp() {
+            console.log('🚀 初始化聊天室应用');
             
-            if (isConnected) {
-                socket.emit('user-joined', {
-                    id: currentUser.id,
-                    nickname: currentUser.nickname,
-                    avatarUrl: currentUser.avatarUrl,
-                    sessionToken: currentSessionToken
-                });
+            // 检查本地存储的登录状态
+            const savedUserId = localStorage.getItem('chatUserId');
+            const savedUserNickname = localStorage.getItem('chatUserNickname');
+            const savedUserAvatar = localStorage.getItem('chatUserAvatar');
+            const savedSessionToken = localStorage.getItem('chatSessionToken');
+            
+            if (savedUserId && savedUserNickname && savedSessionToken) {
+                currentUser = {
+                    id: savedUserId,
+                    nickname: savedUserNickname,
+                    avatarUrl: savedUserAvatar
+                };
+                currentSessionToken = savedSessionToken;
+                updateLoginState(true);
+            } else {
+                updateLoginState(false);
             }
+            
+            // 初始化事件监听器
+            initializeEventListeners();
+            
+            // 初始化状态显示
+            updateConnectionStatus('connecting', '连接中...');
+            checkStorageStatus();
+            
+            console.log('✅ 应用初始化完成');
         }
     
-        // 全局函数供图片点击调用
-        window.openImagePreview = openImagePreview;
+        // 修复20：全局函数和启动
+        window.openImagePreview = function(imageUrl) {
+            previewImgElement.src = imageUrl;
+            imagePreviewModal.style.display = 'flex';
+        };
+    
+        // 关闭图片预览
+        if (closePreviewBtn) {
+            closePreviewBtn.addEventListener('click', function() {
+                imagePreviewModal.style.display = 'none';
+            });
+        }
+    
+        imagePreviewModal.addEventListener('click', function(e) {
+            if (e.target === imagePreviewModal) {
+                imagePreviewModal.style.display = 'none';
+            }
+        });
+    
+        // 启动应用
+        initializeApp();
     });
     </script>
 </body>
