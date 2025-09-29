@@ -1142,6 +1142,9 @@
         let currentGroupName = '';
         let markdownEnabled = false;
         let groupMarkdownEnabled = false;
+        let lastMessageUpdate = 0;
+        let autoRefreshInterval = null;
+        let isPageVisible = true;
     
         // 获取DOM元素
         const messageInput = document.getElementById('messageInput');
@@ -1436,6 +1439,103 @@
                 this.classList.toggle('active', groupMarkdownEnabled);
                 groupMarkdownToolbar.classList.toggle('active', groupMarkdownEnabled);
             });
+        }
+        
+        function startAutoRefresh() {
+          // 停止之前的定时器
+          if (autoRefreshInterval) {
+            clearInterval(autoRefreshInterval);
+          }
+          
+          // 每30秒自动刷新消息
+          autoRefreshInterval = setInterval(() => {
+            if (isConnected && currentUser && isPageVisible) {
+              refreshMessages();
+            }
+          }, 30000); // 30秒
+          
+          console.log('✅ 启动自动刷新，间隔30秒');
+        }
+        
+        function refreshMessages() {
+          if (!currentUser || !currentSessionToken) {
+            console.log('❌ 未登录，跳过刷新');
+            return;
+          }
+          
+          const isGroupChat = groupChat.style.display !== 'none';
+          const targetGroupId = isGroupChat ? currentGroupId : null;
+          
+          console.log('🔄 刷新消息:', {
+            isGroupChat: isGroupChat,
+            groupId: targetGroupId,
+            lastUpdate: lastMessageUpdate
+          });
+          
+          fetch(`${SERVER_URL}/refresh-messages?groupId=${targetGroupId || ''}&lastUpdate=${lastMessageUpdate}`, {
+            headers: {
+              'user-id': currentUser.id,
+              'session-token': currentSessionToken
+            }
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.status === 'success') {
+              console.log('✅ 刷新消息成功:', {
+                messageCount: data.messages.length,
+                hasNewMessages: data.hasNewMessages,
+                lastUpdate: data.lastUpdate
+              });
+              
+              // 更新最后更新时间
+              lastMessageUpdate = data.lastUpdate;
+              
+              // 如果有新消息，更新显示
+              if (data.hasNewMessages && data.messages.length > 0) {
+                updateMessagesDisplay(data.messages, isGroupChat);
+              }
+            } else {
+              console.error('❌ 刷新消息失败:', data.message);
+            }
+          })
+          .catch(error => {
+            console.error('❌ 刷新消息请求失败:', error);
+          });
+        }
+        
+        function updateMessagesDisplay(messages, isGroupChat) {
+          const targetContainer = isGroupChat ? groupMessageContainer : messageContainer;
+          const targetEmptyState = isGroupChat ? groupMessageContainer.querySelector('.empty-state') : emptyState;
+          
+          // 清空容器
+          targetContainer.innerHTML = '';
+          
+          if (messages.length === 0) {
+            if (targetEmptyState) {
+              targetEmptyState.style.display = 'block';
+            }
+            return;
+          }
+          
+          if (targetEmptyState) {
+            targetEmptyState.style.display = 'none';
+          }
+          
+          // 添加所有消息
+          messages.forEach(message => {
+            const isOwn = currentUser && message.userId == currentUser.id;
+            addMessageToContainer(message, isOwn, isGroupChat, targetContainer);
+          });
+          
+          // 滚动到底部
+          scrollToBottom(targetContainer);
+          
+          // 更新消息计数
+          if (!isGroupChat && messageCount) {
+            messageCount.textContent = `消息数量: ${messages.length}`;
+          }
+          
+          console.log(`✅ 更新消息显示: ${messages.length} 条消息`);
         }
         
         function insertMarkdownSyntax(textarea, prefix, suffix, sample) {
@@ -1926,75 +2026,127 @@
             groupUploadButton.disabled = true;
             groupFileInput.disabled = true;
         }
+        
+        function addMessageToContainer(message, isOwn, isGroupChat, container) {
+          const messageElement = document.createElement('div');
+          messageElement.className = `message ${isOwn ? 'own-message' : ''}`;
+          messageElement.setAttribute('data-user-id', message.userId);
+          messageElement.setAttribute('data-message-id', message.id);
+          
+          let contentHtml = '';
+          if (message.imageUrl) {
+            contentHtml = `
+              <div class="message-content">
+                <img src="${SERVER_URL}${message.imageUrl}" class="message-image" alt="聊天图片" onclick="openImagePreview('${SERVER_URL}${message.imageUrl}')">
+              </div>
+            `;
+          } else {
+            const parsedContent = safeMarkdownParse(message.content);
+            contentHtml = `
+              <div class="message-content">${parsedContent}</div>
+            `;
+          }
+          
+          const avatarHtml = message.avatarUrl ? 
+            `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="${message.nickname}">` : 
+            '';
+          
+          messageElement.innerHTML = `
+            <div class="message-header">
+              ${avatarHtml}
+              <div class="nickname">${escapeHtml(message.nickname)}</div>
+            </div>
+            ${contentHtml}
+            <div class="message-time">${formatTime(message.timestamp)}</div>
+            ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
+          `;
+          
+          container.appendChild(messageElement);
+          
+          // 添加撤回按钮事件监听
+          if (isOwn) {
+            const deleteButton = messageElement.querySelector('.delete-button');
+            if (deleteButton) {
+              deleteButton.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const messageId = this.getAttribute('data-id');
+                console.log('撤回消息:', messageId);
+                socket.emit('delete-message', {
+                  messageId: messageId,
+                  userId: currentUser.id,
+                  sessionToken: currentSessionToken
+                });
+              });
+            }
+          }
+        }
+        
+        function setupPageVisibility() {
+          // 现代浏览器的页面可见性API
+          let visibilityProperty;
+          if ('hidden' in document) {
+            visibilityProperty = 'hidden';
+          } else if ('webkitHidden' in document) {
+            visibilityProperty = 'webkitHidden';
+          } else if ('mozHidden' in document) {
+            visibilityProperty = 'mozHidden';
+          }
+          
+          if (visibilityProperty) {
+            const visibilityChangeEvent = visibilityProperty.replace('hidden', 'visibilitychange');
+            
+            document.addEventListener(visibilityChangeEvent, function() {
+              isPageVisible = !document[visibilityProperty];
+              console.log('📄 页面可见性变化:', isPageVisible ? '可见' : '隐藏');
+              
+              if (isPageVisible && isConnected) {
+                // 页面从隐藏变为可见，立即刷新消息
+                console.log('🔄 页面恢复可见，刷新消息');
+                refreshMessages();
+                // 重新请求在线用户列表
+                if (currentUser) {
+                  socket.emit('get-online-users');
+                }
+              }
+            });
+          }
+          // 传统浏览器的窗口焦点事件
+          window.addEventListener('focus', function() {
+            if (!isPageVisible) {
+              isPageVisible = true;
+              console.log('🔄 窗口获得焦点，刷新消息');
+              if (isConnected) {
+                refreshMessages();
+                if (currentUser) {
+                  socket.emit('get-online-users');
+                }
+              }
+            }
+          });
+          
+          window.addEventListener('blur', function() {
+            isPageVisible = false;
+            console.log('📄 窗口失去焦点');
+          });
+        }
     
         // 修复11：消息处理函数
         function addMessage(message, isOwn = false, isGroup = false) {
-            const targetContainer = isGroup ? groupMessageContainer : messageContainer;
-            const targetEmptyState = isGroup ? groupMessageContainer.querySelector('.empty-state') : emptyState;
-            
-            if (targetEmptyState && targetEmptyState.style.display !== 'none') {
-                targetEmptyState.style.display = 'none';
-            }
-            
-            const messageElement = document.createElement('div');
-            messageElement.className = `message ${isOwn ? 'own-message' : ''}`;
-            messageElement.setAttribute('data-user-id', message.userId);
-            messageElement.setAttribute('data-message-id', message.id);
-            
-            let contentHtml = '';
-            if (message.imageUrl) {
-                contentHtml = `
-                    <div class="message-content">
-                        <img src="${SERVER_URL}${message.imageUrl}" class="message-image" alt="聊天图片" onclick="openImagePreview('${SERVER_URL}${message.imageUrl}')">
-                    </div>
-                `;
-            } else {
-                // 使用修复后的Markdown解析
-                const parsedContent = safeMarkdownParse(message.content);
-                contentHtml = `
-                    <div class="message-content">${parsedContent}</div>
-                `;
-            }
-            
-            const avatarHtml = message.avatarUrl ? 
-                `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="${message.nickname}">` : 
-                '';
-            
-            messageElement.innerHTML = `
-                <div class="message-header">
-                    ${avatarHtml}
-                    <div class="nickname">${escapeHtml(message.nickname)}</div>
-                </div>
-                ${contentHtml}
-                <div class="message-time">${formatTime(message.timestamp)}</div>
-                ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
-            `;
-            
-            targetContainer.appendChild(messageElement);
-            
-            // 添加撤回按钮事件监听
-            if (isOwn) {
-                const deleteButton = messageElement.querySelector('.delete-button');
-                if (deleteButton) {
-                    deleteButton.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        const messageId = this.getAttribute('data-id');
-                        console.log('撤回消息:', messageId);
-                        socket.emit('delete-message', {
-                            messageId: messageId,
-                            userId: currentUser.id,
-                            sessionToken: currentSessionToken
-                        });
-                    });
-                }
-            }
-            
-            if (!isGroup && messageCount) {
-                const count = messageContainer.querySelectorAll('.message').length;
-                messageCount.textContent = `消息数量: ${count}`;
-            }
-            
-            scrollToBottom(targetContainer);
+          const targetContainer = isGroup ? groupMessageContainer : messageContainer;
+          const targetEmptyState = isGroup ? groupMessageContainer.querySelector('.empty-state') : emptyState;
+          
+          if (targetEmptyState && targetEmptyState.style.display !== 'none') {
+            targetEmptyState.style.display = 'none';
+          }
+          
+          addMessageToContainer(message, isOwn, isGroup, targetContainer);
+          
+          if (!isGroup && messageCount) {
+            const count = messageContainer.querySelectorAll('.message').length;
+            messageCount.textContent = `消息数量: ${count}`;
+          }
+          
+          scrollToBottom(targetContainer);
         }
     
         // 修复12：连接状态和存储状态
@@ -2222,11 +2374,13 @@
     
         // 修复16：Socket.IO事件处理
         const socket = io(SERVER_URL, {
-            transports: ['websocket', 'polling'],
-            reconnection: true,
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000,
-            timeout: 20000
+          transports: ['websocket', 'polling'],
+          reconnection: true,
+          reconnectionAttempts: Infinity, // 无限重试
+          reconnectionDelay: 1000,
+          reconnectionDelayMax: 5000,
+          timeout: 20000,
+          autoConnect: true
         });
     
         socket.on('connect', () => {
@@ -2235,8 +2389,12 @@
           updateConnectionStatus('connected', '已连接');
           checkStorageStatus();
           
-          // 修复：登录后立即加入聊天室
+          // 启动自动刷新
+          startAutoRefresh();
+          
+          // 登录后立即加入聊天室
           if (currentUser && currentSessionToken) {
+            console.log('🔄 连接建立，重新加入聊天室');
             socket.emit('user-joined', {
               userId: currentUser.id,
               nickname: currentUser.nickname,
@@ -2246,25 +2404,18 @@
             
             // 立即请求在线用户列表
             socket.emit('get-online-users');
+            
+            // 如果正在群组聊天，重新加入群组
+            if (currentGroupId) {
+              socket.emit('join-group', { 
+                groupId: currentGroupId,
+                userId: currentUser.id,
+                sessionToken: currentSessionToken
+              });
+            }
           }
         });
-    
-        socket.on('connecting', () => {
-            console.log('🔄 正在连接服务器...');
-            updateConnectionStatus('connecting', '连接中...');
-        });
-    
-        socket.on('disconnect', (reason) => {
-            console.log('❌ 与服务器断开连接, 原因:', reason);
-            isConnected = false;
-            updateConnectionStatus('disconnected', `已断开: ${reason}`);
-        });
-    
-        socket.on('connect_error', (error) => {
-            console.error('连接错误:', error);
-            updateConnectionStatus('error', `连接错误: ${error.message}`);
-        });
-    
+        
         socket.on('reconnect', (attemptNumber) => {
           console.log(`✅ 第${attemptNumber}次重新连接成功`);
           updateConnectionStatus('connected', '已重新连接');
@@ -2272,6 +2423,7 @@
           
           // 重新加入聊天室
           if (currentUser && currentSessionToken) {
+            console.log('🔄 重新连接成功，重新加入聊天室');
             socket.emit('user-joined', {
               userId: currentUser.id,
               nickname: currentUser.nickname,
@@ -2291,6 +2443,9 @@
               });
             }
           }
+          
+          // 重新启动自动刷新
+          startAutoRefresh();
         });
     
         socket.on('users-updated', (users) => {
@@ -2332,57 +2487,68 @@
           }
         });
     
-        socket.on('chat-history', (messages) => {
-            if (hasReceivedHistory) return;
-            
-            hasReceivedHistory = true;
-            messageContainer.innerHTML = '';
-            
-            if (messages.length === 0) {
-                emptyState.style.display = 'block';
-                return;
-            }
-            
-            emptyState.style.display = 'none';
-            
-            messages.forEach(message => {
-                const isOwn = currentUser && message.userId == currentUser.id;
-                addMessage(message, isOwn, false);
-            });
-            
-            if (messageCount) {
-                messageCount.textContent = `消息数量: ${messages.length}`;
-            }
-            
-            scrollToBottom(messageContainer);
-        });
-    
-        socket.on('group-created', (data) => {
-          console.log('📨 收到群组创建事件:', data);
-          // 立即刷新群组列表
-          loadUserGroups();
+        socket.on('chat-history', (data) => {
+          console.log('📨 收到聊天历史:', {
+            messageCount: data.messages ? data.messages.length : 0,
+            lastUpdate: data.lastUpdate
+          });
+          
+          // 更新最后更新时间
+          if (data.lastUpdate) {
+            lastMessageUpdate = data.lastUpdate;
+          }
+          
+          messageContainer.innerHTML = '';
+          
+          if (!data.messages || data.messages.length === 0) {
+            emptyState.style.display = 'block';
+            return;
+          }
+          
+          emptyState.style.display = 'none';
+          
+          data.messages.forEach(message => {
+            const isOwn = currentUser && message.userId == currentUser.id;
+            addMessage(message, isOwn, false);
+          });
+          
+          if (messageCount) {
+            messageCount.textContent = `消息数量: ${data.messages.length}`;
+          }
+          
+          scrollToBottom(messageContainer);
         });
     
         socket.on('group-chat-history', (data) => {
-            console.log('收到群组聊天历史:', data);
-            groupMessageContainer.innerHTML = '';
-            
-            if (data.messages.length === 0) {
-                groupMessageContainer.innerHTML = `
-                    <div class="empty-state">
-                        <h3>暂无消息</h3>
-                        <p>发送第一条消息开始群聊吧!</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            data.messages.forEach(message => {
-                const isOwn = currentUser && message.userId == currentUser.id;
-                addMessage(message, isOwn, true);
-            });
-            
-            scrollToBottom(groupMessageContainer);
+          console.log('📨 收到群组聊天历史:', {
+            groupId: data.groupId,
+            messageCount: data.messages ? data.messages.length : 0,
+            lastUpdate: data.lastUpdate
+          });
+          
+          // 更新最后更新时间
+          if (data.lastUpdate) {
+            lastMessageUpdate = data.lastUpdate;
+          }
+          
+          groupMessageContainer.innerHTML = '';
+          
+          if (!data.messages || data.messages.length === 0) {
+            groupMessageContainer.innerHTML = `
+              <div class="empty-state">
+                <h3>暂无消息</h3>
+                <p>发送第一条消息开始群聊吧!</p>
+              </div>
+            `;
+            return;
+          }
+          
+          data.messages.forEach(message => {
+            const isOwn = currentUser && message.userId == currentUser.id;
+            addMessage(message, isOwn, true);
+          });
+          
+          scrollToBottom(groupMessageContainer);
         });
     
         socket.on('nickname-updated', (data) => {
@@ -2492,68 +2658,74 @@
     
         // 修复18：登录注册处理
         function handleLogin() {
-            const username = loginUsername.value.trim();
-            const password = loginPassword.value.trim();
-            
-            if (!username || !password) {
-                loginMessage.textContent = '请填写用户名和密码';
-                loginMessage.style.display = 'block';
-                return;
+          const username = loginUsername.value.trim();
+          const password = loginPassword.value.trim();
+          
+          if (!username || !password) {
+            loginMessage.textContent = '请填写用户名和密码';
+            loginMessage.style.display = 'block';
+            return;
+          }
+          
+          loginButton.disabled = true;
+          loginButton.textContent = '登录中...';
+          
+          fetch(`${SERVER_URL}/login`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username, password })
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.status === 'success') {
+              currentUser = {
+                id: data.userId.toString(),
+                nickname: data.nickname,
+                avatarUrl: data.avatarUrl
+              };
+              currentSessionToken = data.sessionToken;
+              
+              localStorage.setItem('chatUserId', currentUser.id);
+              localStorage.setItem('chatUserNickname', currentUser.nickname);
+              localStorage.setItem('chatSessionToken', currentSessionToken);
+              if (currentUser.avatarUrl) {
+                localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
+              }
+              
+              updateLoginState(true);
+              
+              // 设置最后更新时间
+              lastMessageUpdate = Date.now();
+              
+              // 登录后立即加入聊天室
+              if (isConnected && socket) {
+                socket.emit('user-joined', {
+                  userId: currentUser.id,
+                  nickname: currentUser.nickname,
+                  avatarUrl: currentUser.avatarUrl,
+                  sessionToken: currentSessionToken
+                });
+              }
+              
+              // 启动自动刷新
+              startAutoRefresh();
+              
+            } else {
+              loginMessage.textContent = data.message;
+              loginMessage.style.display = 'block';
+              loginButton.disabled = false;
+              loginButton.textContent = '登录';
             }
-            
-            loginButton.disabled = true;
-            loginButton.textContent = '登录中...';
-            
-            fetch(`${SERVER_URL}/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ username, password })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    currentUser = {
-                        id: data.userId.toString(),
-                        nickname: data.nickname,
-                        avatarUrl: data.avatarUrl
-                    };
-                    currentSessionToken = data.sessionToken;
-                    
-                    localStorage.setItem('chatUserId', currentUser.id);
-                    localStorage.setItem('chatUserNickname', currentUser.nickname);
-                    localStorage.setItem('chatSessionToken', currentSessionToken);
-                    if (currentUser.avatarUrl) {
-                        localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
-                    }
-                    
-                    updateLoginState(true);
-                    
-                    // 修复：登录后立即加入聊天室，不需要刷新
-                    if (isConnected && socket) {
-                        socket.emit('user-joined', {
-                            userId: currentUser.id,
-                            nickname: currentUser.nickname,
-                            avatarUrl: currentUser.avatarUrl,
-                            sessionToken: currentSessionToken
-                        });
-                    }
-                    
-                } else {
-                    loginMessage.textContent = data.message;
-                    loginMessage.style.display = 'block';
-                    loginButton.disabled = false;
-                    loginButton.textContent = '登录';
-                }
-            })
-            .catch(error => {
-                console.error('登录错误:', error);
-                loginMessage.textContent = '登录失败，请重试';
-                loginMessage.style.display = 'block';
-                loginButton.disabled = false;
-                loginButton.textContent = '登录';
-            });
+          })
+          .catch(error => {
+            console.error('登录错误:', error);
+            loginMessage.textContent = '登录失败，请重试';
+            loginMessage.style.display = 'block';
+            loginButton.disabled = false;
+            loginButton.textContent = '登录';
+          });
         }
     
         function handleRegister() {
@@ -2661,36 +2833,40 @@
     
         // 修复20：应用初始化
         function initializeApp() {
-            console.log('🚀 初始化聊天室应用');
+          console.log('🚀 初始化聊天室应用');
+          
+          // 检查本地存储的登录状态
+          const savedUserId = localStorage.getItem('chatUserId');
+          const savedUserNickname = localStorage.getItem('chatUserNickname');
+          const savedUserAvatar = localStorage.getItem('chatUserAvatar');
+          const savedSessionToken = localStorage.getItem('chatSessionToken');
+          
+          if (savedUserId && savedUserNickname && savedSessionToken) {
+            currentUser = {
+              id: savedUserId,
+              nickname: savedUserNickname,
+              avatarUrl: savedUserAvatar
+            };
+            currentSessionToken = savedSessionToken;
+            updateLoginState(true);
             
-            // 检查本地存储的登录状态
-            const savedUserId = localStorage.getItem('chatUserId');
-            const savedUserNickname = localStorage.getItem('chatUserNickname');
-            const savedUserAvatar = localStorage.getItem('chatUserAvatar');
-            const savedSessionToken = localStorage.getItem('chatSessionToken');
-            
-            if (savedUserId && savedUserNickname && savedSessionToken) {
-                currentUser = {
-                    id: savedUserId,
-                    nickname: savedUserNickname,
-                    avatarUrl: savedUserAvatar
-                };
-                currentSessionToken = savedSessionToken;
-                updateLoginState(true);
-            } else {
-                updateLoginState(false);
-            }
-            
-            // 初始化事件监听器
-            initializeEventListeners();
-            
-            // 初始化状态显示
-            updateConnectionStatus('connecting', '连接中...');
-            checkStorageStatus();
-            
-            startAutoRefresh();
-            
-            console.log('✅ 应用初始化完成');
+            // 立即设置最后更新时间
+            lastMessageUpdate = Date.now();
+          } else {
+            updateLoginState(false);
+          }
+          
+          // 初始化事件监听器
+          initializeEventListeners();
+          
+          // 设置页面可见性检测
+          setupPageVisibility();
+          
+          // 初始化状态显示
+          updateConnectionStatus('connecting', '连接中...');
+          checkStorageStatus();
+          
+          console.log('✅ 应用初始化完成');
         }
     
         // 修复21：全局函数和启动
