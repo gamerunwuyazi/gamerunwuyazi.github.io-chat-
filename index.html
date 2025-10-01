@@ -159,12 +159,20 @@
         .sidebar.collapsed {
             width: 50px;
             padding: 10px;
+            overflow: hidden;
         }
         
         .sidebar.collapsed .online-users-content,
         .sidebar.collapsed .offline-users-content,
-        .sidebar.collapsed .group-section {
-            display: none;
+        .sidebar.collapsed .group-section,
+        .sidebar.collapsed .user-list-item span,
+        .sidebar.collapsed .section-title,
+        .sidebar.collapsed .toggle-sidebar-text {
+            display: none !important;
+        }
+        
+        .sidebar.collapsed .user-avatar {
+            margin: 0 auto;
         }
         
         .toggle-sidebar {
@@ -968,6 +976,19 @@
         </div>
     </div>
 
+    <!-- 添加成员模态框 -->
+    <div id="addGroupMemberModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h3>添加群组成员</h3>
+            <div class="member-list" id="availableMembersList">
+                <div>加载中...</div>
+            </div>
+            <button id="confirmAddMembersButton">确认添加</button>
+            <div id="addMembersMessage" style="margin-top: 10px;"></div>
+        </div>
+    </div>
+    
     <!-- 图片预览模态框 -->
     <div id="imagePreviewModal" class="image-preview-modal">
         <div class="close-preview">&times;</div>
@@ -1074,6 +1095,7 @@
         <div class="group-header">
             <button id="backToMain">← 返回主聊天室</button>
             <h1 id="groupTitle">群组聊天</h1>
+            <button id="addMemberBtn" style="display: none;">添加成员</button>
         </div>
         
         <div class="group-chat-container">
@@ -1203,6 +1225,13 @@
         const groupMembersList = document.getElementById('groupMembersList');
         const createGroupButton = document.getElementById('createGroupButton');
         const createGroupMessage = document.getElementById('createGroupMessage');
+        
+        // 添加成员模态框相关元素
+        const addGroupMemberModal = document.getElementById('addGroupMemberModal');
+        const availableMembersList = document.getElementById('availableMembersList');
+        const confirmAddMembersButton = document.getElementById('confirmAddMembersButton');
+        const addMembersMessage = document.getElementById('addMembersMessage');
+        const addMemberBtn = document.getElementById('addMemberBtn');
         const mainChat = document.getElementById('mainChat');
         const groupChat = document.getElementById('groupChat');
         const backToMainBtn = document.getElementById('backToMain');
@@ -1218,47 +1247,134 @@
         const markdownToggle = document.getElementById('markdownToggle');
         const groupMarkdownToggle = document.getElementById('groupMarkdownToggle');
     
-        // 修复1：安全的HTML处理函数
+        // 增强XSS防护：安全的HTML处理函数
         function escapeHtml(unsafe) {
             if (unsafe === null || unsafe === undefined) return '';
-            return String(unsafe)
+            // 移除控制字符
+            let safeString = String(unsafe)
+                .replace(/[\x00-\x1F\x7F-\x9F]/g, '')
+                // 转义HTML特殊字符
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;")
                 .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
+                .replace(/'/g, "&#039;")
+                // 防止JavaScript伪协议攻击
+                .replace(/javascript:/gi, 'javascript:')
+                // 防止data URI攻击
+                .replace(/data:/gi, 'data:');
+            return safeString;
         }
-    
-        // 修复2：处理服务器返回的已解析HTML
+        
+        // 增强XSS防护：更安全的Markdown解析函数
         function safeMarkdownParse(content) {
             if (!content) return '';
             
-            // 如果内容已经是HTML格式（包含标签），直接返回
-            if (content.includes('<') && content.includes('>')) {
-                // 移除可能包裹的引号
-                let cleanedContent = content.replace(/^"|"$/g, '');
-                // 移除多余的<p>包装
-                cleanedContent = cleanedContent.replace(/^<p>|<\/p>$/g, '');
-                cleanedContent = cleanedContent.replace(/<p><br><\/p>/g, '<br>');
-                return cleanedContent;
-            }
+            // 先对输入进行基础的HTML转义
+            let safeContent = escapeHtml(content);
             
             // 如果是纯文本，使用marked解析
             if (typeof marked !== 'undefined') {
                 try {
+                    // 创建自定义的渲染器以增强安全性
+                    const renderer = new marked.Renderer();
+                    
+                    // 覆盖链接渲染以增强安全性
+                    const linkRenderer = renderer.link;
+                    renderer.link = function(href, title, text) {
+                        // 验证URL安全性
+                        const cleanHref = validateUrl(href);
+                        const cleanTitle = title ? escapeHtml(title) : '';
+                        const cleanText = escapeHtml(text);
+                        return linkRenderer.call(this, cleanHref, cleanTitle, cleanText);
+                    };
+                    
+                    // 覆盖图片渲染以增强安全性
+                    const imageRenderer = renderer.image;
+                    renderer.image = function(href, title, text) {
+                        // 验证图片URL安全性
+                        const cleanHref = validateUrl(href);
+                        const cleanTitle = title ? escapeHtml(title) : '';
+                        const cleanText = escapeHtml(text);
+                        return imageRenderer.call(this, cleanHref, cleanTitle, cleanText);
+                    };
+                    
                     marked.setOptions({
                         sanitize: true,
                         breaks: true,
-                        gfm: true
+                        gfm: true,
+                        renderer: renderer
                     });
-                    return marked.parse(content);
+                    
+                    let parsedContent = marked.parse(safeContent);
+                    // 移除可能的危险属性
+                    parsedContent = removeDangerousAttributes(parsedContent);
+                    return parsedContent;
                 } catch (error) {
                     console.error('Markdown解析错误:', error);
-                    return escapeHtml(content);
+                    return safeContent;
                 }
             }
             
-            return escapeHtml(content);
+            return safeContent;
+        }
+        
+        // 验证URL安全性
+        function validateUrl(url) {
+            if (!url || typeof url !== 'string') return '';
+            
+            try {
+                const parsedUrl = new URL(url);
+                // 只允许安全的协议
+                const safeProtocols = ['http:', 'https:', 'mailto:', 'tel:'];
+                if (!safeProtocols.includes(parsedUrl.protocol)) {
+                    return '';
+                }
+                return url;
+            } catch (e) {
+                // 如果URL解析失败，返回空字符串
+                return '';
+            }
+        }
+        
+        // 移除HTML中的危险属性
+        function removeDangerousAttributes(html) {
+            if (!html) return '';
+            
+            // 创建临时DOM元素用于处理
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+            
+            // 定义危险属性列表
+            const dangerousAttributes = [
+                'on*', 'href', 'src', 'action', 'formaction', 
+                'xlink:href', 'background', 'dynsrc', 'lowsrc'
+            ];
+            
+            // 递归处理所有元素
+            function processElement(element) {
+                const attributes = Array.from(element.attributes);
+                attributes.forEach(attr => {
+                    const attrName = attr.name.toLowerCase();
+                    // 检查是否是危险属性
+                    const isDangerous = dangerousAttributes.some(dangerousAttr => {
+                        return dangerousAttr === attrName || 
+                               (dangerousAttr.includes('*') && attrName.startsWith(dangerousAttr.replace('*', '')));
+                    });
+                    
+                    if (isDangerous) {
+                        // 移除危险属性
+                        element.removeAttribute(attrName);
+                    }
+                });
+                
+                // 递归处理子元素
+                Array.from(element.children).forEach(processElement);
+            }
+            
+            Array.from(tempDiv.children).forEach(processElement);
+            
+            return tempDiv.innerHTML;
         }
     
         // 修复3：安全的DOM操作函数
@@ -1507,9 +1623,6 @@
           const targetContainer = isGroupChat ? groupMessageContainer : messageContainer;
           const targetEmptyState = isGroupChat ? groupMessageContainer.querySelector('.empty-state') : emptyState;
           
-          // 清空容器
-          targetContainer.innerHTML = '';
-          
           if (messages.length === 0) {
             if (targetEmptyState) {
               targetEmptyState.style.display = 'block';
@@ -1521,14 +1634,43 @@
             targetEmptyState.style.display = 'none';
           }
           
-          // 添加所有消息
-          messages.forEach(message => {
-            const isOwn = currentUser && message.userId == currentUser.id;
-            addMessageToContainer(message, isOwn, isGroupChat, targetContainer);
-          });
+          // 检查是否需要完全刷新
+          const isInitialLoad = targetContainer.querySelectorAll('.message').length === 0;
           
-          // 滚动到底部
-          scrollToBottom(targetContainer);
+          if (isInitialLoad) {
+            // 首次加载时清空容器并添加所有消息
+            targetContainer.innerHTML = '';
+            messages.forEach(message => {
+              const isOwn = currentUser && message.userId == currentUser.id;
+              addMessageToContainer(message, isOwn, isGroupChat, targetContainer);
+            });
+          } else {
+            // 刷新时，只添加新消息，不重新渲染所有消息
+            // 获取当前已有的消息ID
+            const existingMessageIds = new Set();
+            targetContainer.querySelectorAll('.message').forEach(el => {
+              existingMessageIds.add(el.getAttribute('data-message-id'));
+            });
+            
+            // 只添加新消息
+            const newMessages = messages.filter(msg => !existingMessageIds.has(msg.id.toString()));
+            
+            if (newMessages.length > 0) {
+              // 记录当前滚动位置
+              const wasScrolledToBottom = isScrolledToBottom(targetContainer);
+              
+              // 添加新消息
+              newMessages.forEach(message => {
+                const isOwn = currentUser && message.userId == currentUser.id;
+                addMessageToContainer(message, isOwn, isGroupChat, targetContainer);
+              });
+              
+              // 如果之前在底部，则保持在底部
+              if (wasScrolledToBottom) {
+                scrollToBottom(targetContainer);
+              }
+            }
+          }
           
           // 更新消息计数
           if (!isGroupChat && messageCount) {
@@ -1674,6 +1816,9 @@
             // 创建群组按钮
             createGroupBtn.addEventListener('click', showCreateGroupModal);
             
+            // 添加成员按钮
+            addMemberBtn.addEventListener('click', showAddGroupMemberModal);
+            
             // 创建群组
             createGroupButton.addEventListener('click', function() {
                 const groupName = groupNameInput.value.trim();
@@ -1727,9 +1872,58 @@
                     }
                 })
                 .catch(error => {
-                    console.error('创建群组错误:', error);
+                    console.error('创建群组失败:', error);
                     createGroupMessage.textContent = '创建群组失败';
                     createGroupMessage.style.color = 'red';
+                });
+            });
+            
+            // 确认添加成员
+            confirmAddMembersButton.addEventListener('click', function() {
+                const selectedMembers = [];
+                document.querySelectorAll('.available-member-checkbox:checked').forEach(checkbox => {
+                    selectedMembers.push(checkbox.value);
+                });
+                
+                if (selectedMembers.length === 0) {
+                    addMembersMessage.textContent = '请选择至少1名成员';
+                    addMembersMessage.style.color = 'red';
+                    return;
+                }
+                
+                fetch(`${SERVER_URL}/add-group-members`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'user-id': currentUser.id,
+                        'session-token': currentSessionToken
+                    },
+                    body: JSON.stringify({
+                        userId: currentUser.id,
+                        groupId: currentGroupId,
+                        memberIds: selectedMembers
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        addMembersMessage.textContent = '成员添加成功';
+                        addMembersMessage.style.color = 'green';
+                        loadGroupMembers(currentGroupId);
+                        
+                        // 2秒后关闭模态框
+                        setTimeout(() => {
+                            hideAddGroupMemberModal();
+                        }, 2000);
+                    } else {
+                        addMembersMessage.textContent = data.message;
+                        addMembersMessage.style.color = 'red';
+                    }
+                })
+                .catch(error => {
+                    console.error('添加成员失败:', error);
+                    addMembersMessage.textContent = '添加成员失败';
+                    addMembersMessage.style.color = 'red';
                 });
             });
         }
@@ -1772,7 +1966,67 @@
             createGroupMessage.textContent = '';
         }
         
+        // 显示添加成员模态框
+        function showAddGroupMemberModal() {
+            addGroupMemberModal.style.display = 'flex';
+            loadAvailableMembers();
+        }
+        
+        // 隐藏添加成员模态框
+        function hideAddGroupMemberModal() {
+            addGroupMemberModal.style.display = 'none';
+            addMembersMessage.textContent = '';
+            document.querySelectorAll('.available-member-checkbox').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+        }
+        
         // 修复10：群组相关功能
+        function loadAvailableMembers() {
+            if (!currentGroupId || !currentUser || !currentSessionToken) {
+                availableMembersList.innerHTML = '<div>无法加载成员列表</div>';
+                return;
+            }
+            
+            fetch(`${SERVER_URL}/available-group-members/${currentGroupId}`, {
+                method: 'GET',
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    availableMembersList.innerHTML = '';
+                    
+                    if (data.members.length === 0) {
+                        availableMembersList.innerHTML = '<div>没有可添加的成员</div>';
+                        return;
+                    }
+                    
+                    data.members.forEach(member => {
+                        const memberItem = document.createElement('div');
+                        memberItem.className = 'member-item';
+                        memberItem.innerHTML = `
+                            <input type="checkbox" class="available-member-checkbox" value="${member.id}" id="available-member-${member.id}">
+                            <label for="available-member-${member.id}">
+                                <img src="${member.avatarUrl || 'https://via.placeholder.com/40?text=?'}" alt="${escapeHtml(member.nickname)}" class="member-avatar">
+                                <span>${escapeHtml(member.nickname)}</span>
+                            </label>
+                        `;
+                        availableMembersList.appendChild(memberItem);
+                    });
+                } else {
+                    availableMembersList.innerHTML = `<div>加载失败: ${escapeHtml(data.message || '')}</div>`;
+                }
+            })
+            .catch(error => {
+                console.error('加载可用成员失败:', error);
+                availableMembersList.innerHTML = '<div>加载成员列表失败</div>';
+            });
+        }
+        
         function loadUserGroups() {
             if (!currentUser || !currentSessionToken) {
                 console.log('未登录，无法加载群组列表');
@@ -1954,6 +2208,40 @@
             sendGroupMessageBtn.disabled = false;
             groupUploadButton.disabled = false;
             groupFileInput.disabled = false;
+            
+            // 检查用户是否是群主
+            checkIfUserIsGroupCreator(groupId);
+        }
+        
+        // 检查用户是否是群组的创建者
+        function checkIfUserIsGroupCreator(groupId) {
+            if (!currentUser || !currentSessionToken) {
+                document.getElementById('addGroupMemberBtn').style.display = 'none';
+                return;
+            }
+            
+            fetch(`${SERVER_URL}/group-info/${groupId}`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+            .then(response => {
+                if (!response.ok) throw new Error('网络错误');
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success' && data.group && data.group.creator_id === currentUser.id) {
+                    // 用户是群主，显示添加成员按钮
+                    document.getElementById('addGroupMemberBtn').style.display = 'inline-block';
+                } else {
+                    document.getElementById('addGroupMemberBtn').style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('检查群主身份失败:', error);
+                document.getElementById('addGroupMemberBtn').style.display = 'none';
+            });
         }
     
         function loadGroupMembers(groupId) {
