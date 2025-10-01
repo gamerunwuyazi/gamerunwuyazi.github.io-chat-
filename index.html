@@ -1302,7 +1302,45 @@
         function xssProtect(unsafe) {
             if (unsafe === null || unsafe === undefined) return '';
             
-            return String(unsafe)
+            const str = String(unsafe);
+            
+            // 基础HTML转义 - 只转义真正危险的字符
+            let safeStr = str
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+            
+            // 移除对安全字符的过度转义
+            // 保留这些字符：^ + = ? ! @ # % : ; , . | * $ { } ( ) [ ] ` / \
+            
+            return safeStr;
+        }
+        
+        function sanitizeNickname(nickname) {
+            if (!nickname || typeof nickname !== 'string') return '';
+            
+            // 只移除真正的危险字符，保留大多数特殊字符
+            return nickname
+                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+                .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
+                .replace(/<embed\b[^<]*(?:(?!<\/embed>)<[^<]*)*<\/embed>/gi, '')
+                .replace(/<applet\b[^<]*(?:(?!<\/applet>)<[^<]*)*<\/applet>/gi, '')
+                .replace(/on\w+\s*=/gi, '')
+                .replace(/javascript:/gi, '')
+                .replace(/vbscript:/gi, '')
+                .replace(/expression\s*\(/gi, '')
+                .replace(/url\s*\(/gi, '')
+                .trim();
+        }
+        
+        function sanitizeMessageContent(content) {
+            if (!content || typeof content !== 'string') return '';
+            
+            // 对消息内容使用更严格的转义
+            return content
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;")
@@ -1310,28 +1348,7 @@
                 .replace(/'/g, "&#039;")
                 .replace(/`/g, "&#96;")
                 .replace(/\//g, "&#x2F;")
-                .replace(/\\/g, "&#x5C;")
-                .replace(/\$/g, "&#36;")
-                .replace(/\{/g, "&#123;")
-                .replace(/\}/g, "&#125;")
-                .replace(/\(/g, "&#40;")
-                .replace(/\)/g, "&#41;")
-                .replace(/\[/g, "&#91;")
-                .replace(/\]/g, "&#93;")
-                .replace(/\|/g, "&#124;")
-                .replace(/\*/g, "&#42;")
-                .replace(/\^/g, "&#94;")
-                .replace(/\+/g, "&#43;")
-                .replace(/\=/g, "&#61;")
-                .replace(/\?/g, "&#63;")
-                .replace(/!/g, "&#33;")
-                .replace(/@/g, "&#64;")
-                .replace(/#/g, "&#35;")
-                .replace(/%/g, "&#37;")
-                .replace(/:/g, "&#58;")
-                .replace(/;/g, "&#59;")
-                .replace(/,/g, "&#44;")
-                .replace(/\./g, "&#46;");
+                .replace(/\\/g, "&#x5C;");
         }
 
         // 加密函数
@@ -1448,16 +1465,30 @@
                     `<img src="${SERVER_URL}${user.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">` : 
                     '';
                 
-                // 用户信息
+                // 用户信息 - 使用textContent避免任何转义
                 const userInfo = document.createElement('span');
                 const isCurrentUser = currentUser && user.id == currentUser.id;
                 
-                // 修复：直接设置HTML内容，不对"(我)"进行转义
+                // 创建头像和昵称的DOM元素
+                if (user.avatarUrl) {
+                    const avatarImg = document.createElement('img');
+                    avatarImg.src = `${SERVER_URL}${user.avatarUrl}`;
+                    avatarImg.className = 'user-avatar';
+                    avatarImg.style.width = '16px';
+                    avatarImg.style.height = '16px';
+                    avatarImg.style.marginRight = '5px';
+                    avatarImg.style.borderRadius = '50%';
+                    userInfo.appendChild(avatarImg);
+                }
+                
+                // 直接使用textContent，不进行任何转义
+                const nicknameText = document.createTextNode(
+                    isCurrentUser ? `${user.nickname} (我)` : user.nickname
+                );
+                userInfo.appendChild(nicknameText);
+                
                 if (isCurrentUser) {
-                    userInfo.innerHTML = `${avatarHtml}${escapeHtml(user.nickname)} <strong>（我）</strong>`;
                     userInfo.style.fontWeight = 'bold';
-                } else {
-                    userInfo.innerHTML = `${avatarHtml}${escapeHtml(user.nickname)}`;
                 }
                 
                 li.appendChild(statusIndicator);
@@ -1646,6 +1677,13 @@
           const targetContainer = isGroupChat ? groupMessageContainer : messageContainer;
           const targetEmptyState = isGroupChat ? groupMessageContainer.querySelector('.empty-state') : emptyState;
           
+          // 保存当前滚动位置
+          const scrollPosition = targetContainer.scrollTop;
+          const isAtBottom = isScrolledToBottom(targetContainer);
+          
+          // 隐藏容器，避免闪烁
+          targetContainer.style.opacity = '0';
+          
           // 清空容器
           targetContainer.innerHTML = '';
           
@@ -1653,6 +1691,10 @@
             if (targetEmptyState) {
               targetEmptyState.style.display = 'block';
             }
+            // 恢复显示
+            setTimeout(() => {
+              targetContainer.style.opacity = '1';
+            }, 50);
             return;
           }
           
@@ -1666,8 +1708,17 @@
             addMessageToContainer(message, isOwn, isGroupChat, targetContainer);
           });
           
-          // 滚动到底部
-          scrollToBottom(targetContainer);
+          // 恢复显示并滚动
+          setTimeout(() => {
+            targetContainer.style.opacity = '1';
+            
+            if (isAtBottom) {
+              scrollToBottom(targetContainer);
+            } else {
+              // 保持原来的滚动位置
+              targetContainer.scrollTop = scrollPosition;
+            }
+          }, 50);
           
           // 更新消息计数
           if (!isGroupChat && messageCount) {
@@ -2281,10 +2332,11 @@
                     `<img src="${SERVER_URL}${member.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">` : 
                     '';
                 
+                // 修复：直接使用昵称，不进行转义
                 if (member.id == currentUser.id) {
-                    li.innerHTML = `${avatarHtml}<strong>${escapeHtml(member.nickname)} (我)</strong>`;
+                    li.innerHTML = `${avatarHtml}<strong>${member.nickname} (我)</strong>`;
                 } else {
-                    li.innerHTML = `${avatarHtml}${escapeHtml(member.nickname)}`;
+                    li.innerHTML = `${avatarHtml}${member.nickname}`;
                     if (member.id == currentGroupCreatorId) {
                         li.innerHTML += ' <span style="font-size: 10px; color: #07c160; margin-left: 5px;">群主</span>';
                     }
@@ -2505,18 +2557,23 @@
           }
           
           const avatarHtml = message.avatarUrl ? 
-            `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="${message.nickname}">` : 
+            `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="头像">` : 
             '';
           
+          // 修复：使用createElement创建昵称元素，避免转义
           messageElement.innerHTML = `
             <div class="message-header">
               ${avatarHtml}
-              <div class="nickname">${escapeHtml(message.nickname)}</div>
+              <div class="nickname"></div>
             </div>
             ${contentHtml}
             <div class="message-time">${formatTime(message.timestamp)}</div>
             ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
           `;
+          
+          // 直接设置昵称文本，不进行转义
+          const nicknameElement = messageElement.querySelector('.nickname');
+          nicknameElement.textContent = message.nickname;
           
           container.appendChild(messageElement);
           
