@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1235,6 +1236,7 @@
         const mainChat = document.getElementById('mainChat');
         const groupChat = document.getElementById('groupChat');
         const backToMainBtn = document.getElementById('backToMain');
+
         const groupTitle = document.getElementById('groupTitle');
         const groupMessageContainer = document.getElementById('groupMessageContainer');
         const groupMessageInput = document.getElementById('groupMessageInput');
@@ -1270,9 +1272,6 @@
         function safeMarkdownParse(content) {
             if (!content) return '';
             
-            // 先对输入进行基础的HTML转义
-            let safeContent = escapeHtml(content);
-            
             // 如果是纯文本，使用marked解析
             if (typeof marked !== 'undefined') {
                 try {
@@ -1306,7 +1305,8 @@
                         renderer: renderer
                     });
                     
-                    let parsedContent = marked.parse(safeContent);
+                    // 直接解析原始内容，不提前转义
+                    let parsedContent = marked.parse(content);
                     // 移除可能的危险属性
                     parsedContent = removeDangerousAttributes(parsedContent);
                     return parsedContent;
@@ -2216,7 +2216,8 @@
         // 检查用户是否是群组的创建者
         function checkIfUserIsGroupCreator(groupId) {
             if (!currentUser || !currentSessionToken) {
-                document.getElementById('addGroupMemberBtn').style.display = 'none';
+                addMemberBtn.style.display = 'none';
+                window.isGroupCreator = false;
                 return;
             }
             
@@ -2233,14 +2234,19 @@
             .then(data => {
                 if (data.status === 'success' && data.group && data.group.creator_id === currentUser.id) {
                     // 用户是群主，显示添加成员按钮
-                    document.getElementById('addGroupMemberBtn').style.display = 'inline-block';
+                    addMemberBtn.style.display = 'inline-block';
+                    window.isGroupCreator = true;
                 } else {
-                    document.getElementById('addGroupMemberBtn').style.display = 'none';
+                    addMemberBtn.style.display = 'none';
+                    window.isGroupCreator = false;
                 }
+                // 重新加载群组成员列表，以显示或隐藏踢出按钮
+                loadGroupMembers(groupId);
             })
             .catch(error => {
                 console.error('检查群主身份失败:', error);
-                document.getElementById('addGroupMemberBtn').style.display = 'none';
+                addMemberBtn.style.display = 'none';
+                window.isGroupCreator = false;
             });
         }
     
@@ -2284,17 +2290,83 @@
                 li.style.borderBottom = '1px solid #f1f1f1';
                 li.style.display = 'flex';
                 li.style.alignItems = 'center';
+                li.style.justifyContent = 'space-between';
                 
                 const avatarHtml = member.avatarUrl ? 
                     `<img src="${SERVER_URL}${member.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">` : 
                     '';
                 
+                const memberInfo = document.createElement('div');
+                memberInfo.style.display = 'flex';
+                memberInfo.style.alignItems = 'center';
+                
                 if (member.id == currentUser.id) {
-                    li.innerHTML = `${avatarHtml}<strong>${escapeHtml(member.nickname)} (我)</strong>`;
+                    memberInfo.innerHTML = `${avatarHtml}<strong>${escapeHtml(member.nickname)} (我)</strong>`;
                 } else {
-                    li.innerHTML = `${avatarHtml}${escapeHtml(member.nickname)}`;
+                    memberInfo.innerHTML = `${avatarHtml}${escapeHtml(member.nickname)}`;
                 }
+                
+                li.appendChild(memberInfo);
+                
+                // 检查是否是群主，如果是且不是自己，则显示踢出按钮
+                if (window.isGroupCreator && member.id != currentUser.id) {
+                    const kickButton = document.createElement('button');
+                    kickButton.textContent = '踢出';
+                    kickButton.style.padding = '2px 6px';
+                    kickButton.style.fontSize = '10px';
+                    kickButton.style.backgroundColor = '#ff4444';
+                    kickButton.style.color = 'white';
+                    kickButton.style.border = 'none';
+                    kickButton.style.borderRadius = '3px';
+                    kickButton.style.cursor = 'pointer';
+                    
+                    kickButton.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        if (confirm(`确定要将 ${escapeHtml(member.nickname)} 踢出群组吗？`)) {
+                            removeMemberFromGroup(currentGroupId, member.id);
+                        }
+                    });
+                    
+                    li.appendChild(kickButton);
+                }
+                
                 groupMemberList.appendChild(li);
+            });
+        }
+        
+        // 踢出成员函数
+        function removeMemberFromGroup(groupId, memberId) {
+            if (!currentUser || !currentSessionToken) {
+                alert('请先登录');
+                return;
+            }
+            
+            fetch(`${SERVER_URL}/remove-group-member`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                },
+                body: JSON.stringify({
+                    userId: currentUser.id,
+                    groupId: groupId,
+                    memberId: memberId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 重新加载群组成员列表
+                    loadGroupMembers(groupId);
+                    alert('成员已成功踢出');
+                } else {
+                    alert(data.message || '踢出成员失败');
+                }
+            })
+            .catch(error => {
+                console.error('踢出成员失败:', error);
+                alert('踢出成员失败，请重试');
             });
         }
     
