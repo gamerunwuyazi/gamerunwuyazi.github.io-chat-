@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=1200, initial-scale=1.0">
-    <title>简易聊天室</title>
+    <title>安全优化版聊天室</title>
     <style>
         /* 强制禁用移动端响应式样式 */
         @media (max-width: 768px) {
@@ -163,8 +163,7 @@
         
         .sidebar.collapsed .online-users,
         .sidebar.collapsed .offline-users,
-        .sidebar.collapsed .group-section,
-        .sidebar.collapsed .toggle-sidebar-text {
+        .sidebar.collapsed .group-section {
             display: none !important;
         }
         
@@ -305,7 +304,6 @@
             animation: fadeIn 0.3s ease;
             min-height: auto;
             word-wrap: break-word;
-            transition: opacity 0.3s ease;
         }
         
         .message.own-message {
@@ -898,38 +896,6 @@
             gap: 10px;
             align-items: center;
         }
-        
-        /* 群组管理按钮 */
-        .group-management {
-            margin-top: 10px;
-            padding: 10px;
-            border-top: 1px solid #eee;
-        }
-        
-        .group-management-btn {
-            width: 100%;
-            padding: 8px;
-            background: #3498db;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            margin-bottom: 5px;
-        }
-        
-        .group-management-btn:hover {
-            background: #2980b9;
-        }
-        
-        /* 消息刷新无闪烁动画 */
-        .message-refresh-container {
-            opacity: 1;
-            transition: opacity 0.3s ease;
-        }
-        
-        .message-refresh-container.refreshing {
-            opacity: 0.7;
-        }
     </style>
 </head>
 <body>
@@ -1003,34 +969,27 @@
     </div>
 
     <!-- 群组管理模态框 -->
-    <div id="groupManagementModal" class="modal">
+    <div id="groupManageModal" class="modal">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
-            <h3>群组管理</h3>
-            <div id="groupManagementContent">
-                <h4>群组成员</h4>
-                <div class="member-list" id="managementMemberList">
-                    <div>加载中...</div>
-                </div>
-                <div class="group-management">
-                    <button class="group-management-btn" id="addMemberBtn">添加成员</button>
-                    <button class="group-management-btn" id="removeMemberBtn">移除成员</button>
-                </div>
+            <h3>管理群组成员</h3>
+            <div id="currentGroupInfo" style="margin-bottom: 15px;">
+                <h4 id="manageGroupName">群组名称</h4>
+                <p id="manageGroupDescription">群组描述</p>
             </div>
-        </div>
-    </div>
-
-    <!-- 添加成员模态框 -->
-    <div id="addMemberModal" class="modal">
-        <div class="modal-content">
-            <span class="close-modal">&times;</span>
-            <h3>添加成员</h3>
-            <h4>选择要添加的用户</h4>
-            <div class="member-list" id="addMemberList">
+            
+            <h4>当前成员</h4>
+            <div class="member-list" id="currentMembersList">
                 <div>加载中...</div>
             </div>
-            <button id="confirmAddMember">确认添加</button>
-            <div id="addMemberMessage" style="margin-top: 10px;"></div>
+            
+            <h4>添加新成员</h4>
+            <div class="member-list" id="availableMembersList">
+                <div>加载中...</div>
+            </div>
+            
+            <button id="saveGroupMembers">保存更改</button>
+            <div id="groupManageMessage" style="margin-top: 10px;"></div>
         </div>
     </div>
 
@@ -1045,13 +1004,14 @@
     <!-- 主聊天界面 -->
     <div id="mainChat">
         <div class="header">
-            <h1>简易聊天室 <span id="totalOnlineCount" class="online-count">0</span></h1>
+            <h1>安全优化版聊天室 <span id="totalOnlineCount" class="online-count">0</span></h1>
             <div class="user-info">
                 <img id="currentAvatar" class="user-avatar" src="" alt="头像" style="display: none;">
-                <span id="currentNickname">未登录，刷新网页登录</span>
+                <span id="currentNickname">未登录</span>
                 <button id="changeAvatar" style="display: none;">更改头像</button>
                 <button id="changeNickname" style="display: none;">修改昵称</button>
                 <button id="createGroup" style="display: none; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer;">创建群组</button>
+                <button id="manageGroup" style="display: none; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer;">管理群组</button>
                 <button id="logoutButton" style="display: none; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer;">退出</button>
             </div>
         </div>
@@ -1099,7 +1059,7 @@
                     <button class="markdown-btn" data-prefix="[链接](" data-suffix=")" data-sample="链接文本">链接</button>
                 </div>
                 
-                <div id="messageContainer" class="message-refresh-container">
+                <div id="messageContainer">
                     <div class="empty-state" id="emptyState">
                         <h3>暂无消息</h3>
                         <p>发送第一条消息开始聊天吧!</p>
@@ -1140,7 +1100,7 @@
         <div class="group-header">
             <button id="backToMain">← 返回主聊天室</button>
             <h1 id="groupTitle">群组聊天</h1>
-            <button id="groupManagementBtn" style="margin-left: auto; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer; display: none;">管理群组</button>
+            <button id="manageCurrentGroup" style="margin-left: 15px; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer;">管理群组</button>
         </div>
         
         <div class="group-chat-container">
@@ -1164,7 +1124,7 @@
                     <button class="markdown-btn" data-prefix="[链接](" data-suffix=")" data-sample="链接文本">链接</button>
                 </div>
                 
-                <div id="groupMessageContainer" class="message-refresh-container">
+                <div id="groupMessageContainer">
                     <div class="empty-state">
                         <h3>暂无消息</h3>
                         <p>发送第一条消息开始群聊吧!</p>
@@ -1196,7 +1156,7 @@
     <script>
     document.addEventListener('DOMContentLoaded', function() {
         const SERVER_URL = 'http://152.136.175.209:3000';
-        const ENCRYPTION_KEY = 'chat-room-security-key-2024';
+        const SECRET_KEY = 'chat-room-secure-key-2024';
         
         // 初始化变量
         let currentUser = null;
@@ -1209,13 +1169,13 @@
         let allUsers = [];
         let currentGroupId = null;
         let currentGroupName = '';
-        let currentGroupCreatorId = null;
+        let currentGroupCreator = null;
         let markdownEnabled = false;
         let groupMarkdownEnabled = false;
         let lastMessageUpdate = 0;
         let autoRefreshInterval = null;
         let isPageVisible = true;
-        let loginCredentials = {};
+        let loginCredentials = null;
     
         // 获取DOM元素
         const messageInput = document.getElementById('messageInput');
@@ -1288,73 +1248,68 @@
         const groupMarkdownToolbar = document.getElementById('groupMarkdownToolbar');
         const markdownToggle = document.getElementById('markdownToggle');
         const groupMarkdownToggle = document.getElementById('groupMarkdownToggle');
-        const groupManagementBtn = document.getElementById('groupManagementBtn');
-        const groupManagementModal = document.getElementById('groupManagementModal');
-        const managementMemberList = document.getElementById('managementMemberList');
-        const addMemberBtn = document.getElementById('addMemberBtn');
-        const removeMemberBtn = document.getElementById('removeMemberBtn');
-        const addMemberModal = document.getElementById('addMemberModal');
-        const addMemberList = document.getElementById('addMemberList');
-        const confirmAddMember = document.getElementById('confirmAddMember');
-        const addMemberMessage = document.getElementById('addMemberMessage');
+        const manageGroupBtn = document.getElementById('manageGroup');
+        const manageCurrentGroupBtn = document.getElementById('manageCurrentGroup');
+        const groupManageModal = document.getElementById('groupManageModal');
+        const manageGroupName = document.getElementById('manageGroupName');
+        const manageGroupDescription = document.getElementById('manageGroupDescription');
+        const currentMembersList = document.getElementById('currentMembersList');
+        const availableMembersList = document.getElementById('availableMembersList');
+        const saveGroupMembersBtn = document.getElementById('saveGroupMembers');
+        const groupManageMessage = document.getElementById('groupManageMessage');
 
         // 增强的XSS防护函数
-        function xssProtect(unsafe) {
+        function escapeHtml(unsafe) {
             if (unsafe === null || unsafe === undefined) return '';
-            
-            const str = String(unsafe);
-            
-            // 基础HTML转义 - 只转义真正危险的字符
-            let safeStr = str
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-            
-            // 移除对安全字符的过度转义
-            // 保留这些字符：^ + = ? ! @ # % : ; , . | * $ { } ( ) [ ] ` / \
-            
-            return safeStr;
-        }
-        
-        function sanitizeNickname(nickname) {
-            if (!nickname || typeof nickname !== 'string') return '';
-            
-            // 只移除真正的危险字符，保留大多数特殊字符
-            return nickname
-                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-                .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
-                .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
-                .replace(/<embed\b[^<]*(?:(?!<\/embed>)<[^<]*)*<\/embed>/gi, '')
-                .replace(/<applet\b[^<]*(?:(?!<\/applet>)<[^<]*)*<\/applet>/gi, '')
-                .replace(/on\w+\s*=/gi, '')
-                .replace(/javascript:/gi, '')
-                .replace(/vbscript:/gi, '')
-                .replace(/expression\s*\(/gi, '')
-                .replace(/url\s*\(/gi, '')
-                .trim();
-        }
-        
-        function sanitizeMessageContent(content) {
-            if (!content || typeof content !== 'string') return '';
-            
-            // 对消息内容使用更严格的转义
-            return content
+            return String(unsafe)
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;")
                 .replace(/"/g, "&quot;")
                 .replace(/'/g, "&#039;")
-                .replace(/`/g, "&#96;")
                 .replace(/\//g, "&#x2F;")
-                .replace(/\\/g, "&#x5C;");
+                .replace(/\\/g, "&#x5C;")
+                .replace(/`/g, "&#96;")
+                .replace(/\$/g, "&#36;")
+                .replace(/\(/g, "&#40;")
+                .replace(/\)/g, "&#41;")
+                .replace(/\{/g, "&#123;")
+                .replace(/\}/g, "&#125;")
+                .replace(/\[/g, "&#91;")
+                .replace(/\]/g, "&#93;");
+        }
+
+        // 增强的输入验证函数
+        function sanitizeInput(input) {
+            if (typeof input !== 'string') return input;
+            
+            // 移除危险标签和属性
+            const sanitized = input
+                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+                .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
+                .replace(/<embed\b[^<]*(?:(?!<\/embed>)<[^<]*)*<\/embed>/gi, '')
+                .replace(/<applet\b[^<]*(?:(?!<\/applet>)<[^<]*)*<\/applet>/gi, '')
+                .replace(/<form\b[^<]*(?:(?!<\/form>)<[^<]*)*<\/form>/gi, '')
+                .replace(/<input\b[^<]*(?:(?!<\/input>)<[^<]*)*>/gi, '')
+                .replace(/<button\b[^<]*(?:(?!<\/button>)<[^<]*)*>/gi, '')
+                .replace(/<select\b[^<]*(?:(?!<\/select>)<[^<]*)*>/gi, '')
+                .replace(/<textarea\b[^<]*(?:(?!<\/textarea>)<[^<]*)*>/gi, '')
+                .replace(/on\w+\s*=/gi, '')
+                .replace(/javascript:/gi, '')
+                .replace(/vbscript:/gi, '')
+                .replace(/expression\s*\(/gi, '')
+                .replace(/url\s*\(/gi, '')
+                .replace(/data:/gi, '')
+                .replace(/xmlns:/gi, '');
+                
+            return escapeHtml(sanitized);
         }
 
         // 加密函数
         function encryptData(data) {
             try {
-                return CryptoJS.AES.encrypt(JSON.stringify(data), ENCRYPTION_KEY).toString();
+                return CryptoJS.AES.encrypt(JSON.stringify(data), SECRET_KEY).toString();
             } catch (error) {
                 console.error('加密错误:', error);
                 return null;
@@ -1364,7 +1319,7 @@
         // 解密函数
         function decryptData(encryptedData) {
             try {
-                const bytes = CryptoJS.AES.decrypt(encryptedData, ENCRYPTION_KEY);
+                const bytes = CryptoJS.AES.decrypt(encryptedData, SECRET_KEY);
                 return JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
             } catch (error) {
                 console.error('解密错误:', error);
@@ -1372,55 +1327,70 @@
             }
         }
 
-        // 修复1：安全的HTML处理函数
-        function escapeHtml(unsafe) {
-            return xssProtect(unsafe);
-        }
-    
-        // 修复2：处理服务器返回的已解析HTML
-        function safeMarkdownParse(content) {
-            if (!content) return '';
-            
-            // 如果内容已经是HTML格式（包含标签），直接返回
-            if (content.includes('<') && content.includes('>')) {
-                // 移除可能包裹的引号
-                let cleanedContent = content.replace(/^"|"$/g, '');
-                // 移除多余的<p>包装
-                cleanedContent = cleanedContent.replace(/^<p>|<\/p>$/g, '');
-                cleanedContent = cleanedContent.replace(/<p><br><\/p>/g, '<br>');
-                return cleanedContent;
+        // 安全的数据发送函数
+        function sendSecureData(event, data) {
+            if (!currentUser || !loginCredentials) {
+                console.error('未登录或缺少凭证');
+                return false;
             }
-            
-            // 如果是纯文本，使用marked解析
-            if (typeof marked !== 'undefined') {
-                try {
-                    marked.setOptions({
-                        sanitize: true,
-                        breaks: true,
-                        gfm: true
-                    });
-                    return marked.parse(content);
-                } catch (error) {
-                    console.error('Markdown解析错误:', error);
-                    return escapeHtml(content);
-                }
+
+            const secureData = {
+                ...data,
+                encryptedCredentials: encryptData({
+                    username: loginCredentials.username,
+                    password: loginCredentials.password,
+                    timestamp: Date.now()
+                })
+            };
+
+            if (socket && isConnected) {
+                socket.emit(event, secureData);
+                return true;
+            } else {
+                console.error('Socket未连接');
+                return false;
             }
+        }
+
+        function initializeMarkdownToolbar() {
+            // 主聊天室Markdown工具栏
+            const markdownButtons = markdownToolbar.querySelectorAll('.markdown-btn');
+            markdownButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const prefix = this.getAttribute('data-prefix') || '';
+                    const suffix = this.getAttribute('data-suffix') || '';
+                    const sample = this.getAttribute('data-sample') || '示例文本';
+                    
+                    insertMarkdownSyntax(messageInput, prefix, suffix, sample);
+                });
+            });
             
-            return escapeHtml(content);
+            // 群组聊天室Markdown工具栏
+            const groupMarkdownButtons = groupMarkdownToolbar.querySelectorAll('.markdown-btn');
+            groupMarkdownButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const prefix = this.getAttribute('data-prefix') || '';
+                    const suffix = this.getAttribute('data-suffix') || '';
+                    const sample = this.getAttribute('data-sample') || '示例文本';
+                    
+                    insertMarkdownSyntax(groupMessageInput, prefix, suffix, sample);
+                });
+            });
+            
+            // Markdown切换按钮
+            markdownToggle.addEventListener('click', function() {
+                markdownEnabled = !markdownEnabled;
+                this.classList.toggle('active', markdownEnabled);
+                markdownToolbar.classList.toggle('active', markdownEnabled);
+            });
+            
+            groupMarkdownToggle.addEventListener('click', function() {
+                groupMarkdownEnabled = !groupMarkdownEnabled;
+                this.classList.toggle('active', groupMarkdownEnabled);
+                groupMarkdownToolbar.classList.toggle('active', groupMarkdownEnabled);
+            });
         }
-    
-        // 修复3：安全的DOM操作函数
-        function safeSetInnerHTML(element, html) {
-            if (!element || !(element instanceof Element)) return;
-            element.innerHTML = html;
-        }
-    
-        function safeSetTextContent(element, text) {
-            if (!element || !(element instanceof Element)) return;
-            element.textContent = text !== null && text !== undefined ? String(text) : '';
-        }
-    
-        // 修复4：更新用户列表函数
+
         function updateUserList(users) {
             console.log('🔄 更新用户列表，数据:', users);
             
@@ -1465,28 +1435,12 @@
                     `<img src="${SERVER_URL}${user.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">` : 
                     '';
                 
-                // 用户信息 - 使用textContent避免任何转义
+                // 用户信息
                 const userInfo = document.createElement('span');
                 const isCurrentUser = currentUser && user.id == currentUser.id;
+                const displayName = isCurrentUser ? `${user.nickname} (我)` : user.nickname;
                 
-                // 创建头像和昵称的DOM元素
-                if (user.avatarUrl) {
-                    const avatarImg = document.createElement('img');
-                    avatarImg.src = `${SERVER_URL}${user.avatarUrl}`;
-                    avatarImg.className = 'user-avatar';
-                    avatarImg.style.width = '16px';
-                    avatarImg.style.height = '16px';
-                    avatarImg.style.marginRight = '5px';
-                    avatarImg.style.borderRadius = '50%';
-                    userInfo.appendChild(avatarImg);
-                }
-                
-                // 直接使用textContent，不进行任何转义
-                const nicknameText = document.createTextNode(
-                    isCurrentUser ? `${user.nickname} (我)` : user.nickname
-                );
-                userInfo.appendChild(nicknameText);
-                
+                userInfo.innerHTML = `${avatarHtml}${escapeHtml(displayName)}`;
                 if (isCurrentUser) {
                     userInfo.style.fontWeight = 'bold';
                 }
@@ -1503,22 +1457,15 @@
                 loadOfflineUsers();
             }
         }
-    
-        // 修复5：加载离线用户列表
+
+        // 将 loadOfflineUsers 函数移到前面定义
         function loadOfflineUsers() {
             if (!currentUser || !currentSessionToken) return;
-            
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
             
             fetch(`${SERVER_URL}/offline-users`, {
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken,
-                    'encrypted-data': encryptedData
+                    'session-token': currentSessionToken
                 }
             })
             .then(response => response.json())
@@ -1531,8 +1478,8 @@
                 console.error('加载离线用户失败:', error);
             });
         }
-    
-        // 修复6：更新离线用户列表
+
+        // 将 updateOfflineUserList 函数移到前面定义
         function updateOfflineUserList(users) {
             if (!offlineUserList) return;
             
@@ -1555,45 +1502,251 @@
                 offlineUserList.appendChild(li);
             });
         }
-    
-        // 修复7：Markdown工具栏功能
-        function initializeMarkdownToolbar() {
-            // 主聊天室Markdown工具栏
-            const markdownButtons = markdownToolbar.querySelectorAll('.markdown-btn');
-            markdownButtons.forEach(button => {
-                button.addEventListener('click', function() {
-                    const prefix = this.getAttribute('data-prefix') || '';
-                    const suffix = this.getAttribute('data-suffix') || '';
-                    const sample = this.getAttribute('data-sample') || '示例文本';
-                    
-                    insertMarkdownSyntax(messageInput, prefix, suffix, sample);
+
+        // 将 insertMarkdownSyntax 函数移到前面定义
+        function insertMarkdownSyntax(textarea, prefix, suffix, sample) {
+            if (!textarea) return;
+            
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const selectedText = textarea.value.substring(start, end);
+            const textToInsert = selectedText || sample;
+            
+            const newText = prefix + textToInsert + suffix;
+            textarea.value = textarea.value.substring(0, start) + newText + textarea.value.substring(end);
+            
+            // 设置光标位置
+            const newCursorPos = start + prefix.length + textToInsert.length;
+            textarea.setSelectionRange(newCursorPos, newCursorPos);
+            textarea.focus();
+            
+            // 自动调整高度
+            autoResizeTextarea(textarea);
+        }
+
+        // 将 autoResizeTextarea 函数移到前面定义
+        function autoResizeTextarea(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = textarea.scrollHeight + 'px';
+        }
+
+        // 将 scrollToBottom 函数移到前面定义
+        function scrollToBottom(container) {
+            if (autoScrollEnabled) {
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: 'smooth'
                 });
-            });
+            }
+        }
+
+        // 将 isScrolledToBottom 函数移到前面定义
+        function isScrolledToBottom(container) {
+            const threshold = 100;
+            const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+            return distanceToBottom <= threshold;
+        }
+
+        // 将 formatTime 和 formatDate 函数移到前面定义
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        }
+
+        function formatDate(timestamp) {
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffTime = Math.abs(now - date);
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
             
-            // 群组聊天室Markdown工具栏
-            const groupMarkdownButtons = groupMarkdownToolbar.querySelectorAll('.markdown-btn');
-            groupMarkdownButtons.forEach(button => {
-                button.addEventListener('click', function() {
-                    const prefix = this.getAttribute('data-prefix') || '';
-                    const suffix = this.getAttribute('data-suffix') || '';
-                    const sample = this.getAttribute('data-sample') || '示例文本';
+            if (diffDays === 0) return '今天';
+            if (diffDays === 1) return '昨天';
+            if (diffDays < 7) return `${diffDays}天前`;
+            
+            return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+        }
+
+        // 将 toggleSidebar 函数移到前面定义
+        function toggleSidebar() {
+            isSidebarCollapsed = !isSidebarCollapsed;
+            sidebar.classList.toggle('collapsed', isSidebarCollapsed);
+            toggleSidebarText.textContent = isSidebarCollapsed ? '展开用户列表' : '收起用户列表';
+        }
+
+        // 增强的Markdown安全解析
+        function safeMarkdownParse(content) {
+            if (!content) return '';
+            
+            // 如果内容已经是HTML格式（包含标签），先进行清理
+            if (content.includes('<') && content.includes('>')) {
+                let cleanedContent = sanitizeInput(content);
+                // 移除可能包裹的引号
+                cleanedContent = cleanedContent.replace(/^"|"$/g, '');
+                // 修复：移除所有<p>包装标签，保留内容
+                cleanedContent = cleanedContent.replace(/<p>(.*?)<\/p>/g, '$1');
+                cleanedContent = cleanedContent.replace(/<p><br><\/p>/g, '<br>');
+                return cleanedContent;
+            }
+            
+            // 如果是纯文本，使用marked解析
+            if (typeof marked !== 'undefined') {
+                try {
+                    // 配置marked不自动添加<p>标签
+                    marked.setOptions({
+                        sanitize: true,
+                        breaks: true,
+                        gfm: true,
+                        sanitizer: sanitizeInput
+                    });
                     
-                    insertMarkdownSyntax(groupMessageInput, prefix, suffix, sample);
+                    let parsedContent = marked.parse(content);
+                    
+                    // 修复：移除marked自动添加的<p>标签
+                    parsedContent = parsedContent.replace(/<p>(.*?)<\/p>/g, '$1');
+                    parsedContent = parsedContent.replace(/^<p>|<\/p>$/g, '');
+                    
+                    return parsedContent;
+                } catch (error) {
+                    console.error('Markdown解析错误:', error);
+                    return escapeHtml(content);
+                }
+            }
+            
+            return escapeHtml(content);
+        }
+
+        // 修复3：安全的DOM操作函数
+        function safeSetInnerHTML(element, html) {
+            if (!element || !(element instanceof Element)) return;
+            element.innerHTML = html;
+        }
+
+        function safeSetTextContent(element, text) {
+            if (!element || !(element instanceof Element)) return;
+            element.textContent = text !== null && text !== undefined ? String(text) : '';
+        }
+        
+        // 平滑刷新消息函数 - 解决闪烁问题
+        function smoothRefreshMessages(messages, isGroupChat) {
+            const targetContainer = isGroupChat ? groupMessageContainer : messageContainer;
+            const targetEmptyState = isGroupChat ? groupMessageContainer.querySelector('.empty-state') : emptyState;
+            
+            if (!messages || messages.length === 0) {
+                if (targetEmptyState) {
+                    targetEmptyState.style.display = 'block';
+                }
+                targetContainer.innerHTML = '';
+                if (targetEmptyState) {
+                    targetContainer.appendChild(targetEmptyState);
+                }
+                return;
+            }
+            
+            // 隐藏空状态
+            if (targetEmptyState) {
+                targetEmptyState.style.display = 'none';
+            }
+            
+            // 创建文档片段以减少重绘
+            const fragment = document.createDocumentFragment();
+            const existingMessageIds = new Set();
+            
+            // 收集现有消息ID
+            targetContainer.querySelectorAll('.message').forEach(msg => {
+                const messageId = msg.getAttribute('data-message-id');
+                if (messageId) {
+                    existingMessageIds.add(messageId);
+                }
+            });
+            
+            let hasNewMessages = false;
+            
+            // 只添加新消息
+            messages.forEach(message => {
+                if (!existingMessageIds.has(message.id.toString())) {
+                    const isOwn = currentUser && message.userId == currentUser.id;
+                    const messageElement = createMessageElement(message, isOwn, isGroupChat);
+                    fragment.appendChild(messageElement);
+                    hasNewMessages = true;
+                }
+            });
+            
+            // 如果有新消息，平滑添加到容器
+            if (hasNewMessages && fragment.children.length > 0) {
+                // 使用requestAnimationFrame实现平滑添加
+                requestAnimationFrame(() => {
+                    targetContainer.appendChild(fragment);
+                    
+                    // 只有用户在看最新消息时才自动滚动
+                    if (autoScrollEnabled) {
+                        requestAnimationFrame(() => {
+                            scrollToBottom(targetContainer);
+                        });
+                    }
                 });
-            });
+            }
             
-            // Markdown切换按钮
-            markdownToggle.addEventListener('click', function() {
-                markdownEnabled = !markdownEnabled;
-                this.classList.toggle('active', markdownEnabled);
-                markdownToolbar.classList.toggle('active', markdownEnabled);
-            });
+            // 更新消息计数
+            if (!isGroupChat && messageCount) {
+                const count = targetContainer.querySelectorAll('.message').length;
+                safeSetTextContent(messageCount, `消息数量: ${count}`);
+            }
+        }
+
+        // 创建消息元素的独立函数
+        function createMessageElement(message, isOwn, isGroupChat) {
+            const messageElement = document.createElement('div');
+            messageElement.className = `message ${isOwn ? 'own-message' : ''}`;
+            messageElement.setAttribute('data-user-id', message.userId);
+            messageElement.setAttribute('data-message-id', message.id);
             
-            groupMarkdownToggle.addEventListener('click', function() {
-                groupMarkdownEnabled = !groupMarkdownEnabled;
-                this.classList.toggle('active', groupMarkdownEnabled);
-                groupMarkdownToolbar.classList.toggle('active', groupMarkdownEnabled);
-            });
+            let contentHtml = '';
+            if (message.imageUrl) {
+                contentHtml = `
+                <div class="message-content">
+                    <img src="${SERVER_URL}${message.imageUrl}" class="message-image" alt="聊天图片" onclick="openImagePreview('${SERVER_URL}${message.imageUrl}')">
+                </div>
+                `;
+            } else {
+                const parsedContent = safeMarkdownParse(message.content);
+                // 修复：直接使用解析后的内容，不额外包装
+                contentHtml = `
+                <div class="message-content">${parsedContent}</div>
+                `;
+            }
+            
+            const avatarHtml = message.avatarUrl ? 
+                `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="${sanitizeInput(message.nickname)}">` : 
+                '';
+            
+            messageElement.innerHTML = `
+                <div class="message-header">
+                ${avatarHtml}
+                <div class="nickname">${escapeHtml(message.nickname)}</div>
+                </div>
+                ${contentHtml}
+                <div class="message-time">${formatTime(message.timestamp)}</div>
+                ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
+            `;
+            
+            // 添加撤回按钮事件监听
+            if (isOwn) {
+                const deleteButton = messageElement.querySelector('.delete-button');
+                if (deleteButton) {
+                deleteButton.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const messageId = this.getAttribute('data-id');
+                    console.log('撤回消息:', messageId);
+                    sendSecureData('delete-message', {
+                    messageId: messageId,
+                    userId: currentUser.id,
+                    sessionToken: currentSessionToken
+                    });
+                });
+                }
+            }
+            
+            return messageElement;
         }
         
         function startAutoRefresh() {
@@ -1602,12 +1755,12 @@
             clearInterval(autoRefreshInterval);
           }
           
-          // 每30秒自动刷新消息
+          // 每30秒自动刷新消息 - 使用平滑刷新
           autoRefreshInterval = setInterval(() => {
             if (isConnected && currentUser && isPageVisible) {
               refreshMessages();
             }
-          }, 30000); // 30秒
+          }, 30000);
           
           console.log('✅ 启动自动刷新，间隔30秒');
         }
@@ -1627,28 +1780,14 @@
             lastUpdate: lastMessageUpdate
           });
           
-          const encryptedData = encryptData({
-            username: loginCredentials.username,
-            password: loginCredentials.password,
-            timestamp: Date.now()
-          });
-          
-          // 添加刷新动画
-          const targetContainer = isGroupChat ? groupMessageContainer : messageContainer;
-          targetContainer.classList.add('refreshing');
-          
           fetch(`${SERVER_URL}/refresh-messages?groupId=${targetGroupId || ''}&lastUpdate=${lastMessageUpdate}`, {
             headers: {
               'user-id': currentUser.id,
-              'session-token': currentSessionToken,
-              'encrypted-data': encryptedData
+              'session-token': currentSessionToken
             }
           })
           .then(response => response.json())
           .then(data => {
-            // 移除刷新动画
-            targetContainer.classList.remove('refreshing');
-            
             if (data.status === 'success') {
               console.log('✅ 刷新消息成功:', {
                 messageCount: data.messages.length,
@@ -1659,9 +1798,9 @@
               // 更新最后更新时间
               lastMessageUpdate = data.lastUpdate;
               
-              // 如果有新消息，更新显示
+              // 使用平滑刷新显示消息
               if (data.hasNewMessages && data.messages.length > 0) {
-                updateMessagesDisplay(data.messages, isGroupChat);
+                smoothRefreshMessages(data.messages, isGroupChat);
               }
             } else {
               console.error('❌ 刷新消息失败:', data.message);
@@ -1669,63 +1808,7 @@
           })
           .catch(error => {
             console.error('❌ 刷新消息请求失败:', error);
-            targetContainer.classList.remove('refreshing');
           });
-        }
-        
-        function updateMessagesDisplay(messages, isGroupChat) {
-          const targetContainer = isGroupChat ? groupMessageContainer : messageContainer;
-          const targetEmptyState = isGroupChat ? groupMessageContainer.querySelector('.empty-state') : emptyState;
-          
-          // 保存当前滚动位置
-          const scrollPosition = targetContainer.scrollTop;
-          const isAtBottom = isScrolledToBottom(targetContainer);
-          
-          // 隐藏容器，避免闪烁
-          targetContainer.style.opacity = '0';
-          
-          // 清空容器
-          targetContainer.innerHTML = '';
-          
-          if (messages.length === 0) {
-            if (targetEmptyState) {
-              targetEmptyState.style.display = 'block';
-            }
-            // 恢复显示
-            setTimeout(() => {
-              targetContainer.style.opacity = '1';
-            }, 50);
-            return;
-          }
-          
-          if (targetEmptyState) {
-            targetEmptyState.style.display = 'none';
-          }
-          
-          // 添加所有消息
-          messages.forEach(message => {
-            const isOwn = currentUser && message.userId == currentUser.id;
-            addMessageToContainer(message, isOwn, isGroupChat, targetContainer);
-          });
-          
-          // 恢复显示并滚动
-          setTimeout(() => {
-            targetContainer.style.opacity = '1';
-            
-            if (isAtBottom) {
-              scrollToBottom(targetContainer);
-            } else {
-              // 保持原来的滚动位置
-              targetContainer.scrollTop = scrollPosition;
-            }
-          }, 50);
-          
-          // 更新消息计数
-          if (!isGroupChat && messageCount) {
-            messageCount.textContent = `消息数量: ${messages.length}`;
-          }
-          
-          console.log(`✅ 更新消息显示: ${messages.length} 条消息`);
         }
         
         function insertMarkdownSyntax(textarea, prefix, suffix, sample) {
@@ -1747,7 +1830,7 @@
             // 自动调整高度
             autoResizeTextarea(textarea);
         }
-    
+
         // 修复8：模态框事件绑定函数
         function initializeModalEvents() {
             console.log('初始化模态框事件');
@@ -1792,17 +1875,10 @@
             saveNicknameBtn.addEventListener('click', () => {
                 const newNickname = nicknameInput.value.trim();
                 if (newNickname && currentUser && currentSessionToken) {
-                    const encryptedData = encryptData({
-                        username: loginCredentials.username,
-                        password: loginCredentials.password,
-                        timestamp: Date.now()
-                    });
-                    
-                    socket.emit('update-nickname', {
+                    sendSecureData('update-nickname', {
                         userId: currentUser.id,
                         newNickname: newNickname,
-                        sessionToken: currentSessionToken,
-                        encryptedData: encryptedData
+                        sessionToken: currentSessionToken
                     });
                     hideNicknameModal();
                 }
@@ -1834,18 +1910,11 @@
                 const formData = new FormData();
                 formData.append('avatar', file);
                 
-                const encryptedData = encryptData({
-                    username: loginCredentials.username,
-                    password: loginCredentials.password,
-                    timestamp: Date.now()
-                });
-                
                 fetch(`${SERVER_URL}/upload-avatar`, {
                     method: 'POST',
                     headers: {
                         'user-id': currentUser.id,
-                        'session-token': currentSessionToken,
-                        'encrypted-data': encryptedData
+                        'session-token': currentSessionToken
                     },
                     body: formData
                 })
@@ -1900,19 +1969,12 @@
                     return;
                 }
                 
-                const encryptedData = encryptData({
-                    username: loginCredentials.username,
-                    password: loginCredentials.password,
-                    timestamp: Date.now()
-                });
-                
                 fetch(`${SERVER_URL}/create-group`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'user-id': currentUser.id,
-                        'session-token': currentSessionToken,
-                        'encrypted-data': encryptedData
+                        'session-token': currentSessionToken
                     },
                     body: JSON.stringify({
                         userId: currentUser.id,
@@ -1943,69 +2005,214 @@
                     createGroupMessage.style.color = 'red';
                 });
             });
-            
+
             // 群组管理按钮
-            groupManagementBtn.addEventListener('click', showGroupManagementModal);
-            
-            // 添加成员按钮
-            addMemberBtn.addEventListener('click', showAddMemberModal);
-            
-            // 确认添加成员
-            confirmAddMember.addEventListener('click', function() {
-                const selectedMembers = [];
-                document.querySelectorAll('#addMemberList .member-checkbox:checked').forEach(checkbox => {
-                    selectedMembers.push(checkbox.value);
-                });
-                
-                if (selectedMembers.length === 0) {
-                    addMemberMessage.textContent = '请选择要添加的成员';
-                    addMemberMessage.style.color = 'red';
-                    return;
+            manageGroupBtn.addEventListener('click', showGroupManageModal);
+            manageCurrentGroupBtn.addEventListener('click', showGroupManageModal);
+
+            // 保存群组成员
+            saveGroupMembersBtn.addEventListener('click', saveGroupMembers);
+        }
+
+        // 显示群组管理模态框
+        function showGroupManageModal() {
+            const groupId = currentGroupId;
+            if (!groupId) {
+                alert('请先选择一个群组');
+                return;
+            }
+
+            groupManageModal.style.display = 'flex';
+            loadGroupManagementData(groupId);
+        }
+
+        // 隐藏群组管理模态框
+        function hideGroupManageModal() {
+            groupManageModal.style.display = 'none';
+            groupManageMessage.textContent = '';
+        }
+
+        // 加载群组管理数据
+        function loadGroupManagementData(groupId) {
+            if (!currentUser || !currentSessionToken) return;
+
+            // 加载群组信息
+            fetch(`${SERVER_URL}/group-info/${groupId}`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
                 }
-                
-                const encryptedData = encryptData({
-                    username: loginCredentials.username,
-                    password: loginCredentials.password,
-                    timestamp: Date.now()
-                });
-                
-                fetch(`${SERVER_URL}/add-group-members`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'user-id': currentUser.id,
-                        'session-token': currentSessionToken,
-                        'encrypted-data': encryptedData
-                    },
-                    body: JSON.stringify({
-                        groupId: currentGroupId,
-                        memberIds: selectedMembers
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        addMemberMessage.textContent = '成员添加成功';
-                        addMemberMessage.style.color = 'green';
-                        
-                        setTimeout(() => {
-                            hideAddMemberModal();
-                            hideGroupManagementModal();
-                            loadGroupMembers(currentGroupId);
-                        }, 2000);
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const group = data.group;
+                    manageGroupName.textContent = group.name;
+                    manageGroupDescription.textContent = group.description || '无描述';
+                    currentGroupCreator = group.creator_id;
+                    
+                    // 检查当前用户是否是群主
+                    const isCreator = currentUser.id == group.creator_id;
+                    if (!isCreator) {
+                        groupManageMessage.textContent = '只有群主可以管理群组成员';
+                        groupManageMessage.style.color = 'red';
+                        availableMembersList.innerHTML = '<div>只有群主可以管理成员</div>';
+                        saveGroupMembersBtn.disabled = true;
                     } else {
-                        addMemberMessage.textContent = data.message;
-                        addMemberMessage.style.color = 'red';
+                        groupManageMessage.textContent = '';
+                        saveGroupMembersBtn.disabled = false;
                     }
-                })
-                .catch(error => {
-                    console.error('添加成员错误:', error);
-                    addMemberMessage.textContent = '添加成员失败';
-                    addMemberMessage.style.color = 'red';
-                });
+                }
+            })
+            .catch(error => {
+                console.error('加载群组信息失败:', error);
+            });
+
+            // 加载当前成员
+            fetch(`${SERVER_URL}/group-members/${groupId}`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    updateCurrentMembersList(data.members);
+                }
+            })
+            .catch(error => {
+                console.error('加载群组成员失败:', error);
+            });
+
+            // 加载可添加的成员
+            fetch(`${SERVER_URL}/available-members/${groupId}`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    updateAvailableMembersList(data.members);
+                }
+            })
+            .catch(error => {
+                console.error('加载可用成员失败:', error);
             });
         }
-    
+
+        // 更新当前成员列表
+        function updateCurrentMembersList(members) {
+            if (!currentMembersList) return;
+            
+            currentMembersList.innerHTML = '';
+            
+            if (!members || !Array.isArray(members) || members.length === 0) {
+                currentMembersList.innerHTML = '<div>暂无成员</div>';
+                return;
+            }
+            
+            members.forEach(member => {
+                const memberItem = document.createElement('div');
+                memberItem.className = 'member-item';
+                const isCreator = member.id == currentGroupCreator;
+                const isCurrentUser = member.id == currentUser.id;
+                
+                memberItem.innerHTML = `
+                    <input type="checkbox" class="member-checkbox remove-member" value="${member.id}" 
+                           ${isCreator ? 'disabled' : ''} ${isCurrentUser ? 'disabled' : ''}>
+                    <label for="member-${member.id}" style="${isCreator ? 'font-weight: bold;' : ''}">
+                        ${escapeHtml(member.nickname)} 
+                        ${isCreator ? '(群主)' : ''}
+                        ${isCurrentUser ? '(我)' : ''}
+                    </label>
+                `;
+                currentMembersList.appendChild(memberItem);
+            });
+        }
+
+        // 更新可用成员列表
+        function updateAvailableMembersList(members) {
+            if (!availableMembersList) return;
+            
+            availableMembersList.innerHTML = '';
+            
+            if (!members || !Array.isArray(members) || members.length === 0) {
+                availableMembersList.innerHTML = '<div>暂无其他用户可添加</div>';
+                return;
+            }
+            
+            members.forEach(member => {
+                const memberItem = document.createElement('div');
+                memberItem.className = 'member-item';
+                memberItem.innerHTML = `
+                    <input type="checkbox" class="member-checkbox add-member" value="${member.id}" id="available-member-${member.id}">
+                    <label for="available-member-${member.id}">${escapeHtml(member.nickname)}</label>
+                `;
+                availableMembersList.appendChild(memberItem);
+            });
+        }
+
+        // 保存群组成员更改
+        function saveGroupMembers() {
+            const groupId = currentGroupId;
+            if (!groupId) return;
+
+            const membersToRemove = [];
+            document.querySelectorAll('.remove-member:checked').forEach(checkbox => {
+                membersToRemove.push(checkbox.value);
+            });
+
+            const membersToAdd = [];
+            document.querySelectorAll('.add-member:checked').forEach(checkbox => {
+                membersToAdd.push(checkbox.value);
+            });
+
+            if (membersToRemove.length === 0 && membersToAdd.length === 0) {
+                groupManageMessage.textContent = '没有更改需要保存';
+                groupManageMessage.style.color = 'orange';
+                return;
+            }
+
+            fetch(`${SERVER_URL}/update-group-members`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                },
+                body: JSON.stringify({
+                    groupId: groupId,
+                    removeMembers: membersToRemove,
+                    addMembers: membersToAdd
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    groupManageMessage.textContent = '群组成员更新成功';
+                    groupManageMessage.style.color = 'green';
+                    
+                    // 重新加载群组成员
+                    loadGroupMembers(groupId);
+                    
+                    setTimeout(() => {
+                        hideGroupManageModal();
+                    }, 2000);
+                } else {
+                    groupManageMessage.textContent = data.message;
+                    groupManageMessage.style.color = 'red';
+                }
+            })
+            .catch(error => {
+                console.error('更新群组成员失败:', error);
+                groupManageMessage.textContent = '更新群组成员失败';
+                groupManageMessage.style.color = 'red';
+            });
+        }
+
         // 修复9：显示/隐藏模态框函数
         function showNicknameModal() {
             nicknameModal.style.display = 'flex';
@@ -2013,27 +2220,27 @@
                 nicknameInput.value = currentUser.nickname;
             }
         }
-    
+
         function hideNicknameModal() {
             nicknameModal.style.display = 'none';
         }
-    
+
         function showAvatarModal() {
             avatarModal.style.display = 'flex';
             avatarInput.value = '';
             avatarPreview.innerHTML = '';
             avatarMessage.textContent = '';
         }
-    
+
         function hideAvatarModal() {
             avatarModal.style.display = 'none';
         }
-    
+
         function showCreateGroupModal() {
             createGroupModal.style.display = 'flex';
             loadAllUsers();
         }
-    
+
         function hideCreateGroupModal() {
             createGroupModal.style.display = 'none';
             groupNameInput.value = '';
@@ -2042,25 +2249,6 @@
                 checkbox.checked = false;
             });
             createGroupMessage.textContent = '';
-        }
-        
-        function showGroupManagementModal() {
-            groupManagementModal.style.display = 'flex';
-            loadManagementMembers();
-        }
-        
-        function hideGroupManagementModal() {
-            groupManagementModal.style.display = 'none';
-        }
-        
-        function showAddMemberModal() {
-            addMemberModal.style.display = 'flex';
-            loadAddMemberUsers();
-        }
-        
-        function hideAddMemberModal() {
-            addMemberModal.style.display = 'none';
-            addMemberMessage.textContent = '';
         }
         
         // 修复10：群组相关功能
@@ -2072,17 +2260,10 @@
             
             console.log('加载用户群组列表，用户ID:', currentUser.id);
             
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
-            
             fetch(`${SERVER_URL}/user-groups/${currentUser.id}`, {
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken,
-                    'encrypted-data': encryptedData
+                    'session-token': currentSessionToken
                 }
             })
             .then(response => response.json())
@@ -2100,7 +2281,7 @@
                 groupList.innerHTML = '<li>加载失败: 网络错误</li>';
             });
         }
-    
+
         function updateGroupList(groups) {
             if (!groupList) {
                 console.error('groupList元素未找到，检查HTML结构');
@@ -2134,19 +2315,21 @@
                 // 确保数据存在
                 const groupName = group.name || '未命名群组';
                 const groupId = group.id ? String(group.id) : `temp-${index}`;
-                const creatorId = group.creator_id || null;
+                const isCreator = group.creator_id == currentUser.id;
                 
                 li.innerHTML = `
-                    <div style="display: flex; align-items: center;">
-                        <span style="margin-right: 8px;">💬</span>
-                        <span>${escapeHtml(groupName)}</span>
-                        ${creatorId == currentUser.id ? '<span style="margin-left: 5px; font-size: 10px; color: #07c160;">(我创建)</span>' : ''}
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center;">
+                            <span style="margin-right: 8px;">💬</span>
+                            <span>${escapeHtml(groupName)}</span>
+                            ${isCreator ? '<span style="margin-left: 5px; font-size: 10px; color: #07c160;">(群主)</span>' : ''}
+                        </div>
                     </div>
                 `;
                 
                 li.setAttribute('data-group-id', groupId);
                 li.setAttribute('data-group-name', groupName);
-                li.setAttribute('data-creator-id', creatorId);
+                li.setAttribute('data-creator-id', group.creator_id);
                 
                 // 添加交互效果
                 li.addEventListener('mouseenter', function() {
@@ -2161,7 +2344,7 @@
                     const groupId = this.getAttribute('data-group-id');
                     const groupName = this.getAttribute('data-group-name');
                     const creatorId = this.getAttribute('data-creator-id');
-                    console.log('点击群组:', groupId, groupName, creatorId);
+                    console.log('点击群组:', groupId, groupName, '群主:', creatorId);
                     showGroupChat(groupId, groupName, creatorId);
                 });
                 
@@ -2170,21 +2353,14 @@
             
             console.log(`群组列表更新完成，共渲染 ${groups.length} 个群组`);
         }
-    
+
         function loadAllUsers() {
             if (!currentUser || !currentSessionToken) return;
-            
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
             
             fetch(`${SERVER_URL}/offline-users`, {
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken,
-                    'encrypted-data': encryptedData
+                    'session-token': currentSessionToken
                 }
             })
             .then(response => response.json())
@@ -2199,7 +2375,7 @@
                 groupMembersList.innerHTML = '<div>加载失败</div>';
             });
         }
-    
+
         function updateGroupMembersList(users) {
             if (!groupMembersList) return;
             
@@ -2222,29 +2398,26 @@
                 groupMembersList.appendChild(memberItem);
             });
         }
-    
+
         function showGroupChat(groupId, groupName, creatorId) {
             if (!groupId || !groupName) {
                 console.error('群组ID或名称为空');
                 return;
             }
             
-            console.log('切换到群组聊天:', groupId, groupName, creatorId);
+            console.log('切换到群组聊天:', groupId, groupName, '群主:', creatorId);
             
             currentGroupId = groupId;
             currentGroupName = groupName;
-            currentGroupCreatorId = creatorId;
+            currentGroupCreator = creatorId;
             
             mainChat.style.display = 'none';
             groupChat.style.display = 'flex';
             safeSetTextContent(groupTitle, groupName);
             
-            // 显示群组管理按钮（只有群主可见）
-            if (creatorId == currentUser.id) {
-                groupManagementBtn.style.display = 'inline-block';
-            } else {
-                groupManagementBtn.style.display = 'none';
-            }
+            // 显示/隐藏管理按钮
+            const isCreator = currentUser && creatorId == currentUser.id;
+            manageCurrentGroupBtn.style.display = isCreator ? 'inline-block' : 'none';
             
             groupMessageContainer.innerHTML = `
                 <div class="empty-state">
@@ -2255,17 +2428,10 @@
             
             // 加入群组
             if (socket && isConnected) {
-                const encryptedData = encryptData({
-                    username: loginCredentials.username,
-                    password: loginCredentials.password,
-                    timestamp: Date.now()
-                });
-                
                 socket.emit('join-group', { 
                     groupId: groupId,
                     userId: currentUser.id,
-                    sessionToken: currentSessionToken,
-                    encryptedData: encryptedData
+                    sessionToken: currentSessionToken
                 });
             }
             
@@ -2279,21 +2445,14 @@
             groupUploadButton.disabled = false;
             groupFileInput.disabled = false;
         }
-    
+
         function loadGroupMembers(groupId) {
             if (!currentUser || !currentSessionToken) return;
-            
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
             
             fetch(`${SERVER_URL}/group-members/${groupId}`, {
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken,
-                    'encrypted-data': encryptedData
+                    'session-token': currentSessionToken
                 }
             })
             .then(response => response.json())
@@ -2310,7 +2469,7 @@
                 groupMemberList.innerHTML = '<li>加载失败</li>';
             });
         }
-    
+
         function updateGroupMemberList(members) {
             if (!groupMemberList) return;
             
@@ -2332,198 +2491,24 @@
                     `<img src="${SERVER_URL}${member.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">` : 
                     '';
                 
-                // 修复：直接使用昵称，不进行转义
-                if (member.id == currentUser.id) {
-                    li.innerHTML = `${avatarHtml}<strong>${member.nickname} (我)</strong>`;
+                const isCreator = member.id == currentGroupCreator;
+                const isCurrentUser = member.id == currentUser.id;
+                
+                if (isCurrentUser) {
+                    li.innerHTML = `${avatarHtml}<strong>${escapeHtml(member.nickname)} (我) ${isCreator ? '👑' : ''}</strong>`;
                 } else {
-                    li.innerHTML = `${avatarHtml}${member.nickname}`;
-                    if (member.id == currentGroupCreatorId) {
-                        li.innerHTML += ' <span style="font-size: 10px; color: #07c160; margin-left: 5px;">群主</span>';
-                    }
+                    li.innerHTML = `${avatarHtml}${escapeHtml(member.nickname)} ${isCreator ? '👑' : ''}`;
                 }
                 groupMemberList.appendChild(li);
-            });
-        }
-        
-        function loadManagementMembers() {
-            if (!currentUser || !currentSessionToken || !currentGroupId) return;
-            
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
-            
-            fetch(`${SERVER_URL}/group-members/${currentGroupId}`, {
-                headers: {
-                    'user-id': currentUser.id,
-                    'session-token': currentSessionToken,
-                    'encrypted-data': encryptedData
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    updateManagementMemberList(data.members);
-                } else {
-                    console.error('加载管理成员失败:', data.message);
-                    managementMemberList.innerHTML = '<div>加载失败</div>';
-                }
-            })
-            .catch(error => {
-                console.error('加载管理成员失败:', error);
-                managementMemberList.innerHTML = '<div>加载失败</div>';
-            });
-        }
-        
-        function updateManagementMemberList(members) {
-            if (!managementMemberList) return;
-            
-            managementMemberList.innerHTML = '';
-            
-            if (!members || !Array.isArray(members) || members.length === 0) {
-                managementMemberList.innerHTML = '<div>暂无成员</div>';
-                return;
-            }
-            
-            members.forEach(member => {
-                const memberItem = document.createElement('div');
-                memberItem.className = 'member-item';
-                
-                if (member.id == currentUser.id) {
-                    memberItem.innerHTML = `
-                        <span>${escapeHtml(member.nickname)} (我) <span style="color: #07c160; font-size: 12px;">群主</span></span>
-                    `;
-                } else {
-                    memberItem.innerHTML = `
-                        <span>${escapeHtml(member.nickname)}</span>
-                        <button class="remove-member-btn" data-user-id="${member.id}" style="margin-left: auto; background: #e74c3c; color: white; border: none; border-radius: 3px; padding: 3px 8px; font-size: 12px; cursor: pointer;">移除</button>
-                    `;
-                    
-                    const removeBtn = memberItem.querySelector('.remove-member-btn');
-                    removeBtn.addEventListener('click', function() {
-                        const userId = this.getAttribute('data-user-id');
-                        removeGroupMember(userId);
-                    });
-                }
-                
-                managementMemberList.appendChild(memberItem);
-            });
-        }
-        
-        function loadAddMemberUsers() {
-            if (!currentUser || !currentSessionToken) return;
-            
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
-            
-            fetch(`${SERVER_URL}/offline-users`, {
-                headers: {
-                    'user-id': currentUser.id,
-                    'session-token': currentSessionToken,
-                    'encrypted-data': encryptedData
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    updateAddMemberList(data.users);
-                }
-            })
-            .catch(error => {
-                console.error('加载用户列表失败:', error);
-                addMemberList.innerHTML = '<div>加载失败</div>';
-            });
-        }
-        
-        function updateAddMemberList(users) {
-            if (!addMemberList) return;
-            
-            addMemberList.innerHTML = '';
-            
-            // 过滤掉已经在群组中的用户
-            const existingMemberIds = Array.from(document.querySelectorAll('#managementMemberList .member-item span'))
-                .map(span => {
-                    const match = span.textContent.match(/\(ID:(\d+)\)/);
-                    return match ? match[1] : null;
-                })
-                .filter(id => id !== null);
-                
-            const availableUsers = users.filter(user => 
-                user.id != currentUser.id && !existingMemberIds.includes(String(user.id))
-            );
-            
-            if (availableUsers.length === 0) {
-                addMemberList.innerHTML = '<div>暂无可用用户</div>';
-                return;
-            }
-            
-            availableUsers.forEach(user => {
-                const memberItem = document.createElement('div');
-                memberItem.className = 'member-item';
-                memberItem.innerHTML = `
-                    <input type="checkbox" class="member-checkbox" value="${user.id}" id="add-member-${user.id}">
-                    <label for="add-member-${user.id}">${escapeHtml(user.nickname)}</label>
-                `;
-                addMemberList.appendChild(memberItem);
-            });
-        }
-        
-        function removeGroupMember(userId) {
-            if (!currentUser || !currentSessionToken || !currentGroupId) return;
-            
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
-            
-            fetch(`${SERVER_URL}/remove-group-member`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'user-id': currentUser.id,
-                    'session-token': currentSessionToken,
-                    'encrypted-data': encryptedData
-                },
-                body: JSON.stringify({
-                    groupId: currentGroupId,
-                    userId: userId
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    loadManagementMembers();
-                    loadGroupMembers(currentGroupId);
-                } else {
-                    alert('移除成员失败: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('移除成员错误:', error);
-                alert('移除成员失败');
             });
         }
 
         function backToMainChat() {
             if (currentGroupId) {
-                const encryptedData = encryptData({
-                    username: loginCredentials.username,
-                    password: loginCredentials.password,
-                    timestamp: Date.now()
-                });
-                
-                socket.emit('leave-group', { 
-                    groupId: currentGroupId,
-                    encryptedData: encryptedData
-                });
+                socket.emit('leave-group', { groupId: currentGroupId });
                 currentGroupId = null;
                 currentGroupName = '';
-                currentGroupCreatorId = null;
+                currentGroupCreator = null;
             }
             
             groupChat.style.display = 'none';
@@ -2534,73 +2519,6 @@
             sendGroupMessageBtn.disabled = true;
             groupUploadButton.disabled = true;
             groupFileInput.disabled = true;
-        }
-        
-        function addMessageToContainer(message, isOwn, isGroupChat, container) {
-          const messageElement = document.createElement('div');
-          messageElement.className = `message ${isOwn ? 'own-message' : ''}`;
-          messageElement.setAttribute('data-user-id', message.userId);
-          messageElement.setAttribute('data-message-id', message.id);
-          
-          let contentHtml = '';
-          if (message.imageUrl) {
-            contentHtml = `
-              <div class="message-content">
-                <img src="${SERVER_URL}${message.imageUrl}" class="message-image" alt="聊天图片" onclick="openImagePreview('${SERVER_URL}${message.imageUrl}')">
-              </div>
-            `;
-          } else {
-            const parsedContent = safeMarkdownParse(message.content);
-            contentHtml = `
-              <div class="message-content">${parsedContent}</div>
-            `;
-          }
-          
-          const avatarHtml = message.avatarUrl ? 
-            `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="头像">` : 
-            '';
-          
-          // 修复：使用createElement创建昵称元素，避免转义
-          messageElement.innerHTML = `
-            <div class="message-header">
-              ${avatarHtml}
-              <div class="nickname"></div>
-            </div>
-            ${contentHtml}
-            <div class="message-time">${formatTime(message.timestamp)}</div>
-            ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
-          `;
-          
-          // 直接设置昵称文本，不进行转义
-          const nicknameElement = messageElement.querySelector('.nickname');
-          nicknameElement.textContent = message.nickname;
-          
-          container.appendChild(messageElement);
-          
-          // 添加撤回按钮事件监听
-          if (isOwn) {
-            const deleteButton = messageElement.querySelector('.delete-button');
-            if (deleteButton) {
-              deleteButton.addEventListener('click', function(e) {
-                e.stopPropagation();
-                const messageId = this.getAttribute('data-id');
-                console.log('撤回消息:', messageId);
-                
-                const encryptedData = encryptData({
-                    username: loginCredentials.username,
-                    password: loginCredentials.password,
-                    timestamp: Date.now()
-                });
-                
-                socket.emit('delete-message', {
-                  messageId: messageId,
-                  userId: currentUser.id,
-                  sessionToken: currentSessionToken,
-                  encryptedData: encryptedData
-                });
-              });
-            }
-          }
         }
         
         function setupPageVisibility() {
@@ -2651,7 +2569,7 @@
             console.log('📄 窗口失去焦点');
           });
         }
-    
+
         // 修复11：消息处理函数
         function addMessage(message, isOwn = false, isGroup = false) {
           const targetContainer = isGroup ? groupMessageContainer : messageContainer;
@@ -2661,7 +2579,8 @@
             targetEmptyState.style.display = 'none';
           }
           
-          addMessageToContainer(message, isOwn, isGroup, targetContainer);
+          const messageElement = createMessageElement(message, isOwn, isGroup);
+          targetContainer.appendChild(messageElement);
           
           if (!isGroup && messageCount) {
             const count = messageContainer.querySelectorAll('.message').length;
@@ -2670,7 +2589,7 @@
           
           scrollToBottom(targetContainer);
         }
-    
+
         // 修复12：连接状态和存储状态
         function updateConnectionStatus(status, message) {
             if (!connectionStatus) return;
@@ -2689,7 +2608,7 @@
                 connectionStatus.style.color = '#e74c3c';
             }
         }
-    
+
         function checkStorageStatus() {
             if (!currentUser || !currentSessionToken) {
                 storageStatus.textContent = '存储状态: 未登录';
@@ -2697,17 +2616,10 @@
                 return;
             }
             
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
-            
             fetch(`${SERVER_URL}/avatar-storage`, {
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken,
-                    'encrypted-data': encryptedData
+                    'session-token': currentSessionToken
                 }
             })
             .then(response => response.json())
@@ -2738,13 +2650,13 @@
                 storageStatus.style.color = '#e74c3c';
             });
         }
-    
+
         // 修复13：辅助函数
         function formatTime(timestamp) {
             const date = new Date(timestamp);
             return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
         }
-    
+
         function formatDate(timestamp) {
             const date = new Date(timestamp);
             const now = new Date();
@@ -2757,13 +2669,13 @@
             
             return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
         }
-    
+
         function isScrolledToBottom(container) {
             const threshold = 100;
             const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
             return distanceToBottom <= threshold;
         }
-    
+
         function scrollToBottom(container) {
             if (autoScrollEnabled) {
                 container.scrollTo({
@@ -2772,18 +2684,18 @@
                 });
             }
         }
-    
+
         function autoResizeTextarea(textarea) {
             textarea.style.height = 'auto';
             textarea.style.height = textarea.scrollHeight + 'px';
         }
-    
+
         function toggleSidebar() {
             isSidebarCollapsed = !isSidebarCollapsed;
             sidebar.classList.toggle('collapsed', isSidebarCollapsed);
             toggleSidebarText.textContent = isSidebarCollapsed ? '展开用户列表' : '收起用户列表';
         }
-    
+
         // 修复14：登录状态管理
         function updateLoginState(isLoggedIn) {
             if (isLoggedIn && currentUser) {
@@ -2797,6 +2709,7 @@
                 changeNicknameBtn.style.display = 'inline-block';
                 changeAvatarBtn.style.display = 'inline-block';
                 createGroupBtn.style.display = 'inline-block';
+                manageGroupBtn.style.display = 'inline-block';
                 logoutButton.style.display = 'inline-block';
                 
                 messageInput.disabled = false;
@@ -2813,28 +2726,22 @@
                 
                 // 如果已连接，立即加入聊天室
                 if (isConnected && socket) {
-                    const encryptedData = encryptData({
-                        username: loginCredentials.username,
-                        password: loginCredentials.password,
-                        timestamp: Date.now()
-                    });
-                    
                     socket.emit('user-joined', {
                         userId: currentUser.id,
                         nickname: currentUser.nickname,
                         avatarUrl: currentUser.avatarUrl,
-                        sessionToken: currentSessionToken,
-                        encryptedData: encryptedData
+                        sessionToken: currentSessionToken
                     });
                 }
                 
             } else {
-                safeSetTextContent(currentNicknameSpan, '未登录，刷新网页登录');
+                safeSetTextContent(currentNicknameSpan, '未登录');
                 currentAvatarImg.style.display = 'none';
                 
                 changeNicknameBtn.style.display = 'none';
                 changeAvatarBtn.style.display = 'none';
                 createGroupBtn.style.display = 'none';
+                manageGroupBtn.style.display = 'none';
                 logoutButton.style.display = 'none';
                 
                 messageInput.disabled = true;
@@ -2846,11 +2753,11 @@
                 authModal.style.display = 'flex';
             }
         }
-    
+
         function logout() {
             currentUser = null;
             currentSessionToken = null;
-            loginCredentials = {};
+            loginCredentials = null;
             
             localStorage.removeItem('chatUserId');
             localStorage.removeItem('chatUserNickname');
@@ -2869,7 +2776,69 @@
             
             backToMainChat();
         }
-    
+
+        // 自动重新登录函数
+        function autoReLogin() {
+            if (!loginCredentials) {
+                console.log('❌ 自动重新登录失败: 没有保存的登录凭证');
+                return false;
+            }
+            
+            console.log('🔄 尝试自动重新登录...');
+            
+            fetch(`${SERVER_URL}/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(loginCredentials)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    console.log('✅ 自动重新登录成功');
+                    currentUser = {
+                        id: data.userId.toString(),
+                        nickname: data.nickname,
+                        avatarUrl: data.avatarUrl
+                    };
+                    currentSessionToken = data.sessionToken;
+                    
+                    // 更新本地存储
+                    localStorage.setItem('chatUserId', currentUser.id);
+                    localStorage.setItem('chatUserNickname', currentUser.nickname);
+                    localStorage.setItem('chatSessionToken', currentSessionToken);
+                    if (currentUser.avatarUrl) {
+                        localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
+                    }
+                    
+                    updateLoginState(true);
+                    
+                    // 重新加入聊天室
+                    if (isConnected && socket) {
+                        socket.emit('user-joined', {
+                            userId: currentUser.id,
+                            nickname: currentUser.nickname,
+                            avatarUrl: currentUser.avatarUrl,
+                            sessionToken: currentSessionToken
+                        });
+                    }
+                    
+                    return true;
+                } else {
+                    console.log('❌ 自动重新登录失败:', data.message);
+                    logout();
+                    return false;
+                }
+            })
+            .catch(error => {
+                console.error('❌ 自动重新登录网络错误:', error);
+                return false;
+            });
+            
+            return false;
+        }
+
         // 修复15：消息发送函数
         function sendMessage() {
             const content = messageInput.value.trim();
@@ -2877,53 +2846,39 @@
                 console.log('发送消息条件不满足');
                 return;
             }
-    
+
             console.log('📤 发送消息:', content);
             
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
-            
-            socket.emit('send-message', {
+            sendSecureData('send-message', {
                 userId: currentUser.id,
                 content: content,
-                sessionToken: currentSessionToken,
-                encryptedData: encryptedData
+                sessionToken: currentSessionToken
             });
-    
+
             messageInput.value = '';
             autoResizeTextarea(messageInput);
         }
-    
+
         function sendGroupMessage() {
             const content = groupMessageInput.value.trim();
             if (!content || !currentUser || !isConnected || !currentGroupId || !currentSessionToken) {
                 console.log('发送群组消息条件不满足');
                 return;
             }
-    
+
             console.log('📤 发送群组消息:', content);
             
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
-            
-            socket.emit('send-message', {
+            sendSecureData('send-message', {
                 userId: currentUser.id,
                 content: content,
                 groupId: currentGroupId,
-                sessionToken: currentSessionToken,
-                encryptedData: encryptedData
+                sessionToken: currentSessionToken
             });
-    
+
             groupMessageInput.value = '';
             autoResizeTextarea(groupMessageInput);
         }
-    
+
         // 修复16：Socket.IO事件处理
         const socket = io(SERVER_URL, {
           transports: ['websocket', 'polling'],
@@ -2934,7 +2889,7 @@
           timeout: 20000,
           autoConnect: true
         });
-    
+
         socket.on('connect', () => {
           console.log('✅ 已成功连接到服务器');
           isConnected = true;
@@ -2947,19 +2902,11 @@
           // 登录后立即加入聊天室
           if (currentUser && currentSessionToken) {
             console.log('🔄 连接建立，重新加入聊天室');
-            
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
-            
             socket.emit('user-joined', {
               userId: currentUser.id,
               nickname: currentUser.nickname,
               avatarUrl: currentUser.avatarUrl,
-              sessionToken: currentSessionToken,
-              encryptedData: encryptedData
+              sessionToken: currentSessionToken
             });
             
             // 立即请求在线用户列表
@@ -2970,8 +2917,7 @@
               socket.emit('join-group', { 
                 groupId: currentGroupId,
                 userId: currentUser.id,
-                sessionToken: currentSessionToken,
-                encryptedData: encryptedData
+                sessionToken: currentSessionToken
               });
             }
           }
@@ -2985,19 +2931,11 @@
           // 重新加入聊天室
           if (currentUser && currentSessionToken) {
             console.log('🔄 重新连接成功，重新加入聊天室');
-            
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
-            
             socket.emit('user-joined', {
               userId: currentUser.id,
               nickname: currentUser.nickname,
               avatarUrl: currentUser.avatarUrl,
-              sessionToken: currentSessionToken,
-              encryptedData: encryptedData
+              sessionToken: currentSessionToken
             });
             
             // 重新请求在线用户列表
@@ -3008,8 +2946,7 @@
               socket.emit('join-group', { 
                 groupId: currentGroupId,
                 userId: currentUser.id,
-                sessionToken: currentSessionToken,
-                encryptedData: encryptedData
+                sessionToken: currentSessionToken
               });
             }
           }
@@ -3017,17 +2954,17 @@
           // 重新启动自动刷新
           startAutoRefresh();
         });
-    
+
         socket.on('users-updated', (users) => {
           console.log('📨 收到用户列表更新事件:', users);
           updateUserList(users);
         });
-    
+
         socket.on('online-users', (users) => {
           console.log('📨 收到在线用户列表:', users);
           updateUserList(users);
         });
-    
+
         socket.on('message-received', (message) => {
           console.log('💬 收到新消息:', message);
           const isOwn = currentUser && message.userId == currentUser.id;
@@ -3041,7 +2978,7 @@
             addMessage(message, isOwn, false);
           }
         });
-    
+
         socket.on('message-deleted', (data) => {
           console.log('🗑️ 消息被删除:', data);
           
@@ -3056,7 +2993,7 @@
             messageCount.textContent = `消息数量: ${count}`;
           }
         });
-    
+
         socket.on('chat-history', (data) => {
           console.log('📨 收到聊天历史:', {
             messageCount: data.messages ? data.messages.length : 0,
@@ -3068,27 +3005,14 @@
             lastMessageUpdate = data.lastUpdate;
           }
           
-          messageContainer.innerHTML = '';
-          
-          if (!data.messages || data.messages.length === 0) {
-            emptyState.style.display = 'block';
-            return;
-          }
-          
-          emptyState.style.display = 'none';
-          
-          data.messages.forEach(message => {
-            const isOwn = currentUser && message.userId == currentUser.id;
-            addMessage(message, isOwn, false);
-          });
+          // 使用平滑刷新显示历史消息
+          smoothRefreshMessages(data.messages, false);
           
           if (messageCount) {
-            messageCount.textContent = `消息数量: ${data.messages.length}`;
+            messageCount.textContent = `消息数量: ${data.messages ? data.messages.length : 0}`;
           }
-          
-          scrollToBottom(messageContainer);
         });
-    
+
         socket.on('group-chat-history', (data) => {
           console.log('📨 收到群组聊天历史:', {
             groupId: data.groupId,
@@ -3101,26 +3025,10 @@
             lastMessageUpdate = data.lastUpdate;
           }
           
-          groupMessageContainer.innerHTML = '';
-          
-          if (!data.messages || data.messages.length === 0) {
-            groupMessageContainer.innerHTML = `
-              <div class="empty-state">
-                <h3>暂无消息</h3>
-                <p>发送第一条消息开始群聊吧!</p>
-              </div>
-            `;
-            return;
-          }
-          
-          data.messages.forEach(message => {
-            const isOwn = currentUser && message.userId == currentUser.id;
-            addMessage(message, isOwn, true);
-          });
-          
-          scrollToBottom(groupMessageContainer);
+          // 使用平滑刷新显示群组历史消息
+          smoothRefreshMessages(data.messages, true);
         });
-    
+
         socket.on('nickname-updated', (data) => {
           console.log('📨 收到昵称更新:', data);
           if (data.userId == currentUser?.id) {
@@ -3132,17 +3040,20 @@
             socket.emit('get-online-users');
           }
         });
-    
+
         socket.on('session-expired', () => {
-            alert('会话已过期，请重新登录');
-            logout();
+            console.log('🔄 会话过期，尝试自动重新登录...');
+            if (!autoReLogin()) {
+                alert('会话已过期，请重新登录');
+                logout();
+            }
         });
-    
+
         socket.on('error', (error) => {
             console.error('服务器错误:', error);
             alert(`错误: ${error.message}`);
         });
-    
+
         // 修复17：事件监听器初始化
         function initializeEventListeners() {
             console.log('初始化事件监听器');
@@ -3155,7 +3066,7 @@
                     sendMessage();
                 }
             });
-    
+
             sendGroupMessageBtn.addEventListener('click', sendGroupMessage);
             groupMessageInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -3163,36 +3074,36 @@
                     sendGroupMessage();
                 }
             });
-    
+
             // 侧边栏切换
             toggleSidebarBtn.addEventListener('click', toggleSidebar);
-    
+
             // 返回主聊天室
             backToMainBtn.addEventListener('click', backToMainChat);
-    
+
             // 退出登录
             logoutButton.addEventListener('click', logout);
-    
+
             // 图片上传
             uploadButton.addEventListener('click', () => fileInput.click());
             groupUploadButton.addEventListener('click', () => groupFileInput.click());
-    
+
             fileInput.addEventListener('change', (e) => {
                 if (e.target.files && e.target.files[0]) {
                     uploadImage(e.target.files[0], false);
                 }
             });
-    
+
             groupFileInput.addEventListener('change', (e) => {
                 if (e.target.files && e.target.files[0]) {
                     uploadImage(e.target.files[0], true);
                 }
             });
-    
+
             // 登录注册按钮
             loginButton.addEventListener('click', handleLogin);
             registerButton.addEventListener('click', handleRegister);
-    
+
             // 输入框自动调整高度
             messageInput.addEventListener('input', function() {
                 autoResizeTextarea(this);
@@ -3201,7 +3112,7 @@
             groupMessageInput.addEventListener('input', function() {
                 autoResizeTextarea(this);
             });
-    
+
             // 消息容器滚动事件
             messageContainer.addEventListener('scroll', function() {
                 if (!isScrolledToBottom(this)) {
@@ -3210,7 +3121,7 @@
                     autoScrollEnabled = true;
                 }
             });
-    
+
             groupMessageContainer.addEventListener('scroll', function() {
                 if (!isScrolledToBottom(this)) {
                     autoScrollEnabled = false;
@@ -3218,14 +3129,14 @@
                     autoScrollEnabled = true;
                 }
             });
-    
+
             // 初始化Markdown工具栏
             initializeMarkdownToolbar();
             
             // 初始化模态框事件
             initializeModalEvents();
         }
-    
+
         // 修复18：登录注册处理
         function handleLogin() {
           const username = loginUsername.value.trim();
@@ -3256,12 +3167,14 @@
                 avatarUrl: data.avatarUrl
               };
               currentSessionToken = data.sessionToken;
+              
+              // 保存登录凭证用于自动重新登录
               loginCredentials = { username, password };
               
               localStorage.setItem('chatUserId', currentUser.id);
               localStorage.setItem('chatUserNickname', currentUser.nickname);
               localStorage.setItem('chatSessionToken', currentSessionToken);
-              localStorage.setItem('chatLoginCredentials', JSON.stringify(loginCredentials));
+              localStorage.setItem('chatLoginCredentials', encryptData(loginCredentials));
               if (currentUser.avatarUrl) {
                 localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
               }
@@ -3273,23 +3186,23 @@
               
               // 登录后立即加入聊天室
               if (isConnected && socket) {
-                const encryptedData = encryptData({
-                    username: loginCredentials.username,
-                    password: loginCredentials.password,
-                    timestamp: Date.now()
-                });
-                
                 socket.emit('user-joined', {
                   userId: currentUser.id,
                   nickname: currentUser.nickname,
                   avatarUrl: currentUser.avatarUrl,
-                  sessionToken: currentSessionToken,
-                  encryptedData: encryptedData
+                  sessionToken: currentSessionToken
                 });
               }
               
               // 启动自动刷新
               startAutoRefresh();
+              
+              // 如果没有头像，弹出头像上传模态框
+              if (!currentUser.avatarUrl) {
+                setTimeout(() => {
+                  showAvatarModal();
+                }, 1000);
+              }
               
             } else {
               loginMessage.textContent = data.message;
@@ -3306,7 +3219,7 @@
             loginButton.textContent = '登录';
           });
         }
-    
+
         function handleRegister() {
             const username = registerUsername.value.trim();
             const password = registerPassword.value.trim();
@@ -3332,12 +3245,15 @@
                     registerMessage.style.color = 'green';
                     registerMessage.style.display = 'block';
                     
-                    // 注册成功后弹出头像设置模态框
                     setTimeout(() => {
                         loginTab.click();
                         loginUsername.value = username;
                         loginPassword.value = '';
-                        showAvatarModal();
+                        
+                        // 注册成功后自动弹出头像上传
+                        setTimeout(() => {
+                            showAvatarModal();
+                        }, 500);
                     }, 1000);
                 } else {
                     registerMessage.textContent = data.message;
@@ -3350,19 +3266,19 @@
                 registerMessage.style.display = 'block';
             });
         }
-    
+
         // 修复19：图片上传函数
         function uploadImage(file, isGroup) {
             if (!file || !file.type.startsWith('image/')) {
                 alert('请选择有效的图片文件');
                 return;
             }
-    
+
             if (file.size > 5 * 1024 * 1024) {
                 alert('图片大小不能超过5MB');
                 return;
             }
-    
+
             const formData = new FormData();
             formData.append('image', file);
             formData.append('userId', currentUser.id);
@@ -3370,13 +3286,7 @@
             if (isGroup && currentGroupId) {
                 formData.append('groupId', currentGroupId);
             }
-            
-            const encryptedData = encryptData({
-                username: loginCredentials.username,
-                password: loginCredentials.password,
-                timestamp: Date.now()
-            });
-    
+
             uploadProgress.style.display = 'block';
             let progress = 0;
             const interval = setInterval(() => {
@@ -3384,13 +3294,12 @@
                 if (progress > 90) clearInterval(interval);
                 uploadProgressBar.style.width = `${progress}%`;
             }, 100);
-    
+
             fetch(`${SERVER_URL}/upload`, {
                 method: 'POST',
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken,
-                    'encrypted-data': encryptedData
+                    'session-token': currentSessionToken
                 },
                 body: formData
             })
@@ -3418,7 +3327,7 @@
                 alert('图片上传失败');
             });
         }
-    
+
         // 修复20：应用初始化
         function initializeApp() {
           console.log('🚀 初始化聊天室应用');
@@ -3431,22 +3340,20 @@
           const savedCredentials = localStorage.getItem('chatLoginCredentials');
           
           if (savedUserId && savedUserNickname && savedSessionToken && savedCredentials) {
-            try {
-                currentUser = {
-                  id: savedUserId,
-                  nickname: savedUserNickname,
-                  avatarUrl: savedUserAvatar
-                };
-                currentSessionToken = savedSessionToken;
-                loginCredentials = JSON.parse(savedCredentials);
-                updateLoginState(true);
-                
-                // 立即设置最后更新时间
-                lastMessageUpdate = Date.now();
-            } catch (error) {
-                console.error('恢复登录状态失败:', error);
-                updateLoginState(false);
-            }
+            currentUser = {
+              id: savedUserId,
+              nickname: savedUserNickname,
+              avatarUrl: savedUserAvatar
+            };
+            currentSessionToken = savedSessionToken;
+            
+            // 解密登录凭证
+            loginCredentials = decryptData(savedCredentials);
+            
+            updateLoginState(true);
+            
+            // 立即设置最后更新时间
+            lastMessageUpdate = Date.now();
           } else {
             updateLoginState(false);
           }
@@ -3463,26 +3370,26 @@
           
           console.log('✅ 应用初始化完成');
         }
-    
+
         // 修复21：全局函数和启动
         window.openImagePreview = function(imageUrl) {
             previewImgElement.src = imageUrl;
             imagePreviewModal.style.display = 'flex';
         };
-    
+
         // 关闭图片预览
         if (closePreviewBtn) {
             closePreviewBtn.addEventListener('click', function() {
                 imagePreviewModal.style.display = 'none';
             });
         }
-    
+
         imagePreviewModal.addEventListener('click', function(e) {
             if (e.target === imagePreviewModal) {
                 imagePreviewModal.style.display = 'none';
             }
         });
-    
+
         // 启动应用
         initializeApp();
     });
