@@ -390,11 +390,28 @@
             overflow-x: auto;
             margin: 5px 0;
             border: 1px solid #e9ecef;
+            font-family: 'Courier New', monospace;
         }
         
         .message-content pre code {
             background: none;
             padding: 0;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        /* 链接样式 */
+        .message-content a {
+            color: #07c160;
+            text-decoration: none;
+            border-bottom: 1px solid #07c160;
+            transition: all 0.2s ease;
+        }
+        
+        .message-content a:hover {
+            color: #05a653;
+            border-bottom: 1px solid #05a653;
         }
         
         .message-content strong {
@@ -905,6 +922,26 @@
             gap: 10px;
             align-items: center;
         }
+        
+        .group-admin-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        #manageGroupBtn {
+            background-color: #07c160;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s ease;
+        }
+        
+        #manageGroupBtn:hover {
+            background-color: #05a653;
+        }
     </style>
 </head>
 <body>
@@ -1096,7 +1133,10 @@
         <div class="group-header">
             <button id="backToMain">← 返回主聊天室</button>
             <h1 id="groupTitle">群组聊天</h1>
-            <button id="addMemberBtn" style="display: none;">添加成员</button>
+            <div class="group-admin-actions">
+                <button id="addMemberBtn" style="display: none;">添加成员</button>
+                <button id="manageGroupBtn" style="display: none;">管理群聊</button>
+            </div>
         </div>
         
         <div class="group-chat-container">
@@ -1236,6 +1276,7 @@
         const mainChat = document.getElementById('mainChat');
         const groupChat = document.getElementById('groupChat');
         const backToMainBtn = document.getElementById('backToMain');
+        const manageGroupBtn = document.getElementById('manageGroupBtn');
 
         const groupTitle = document.getElementById('groupTitle');
         const groupMessageContainer = document.getElementById('groupMessageContainer');
@@ -1271,6 +1312,12 @@
         // 增强XSS防护：更安全的Markdown解析函数
         function safeMarkdownParse(content) {
             if (!content) return '';
+            
+            // 检查内容是否已经包含HTML标签，如果是则直接返回（避免双重解析）
+            if (/<[^>]*>/g.test(content)) {
+                // 仍然移除可能的危险属性，但不进行再次解析
+                return removeDangerousAttributes(content);
+            }
             
             // 如果是纯文本，使用marked解析
             if (typeof marked !== 'undefined') {
@@ -1312,11 +1359,13 @@
                     return parsedContent;
                 } catch (error) {
                     console.error('Markdown解析错误:', error);
-                    return safeContent;
+                    // 如果解析失败，返回转义后的原始内容
+                    return escapeHtml(content);
                 }
             }
             
-            return safeContent;
+            // 如果marked库不可用，返回转义后的原始内容
+            return escapeHtml(content);
         }
         
         // 验证URL安全性
@@ -1345,9 +1394,9 @@
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = html;
             
-            // 定义危险属性列表
+            // 定义危险属性列表 - 只包含事件处理器等真正危险的属性
             const dangerousAttributes = [
-                'on*', 'href', 'src', 'action', 'formaction', 
+                'on*', 'action', 'formaction', 
                 'xlink:href', 'background', 'dynsrc', 'lowsrc'
             ];
             
@@ -1402,6 +1451,52 @@
               checkStorageStatus();
             }
           }, 60000);
+          
+          // 每30秒检查一次会话有效性，实现自动重新登录功能
+          setInterval(() => {
+            if (currentUser && currentSessionToken) {
+              checkSessionValidity();
+            }
+          }, 30000);
+        }
+        
+        // 检查会话有效性
+        function checkSessionValidity() {
+          fetch(`${SERVER_URL}/session-check`, {
+            method: 'GET',
+            headers: {
+              'user-id': currentUser.id,
+              'session-token': currentSessionToken
+            }
+          })
+          .then(response => {
+            if (!response.ok) {
+              throw new Error('会话已过期');
+            }
+            return response.json();
+          })
+          .then(data => {
+            if (!data.valid) {
+              // 会话无效，自动引导用户重新登录
+              console.log('会话已过期，引导用户重新登录');
+              showReLoginPrompt();
+            }
+          })
+          .catch(error => {
+            console.error('会话检查失败:', error);
+            // 网络错误也引导用户重新登录
+            showReLoginPrompt();
+          });
+        }
+        
+        // 显示重新登录提示
+        function showReLoginPrompt() {
+          if (confirm('您的会话已过期，请重新登录以继续使用聊天功能。\n点击确定重新登录，取消将继续使用当前页面（可能无法发送消息）。')) {
+            logout();
+            authModal.style.display = 'flex';
+            // 聚焦到登录表单
+            loginUsername.focus();
+          }
         }
     
         // 修复4：更新用户列表函数
@@ -2217,6 +2312,7 @@
         function checkIfUserIsGroupCreator(groupId) {
             if (!currentUser || !currentSessionToken) {
                 addMemberBtn.style.display = 'none';
+                manageGroupBtn.style.display = 'none';
                 window.isGroupCreator = false;
                 return;
             }
@@ -2233,11 +2329,13 @@
             })
             .then(data => {
                 if (data.status === 'success' && data.group && data.group.creator_id === currentUser.id) {
-                    // 用户是群主，显示添加成员按钮
+                    // 用户是群主，显示管理按钮
                     addMemberBtn.style.display = 'inline-block';
+                    manageGroupBtn.style.display = 'inline-block';
                     window.isGroupCreator = true;
                 } else {
                     addMemberBtn.style.display = 'none';
+                    manageGroupBtn.style.display = 'none';
                     window.isGroupCreator = false;
                 }
                 // 重新加载群组成员列表，以显示或隐藏踢出按钮
@@ -2246,6 +2344,7 @@
             .catch(error => {
                 console.error('检查群主身份失败:', error);
                 addMemberBtn.style.display = 'none';
+                manageGroupBtn.style.display = 'none';
                 window.isGroupCreator = false;
             });
         }
@@ -2956,9 +3055,15 @@
     
             // 侧边栏切换
             toggleSidebarBtn.addEventListener('click', toggleSidebar);
-    
+            
             // 返回主聊天室
             backToMainBtn.addEventListener('click', backToMainChat);
+            
+            // 管理群聊按钮点击事件
+            manageGroupBtn.addEventListener('click', function() {
+                alert('群聊管理功能：目前支持添加成员和踢出成员');
+                // 这里可以扩展更多管理功能，如修改群名称、设置群公告等
+            });
     
             // 退出登录
             logoutButton.addEventListener('click', logout);
