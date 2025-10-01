@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=1200, initial-scale=1.0">
-    <title>安全优化版聊天室</title>
+    <title>简易聊天室</title>
     <style>
         /* 强制禁用移动端响应式样式 */
         @media (max-width: 768px) {
@@ -161,10 +161,11 @@
             padding: 10px;
         }
         
-        .sidebar.collapsed .online-users-content,
-        .sidebar.collapsed .offline-users-content,
-        .sidebar.collapsed .group-section {
-            display: none;
+        .sidebar.collapsed .online-users,
+        .sidebar.collapsed .offline-users,
+        .sidebar.collapsed .group-section,
+        .sidebar.collapsed .toggle-sidebar-text {
+            display: none !important;
         }
         
         .toggle-sidebar {
@@ -304,6 +305,7 @@
             animation: fadeIn 0.3s ease;
             min-height: auto;
             word-wrap: break-word;
+            transition: opacity 0.3s ease;
         }
         
         .message.own-message {
@@ -896,6 +898,38 @@
             gap: 10px;
             align-items: center;
         }
+        
+        /* 群组管理按钮 */
+        .group-management {
+            margin-top: 10px;
+            padding: 10px;
+            border-top: 1px solid #eee;
+        }
+        
+        .group-management-btn {
+            width: 100%;
+            padding: 8px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-bottom: 5px;
+        }
+        
+        .group-management-btn:hover {
+            background: #2980b9;
+        }
+        
+        /* 消息刷新无闪烁动画 */
+        .message-refresh-container {
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+        
+        .message-refresh-container.refreshing {
+            opacity: 0.7;
+        }
     </style>
 </head>
 <body>
@@ -968,6 +1002,38 @@
         </div>
     </div>
 
+    <!-- 群组管理模态框 -->
+    <div id="groupManagementModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h3>群组管理</h3>
+            <div id="groupManagementContent">
+                <h4>群组成员</h4>
+                <div class="member-list" id="managementMemberList">
+                    <div>加载中...</div>
+                </div>
+                <div class="group-management">
+                    <button class="group-management-btn" id="addMemberBtn">添加成员</button>
+                    <button class="group-management-btn" id="removeMemberBtn">移除成员</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加成员模态框 -->
+    <div id="addMemberModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h3>添加成员</h3>
+            <h4>选择要添加的用户</h4>
+            <div class="member-list" id="addMemberList">
+                <div>加载中...</div>
+            </div>
+            <button id="confirmAddMember">确认添加</button>
+            <div id="addMemberMessage" style="margin-top: 10px;"></div>
+        </div>
+    </div>
+
     <!-- 图片预览模态框 -->
     <div id="imagePreviewModal" class="image-preview-modal">
         <div class="close-preview">&times;</div>
@@ -979,10 +1045,10 @@
     <!-- 主聊天界面 -->
     <div id="mainChat">
         <div class="header">
-            <h1>安全优化版聊天室 <span id="totalOnlineCount" class="online-count">0</span></h1>
+            <h1>简易聊天室 <span id="totalOnlineCount" class="online-count">0</span></h1>
             <div class="user-info">
                 <img id="currentAvatar" class="user-avatar" src="" alt="头像" style="display: none;">
-                <span id="currentNickname">未登录</span>
+                <span id="currentNickname">未登录，刷新网页登录</span>
                 <button id="changeAvatar" style="display: none;">更改头像</button>
                 <button id="changeNickname" style="display: none;">修改昵称</button>
                 <button id="createGroup" style="display: none; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer;">创建群组</button>
@@ -1033,7 +1099,7 @@
                     <button class="markdown-btn" data-prefix="[链接](" data-suffix=")" data-sample="链接文本">链接</button>
                 </div>
                 
-                <div id="messageContainer">
+                <div id="messageContainer" class="message-refresh-container">
                     <div class="empty-state" id="emptyState">
                         <h3>暂无消息</h3>
                         <p>发送第一条消息开始聊天吧!</p>
@@ -1074,6 +1140,7 @@
         <div class="group-header">
             <button id="backToMain">← 返回主聊天室</button>
             <h1 id="groupTitle">群组聊天</h1>
+            <button id="groupManagementBtn" style="margin-left: auto; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer; display: none;">管理群组</button>
         </div>
         
         <div class="group-chat-container">
@@ -1097,7 +1164,7 @@
                     <button class="markdown-btn" data-prefix="[链接](" data-suffix=")" data-sample="链接文本">链接</button>
                 </div>
                 
-                <div id="groupMessageContainer">
+                <div id="groupMessageContainer" class="message-refresh-container">
                     <div class="empty-state">
                         <h3>暂无消息</h3>
                         <p>发送第一条消息开始群聊吧!</p>
@@ -1125,9 +1192,11 @@
 
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <script>
     document.addEventListener('DOMContentLoaded', function() {
         const SERVER_URL = 'http://152.136.175.209:3000';
+        const ENCRYPTION_KEY = 'chat-room-security-key-2024';
         
         // 初始化变量
         let currentUser = null;
@@ -1140,11 +1209,13 @@
         let allUsers = [];
         let currentGroupId = null;
         let currentGroupName = '';
+        let currentGroupCreatorId = null;
         let markdownEnabled = false;
         let groupMarkdownEnabled = false;
         let lastMessageUpdate = 0;
         let autoRefreshInterval = null;
         let isPageVisible = true;
+        let loginCredentials = {};
     
         // 获取DOM元素
         const messageInput = document.getElementById('messageInput');
@@ -1217,16 +1288,76 @@
         const groupMarkdownToolbar = document.getElementById('groupMarkdownToolbar');
         const markdownToggle = document.getElementById('markdownToggle');
         const groupMarkdownToggle = document.getElementById('groupMarkdownToggle');
-    
-        // 修复1：安全的HTML处理函数
-        function escapeHtml(unsafe) {
+        const groupManagementBtn = document.getElementById('groupManagementBtn');
+        const groupManagementModal = document.getElementById('groupManagementModal');
+        const managementMemberList = document.getElementById('managementMemberList');
+        const addMemberBtn = document.getElementById('addMemberBtn');
+        const removeMemberBtn = document.getElementById('removeMemberBtn');
+        const addMemberModal = document.getElementById('addMemberModal');
+        const addMemberList = document.getElementById('addMemberList');
+        const confirmAddMember = document.getElementById('confirmAddMember');
+        const addMemberMessage = document.getElementById('addMemberMessage');
+
+        // 增强的XSS防护函数
+        function xssProtect(unsafe) {
             if (unsafe === null || unsafe === undefined) return '';
+            
             return String(unsafe)
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;")
                 .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
+                .replace(/'/g, "&#039;")
+                .replace(/`/g, "&#96;")
+                .replace(/\//g, "&#x2F;")
+                .replace(/\\/g, "&#x5C;")
+                .replace(/\$/g, "&#36;")
+                .replace(/\{/g, "&#123;")
+                .replace(/\}/g, "&#125;")
+                .replace(/\(/g, "&#40;")
+                .replace(/\)/g, "&#41;")
+                .replace(/\[/g, "&#91;")
+                .replace(/\]/g, "&#93;")
+                .replace(/\|/g, "&#124;")
+                .replace(/\*/g, "&#42;")
+                .replace(/\^/g, "&#94;")
+                .replace(/\+/g, "&#43;")
+                .replace(/\=/g, "&#61;")
+                .replace(/\?/g, "&#63;")
+                .replace(/!/g, "&#33;")
+                .replace(/@/g, "&#64;")
+                .replace(/#/g, "&#35;")
+                .replace(/%/g, "&#37;")
+                .replace(/:/g, "&#58;")
+                .replace(/;/g, "&#59;")
+                .replace(/,/g, "&#44;")
+                .replace(/\./g, "&#46;");
+        }
+
+        // 加密函数
+        function encryptData(data) {
+            try {
+                return CryptoJS.AES.encrypt(JSON.stringify(data), ENCRYPTION_KEY).toString();
+            } catch (error) {
+                console.error('加密错误:', error);
+                return null;
+            }
+        }
+
+        // 解密函数
+        function decryptData(encryptedData) {
+            try {
+                const bytes = CryptoJS.AES.decrypt(encryptedData, ENCRYPTION_KEY);
+                return JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+            } catch (error) {
+                console.error('解密错误:', error);
+                return null;
+            }
+        }
+
+        // 修复1：安全的HTML处理函数
+        function escapeHtml(unsafe) {
+            return xssProtect(unsafe);
         }
     
         // 修复2：处理服务器返回的已解析HTML
@@ -1270,22 +1401,6 @@
         function safeSetTextContent(element, text) {
             if (!element || !(element instanceof Element)) return;
             element.textContent = text !== null && text !== undefined ? String(text) : '';
-        }
-        
-        function startAutoRefresh() {
-          // 每30秒检查一次在线用户
-          setInterval(() => {
-            if (isConnected && currentUser) {
-              socket.emit('get-online-users');
-            }
-          }, 30000);
-          
-          // 每60秒检查一次存储状态
-          setInterval(() => {
-            if (currentUser) {
-              checkStorageStatus();
-            }
-          }, 60000);
         }
     
         // 修复4：更新用户列表函数
@@ -1336,11 +1451,13 @@
                 // 用户信息
                 const userInfo = document.createElement('span');
                 const isCurrentUser = currentUser && user.id == currentUser.id;
-                const displayName = isCurrentUser ? `${user.nickname} (我)` : user.nickname;
                 
-                userInfo.innerHTML = `${avatarHtml}${escapeHtml(displayName)}`;
+                // 修复：直接设置HTML内容，不对"(我)"进行转义
                 if (isCurrentUser) {
+                    userInfo.innerHTML = `${avatarHtml}${escapeHtml(user.nickname)} <strong>（我）</strong>`;
                     userInfo.style.fontWeight = 'bold';
+                } else {
+                    userInfo.innerHTML = `${avatarHtml}${escapeHtml(user.nickname)}`;
                 }
                 
                 li.appendChild(statusIndicator);
@@ -1360,10 +1477,17 @@
         function loadOfflineUsers() {
             if (!currentUser || !currentSessionToken) return;
             
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
             fetch(`${SERVER_URL}/offline-users`, {
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken
+                    'session-token': currentSessionToken,
+                    'encrypted-data': encryptedData
                 }
             })
             .then(response => response.json())
@@ -1472,14 +1596,28 @@
             lastUpdate: lastMessageUpdate
           });
           
+          const encryptedData = encryptData({
+            username: loginCredentials.username,
+            password: loginCredentials.password,
+            timestamp: Date.now()
+          });
+          
+          // 添加刷新动画
+          const targetContainer = isGroupChat ? groupMessageContainer : messageContainer;
+          targetContainer.classList.add('refreshing');
+          
           fetch(`${SERVER_URL}/refresh-messages?groupId=${targetGroupId || ''}&lastUpdate=${lastMessageUpdate}`, {
             headers: {
               'user-id': currentUser.id,
-              'session-token': currentSessionToken
+              'session-token': currentSessionToken,
+              'encrypted-data': encryptedData
             }
           })
           .then(response => response.json())
           .then(data => {
+            // 移除刷新动画
+            targetContainer.classList.remove('refreshing');
+            
             if (data.status === 'success') {
               console.log('✅ 刷新消息成功:', {
                 messageCount: data.messages.length,
@@ -1500,6 +1638,7 @@
           })
           .catch(error => {
             console.error('❌ 刷新消息请求失败:', error);
+            targetContainer.classList.remove('refreshing');
           });
         }
         
@@ -1602,10 +1741,17 @@
             saveNicknameBtn.addEventListener('click', () => {
                 const newNickname = nicknameInput.value.trim();
                 if (newNickname && currentUser && currentSessionToken) {
+                    const encryptedData = encryptData({
+                        username: loginCredentials.username,
+                        password: loginCredentials.password,
+                        timestamp: Date.now()
+                    });
+                    
                     socket.emit('update-nickname', {
                         userId: currentUser.id,
                         newNickname: newNickname,
-                        sessionToken: currentSessionToken
+                        sessionToken: currentSessionToken,
+                        encryptedData: encryptedData
                     });
                     hideNicknameModal();
                 }
@@ -1637,11 +1783,18 @@
                 const formData = new FormData();
                 formData.append('avatar', file);
                 
+                const encryptedData = encryptData({
+                    username: loginCredentials.username,
+                    password: loginCredentials.password,
+                    timestamp: Date.now()
+                });
+                
                 fetch(`${SERVER_URL}/upload-avatar`, {
                     method: 'POST',
                     headers: {
                         'user-id': currentUser.id,
-                        'session-token': currentSessionToken
+                        'session-token': currentSessionToken,
+                        'encrypted-data': encryptedData
                     },
                     body: formData
                 })
@@ -1696,12 +1849,19 @@
                     return;
                 }
                 
+                const encryptedData = encryptData({
+                    username: loginCredentials.username,
+                    password: loginCredentials.password,
+                    timestamp: Date.now()
+                });
+                
                 fetch(`${SERVER_URL}/create-group`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'user-id': currentUser.id,
-                        'session-token': currentSessionToken
+                        'session-token': currentSessionToken,
+                        'encrypted-data': encryptedData
                     },
                     body: JSON.stringify({
                         userId: currentUser.id,
@@ -1730,6 +1890,67 @@
                     console.error('创建群组错误:', error);
                     createGroupMessage.textContent = '创建群组失败';
                     createGroupMessage.style.color = 'red';
+                });
+            });
+            
+            // 群组管理按钮
+            groupManagementBtn.addEventListener('click', showGroupManagementModal);
+            
+            // 添加成员按钮
+            addMemberBtn.addEventListener('click', showAddMemberModal);
+            
+            // 确认添加成员
+            confirmAddMember.addEventListener('click', function() {
+                const selectedMembers = [];
+                document.querySelectorAll('#addMemberList .member-checkbox:checked').forEach(checkbox => {
+                    selectedMembers.push(checkbox.value);
+                });
+                
+                if (selectedMembers.length === 0) {
+                    addMemberMessage.textContent = '请选择要添加的成员';
+                    addMemberMessage.style.color = 'red';
+                    return;
+                }
+                
+                const encryptedData = encryptData({
+                    username: loginCredentials.username,
+                    password: loginCredentials.password,
+                    timestamp: Date.now()
+                });
+                
+                fetch(`${SERVER_URL}/add-group-members`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'user-id': currentUser.id,
+                        'session-token': currentSessionToken,
+                        'encrypted-data': encryptedData
+                    },
+                    body: JSON.stringify({
+                        groupId: currentGroupId,
+                        memberIds: selectedMembers
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        addMemberMessage.textContent = '成员添加成功';
+                        addMemberMessage.style.color = 'green';
+                        
+                        setTimeout(() => {
+                            hideAddMemberModal();
+                            hideGroupManagementModal();
+                            loadGroupMembers(currentGroupId);
+                        }, 2000);
+                    } else {
+                        addMemberMessage.textContent = data.message;
+                        addMemberMessage.style.color = 'red';
+                    }
+                })
+                .catch(error => {
+                    console.error('添加成员错误:', error);
+                    addMemberMessage.textContent = '添加成员失败';
+                    addMemberMessage.style.color = 'red';
                 });
             });
         }
@@ -1772,6 +1993,25 @@
             createGroupMessage.textContent = '';
         }
         
+        function showGroupManagementModal() {
+            groupManagementModal.style.display = 'flex';
+            loadManagementMembers();
+        }
+        
+        function hideGroupManagementModal() {
+            groupManagementModal.style.display = 'none';
+        }
+        
+        function showAddMemberModal() {
+            addMemberModal.style.display = 'flex';
+            loadAddMemberUsers();
+        }
+        
+        function hideAddMemberModal() {
+            addMemberModal.style.display = 'none';
+            addMemberMessage.textContent = '';
+        }
+        
         // 修复10：群组相关功能
         function loadUserGroups() {
             if (!currentUser || !currentSessionToken) {
@@ -1781,10 +2021,17 @@
             
             console.log('加载用户群组列表，用户ID:', currentUser.id);
             
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
             fetch(`${SERVER_URL}/user-groups/${currentUser.id}`, {
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken
+                    'session-token': currentSessionToken,
+                    'encrypted-data': encryptedData
                 }
             })
             .then(response => response.json())
@@ -1836,16 +2083,19 @@
                 // 确保数据存在
                 const groupName = group.name || '未命名群组';
                 const groupId = group.id ? String(group.id) : `temp-${index}`;
+                const creatorId = group.creator_id || null;
                 
                 li.innerHTML = `
                     <div style="display: flex; align-items: center;">
                         <span style="margin-right: 8px;">💬</span>
                         <span>${escapeHtml(groupName)}</span>
+                        ${creatorId == currentUser.id ? '<span style="margin-left: 5px; font-size: 10px; color: #07c160;">(我创建)</span>' : ''}
                     </div>
                 `;
                 
                 li.setAttribute('data-group-id', groupId);
                 li.setAttribute('data-group-name', groupName);
+                li.setAttribute('data-creator-id', creatorId);
                 
                 // 添加交互效果
                 li.addEventListener('mouseenter', function() {
@@ -1859,8 +2109,9 @@
                 li.addEventListener('click', function() {
                     const groupId = this.getAttribute('data-group-id');
                     const groupName = this.getAttribute('data-group-name');
-                    console.log('点击群组:', groupId, groupName);
-                    showGroupChat(groupId, groupName);
+                    const creatorId = this.getAttribute('data-creator-id');
+                    console.log('点击群组:', groupId, groupName, creatorId);
+                    showGroupChat(groupId, groupName, creatorId);
                 });
                 
                 groupList.appendChild(li);
@@ -1872,10 +2123,17 @@
         function loadAllUsers() {
             if (!currentUser || !currentSessionToken) return;
             
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
             fetch(`${SERVER_URL}/offline-users`, {
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken
+                    'session-token': currentSessionToken,
+                    'encrypted-data': encryptedData
                 }
             })
             .then(response => response.json())
@@ -1914,20 +2172,28 @@
             });
         }
     
-        function showGroupChat(groupId, groupName) {
+        function showGroupChat(groupId, groupName, creatorId) {
             if (!groupId || !groupName) {
                 console.error('群组ID或名称为空');
                 return;
             }
             
-            console.log('切换到群组聊天:', groupId, groupName);
+            console.log('切换到群组聊天:', groupId, groupName, creatorId);
             
             currentGroupId = groupId;
             currentGroupName = groupName;
+            currentGroupCreatorId = creatorId;
             
             mainChat.style.display = 'none';
             groupChat.style.display = 'flex';
             safeSetTextContent(groupTitle, groupName);
+            
+            // 显示群组管理按钮（只有群主可见）
+            if (creatorId == currentUser.id) {
+                groupManagementBtn.style.display = 'inline-block';
+            } else {
+                groupManagementBtn.style.display = 'none';
+            }
             
             groupMessageContainer.innerHTML = `
                 <div class="empty-state">
@@ -1938,10 +2204,17 @@
             
             // 加入群组
             if (socket && isConnected) {
+                const encryptedData = encryptData({
+                    username: loginCredentials.username,
+                    password: loginCredentials.password,
+                    timestamp: Date.now()
+                });
+                
                 socket.emit('join-group', { 
                     groupId: groupId,
                     userId: currentUser.id,
-                    sessionToken: currentSessionToken
+                    sessionToken: currentSessionToken,
+                    encryptedData: encryptedData
                 });
             }
             
@@ -1959,10 +2232,17 @@
         function loadGroupMembers(groupId) {
             if (!currentUser || !currentSessionToken) return;
             
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
             fetch(`${SERVER_URL}/group-members/${groupId}`, {
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken
+                    'session-token': currentSessionToken,
+                    'encrypted-data': encryptedData
                 }
             })
             .then(response => response.json())
@@ -2005,16 +2285,193 @@
                     li.innerHTML = `${avatarHtml}<strong>${escapeHtml(member.nickname)} (我)</strong>`;
                 } else {
                     li.innerHTML = `${avatarHtml}${escapeHtml(member.nickname)}`;
+                    if (member.id == currentGroupCreatorId) {
+                        li.innerHTML += ' <span style="font-size: 10px; color: #07c160; margin-left: 5px;">群主</span>';
+                    }
                 }
                 groupMemberList.appendChild(li);
             });
         }
-    
+        
+        function loadManagementMembers() {
+            if (!currentUser || !currentSessionToken || !currentGroupId) return;
+            
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
+            fetch(`${SERVER_URL}/group-members/${currentGroupId}`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken,
+                    'encrypted-data': encryptedData
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    updateManagementMemberList(data.members);
+                } else {
+                    console.error('加载管理成员失败:', data.message);
+                    managementMemberList.innerHTML = '<div>加载失败</div>';
+                }
+            })
+            .catch(error => {
+                console.error('加载管理成员失败:', error);
+                managementMemberList.innerHTML = '<div>加载失败</div>';
+            });
+        }
+        
+        function updateManagementMemberList(members) {
+            if (!managementMemberList) return;
+            
+            managementMemberList.innerHTML = '';
+            
+            if (!members || !Array.isArray(members) || members.length === 0) {
+                managementMemberList.innerHTML = '<div>暂无成员</div>';
+                return;
+            }
+            
+            members.forEach(member => {
+                const memberItem = document.createElement('div');
+                memberItem.className = 'member-item';
+                
+                if (member.id == currentUser.id) {
+                    memberItem.innerHTML = `
+                        <span>${escapeHtml(member.nickname)} (我) <span style="color: #07c160; font-size: 12px;">群主</span></span>
+                    `;
+                } else {
+                    memberItem.innerHTML = `
+                        <span>${escapeHtml(member.nickname)}</span>
+                        <button class="remove-member-btn" data-user-id="${member.id}" style="margin-left: auto; background: #e74c3c; color: white; border: none; border-radius: 3px; padding: 3px 8px; font-size: 12px; cursor: pointer;">移除</button>
+                    `;
+                    
+                    const removeBtn = memberItem.querySelector('.remove-member-btn');
+                    removeBtn.addEventListener('click', function() {
+                        const userId = this.getAttribute('data-user-id');
+                        removeGroupMember(userId);
+                    });
+                }
+                
+                managementMemberList.appendChild(memberItem);
+            });
+        }
+        
+        function loadAddMemberUsers() {
+            if (!currentUser || !currentSessionToken) return;
+            
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
+            fetch(`${SERVER_URL}/offline-users`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken,
+                    'encrypted-data': encryptedData
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    updateAddMemberList(data.users);
+                }
+            })
+            .catch(error => {
+                console.error('加载用户列表失败:', error);
+                addMemberList.innerHTML = '<div>加载失败</div>';
+            });
+        }
+        
+        function updateAddMemberList(users) {
+            if (!addMemberList) return;
+            
+            addMemberList.innerHTML = '';
+            
+            // 过滤掉已经在群组中的用户
+            const existingMemberIds = Array.from(document.querySelectorAll('#managementMemberList .member-item span'))
+                .map(span => {
+                    const match = span.textContent.match(/\(ID:(\d+)\)/);
+                    return match ? match[1] : null;
+                })
+                .filter(id => id !== null);
+                
+            const availableUsers = users.filter(user => 
+                user.id != currentUser.id && !existingMemberIds.includes(String(user.id))
+            );
+            
+            if (availableUsers.length === 0) {
+                addMemberList.innerHTML = '<div>暂无可用用户</div>';
+                return;
+            }
+            
+            availableUsers.forEach(user => {
+                const memberItem = document.createElement('div');
+                memberItem.className = 'member-item';
+                memberItem.innerHTML = `
+                    <input type="checkbox" class="member-checkbox" value="${user.id}" id="add-member-${user.id}">
+                    <label for="add-member-${user.id}">${escapeHtml(user.nickname)}</label>
+                `;
+                addMemberList.appendChild(memberItem);
+            });
+        }
+        
+        function removeGroupMember(userId) {
+            if (!currentUser || !currentSessionToken || !currentGroupId) return;
+            
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
+            fetch(`${SERVER_URL}/remove-group-member`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken,
+                    'encrypted-data': encryptedData
+                },
+                body: JSON.stringify({
+                    groupId: currentGroupId,
+                    userId: userId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    loadManagementMembers();
+                    loadGroupMembers(currentGroupId);
+                } else {
+                    alert('移除成员失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('移除成员错误:', error);
+                alert('移除成员失败');
+            });
+        }
+
         function backToMainChat() {
             if (currentGroupId) {
-                socket.emit('leave-group', { groupId: currentGroupId });
+                const encryptedData = encryptData({
+                    username: loginCredentials.username,
+                    password: loginCredentials.password,
+                    timestamp: Date.now()
+                });
+                
+                socket.emit('leave-group', { 
+                    groupId: currentGroupId,
+                    encryptedData: encryptedData
+                });
                 currentGroupId = null;
                 currentGroupName = '';
+                currentGroupCreatorId = null;
             }
             
             groupChat.style.display = 'none';
@@ -2071,10 +2528,18 @@
                 e.stopPropagation();
                 const messageId = this.getAttribute('data-id');
                 console.log('撤回消息:', messageId);
+                
+                const encryptedData = encryptData({
+                    username: loginCredentials.username,
+                    password: loginCredentials.password,
+                    timestamp: Date.now()
+                });
+                
                 socket.emit('delete-message', {
                   messageId: messageId,
                   userId: currentUser.id,
-                  sessionToken: currentSessionToken
+                  sessionToken: currentSessionToken,
+                  encryptedData: encryptedData
                 });
               });
             }
@@ -2175,10 +2640,17 @@
                 return;
             }
             
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
             fetch(`${SERVER_URL}/avatar-storage`, {
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken
+                    'session-token': currentSessionToken,
+                    'encrypted-data': encryptedData
                 }
             })
             .then(response => response.json())
@@ -2284,16 +2756,23 @@
                 
                 // 如果已连接，立即加入聊天室
                 if (isConnected && socket) {
+                    const encryptedData = encryptData({
+                        username: loginCredentials.username,
+                        password: loginCredentials.password,
+                        timestamp: Date.now()
+                    });
+                    
                     socket.emit('user-joined', {
                         userId: currentUser.id,
                         nickname: currentUser.nickname,
                         avatarUrl: currentUser.avatarUrl,
-                        sessionToken: currentSessionToken
+                        sessionToken: currentSessionToken,
+                        encryptedData: encryptedData
                     });
                 }
                 
             } else {
-                safeSetTextContent(currentNicknameSpan, '未登录');
+                safeSetTextContent(currentNicknameSpan, '未登录，刷新网页登录');
                 currentAvatarImg.style.display = 'none';
                 
                 changeNicknameBtn.style.display = 'none';
@@ -2314,11 +2793,13 @@
         function logout() {
             currentUser = null;
             currentSessionToken = null;
+            loginCredentials = {};
             
             localStorage.removeItem('chatUserId');
             localStorage.removeItem('chatUserNickname');
             localStorage.removeItem('chatUserAvatar');
             localStorage.removeItem('chatSessionToken');
+            localStorage.removeItem('chatLoginCredentials');
             
             updateLoginState(false);
             
@@ -2342,10 +2823,17 @@
     
             console.log('📤 发送消息:', content);
             
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
             socket.emit('send-message', {
                 userId: currentUser.id,
                 content: content,
-                sessionToken: currentSessionToken
+                sessionToken: currentSessionToken,
+                encryptedData: encryptedData
             });
     
             messageInput.value = '';
@@ -2361,11 +2849,18 @@
     
             console.log('📤 发送群组消息:', content);
             
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
             socket.emit('send-message', {
                 userId: currentUser.id,
                 content: content,
                 groupId: currentGroupId,
-                sessionToken: currentSessionToken
+                sessionToken: currentSessionToken,
+                encryptedData: encryptedData
             });
     
             groupMessageInput.value = '';
@@ -2395,11 +2890,19 @@
           // 登录后立即加入聊天室
           if (currentUser && currentSessionToken) {
             console.log('🔄 连接建立，重新加入聊天室');
+            
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
             socket.emit('user-joined', {
               userId: currentUser.id,
               nickname: currentUser.nickname,
               avatarUrl: currentUser.avatarUrl,
-              sessionToken: currentSessionToken
+              sessionToken: currentSessionToken,
+              encryptedData: encryptedData
             });
             
             // 立即请求在线用户列表
@@ -2410,7 +2913,8 @@
               socket.emit('join-group', { 
                 groupId: currentGroupId,
                 userId: currentUser.id,
-                sessionToken: currentSessionToken
+                sessionToken: currentSessionToken,
+                encryptedData: encryptedData
               });
             }
           }
@@ -2424,11 +2928,19 @@
           // 重新加入聊天室
           if (currentUser && currentSessionToken) {
             console.log('🔄 重新连接成功，重新加入聊天室');
+            
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
+            
             socket.emit('user-joined', {
               userId: currentUser.id,
               nickname: currentUser.nickname,
               avatarUrl: currentUser.avatarUrl,
-              sessionToken: currentSessionToken
+              sessionToken: currentSessionToken,
+              encryptedData: encryptedData
             });
             
             // 重新请求在线用户列表
@@ -2439,7 +2951,8 @@
               socket.emit('join-group', { 
                 groupId: currentGroupId,
                 userId: currentUser.id,
-                sessionToken: currentSessionToken
+                sessionToken: currentSessionToken,
+                encryptedData: encryptedData
               });
             }
           }
@@ -2686,10 +3199,12 @@
                 avatarUrl: data.avatarUrl
               };
               currentSessionToken = data.sessionToken;
+              loginCredentials = { username, password };
               
               localStorage.setItem('chatUserId', currentUser.id);
               localStorage.setItem('chatUserNickname', currentUser.nickname);
               localStorage.setItem('chatSessionToken', currentSessionToken);
+              localStorage.setItem('chatLoginCredentials', JSON.stringify(loginCredentials));
               if (currentUser.avatarUrl) {
                 localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
               }
@@ -2701,11 +3216,18 @@
               
               // 登录后立即加入聊天室
               if (isConnected && socket) {
+                const encryptedData = encryptData({
+                    username: loginCredentials.username,
+                    password: loginCredentials.password,
+                    timestamp: Date.now()
+                });
+                
                 socket.emit('user-joined', {
                   userId: currentUser.id,
                   nickname: currentUser.nickname,
                   avatarUrl: currentUser.avatarUrl,
-                  sessionToken: currentSessionToken
+                  sessionToken: currentSessionToken,
+                  encryptedData: encryptedData
                 });
               }
               
@@ -2753,10 +3275,12 @@
                     registerMessage.style.color = 'green';
                     registerMessage.style.display = 'block';
                     
+                    // 注册成功后弹出头像设置模态框
                     setTimeout(() => {
                         loginTab.click();
                         loginUsername.value = username;
                         loginPassword.value = '';
+                        showAvatarModal();
                     }, 1000);
                 } else {
                     registerMessage.textContent = data.message;
@@ -2789,6 +3313,12 @@
             if (isGroup && currentGroupId) {
                 formData.append('groupId', currentGroupId);
             }
+            
+            const encryptedData = encryptData({
+                username: loginCredentials.username,
+                password: loginCredentials.password,
+                timestamp: Date.now()
+            });
     
             uploadProgress.style.display = 'block';
             let progress = 0;
@@ -2802,7 +3332,8 @@
                 method: 'POST',
                 headers: {
                     'user-id': currentUser.id,
-                    'session-token': currentSessionToken
+                    'session-token': currentSessionToken,
+                    'encrypted-data': encryptedData
                 },
                 body: formData
             })
@@ -2840,18 +3371,25 @@
           const savedUserNickname = localStorage.getItem('chatUserNickname');
           const savedUserAvatar = localStorage.getItem('chatUserAvatar');
           const savedSessionToken = localStorage.getItem('chatSessionToken');
+          const savedCredentials = localStorage.getItem('chatLoginCredentials');
           
-          if (savedUserId && savedUserNickname && savedSessionToken) {
-            currentUser = {
-              id: savedUserId,
-              nickname: savedUserNickname,
-              avatarUrl: savedUserAvatar
-            };
-            currentSessionToken = savedSessionToken;
-            updateLoginState(true);
-            
-            // 立即设置最后更新时间
-            lastMessageUpdate = Date.now();
+          if (savedUserId && savedUserNickname && savedSessionToken && savedCredentials) {
+            try {
+                currentUser = {
+                  id: savedUserId,
+                  nickname: savedUserNickname,
+                  avatarUrl: savedUserAvatar
+                };
+                currentSessionToken = savedSessionToken;
+                loginCredentials = JSON.parse(savedCredentials);
+                updateLoginState(true);
+                
+                // 立即设置最后更新时间
+                lastMessageUpdate = Date.now();
+            } catch (error) {
+                console.error('恢复登录状态失败:', error);
+                updateLoginState(false);
+            }
           } else {
             updateLoginState(false);
           }
