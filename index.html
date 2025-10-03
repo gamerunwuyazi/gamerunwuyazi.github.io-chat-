@@ -5,6 +5,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=1200, initial-scale=1.0">
     <title>简易版聊天室</title>
+    <script>
+    var _hmt = _hmt || [];
+    (function() {
+      var hm = document.createElement("script");
+      hm.src = "https://hm.baidu.com/hm.js?d327b6904bcac8d8705444a35b71bcaf";
+      var s = document.getElementsByTagName("script")[0]; 
+      s.parentNode.insertBefore(hm, s);
+    })();
+    </script>
     <style>
         /* 强制禁用移动端响应式样式 */
         @media (max-width: 768px) {
@@ -628,6 +637,7 @@
             transition: all 0.3s;
             padding: 6px 12px;
             height: 36px;
+            min-width: 100px;
         }
         
         .upload-container:hover {
@@ -646,6 +656,8 @@
             width: 100%;
             height: 100%;
             justify-content: center;
+            padding: 0;
+            margin: 0;
         }
         
         .upload-text {
@@ -1638,10 +1650,15 @@
                 statusIndicator.innerHTML = '●';
                 statusIndicator.className = 'status-indicator online';
                 
-                // 用户头像
-                const avatarHtml = user.avatarUrl ? 
-                    `<img src="${SERVER_URL}${user.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">` : 
-                    '';
+                // 用户头像 - 添加avatar_url兼容性处理和默认头像
+                const avatarUrl = user.avatarUrl || user.avatar_url || null;
+                let avatarHtml = '';
+                if (avatarUrl) {
+                    avatarHtml = `<img src="${SERVER_URL}${avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">`;
+                } else {
+                    // 使用默认头像图标
+                    avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px;">${user.nickname.charAt(0).toUpperCase()}</span>`;
+                }
                 
                 // 用户信息
                 const userInfo = document.createElement('span');
@@ -1659,7 +1676,7 @@
                 userList.appendChild(li);
             });
             
-            console.log('✅ 用户列表更新完成，显示', users.length, '个用户');
+            // 用户列表更新完成
             
             // 加载离线用户列表
             if (currentUser) {
@@ -1714,11 +1731,22 @@
                 const statusIndicator = document.createElement('span');
                 statusIndicator.innerHTML = '●';
                 statusIndicator.className = 'status-indicator offline';
+                statusIndicator.style.marginRight = '8px';
                 
-                // 用户头像
-                const avatarHtml = user.avatarUrl ? 
-                    `<img src="${SERVER_URL}${user.avatarUrl}" class="user-avatar" style="width: 24px; height: 24px; margin-right: 8px; border-radius: 50%;">` : 
-                    '';
+                // 用户头像 - 增强兼容性处理和默认头像逻辑
+                let avatarHtml = '';
+                // 检查多种可能的头像URL字段名和值
+                const avatarUrl = user.avatarUrl || user.avatar_url || null;
+                
+                // 增强的头像URL检查逻辑
+                if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
+                    // 确保URL格式正确，避免使用undefined或空字符串
+                    const fullAvatarUrl = `${SERVER_URL}${avatarUrl.trim()}`;
+                    avatarHtml = `<img src="${fullAvatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">`;
+                } else {
+                    // 使用默认头像图标
+                    avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px;">${user.nickname.charAt(0).toUpperCase()}</span>`;
+                }
                 
                 // 用户信息
                 const userInfo = document.createElement('span');
@@ -1783,7 +1811,7 @@
             }
           }, 30000); // 30秒
           
-          console.log('✅ 启动自动刷新，间隔30秒');
+          // 启动自动刷新，间隔30秒
         }
         
         function refreshMessages() {
@@ -1810,11 +1838,7 @@
           .then(response => response.json())
           .then(data => {
             if (data.status === 'success') {
-              console.log('✅ 刷新消息成功:', {
-                messageCount: data.messages.length,
-                hasNewMessages: data.hasNewMessages,
-                lastUpdate: data.lastUpdate
-              });
+              // 刷新消息成功
               
               // 更新最后更新时间
               lastMessageUpdate = data.lastUpdate;
@@ -2119,7 +2143,7 @@
                 })
                 .then(response => response.json())
                 .then(data => {
-                    if (data.success) {
+                    if (data.status === 'success') {
                         addMembersMessage.textContent = '成员添加成功';
                         addMembersMessage.style.color = 'green';
                         loadGroupMembers(currentGroupId);
@@ -2177,8 +2201,8 @@
                         const memberItem = document.createElement('div');
                         memberItem.className = 'manage-member-item';
                         
-                        const avatarHtml = member.avatarUrl ? 
-                            `<img src="${SERVER_URL}${member.avatarUrl}" class="user-avatar" style="width: 24px; height: 24px; margin-right: 8px; border-radius: 50%;">` : 
+                        const avatarHtml = member.avatar_url ? 
+                            `<img src="${SERVER_URL}${member.avatar_url}" class="user-avatar" style="width: 24px; height: 24px; margin-right: 8px; border-radius: 50%;">` : 
                             '';
                         
                         // 在线状态指示器
@@ -2364,6 +2388,7 @@
                         memberItem.innerHTML = `
                             <input type="checkbox" class="available-member-checkbox" value="${member.id}" id="available-member-${member.id}">
                             <label for="available-member-${member.id}">
+                                ${member.avatarUrl ? `<img src="${SERVER_URL}${member.avatarUrl}" alt="头像" style="width: 16px; height: 16px; border-radius: 50%; margin-right: 8px;">` : ''}
                                 <span>${escapeHtml(member.nickname)}</span>
                             </label>
                         `;
@@ -2648,10 +2673,16 @@
                 li.style.alignItems = 'center';
                 li.style.justifyContent = 'space-between';
                 
-                // 修复头像显示逻辑
-                const avatarHtml = member.avatarUrl ? 
-                    `<img src="${member.avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">` : 
-                    '<img src="https://via.placeholder.com/30" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">';
+                // 修复头像显示逻辑：头像在状态指示点后面，使用SERVER_URL + 数据库头像链接
+                // 添加avatar_url兼容性处理和默认头像
+                const avatarUrl = member.avatarUrl || member.avatar_url || null;
+                let avatarHtml = '';
+                if (avatarUrl) {
+                    avatarHtml = `<img src="${SERVER_URL}${avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">`;
+                } else {
+                    // 使用默认头像图标
+                    avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px;">${member.nickname.charAt(0).toUpperCase()}</span>`;
+                }
                 
                 const memberInfo = document.createElement('div');
                 memberInfo.style.display = 'flex';
@@ -2663,9 +2694,9 @@
                     '<span class="offline-indicator" style="display: inline-block; width: 8px; height: 8px; background-color: #95a5a6; border-radius: 50%; margin-right: 5px;"></span>';
                 
                 if (String(member.id) === currentUser.id) {
-                    memberInfo.innerHTML = `${avatarHtml}${onlineStatus}<strong>${escapeHtml(member.nickname)} (我)</strong>`;
+                    memberInfo.innerHTML = `${onlineStatus}${avatarHtml}<strong>${escapeHtml(member.nickname)} (我)</strong>`;
                 } else {
-                    memberInfo.innerHTML = `${avatarHtml}${onlineStatus}${escapeHtml(member.nickname)}`;
+                    memberInfo.innerHTML = `${onlineStatus}${avatarHtml}${escapeHtml(member.nickname)}`;
                 }
                 
                 li.appendChild(memberInfo);
@@ -3105,7 +3136,7 @@
         });
     
         socket.on('connect', () => {
-          console.log('✅ 已成功连接到服务器');
+          // 已成功连接到服务器
           isConnected = true;
           updateConnectionStatus('connected', '已连接');
           checkStorageStatus();
@@ -3170,17 +3201,14 @@
         });
     
         socket.on('users-updated', (users) => {
-          console.log('📨 收到用户列表更新事件:', users);
           updateUserList(users);
         });
     
         socket.on('online-users', (users) => {
-          console.log('📨 收到在线用户列表:', users);
           updateUserList(users);
         });
     
         socket.on('message-received', (message) => {
-          console.log('💬 收到新消息:', message);
           const isOwn = currentUser && message.userId == currentUser.id;
           
           // 判断消息类型并显示
@@ -3194,8 +3222,6 @@
         });
     
         socket.on('message-deleted', (data) => {
-          console.log('🗑️ 消息被删除:', data);
-          
           const messageElement = document.querySelector(`.message[data-message-id="${data.messageId}"]`);
           if (messageElement) {
             messageElement.remove();
@@ -3209,11 +3235,6 @@
         });
     
         socket.on('chat-history', (data) => {
-          console.log('📨 收到聊天历史:', {
-            messageCount: data.messages ? data.messages.length : 0,
-            lastUpdate: data.lastUpdate
-          });
-          
           // 更新最后更新时间
           if (data.lastUpdate) {
             lastMessageUpdate = data.lastUpdate;
@@ -3253,39 +3274,34 @@
         });
         
         // 接收群组解散的通知
-        socket.on('group-dissolved', (data) => {
-          const { groupId } = data;
-          if (currentGroupId && parseInt(currentGroupId) === parseInt(groupId)) {
-            // 清空消息容器
-            const messageContainer = document.getElementById('groupMessageContainer');
-            if (messageContainer) {
-              messageContainer.innerHTML = '<div class="message notification">💥 群组已被解散</div>';
-            }
-            
-            // 禁用聊天输入
-            const groupInputArea = document.querySelector('.group-input-area');
-            if (groupInputArea) {
-              groupInputArea.style.opacity = '0.5';
-              groupInputArea.style.pointerEvents = 'none';
-            }
-            
-            // 禁用管理按钮
-            const manageGroupBtn = document.getElementById('manageGroupBtn');
-            if (manageGroupBtn) {
-              manageGroupBtn.style.display = 'none';
-            }
-            
-            alert('群组已被解散');
-            // 可以选择跳转到群列表页面
-          }
-        });
+            socket.on('group-dissolved', (data) => {
+              const { groupId } = data;
+              if (currentGroupId && parseInt(currentGroupId) === parseInt(groupId)) {
+                // 清空消息容器
+                const messageContainer = document.getElementById('groupMessageContainer');
+                if (messageContainer) {
+                  messageContainer.innerHTML = '<div class="message notification">💥 群组已被解散</div>';
+                }
+                
+                // 禁用聊天输入
+                const groupInputArea = document.querySelector('.group-input-area');
+                if (groupInputArea) {
+                  groupInputArea.style.opacity = '0.5';
+                  groupInputArea.style.pointerEvents = 'none';
+                }
+                
+                // 禁用管理按钮
+                const manageGroupBtn = document.getElementById('manageGroupBtn');
+                if (manageGroupBtn) {
+                  manageGroupBtn.style.display = 'none';
+                }
+                
+                // 可以选择跳转到群列表页面
+              }
+            });
     
         socket.on('group-chat-history', (data) => {
-          console.log('📨 收到群组聊天历史:', {
-            groupId: data.groupId,
-            messageCount: data.messages ? data.messages.length : 0,
-            lastUpdate: data.lastUpdate
-          });
+          // 收到群组聊天历史
           
           // 更新最后更新时间
           if (data.lastUpdate) {
@@ -3313,7 +3329,7 @@
         });
     
         socket.on('nickname-updated', (data) => {
-          console.log('📨 收到昵称更新:', data);
+          // 收到昵称更新
           if (data.userId == currentUser?.id) {
             currentUser.nickname = data.newNickname;
             safeSetTextContent(currentNicknameSpan, data.newNickname);
@@ -3467,6 +3483,7 @@
               
               localStorage.setItem('chatUserId', currentUser.id);
               localStorage.setItem('chatUserNickname', currentUser.nickname);
+              localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
               localStorage.setItem('chatSessionToken', currentSessionToken);
               if (currentUser.avatarUrl) {
                 localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
@@ -3645,7 +3662,7 @@
           updateConnectionStatus('connecting', '连接中...');
           checkStorageStatus();
           
-          console.log('✅ 应用初始化完成');
+          // 应用初始化完成
         }
     
         // 修复21：全局函数和启动
@@ -3734,16 +3751,16 @@
             })
             .then(response => response.json())
             .then(data => {
-                if (data.success) {
-                    alert('群组已成功解散，所有群消息已删除');
-                    // 返回主聊天界面
-                    backToMainChat();
-                    // 刷新群组列表
-                    loadUserGroups();
-                } else {
-                    alert(data.message || '解散群组失败');
-                }
-            })
+                    if (data.status === 'success') {
+                        alert('群组已成功解散，所有群消息已删除');
+                        // 返回主聊天界面
+                        backToMainChat();
+                        // 刷新群组列表
+                        loadUserGroups();
+                    } else {
+                        alert(data.message || '解散群组失败');
+                    }
+                })
             .catch(error => {
                 console.error('解散群组失败:', error);
                 alert('解散群组失败，请重试');
