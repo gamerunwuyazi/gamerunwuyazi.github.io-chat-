@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -2031,6 +2030,12 @@
                         currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
                         currentAvatarImg.style.display = 'inline';
                         
+                        // 隐藏默认头像
+                        const defaultAvatar = document.getElementById('defaultAvatar');
+                        if (defaultAvatar) {
+                            defaultAvatar.style.display = 'none';
+                        }
+                        
                         localStorage.setItem('chatUserAvatar', data.avatarUrl);
                         avatarMessage.textContent = '头像上传成功';
                         avatarMessage.style.color = 'green';
@@ -3015,6 +3020,30 @@
                 if (currentUser.avatarUrl) {
                     currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl}`;
                     currentAvatarImg.style.display = 'inline';
+                } else {
+                    // 显示默认头像 - 使用用户昵称的第一个字符
+                    currentAvatarImg.style.display = 'none';
+                    // 创建默认头像元素（如果不存在）
+                    let defaultAvatar = document.getElementById('defaultAvatar');
+                    if (!defaultAvatar) {
+                        defaultAvatar = document.createElement('div');
+                        defaultAvatar.id = 'defaultAvatar';
+                        defaultAvatar.className = 'default-avatar';
+                        defaultAvatar.style.display = 'inline-block';
+                        defaultAvatar.style.width = '40px';
+                        defaultAvatar.style.height = '40px';
+                        defaultAvatar.style.lineHeight = '40px';
+                        defaultAvatar.style.textAlign = 'center';
+                        defaultAvatar.style.backgroundColor = '#ecf0f1';
+                        defaultAvatar.style.borderRadius = '50%';
+                        defaultAvatar.style.marginRight = '10px';
+                        defaultAvatar.style.fontSize = '16px';
+                        defaultAvatar.style.color = '#333';
+                        currentAvatarImg.parentNode.insertBefore(defaultAvatar, currentAvatarImg);
+                    }
+                    // 设置默认头像文本为昵称第一个字符
+                    defaultAvatar.textContent = currentUser.nickname.charAt(0).toUpperCase();
+                    defaultAvatar.style.display = 'inline-block';
                 }
                 
                 changeNicknameBtn.style.display = 'inline-block';
