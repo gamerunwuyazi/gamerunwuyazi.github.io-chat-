@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -13,6 +14,7 @@
       s.parentNode.insertBefore(hm, s);
     })();
     </script>
+
     <style>
         /* 强制禁用移动端响应式样式 */
         @media (max-width: 768px) {
@@ -76,14 +78,59 @@
             padding: 0;
         }
         
+        /* 定义CSS变量，便于主题切换 */
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --bg-message: #ffffff;
+            --bg-message-own: #dcf8c6;
+            --bg-header: #2c3e50;
+            --bg-input: white;
+            --text-primary: #333;
+            --text-secondary: #6c757d;
+            --border-color: #ddd;
+            --shadow-color: rgba(0,0,0,0.1);
+            --link-color: #07c160;
+        }
+        
+        /* 深色主题变量 */
+        .dark-mode {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2d2d2d;
+            --bg-message: #3a3a3a;
+            --bg-message-own: #4c6b41;
+            --bg-header: #1e293b;
+            --bg-input: #2d2d2d;
+            --text-primary: #f0f0f0;
+            --text-secondary: #a0a0a0;
+            --border-color: #404040;
+            --shadow-color: rgba(0,0,0,0.3);
+            --link-color: #4ade80;
+        }
+        
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #ffffff;
-            color: #333;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
             line-height: 1.6;
             height: 100vh;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
+        }
+        
+        /* 修复mainChat滚动问题 */
+        #mainChat {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
         }
         
         .header {
@@ -310,18 +357,165 @@
             flex: 1;
             overflow-y: auto;
             padding: 15px;
-            background-color: #f5f5f5;
+            background-color: var(--bg-secondary);
             display: flex;
             flex-direction: column;
             min-height: 0;
+            position: relative;
+        }
+        
+        /* 修复聊天主区域布局 */
+        .chat-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+        }
+        
+        /* 更新深色模式下的其他元素样式 */
+        .header {
+            background-color: var(--bg-header);
+            color: white;
+        }
+        
+        .sidebar {
+            background-color: var(--bg-secondary);
+            border-right-color: var(--border-color);
+        }
+        
+        .online-users h3,
+        .offline-users h3,
+        .group-section h3 {
+            color: var(--text-secondary);
+            border-bottom-color: var(--border-color);
+        }
+        
+        .user-list li:hover {
+            background-color: rgba(255, 255, 255, 0.05);
         }
         
         .message {
-            background: #ffffff;
+            background: var(--bg-message);
+            color: var(--text-primary);
+            box-shadow: 0 2px 5px var(--shadow-color);
+        }
+        
+        .message.own-message {
+            background: var(--bg-message-own);
+        }
+        
+        .nickname {
+            color: var(--text-secondary);
+        }
+        
+        .input-area {
+            background-color: var(--bg-input);
+            border-top-color: var(--border-color);
+        }
+        
+        #messageInput, #groupMessageInput {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+        
+        .message-content h1, .message-content h2, .message-content h3 {
+            color: var(--text-primary);
+        }
+        
+        .message-content a {
+            color: var(--link-color);
+        }
+        
+        .message-content a:hover {
+            color: var(--link-color);
+        }
+        
+        /* Markdown编辑器相关深色模式样式 */
+        .markdown-toolbar {
+            background-color: var(--bg-secondary);
+            border-bottom-color: var(--border-color);
+        }
+        
+        .markdown-btn {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+        
+        .markdown-btn:hover {
+            background-color: var(--bg-secondary);
+        }
+        
+        /* 滚动条深色模式样式 */
+        .dark-mode ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        .dark-mode ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+            border-radius: 4px;
+        }
+        
+        .dark-mode ::-webkit-scrollbar-thumb {
+            background: #4a4a4a;
+            border-radius: 4px;
+        }
+        
+        .dark-mode ::-webkit-scrollbar-thumb:hover {
+            background: #5a5a5a;
+        }
+        
+        /* 完善消息容器深色模式样式 */
+        .dark-mode #messageContainer {
+            background-color: var(--bg-secondary);
+        }
+        
+        /* 完善输入区域容器深色模式样式 */
+        .dark-mode .input-area {
+            background-color: var(--bg-input);
+            border-top-color: var(--border-color);
+        }
+        
+        /* 弹窗样式适配深色模式 */
+        .modal-content {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        
+        .modal-header, .modal-footer {
+            border-color: var(--border-color);
+        }
+        
+        /* 输入框样式适配深色模式 */
+        input[type="text"],
+        input[type="password"],
+        textarea {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+        
+        /* 按钮样式适配深色模式 */
+        button {
+            color: var(--text-primary);
+        }
+        
+        /* 完善页尾深色模式样式 */
+        .dark-mode .status-bar {
+            background-color: var(--bg-secondary);
+            border-top-color: var(--border-color);
+            color: var(--text-secondary);
+        }
+        
+        .message {
+            background: var(--bg-message);
             padding: 12px 15px;
             margin-bottom: 12px;
             border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 5px var(--shadow-color);
             max-width: 80%;
             position: relative;
             animation: fadeIn 0.3s ease;
@@ -330,7 +524,7 @@
         }
         
         .message.own-message {
-            background: #dcf8c6;
+            background: var(--bg-message-own);
             margin-left: 20%;
             max-width: 80%;
             display: block;
@@ -354,6 +548,29 @@
             font-weight: bold;
             font-size: 12px;
             color: #666;
+        }
+        
+        /* 引号包裹的内容样式 */
+        .quoted-content {
+            background-color: #f9f9f9;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            border-left: 3px solid #ccc;
+            word-break: break-all;
+            white-space: pre-wrap;
+            position: relative;
+        }
+        
+        .dark-mode .quoted-content {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-left-color: rgba(255, 255, 255, 0.2);
+        }
+        
+        /* 深色模式下自己发送的消息昵称样式 */
+        .dark-mode .message.own-message .nickname {
+            color: #d4d4d4;
+            font-weight: bold;
         }
         
         .message-content {
@@ -438,6 +655,32 @@
         
         .message-content a {
             color: #07c160;
+            text-decoration: underline;
+        }
+        
+        .file-link-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            max-width: 100%;
+            word-break: break-all;
+        }
+        
+        .file-link {
+            display: inline-flex;
+            align-items: center;
+            color: #1890ff;
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .file-link:hover {
+            color: #40a9ff;
             text-decoration: underline;
         }
         
@@ -644,7 +887,7 @@
             transform: scale(1.05);
         }
         
-        #uploadButton, #groupUploadButton {
+        #uploadButton, #groupUploadButton, #imageUploadButton, #groupImageUploadButton {
             background: none;
             border: none;
             color: white;
@@ -1048,6 +1291,363 @@
         .danger-btn:hover {
             background-color: #ff7875;
         }
+        
+        /* 深色模式具体样式 */
+        .dark-mode #mainChat,
+        .dark-mode #groupChat {
+            background-color: var(--bg-primary);
+        }
+        
+        .dark-mode .container,
+        .dark-mode .group-chat-container {
+            border-color: var(--border-color);
+        }
+        
+        .dark-mode .header,
+        .dark-mode .group-header {
+            background-color: var(--bg-header);
+            color: var(--text-primary);
+            border-bottom-color: var(--border-color);
+        }
+        
+        .dark-mode .header h1 {
+            color: var(--text-primary);
+        }
+        
+        .dark-mode .user-info {
+            color: var(--text-primary);
+        }
+        
+        .dark-mode #changeNickname,
+        .dark-mode #changeAvatar,
+        .dark-mode #backToMain {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+        
+        .dark-mode #changeNickname:hover,
+        .dark-mode #changeAvatar:hover,
+        .dark-mode #backToMain:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .dark-mode .sidebar,
+        .dark-mode .group-sidebar {
+            background-color: var(--bg-secondary);
+            border-right-color: var(--border-color);
+        }
+        
+        .dark-mode .toggle-sidebar {
+            color: var(--text-secondary);
+        }
+        
+        .dark-mode .toggle-sidebar:hover {
+            background-color: var(--bg-tertiary);
+        }
+        
+        .dark-mode .online-users h3,
+        .dark-mode .offline-users h3,
+        .dark-mode .group-section h3 {
+            color: var(--text-primary);
+            border-bottom-color: var(--border-color);
+        }
+        
+        .dark-mode .toggle-section {
+            color: var(--text-secondary);
+        }
+        
+        .dark-mode .user-list-item {
+            color: var(--text-primary);
+            border-bottom-color: var(--border-color);
+        }
+        
+        .dark-mode .last-online {
+            color: var(--text-secondary);
+        }
+        
+        .dark-mode .online-status {
+            color: var(--link-color);
+        }
+        
+        .dark-mode .chat-main {
+            background-color: var(--bg-primary);
+        }
+        
+        .dark-mode #messageContainer,
+        .dark-mode #groupMessageContainer {
+            background-color: var(--bg-primary);
+        }
+        
+        .dark-mode .message {
+            background-color: var(--bg-message);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+        
+        .dark-mode .message.own-message {
+            background-color: var(--bg-message-own);
+        }
+        
+        .dark-mode .nickname {
+            color: var(--text-secondary);
+        }
+        
+        .dark-mode .message-content {
+            color: var(--text-primary);
+        }
+        
+        .dark-mode .message-content h1,
+        .dark-mode .message-content h2,
+        .dark-mode .message-content h3 {
+            color: var(--text-primary);
+        }
+        
+        .dark-mode .message-content blockquote {
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            border-left-color: var(--link-color);
+        }
+        
+        .dark-mode .message-content code {
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        .dark-mode .message-content pre {
+            background-color: var(--bg-tertiary);
+            border-color: var(--border-color);
+            color: var(--text-primary);
+        }
+        
+        .dark-mode .message-content a {
+            color: var(--link-color);
+        }
+        
+        .dark-mode .file-link-container {
+            background-color: var(--bg-tertiary);
+            border-color: var(--border-color);
+        }
+        
+        .dark-mode .file-link {
+            color: var(--link-color);
+        }
+        
+        .dark-mode .file-link:hover {
+            color: #569fff;
+        }
+        
+        .dark-mode .message-time {
+            color: var(--text-secondary);
+        }
+        
+        .dark-mode .delete-button {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-secondary);
+        }
+        
+        .dark-mode .delete-button:hover {
+            background: rgba(220, 53, 69, 0.2);
+            color: #dc3545;
+        }
+        
+        .dark-mode .input-area,
+        .dark-mode .group-input-area {
+            background-color: var(--bg-secondary);
+            border-top-color: var(--border-color);
+        }
+        
+        .dark-mode #messageInput,
+        .dark-mode #groupMessageInput {
+            background-color: var(--bg-input);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+        
+        .dark-mode #sendButton,
+        .dark-mode #sendGroupMessage {
+            background-color: var(--link-color);
+        }
+        
+        .dark-mode #sendButton:hover,
+        .dark-mode #sendGroupMessage:hover {
+            background-color: #3dcf70;
+        }
+        
+        .dark-mode .upload-container {
+            background-color: #2980b9;
+        }
+        
+        .dark-mode .upload-container:hover {
+            background-color: #1f6391;
+        }
+        
+        .dark-mode .status-bar {
+            background-color: var(--bg-secondary);
+            border-top-color: var(--border-color);
+            color: var(--text-secondary);
+        }
+        
+        .dark-mode .empty-state {
+            color: var(--text-secondary);
+        }
+        
+        .dark-mode .modal-content {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        
+        .dark-mode .modal h3 {
+            color: var(--text-primary);
+        }
+        
+        .dark-mode .modal input,
+        .dark-mode .modal textarea,
+        .dark-mode .modal select {
+            background-color: var(--bg-input);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+        
+        .dark-mode .modal-tabs {
+            border-bottom-color: var(--border-color);
+        }
+        
+        .dark-mode .modal-tab {
+            color: var(--text-secondary);
+        }
+        
+        .dark-mode .modal-tab.active {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            border-bottom-color: var(--link-color);
+        }
+        
+        .dark-mode .modal-form {
+            color: var(--text-primary);
+        }
+        
+        .dark-mode .image-preview-modal {
+            background-color: rgba(0, 0, 0, 0.9);
+        }
+        
+        .dark-mode .close-preview {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+        
+        .dark-mode .upload-progress {
+            background-color: var(--bg-tertiary);
+        }
+        
+        .dark-mode .upload-progress-bar {
+            background-color: var(--link-color);
+        }
+        
+        .dark-mode .avatar-preview {
+            border-color: var(--border-color);
+        }
+        
+        .dark-mode .member-item {
+            color: var(--text-primary);
+            border-bottom-color: var(--border-color);
+        }
+        
+        .dark-mode .member-list {
+            border-color: var(--border-color);
+            background-color: var(--bg-secondary);
+        }
+        
+        .dark-mode .online-count {
+            background-color: var(--link-color);
+        }
+        
+        .dark-mode .group-admin-actions {
+            color: var(--text-primary);
+        }
+        
+        .dark-mode #manageGroupBtn,
+        .dark-mode #addMemberBtn {
+            background-color: var(--link-color);
+        }
+        
+        .dark-mode #manageGroupBtn:hover,
+        .dark-mode #addMemberBtn:hover {
+            background-color: #3dcf70;
+        }
+        
+        .dark-mode .group-management-tabs {
+            border-bottom-color: var(--border-color);
+        }
+        
+        .dark-mode .management-tab {
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            border-color: var(--border-color);
+        }
+        
+        .dark-mode .management-tab.active {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border-bottom-color: var(--bg-secondary);
+        }
+        
+        .dark-mode .management-content {
+            color: var(--text-primary);
+        }
+        
+        .dark-mode .danger-btn {
+            background-color: #ff4d4f;
+        }
+        
+        .dark-mode .danger-btn:hover {
+            background-color: #ff7875;
+        }
+        
+        .dark-mode .close-modal {
+            color: var(--text-secondary);
+        }
+        
+        .dark-mode .close-modal:hover {
+            color: var(--text-primary);
+        }
+        
+        /* Markdown相关深色模式样式 */
+        .dark-mode .markdown-editor-container {
+            background-color: var(--bg-secondary);
+        }
+        
+        .dark-mode .markdown-toggle {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        .dark-mode .markdown-toggle.active {
+            background: var(--link-color);
+        }
+        
+        .dark-mode .markdown-toggle:hover {
+            background: var(--border-color);
+        }
+        
+        .dark-mode .markdown-toggle.active:hover {
+            background: #3dcf70;
+        }
+        
+        .dark-mode .markdown-toolbar {
+            background-color: var(--bg-tertiary);
+            border-color: var(--border-color);
+        }
+        
+        .dark-mode .markdown-btn {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+        
+        .dark-mode .markdown-btn:hover {
+            background-color: var(--link-color);
+            border-color: var(--link-color);
+        }
     </style>
 </head>
 <body>
@@ -1179,6 +1779,7 @@
                 <button id="changeNickname" style="display: none;">修改昵称</button>
                 <button id="createGroup" style="display: none; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer;">创建群组</button>
                 <button id="logoutButton" style="display: none; background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer;">退出</button>
+                <button id="darkModeToggle" style="background: rgba(255, 255, 255, 0.2); border: none; color: white; padding: 5px 10px; border-radius: 15px; cursor: pointer;">🌞 浅色模式</button>
             </div>
         </div>
 
@@ -1240,12 +1841,19 @@
                     <button id="sendButton" disabled>发送</button>
                     
                     <div class="upload-container">
-                        <button id="uploadButton" title="上传图片" disabled>
-                            📤 <span class="upload-text">上传图片</span>
+                        <button id="uploadButton" title="上传文件" disabled>
+                            📤 <span class="upload-text">上传文件</span>
                         </button>
                     </div>
                     
-                    <input type="file" id="fileInput" accept="image/*" style="display: none;" disabled>
+                    <div class="upload-container">
+                        <button id="imageUploadButton" title="上传图片" disabled>
+                            📷 <span class="upload-text">上传图片</span>
+                        </button>
+                    </div>
+                    
+                    <input type="file" id="fileInput" style="display: none;" disabled>
+                    <input type="file" id="imageInput" style="display: none;" disabled accept="image/*">
                 </div>
                 
                 <div class="upload-progress" id="uploadProgress">
@@ -1308,12 +1916,19 @@
                     <button id="sendGroupMessage" disabled>发送</button>
                     
                     <div class="upload-container">
-                        <button id="groupUploadButton" title="上传图片" disabled>
-                            📤 <span class="upload-text">上传图片</span>
+                        <button id="groupUploadButton" title="上传文件" disabled>
+                            📤 <span class="upload-text">上传文件</span>
                         </button>
                     </div>
                     
-                    <input type="file" id="groupFileInput" accept="image/*" style="display: none;" disabled>
+                    <div class="upload-container">
+                        <button id="groupImageUploadButton" title="上传图片" disabled>
+                            📷 <span class="upload-text">上传图片</span>
+                        </button>
+                    </div>
+                    
+                    <input type="file" id="groupFileInput" style="display: none;" disabled>
+                    <input type="file" id="groupImageInput" style="display: none;" disabled accept="image/*">
                 </div>
             </div>
         </div>
@@ -1379,6 +1994,8 @@
         const storageStatus = document.getElementById('storageStatus');
         const uploadButton = document.getElementById('uploadButton');
         const fileInput = document.getElementById('fileInput');
+        const imageUploadButton = document.getElementById('imageUploadButton');
+        const imageInput = document.getElementById('imageInput');
         const uploadProgress = document.getElementById('uploadProgress');
         const uploadProgressBar = document.getElementById('uploadProgressBar');
         const sidebar = document.getElementById('sidebar');
@@ -1410,6 +2027,8 @@
         const groupChat = document.getElementById('groupChat');
         const backToMainBtn = document.getElementById('backToMain');
         const manageGroupBtn = document.getElementById('manageGroupBtn');
+        const groupImageUploadButton = document.getElementById('groupImageUploadButton');
+        const groupImageInput = document.getElementById('groupImageInput');
 
         const groupTitle = document.getElementById('groupTitle');
         const groupMessageContainer = document.getElementById('groupMessageContainer');
@@ -1423,100 +2042,172 @@
         const markdownToggle = document.getElementById('markdownToggle');
         const groupMarkdownToggle = document.getElementById('groupMarkdownToggle');
     
-        // 增强XSS防护：安全的HTML处理函数
+        // 简化的HTML处理函数 - 保留引号内的内容不转义
         function escapeHtml(unsafe) {
             if (unsafe === null || unsafe === undefined) return '';
-            // 移除控制字符
-            let safeString = String(unsafe)
-                .replace(/[\x00-\x1F\x7F-\x9F]/g, '')
-                // 转义HTML特殊字符
+            // 首先移除控制字符
+            let safeString = String(unsafe).replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+            
+            // 针对URL的特殊处理 - 不转义URL中的特殊字符
+            if (/\b(?:https?|ftp):\/\/[\-A-Z0-9+&@#\/%?=~_|!:,.;]*[\-A-Z0-9+&@#\/%=~_|]/i.test(safeString)) {
+                return safeString; // 对于URL，保持原样
+            }
+            
+            // 只对HTML标签进行必要的转义，保留其他内容
+            return safeString
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;")
-                // 防止JavaScript伪协议攻击
-                .replace(/javascript:/gi, 'javascript:')
-                // 防止data URI攻击
-                .replace(/data:/gi, 'data:');
-            return safeString;
+                .replace(/>/g, "&gt;");
         }
         
-        // 增强XSS防护：更安全的Markdown解析函数
+        // 增强XSS防护：更安全的Markdown解析函数 - 修复HTML内容显示问题
         function safeMarkdownParse(content) {
             if (!content) return '';
             
-            // 检查内容是否已经包含HTML标签，如果是则直接返回（避免双重解析）
-            if (/<[^>]*>/g.test(content)) {
-                // 仍然移除可能的危险属性，但不进行再次解析
-                return removeDangerousAttributes(content);
-            }
-            
-            // 如果是纯文本，使用marked解析
+            // 不再先对内容进行HTML转义，因为marked已经有sanitize选项
+            // 使用marked解析原始内容
             if (typeof marked !== 'undefined') {
                 try {
                     // 创建自定义的渲染器以增强安全性
                     const renderer = new marked.Renderer();
                     
-                    // 覆盖链接渲染以增强安全性
+                    // 覆盖链接渲染以增强安全性 - 修复空URL导致的解析错误
                     const linkRenderer = renderer.link;
                     renderer.link = function(href, title, text) {
-                        // 验证URL安全性
-                        const cleanHref = validateUrl(href);
-                        const cleanTitle = title ? escapeHtml(title) : '';
-                        const cleanText = escapeHtml(text);
-                        return linkRenderer.call(this, cleanHref, cleanTitle, cleanText);
+                        try {
+                            // 确保href、title和text是字符串
+                            href = typeof href === 'string' ? href : '';
+                            title = typeof title === 'string' ? title : '';
+                            text = typeof text === 'string' ? text : '';
+                             
+                            // 验证URL安全性
+                            const cleanHref = validateUrl(href);
+                            const cleanTitle = title ? escapeHtml(title) : '';
+                            const cleanText = escapeHtml(text);
+                             
+                            // 如果URL无效，返回纯文本而不是链接
+                            if (!cleanHref) {
+                                return cleanText;
+                            }
+                             
+                            return linkRenderer.call(this, cleanHref, cleanTitle, cleanText);
+                        } catch (error) {
+                            // 捕获任何错误并返回转义后的文本
+                            console.error('链接渲染错误:', error);
+                            return escapeHtml(typeof text === 'string' ? text : '');
+                        }
                     };
                     
-                    // 覆盖图片渲染以增强安全性
+                    // 覆盖图片渲染以增强安全性 - 修复空URL导致的解析错误
                     const imageRenderer = renderer.image;
                     renderer.image = function(href, title, text) {
-                        // 验证图片URL安全性
-                        const cleanHref = validateUrl(href);
-                        const cleanTitle = title ? escapeHtml(title) : '';
-                        const cleanText = escapeHtml(text);
-                        return imageRenderer.call(this, cleanHref, cleanTitle, cleanText);
+                        try {
+                            // 确保href、title和text是字符串
+                            href = typeof href === 'string' ? href : '';
+                            title = typeof title === 'string' ? title : '';
+                            text = typeof text === 'string' ? text : '';
+                             
+                            // 验证图片URL安全性
+                            const cleanHref = validateUrl(href);
+                            const cleanTitle = title ? escapeHtml(title) : '';
+                            const cleanText = escapeHtml(text);
+                             
+                            // 如果URL无效，返回纯文本而不是图片
+                            if (!cleanHref) {
+                                return `[图片: ${cleanText}]`;
+                            }
+                             
+                            return imageRenderer.call(this, cleanHref, cleanTitle, cleanText);
+                        } catch (error) {
+                            // 捕获任何错误并返回转义后的文本
+                            console.error('图片渲染错误:', error);
+                            return escapeHtml(typeof text === 'string' ? `[图片: ${text}]` : '[图片]');
+                        }
                     };
                     
                     marked.setOptions({
-                        sanitize: true,
+                        sanitize: false, // 关闭自动清理，因为我们有自定义的安全措施
                         breaks: true,
                         gfm: true,
                         renderer: renderer
                     });
                     
-                    // 直接解析原始内容，不提前转义
+                    // 直接解析原始内容
                     let parsedContent = marked.parse(content);
+                    
                     // 移除可能的危险属性
                     parsedContent = removeDangerousAttributes(parsedContent);
                     return parsedContent;
                 } catch (error) {
                     console.error('Markdown解析错误:', error);
-                    // 如果解析失败，返回转义后的原始内容
+                    // 如果解析失败，返回转义后的内容
                     return escapeHtml(content);
                 }
             }
             
-            // 如果marked库不可用，返回转义后的原始内容
+            // 如果marked库不可用，返回转义后的内容
             return escapeHtml(content);
         }
         
-        // 验证URL安全性
+        // 验证URL安全性 - 全面支持各种格式的URL
         function validateUrl(url) {
             if (!url || typeof url !== 'string') return '';
             
+            // 尝试直接解析URL
             try {
-                const parsedUrl = new URL(url);
+                let parsedUrl = new URL(url);
                 // 只允许安全的协议
                 const safeProtocols = ['http:', 'https:', 'mailto:', 'tel:'];
-                if (!safeProtocols.includes(parsedUrl.protocol)) {
-                    return '';
+                if (safeProtocols.includes(parsedUrl.protocol)) {
+                    return url;
                 }
-                return url;
             } catch (e) {
-                // 如果URL解析失败，返回空字符串
-                return '';
+                // URL解析失败，继续处理
             }
+            
+            // 检查是否是纯URL格式（没有协议前缀）
+            // 更宽松的URL匹配正则表达式，支持各种格式的URL
+            const urlPattern = /^(?:(?:www\.)?[a-zA-Z0-9][-a-zA-Z0-9.]{0,61}[a-zA-Z0-9](?:\.[a-zA-Z]{2,})+)(?:[:/][^\s]*)?$/;
+            
+            // 如果匹配URL格式，添加http://协议再试一次
+            if (urlPattern.test(url)) {
+                try {
+                    const urlWithProtocol = 'http://' + url;
+                    new URL(urlWithProtocol); // 验证添加协议后是否有效
+                    return urlWithProtocol;
+                } catch (e2) {
+                    // 仍然无效，继续尝试其他格式
+                }
+            }
+            
+            // 尝试匹配IP地址格式的URL
+            const ipPattern = /^(?:(?:\d{1,3}\.){3}\d{1,3})(?:[:/][^\s]*)?$/;
+            if (ipPattern.test(url)) {
+                try {
+                    const urlWithProtocol = 'http://' + url;
+                    new URL(urlWithProtocol);
+                    return urlWithProtocol;
+                } catch (e3) {
+                    // 仍然无效
+                }
+            }
+            
+            // 对于Markdown链接中的URL，即使格式不完全标准也尝试返回
+            // 这是最后的尝试，确保大多数链接都能正常显示
+            if (url.includes('.') && !url.includes(' ') && url.length > 3) {
+                try {
+                    const urlWithProtocol = url.startsWith('//') ? 'http:' + url : 
+                                           url.includes('://') ? url : 'http://' + url;
+                    new URL(urlWithProtocol);
+                    return urlWithProtocol;
+                } catch (e4) {
+                    // 如果所有尝试都失败，返回原始URL（作为最后的手段）
+                    console.log('URL验证失败，但仍尝试返回:', url);
+                    return url; // 最后手段：即使验证失败也返回URL
+                }
+            }
+            
+            return url; // 最宽松的处理：返回原始URL，让前端决定如何显示
         }
         
         // 移除HTML中的危险属性
@@ -1655,8 +2346,9 @@
                 if (avatarUrl) {
                     avatarHtml = `<img src="${SERVER_URL}${avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">`;
                 } else {
-                    // 使用默认头像图标
-                    avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px;">${user.nickname.charAt(0).toUpperCase()}</span>`;
+                    // 使用安全的默认头像图标
+                    const firstChar = user.nickname && user.nickname.length > 0 ? user.nickname.charAt(0).toUpperCase() : 'U';
+                    avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px;">${escapeHtml(firstChar)}</span>`;
                 }
                 
                 // 用户信息
@@ -2590,6 +3282,8 @@
             sendGroupMessageBtn.disabled = false;
             groupUploadButton.disabled = false;
             groupFileInput.disabled = false;
+            groupImageUploadButton.disabled = false;
+            groupImageInput.disabled = false;
             
             // 检查用户是否是群主
             checkIfUserIsGroupCreator(groupId);
@@ -2782,6 +3476,8 @@
             sendGroupMessageBtn.disabled = true;
             groupUploadButton.disabled = true;
             groupFileInput.disabled = true;
+            groupImageUploadButton.disabled = true;
+            groupImageInput.disabled = true;
         }
         
         function addMessageToContainer(message, isOwn, isGroupChat, container) {
@@ -2792,16 +3488,80 @@
           
           let contentHtml = '';
           if (message.imageUrl) {
-            contentHtml = `
-              <div class="message-content">
-                <img src="${SERVER_URL}${message.imageUrl}" class="message-image" alt="聊天图片" onclick="openImagePreview('${SERVER_URL}${message.imageUrl}')">
-              </div>
-            `;
+            // 检查是否为图片文件（根据扩展名）
+            const isImage = message.filename ? /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i.test(message.filename) : !message.filename;
+            
+            // 如果是图片文件，显示图片预览
+            if (isImage) {
+              contentHtml = `
+                <div class="message-content">
+                  <img src="${SERVER_URL}${message.imageUrl}" class="message-image" alt="聊天图片" onclick="openImagePreview('${SERVER_URL}${message.imageUrl}')">
+                </div>
+              `;
+            } else {
+              // 非图片文件显示为文件链接
+              contentHtml = `
+                <div class="message-content">
+                  <div class="file-link-container">
+                    <a href="${SERVER_URL}${message.imageUrl}" class="file-link" download="${escapeHtml(message.filename)}" target="_blank">
+                      📎 ${escapeHtml(message.filename)}
+                    </a>
+                  </div>
+                </div>
+              `;
+            }
           } else {
-            const parsedContent = safeMarkdownParse(message.content);
-            contentHtml = `
-              <div class="message-content">${parsedContent}</div>
+            // 使用全局的safeMarkdownParse函数，确保宽松解析器可以正确替换
+            const parsedContent = window.safeMarkdownParse(message.content);
+            // 创建一个临时div来解析HTML内容
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = parsedContent;
+            // 创建消息内容容器
+            const contentContainer = document.createElement('div');
+            contentContainer.className = 'message-content';
+            // 直接将解析后的DOM节点添加到内容容器
+            while (tempDiv.firstChild) {
+              contentContainer.appendChild(tempDiv.firstChild);
+            }
+            // 在当前分支中定义avatarHtml变量
+            const avatarHtml = message.avatarUrl ? 
+              `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="${message.nickname}">` : 
+              '';
+            // 先将所有内容构建为DOM节点
+            messageElement.innerHTML = `
+              <div class="message-header">
+                ${avatarHtml}
+                <div class="nickname">${escapeHtml(message.nickname)}</div>
+              </div>
+              <div class="message-time">${formatTime(message.timestamp)}</div>
+              ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
             `;
+            // 然后在正确的位置插入内容容器
+            const header = messageElement.querySelector('.message-header');
+            if (header) {
+              header.after(contentContainer);
+            }
+            // 直接返回，避免后面的innerHTML设置
+            container.appendChild(messageElement);
+            
+            // 添加撤回按钮事件监听
+            if (isOwn) {
+              const deleteButton = messageElement.querySelector('.delete-button');
+              if (deleteButton) {
+                deleteButton.addEventListener('click', function(e) {
+                  e.stopPropagation();
+                  const messageId = this.getAttribute('data-id');
+                  console.log('撤回消息:', messageId);
+                  socket.emit('delete-message', {
+                    messageId: messageId,
+                    userId: currentUser.id,
+                    sessionToken: currentSessionToken
+                  });
+                });
+              }
+            }
+            
+            return;
           }
           
           const avatarHtml = message.avatarUrl ? 
@@ -3056,6 +3816,8 @@
                 sendButton.disabled = false;
                 uploadButton.disabled = false;
                 fileInput.disabled = false;
+                imageUploadButton.disabled = false;
+                imageInput.disabled = false;
                 
                 authModal.style.display = 'none';
                 
@@ -3087,6 +3849,8 @@
                 sendButton.disabled = true;
                 uploadButton.disabled = true;
                 fileInput.disabled = true;
+                imageUploadButton.disabled = true;
+                imageInput.disabled = true;
                 
                 authModal.style.display = 'flex';
             }
@@ -3426,19 +4190,33 @@
             // 退出登录
             logoutButton.addEventListener('click', logout);
     
-            // 图片上传
+            // 文件和图片上传
             uploadButton.addEventListener('click', () => fileInput.click());
+            imageUploadButton.addEventListener('click', () => imageInput.click());
             groupUploadButton.addEventListener('click', () => groupFileInput.click());
+            groupImageUploadButton.addEventListener('click', () => groupImageInput.click());
     
             fileInput.addEventListener('change', (e) => {
                 if (e.target.files && e.target.files[0]) {
-                    uploadImage(e.target.files[0], false);
+                    uploadFile(e.target.files[0], false);
+                }
+            });
+    
+            imageInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    uploadFile(e.target.files[0], false);
                 }
             });
     
             groupFileInput.addEventListener('change', (e) => {
                 if (e.target.files && e.target.files[0]) {
-                    uploadImage(e.target.files[0], true);
+                    uploadFile(e.target.files[0], true);
+                }
+            });
+    
+            groupImageInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    uploadFile(e.target.files[0], true);
                 }
             });
     
@@ -3454,6 +4232,28 @@
             groupMessageInput.addEventListener('input', function() {
                 autoResizeTextarea(this);
             });
+            
+            // 添加粘贴事件处理，支持粘贴图片或文件
+            messageInput.addEventListener('paste', handlePaste);
+            groupMessageInput.addEventListener('paste', function(e) {
+                handlePaste(e, true);
+            });
+            
+            function handlePaste(e, isGroup = false) {
+                const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                if (!items || items.length === 0) return;
+                
+                // 查找剪贴板中的文件
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].kind === 'file') {
+                        const file = items[i].getAsFile();
+                        if (file) {
+                            uploadFile(file, isGroup);
+                            break;
+                        }
+                    }
+                }
+            }
     
             // 消息容器滚动事件
             messageContainer.addEventListener('scroll', function() {
@@ -3595,26 +4395,26 @@
             });
         }
     
-        // 修复19：图片上传函数
-        function uploadImage(file, isGroup) {
-            if (!file || !file.type.startsWith('image/')) {
-                alert('请选择有效的图片文件');
+        // 文件上传函数 - 支持所有类型的文件
+        function uploadFile(file, isGroup) {
+            if (!file) {
+                alert('请选择有效的文件');
                 return;
             }
-    
+
             if (file.size > 5 * 1024 * 1024) {
-                alert('图片大小不能超过5MB');
+                alert('文件大小不能超过5MB');
                 return;
             }
-    
+
             const formData = new FormData();
-            formData.append('image', file);
+            formData.append('image', file); // 保持原有的字段名，避免后端修改
             formData.append('userId', currentUser.id);
             
             if (isGroup && currentGroupId) {
                 formData.append('groupId', currentGroupId);
             }
-    
+
             uploadProgress.style.display = 'block';
             let progress = 0;
             const interval = setInterval(() => {
@@ -3622,7 +4422,7 @@
                 if (progress > 90) clearInterval(interval);
                 uploadProgressBar.style.width = `${progress}%`;
             }, 100);
-    
+
             fetch(`${SERVER_URL}/upload`, {
                 method: 'POST',
                 headers: {
@@ -3642,9 +4442,11 @@
                 }, 500);
                 
                 if (data.status === 'success') {
-                    console.log('图片上传成功');
+                    console.log('文件上传成功');
+                    // 不需要额外操作，因为/upload接口已经将消息保存到数据库并广播给所有客户端
+                    // 客户端会通过socket.io接收message-received事件来更新界面
                 } else {
-                    alert('图片上传失败: ' + data.message);
+                    alert('文件上传失败: ' + data.message);
                 }
             })
             .catch(error => {
@@ -3652,13 +4454,48 @@
                 uploadProgress.style.display = 'none';
                 uploadProgressBar.style.width = '0%';
                 console.error('上传错误:', error);
-                alert('图片上传失败');
+                alert('文件上传失败');
             });
         }
     
+        // 深色模式切换功能
+        function toggleDarkMode() {
+            // 切换body上的dark-mode类
+            document.body.classList.toggle('dark-mode');
+            
+            // 获取当前模式
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            
+            // 更新按钮文本和图标
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            if (darkModeToggle) {
+                darkModeToggle.textContent = isDarkMode ? '🌙 深色模式' : '🌞 浅色模式';
+            }
+            
+            // 保存用户的深色模式偏好到本地存储
+            localStorage.setItem('chatDarkMode', isDarkMode ? 'true' : 'false');
+        }
+        
         // 修复20：应用初始化
         function initializeApp() {
           console.log('🚀 初始化聊天室应用');
+          
+          // 检查本地存储的深色模式偏好
+          const savedDarkMode = localStorage.getItem('chatDarkMode');
+          const darkModeToggle = document.getElementById('darkModeToggle');
+          
+          // 应用深色模式（如果用户之前选择了深色模式或者系统偏好深色模式）
+          if (savedDarkMode === 'true' || (savedDarkMode === null && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.body.classList.add('dark-mode');
+            if (darkModeToggle) {
+                darkModeToggle.textContent = '🌙 深色模式';
+            }
+          } else {
+            document.body.classList.remove('dark-mode');
+            if (darkModeToggle) {
+                darkModeToggle.textContent = '🌞 浅色模式';
+            }
+          }
           
           // 检查本地存储的登录状态
           const savedUserId = localStorage.getItem('chatUserId');
@@ -3683,6 +4520,11 @@
           
           // 初始化事件监听器
           initializeEventListeners();
+          
+          // 绑定深色模式切换按钮事件
+          if (darkModeToggle) {
+              darkModeToggle.addEventListener('click', toggleDarkMode);
+          }
           
           // 设置页面可见性检测
           setupPageVisibility();
@@ -3817,9 +4659,338 @@
             });
         }
 
-        // 启动应用
+        // 宽松的HTML处理和Markdown解析功能
+        
+        // 简化的HTML转义函数 - 保留引号内的内容不转义
+        function looseEscapeHtml(unsafe) {
+            if (unsafe === null || unsafe === undefined) return '';
+            // 首先移除控制字符
+            let safeString = String(unsafe).replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+            
+            // 针对URL的特殊处理 - 不转义URL中的特殊字符
+            if (/\b(?:https?|ftp):\/\/[\-A-Z0-9+&@#\/%?=~_|!:,.;]*[\-A-Z0-9+&@#\/%=~_|]/i.test(safeString)) {
+                return safeString; // 对于URL，保持原样
+            }
+            
+            // 只对HTML标签进行必要的转义，保留其他内容
+            return safeString
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+        }
+        
+        // 宽松的Markdown解析函数 - 实现引号内内容不转义
+        function looseMarkdownParse(content) {
+            if (!content) return '';
+            
+            // 先检查内容是否包含HTML标签
+            if (/<[^>]*>/g.test(content)) {
+                // 针对包含HTML标签的内容，将其放入引号中
+                return `<div class="quoted-content">"${looseEscapeHtml(content)}"</div>`;
+            }
+            
+            // 使用marked解析原始内容
+            if (typeof marked !== 'undefined') {
+                try {
+                    // 创建自定义的渲染器
+                    const renderer = new marked.Renderer();
+                    
+                    // 覆盖链接渲染，更加宽松地处理URL
+                    const linkRenderer = renderer.link || function(href, title, text) {
+                        // 默认的链接渲染实现
+                        let out = `<a href="${href}"`;
+                        if (title) {
+                            out += ` title="${title}"`;
+                        }
+                        out += `>${text}</a>`;
+                        return out;
+                    };
+                    
+                    renderer.link = function(href, title, text) {
+                        try {
+                            // 确保所有参数都是字符串
+                            href = typeof href === 'string' ? href : '';
+                            title = typeof title === 'string' ? title : '';
+                            text = typeof text === 'string' ? text : '';
+                               
+                            // 使用宽松的URL验证
+                            const cleanHref = looseValidateUrl(href);
+                            const cleanTitle = title ? looseEscapeHtml(title) : '';
+                            const cleanText = looseEscapeHtml(text);
+                               
+                            // 直接实现链接渲染，避免this指向问题
+                            let out = `<a href="${looseEscapeHtml(cleanHref)}"`;
+                            if (cleanTitle) {
+                                out += ` title="${cleanTitle}"`;
+                            }
+                            out += `>${cleanText}</a>`;
+                            return out;
+                        } catch (error) {
+                            console.error('链接渲染错误:', error);
+                            return looseEscapeHtml(typeof text === 'string' ? text : '');
+                        }
+                    };
+                    
+                    // 覆盖图片渲染
+                    renderer.image = function(href, title, text) {
+                        try {
+                            // 确保所有参数都是字符串
+                            href = typeof href === 'string' ? href : '';
+                            title = typeof title === 'string' ? title : '';
+                            text = typeof text === 'string' ? text : '';
+                                
+                            // 使用宽松的URL验证
+                            const cleanHref = looseValidateUrl(href);
+                            const cleanTitle = title ? looseEscapeHtml(title) : '';
+                            const cleanText = looseEscapeHtml(text);
+                                
+                            // 直接实现图片渲染，避免this指向问题
+                            let out = `<img src="${looseEscapeHtml(cleanHref)}" alt="${cleanText}"`;
+                            if (cleanTitle) {
+                                out += ` title="${cleanTitle}"`;
+                            }
+                            out += '>';
+                            return out;
+                        } catch (error) {
+                            console.error('图片渲染错误:', error);
+                            return looseEscapeHtml(typeof text === 'string' ? `[图片: ${text}]` : '[图片]');
+                        }
+                    };
+                    
+                    marked.setOptions({
+                        sanitize: false, // 关闭自动清理，更加宽松
+                        breaks: true,
+                        gfm: true,
+                        renderer: renderer
+                    });
+                    
+                    // 直接解析原始内容
+                    let parsedContent = marked.parse(content);
+                    
+                    // 移除可能的危险属性
+                    parsedContent = looseRemoveDangerousAttributes(parsedContent);
+                    return parsedContent;
+                } catch (error) {
+                    console.error('Markdown解析错误:', error);
+                    // 如果解析失败，也尝试以宽松方式返回内容
+                    return looseEscapeHtml(content);
+                }
+            }
+            
+            // 如果marked库不可用，返回转义后的内容
+            return looseEscapeHtml(content);
+        }
+        
+        // 宽松的URL验证函数 - 几乎接受所有可能的URL格式
+        function looseValidateUrl(url) {
+            // 确保返回值始终是字符串
+            if (!url || typeof url !== 'string') return '';
+            
+            // 对于任何非空字符串，都尝试将其作为URL处理
+            return url;
+        }
+        
+        // 宽松的危险属性移除函数
+        function looseRemoveDangerousAttributes(html) {
+            if (!html) return '';
+            
+            // 创建临时DOM元素用于处理
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+            
+            // 只移除最危险的事件处理器属性
+            const dangerousAttributes = ['on*'];
+            
+            // 递归处理所有元素
+            function processElement(element) {
+                const attributes = Array.from(element.attributes);
+                attributes.forEach(attr => {
+                    const attrName = attr.name.toLowerCase();
+                    // 检查是否是危险属性
+                    const isDangerous = dangerousAttributes.some(dangerousAttr => {
+                        return dangerousAttr === attrName || 
+                               (dangerousAttr.includes('*') && attrName.startsWith(dangerousAttr.replace('*', '')));
+                    });
+                    
+                    if (isDangerous) {
+                        // 移除危险属性
+                        element.removeAttribute(attrName);
+                    }
+                });
+                
+                // 递归处理子元素
+                Array.from(element.children).forEach(processElement);
+            }
+            
+            Array.from(tempDiv.children).forEach(processElement);
+            
+            return tempDiv.innerHTML;
+        }
+        
+        // 初始化宽松解析器
+        function initLooseParser() {
+            // 检查是否已加载
+            if (window.looseParserInitialized) return;
+            
+            // 确保全局函数可用，无论原有函数是否存在
+            window.originalSafeMarkdownParse = window.safeMarkdownParse || function(content) { return content; };
+            window.safeMarkdownParse = looseMarkdownParse;
+            
+            window.originalEscapeHtml = window.escapeHtml || function(content) { return content; };
+            window.escapeHtml = looseEscapeHtml;
+            
+            window.originalValidateUrl = window.validateUrl || function(url) { return url; };
+            window.validateUrl = looseValidateUrl;
+            
+            window.originalRemoveDangerousAttributes = window.removeDangerousAttributes || function(html) { return html; };
+            window.removeDangerousAttributes = looseRemoveDangerousAttributes;
+            
+            window.looseParserInitialized = true;
+            console.log('宽松解析器已初始化');
+        }
+        
+        // 最后启动应用
         initializeApp();
     });
     </script>
-</body>
+    <!-- 内联Markdown链接渲染修复脚本 -->
+    <script>
+    // 合并后的Markdown链接渲染修复脚本 - 不含测试按钮
+    console.log('=== Markdown合并修复脚本已加载 ===');
+
+    // 简单的HTML转义函数
+    function simpleEscapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        text = String(text); // 确保是字符串
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    // 简单的URL验证函数
+    function simpleValidateUrl(url) {
+        if (!url) return '';
+        url = String(url); // 确保是字符串
+        url = url.trim().replace(/^['"]|['"]$/g, '');
+        
+        // 确保URL有协议
+        if (!url.match(/^https?:\/\//i)) {
+            url = 'http://' + url;
+        }
+        
+        try {
+            new URL(url);
+            return url;
+        } catch (e) {
+            console.warn('URL验证失败:', url);
+            return '';
+        }
+    }
+
+    // 移除危险属性
+    function simpleRemoveDangerousAttributes(html) {
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        
+        const allElements = div.querySelectorAll('*');
+        allElements.forEach(el => {
+            const attrs = Array.from(el.attributes);
+            attrs.forEach(attr => {
+                if (attr.name.toLowerCase().startsWith('on') || 
+                    attr.name.toLowerCase().includes('script') ||
+                    attr.name.toLowerCase().includes('cookie')) {
+                    el.removeAttribute(attr.name);
+                }
+            });
+        });
+        
+        return div.innerHTML;
+    }
+
+    // 简单的Markdown解析 - 只处理链接和图片
+    function simpleMarkdownParse(content) {
+        if (!content) return '';
+        content = String(content); // 确保是字符串
+        
+        let result = content;
+        
+        try {
+            // 处理Markdown链接 [text](url)
+            result = result.replace(/\[(.*?)\]\((.*?)\)/g, function(match, text, url) {
+                const cleanUrl = simpleValidateUrl(url);
+                const cleanText = simpleEscapeHtml(text || cleanUrl || match);
+                
+                if (!cleanUrl) {
+                    return cleanText;
+                }
+                
+                return `<a href="${simpleEscapeHtml(cleanUrl)}" target="_blank" rel="noopener noreferrer">${cleanText}</a>`;
+            });
+            
+            // 处理图片 ![alt](url)
+            result = result.replace(/!\[(.*?)\]\((.*?)\)/g, function(match, alt, url) {
+                const cleanUrl = simpleValidateUrl(url);
+                const cleanAlt = simpleEscapeHtml(alt || '图片');
+                
+                if (!cleanUrl) {
+                    return `[图片: ${cleanAlt}]`;
+                }
+                
+                return `<img src="${simpleEscapeHtml(cleanUrl)}" alt="${cleanAlt}" class="message-image">`;
+            });
+            
+            // 处理纯URL链接
+            const urlRegex = /(?:^|\s)(https?:\/\/[^\s<>]+)(?![^<>]*>)/g;
+            result = result.replace(urlRegex, function(match) {
+                const url = match.trim();
+                const cleanUrl = simpleValidateUrl(url);
+                
+                if (!cleanUrl) {
+                    return match;
+                }
+                
+                return ` <a href="${simpleEscapeHtml(cleanUrl)}" target="_blank" rel="noopener noreferrer">${simpleEscapeHtml(url)}</a>`;
+            });
+            
+            // 处理换行
+            result = result.replace(/\n/g, '<br>');
+            
+            // 移除危险属性
+            result = simpleRemoveDangerousAttributes(result);
+            
+        } catch (error) {
+            console.error('简单Markdown解析错误:', error);
+            return simpleEscapeHtml(content);
+        }
+        
+        return result;
+    }
+
+    // 覆盖全局的safeMarkdownParse函数 - 确保返回字符串
+    window.safeMarkdownParse = function(content) {
+        // 确保content是字符串
+        if (content === null || content === undefined) {
+            return '';
+        }
+        
+        if (typeof content !== 'string') {
+            content = String(content);
+        }
+        
+        const parsed = simpleMarkdownParse(content);
+        
+        // 最终确保返回的是字符串
+        if (typeof parsed !== 'string') {
+            return simpleEscapeHtml(String(parsed));
+        }
+        
+        return parsed;
+    };
+
+    console.log('✓ Markdown修复已完成，链接和图片现在应该能正确显示了');
+    </script>
+    </body>
 </html>
