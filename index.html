@@ -1,4 +1,5 @@
 
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -653,11 +654,6 @@
             font-style: italic;
         }
         
-        .message-content a {
-            color: #07c160;
-            text-decoration: underline;
-        }
-        
         .file-link-container {
             display: flex;
             align-items: center;
@@ -1271,6 +1267,9 @@
         
         .management-content {
             display: none;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 6px;
         }
         
         .management-content.active {
@@ -1543,6 +1542,11 @@
             background-color: var(--link-color);
         }
         
+        /* 深色模式下群组按钮悬浮样式 */
+        .dark-mode #createGroupButton:hover {
+            background-color: var(--bg-tertiary);
+        }
+        
         .dark-mode .avatar-preview {
             border-color: var(--border-color);
         }
@@ -1715,7 +1719,7 @@
                 <div>加载中...</div>
             </div>
             
-            <button id="createGroupButton">创建群组</button>
+            <button id="createGroupButton" class="btn">创建群组</button>
             <div id="createGroupMessage" style="margin-top: 10px;"></div>
         </div>
     </div>
@@ -1735,7 +1739,7 @@
 
     <!-- 管理群组模态框 -->
     <div id="manageGroupModal" class="modal" style="display: none; background: rgba(0,0,0,0.5);">
-        <div class="modal-content" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 600px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
+        <div class="modal-content" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 600px; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
             <span class="close-modal">&times;</span>
             <h3>管理群组</h3>
             <div class="group-management-tabs">
@@ -1752,8 +1756,19 @@
             
             <div class="management-content" id="manageGroupContent">
                 <h4>群组设置</h4>
-                <button id="dissolveGroupBtn" class="danger-btn">解散群组</button>
-                <p>此操作将解散群组，所有群消息将被永久删除，且不可恢复。</p>
+                
+                <!-- 修改群组名称 -->
+                <div class="group-name-update-section" style="margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee;">
+                    <h5 style="margin-top: 0; margin-bottom: 10px; font-size: 16px; color: #333;">修改群组名称</h5>
+                    <input type="text" id="groupNameUpdateInput" placeholder="请输入新的群组名称" maxlength="20" style="width: 100%; padding: 8px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                    <button id="updateGroupNameBtn" style="padding: 8px 16px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">保存修改</button>
+                </div>
+                
+                <!-- 解散群组 -->
+                <div class="group-dissolve-section">
+                    <button id="dissolveGroupBtn" class="danger-btn">解散群组</button>
+                    <p>此操作将解散群组，所有群消息将被永久删除，且不可恢复。</p>
+                </div>
             </div>
             
             <div id="manageGroupMessage" style="margin-top: 10px;"></div>
@@ -2989,6 +3004,41 @@
                 }
             }
             
+            // 添加修改群组名称按钮事件
+            const updateGroupNameBtn = document.getElementById('updateGroupNameBtn');
+            const groupNameUpdateInput = document.getElementById('groupNameUpdateInput');
+            const manageGroupMessage = document.getElementById('manageGroupMessage');
+            
+            if (updateGroupNameBtn && groupNameUpdateInput) {
+                // 如果有当前群组信息，预先填充当前群组名称
+                if (currentGroupName) {
+                    groupNameUpdateInput.value = currentGroupName;
+                }
+                
+                updateGroupNameBtn.addEventListener('click', function() {
+                    const newGroupName = groupNameUpdateInput.value.trim();
+                    
+                    if (!newGroupName) {
+                        showManageGroupMessage('请输入群组名称', 'error');
+                        return;
+                    }
+                    
+                    if (newGroupName.length > 20) {
+                        showManageGroupMessage('群组名称不能超过20个字符', 'error');
+                        return;
+                    }
+                    
+                    // 检查群组名称格式是否有效（简单验证）
+                    if (!/^[\u4e00-\u9fa5a-zA-Z0-9_\-\s]{1,20}$/.test(newGroupName)) {
+                        showManageGroupMessage('群组名称只能包含中文、英文、数字、下划线、短横线和空格', 'error');
+                        return;
+                    }
+                    
+                    // 调用API更新群组名称
+                    updateGroupName(currentGroupId, newGroupName);
+                });
+            }
+            
             // 添加解散群组按钮事件
             const dissolveGroupBtn = document.getElementById('dissolveGroupBtn');
             if (dissolveGroupBtn) {
@@ -3038,6 +3088,87 @@
                 checkbox.checked = false;
             });
             createGroupMessage.textContent = '';
+        }
+        
+        // 显示管理群组消息
+        function showManageGroupMessage(message, type = 'info') {
+            const manageGroupMessage = document.getElementById('manageGroupMessage');
+            if (manageGroupMessage) {
+                manageGroupMessage.textContent = message;
+                manageGroupMessage.className = type;
+                manageGroupMessage.style.color = type === 'error' ? 'red' : 'green';
+                
+                // 3秒后自动隐藏消息
+                setTimeout(() => {
+                    if (manageGroupMessage) {
+                        manageGroupMessage.textContent = '';
+                        manageGroupMessage.className = '';
+                    }
+                }, 3000);
+            }
+        }
+        
+        // 更新群组名称
+        function updateGroupName(groupId, newGroupName) {
+            if (!groupId || !newGroupName) return;
+            
+            // 获取群组标题DOM元素
+            const currentGroupTitle = document.getElementById('groupTitle');
+            
+            fetch(`${SERVER_URL}/update-group-name`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                },
+                body: JSON.stringify({ groupId, newGroupName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // 更新本地保存的群组名称
+                    currentGroupName = data.newGroupName;
+                    
+                    // 更新界面上显示的群组名称
+                    if (currentGroupTitle) {
+                        currentGroupTitle.textContent = data.newGroupName;
+                    }
+                    
+                    // 更新群组列表中的名称
+                    updateGroupNameInList(groupId, data.newGroupName);
+                    
+                    showManageGroupMessage('群组名称已成功更新', 'success');
+                    
+                    // 3秒后关闭模态框
+                    setTimeout(() => {
+                        const manageGroupModal = document.getElementById('manageGroupModal');
+                        if (manageGroupModal) {
+                            manageGroupModal.style.display = 'none';
+                        }
+                    }, 1500);
+                } else {
+                    showManageGroupMessage(data.message || '修改群组名称失败', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('修改群组名称失败:', error);
+                showManageGroupMessage('网络错误，请重试', 'error');
+            });
+        }
+        
+        // 更新群组列表中的群组名称
+        function updateGroupNameInList(groupId, newGroupName) {
+            const groupList = document.getElementById('groupList');
+            if (groupList) {
+                const groupItems = groupList.querySelectorAll('li[data-group-id="' + groupId + '"]');
+                groupItems.forEach(item => {
+                    const groupNameEl = item.querySelector('.group-name');
+                    if (groupNameEl) {
+                        groupNameEl.textContent = newGroupName;
+                    }
+                });
+            }
         }
         
         // 显示添加成员模态框
@@ -3177,7 +3308,8 @@
                 
                 // 添加交互效果
                 li.addEventListener('mouseenter', function() {
-                    this.style.backgroundColor = '#f5f5f5';
+                    const isDarkMode = document.body.classList.contains('dark-mode');
+                    this.style.backgroundColor = isDarkMode ? 'rgb(74, 74, 74)' : '#f5f5f5';
                 });
                 
                 li.addEventListener('mouseleave', function() {
@@ -4067,7 +4199,7 @@
         });
         
         // 接收群组解散的通知
-            socket.on('group-dissolved', (data) => {
+        socket.on('group-dissolved', (data) => {
               const { groupId } = data;
               if (currentGroupId && parseInt(currentGroupId) === parseInt(groupId)) {
                 // 清空消息容器
@@ -4091,6 +4223,27 @@
                 
                 // 可以选择跳转到群列表页面
               }
+            });
+            
+            // 接收群组名称更新的通知
+            socket.on('group-name-updated', (data) => {
+              const { groupId, newGroupName } = data;
+              
+              // 更新本地保存的群组名称
+              if (currentGroupId && parseInt(currentGroupId) === parseInt(groupId)) {
+                currentGroupName = newGroupName;
+                
+                // 获取群组标题DOM元素
+                const currentGroupTitle = document.getElementById('groupTitle');
+                
+                // 更新界面上显示的群组名称
+                if (currentGroupTitle) {
+                  currentGroupTitle.textContent = newGroupName;
+                }
+              }
+              
+              // 更新群组列表中的名称
+              updateGroupNameInList(groupId, newGroupName);
             });
     
         socket.on('group-chat-history', (data) => {
@@ -4858,7 +5011,7 @@
     // 合并后的Markdown链接渲染修复脚本 - 不含测试按钮
     console.log('=== Markdown合并修复脚本已加载 ===');
 
-    // 简单的HTML转义函数
+    // 增强的HTML转义函数
     function simpleEscapeHtml(text) {
         if (text === null || text === undefined) return '';
         text = String(text); // 确保是字符串
@@ -4868,6 +5021,18 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
+    }
+    
+    // 显示HTML转义字符的函数
+    function showEscapedHtml(text) {
+        if (text === null || text === undefined) return '';
+        text = String(text); // 确保是字符串
+        return text
+            .replace(/&/g, '&amp;amp;')
+            .replace(/</g, '&amp;lt;')
+            .replace(/>/g, '&amp;gt;')
+            .replace(/"/g, '&amp;quot;')
+            .replace(/'/g, '&amp;#039;');
     }
 
     // 简单的URL验证函数
@@ -4910,18 +5075,59 @@
         return div.innerHTML;
     }
 
-    // 简单的Markdown解析 - 只处理链接和图片
-    function simpleMarkdownParse(content) {
+    // 增强的Markdown解析函数 - 支持更多Markdown语法
+    function enhancedMarkdownParse(content, showEscapedChars = false) {
         if (!content) return '';
         content = String(content); // 确保是字符串
         
         let result = content;
         
         try {
+            // 处理HTML标签转义显示
+            if (showEscapedChars) {
+                result = showEscapedHtml(result);
+            }
+            
+            // 处理粗体 **text** 或 __text__
+            result = result.replace(/(?:\*\*|__)(.*?)(?:\*\*|__)/g, function(match, text) {
+                return `<strong>${showEscapedChars ? showEscapedHtml(text) : simpleEscapeHtml(text)}</strong>`;
+            });
+            
+            // 处理斜体 *text* 或 _text_
+            result = result.replace(/(?:\*|_)(.*?)(?:\*|_)/g, function(match, text) {
+                return `<em>${showEscapedChars ? showEscapedHtml(text) : simpleEscapeHtml(text)}</em>`;
+            });
+            
+            // 处理代码块 ```code```
+            result = result.replace(/```([\s\S]*?)```/g, function(match, code) {
+                return `<pre><code>${showEscapedChars ? showEscapedHtml(code) : simpleEscapeHtml(code)}</code></pre>`;
+            });
+            
+            // 处理行内代码 `code`
+            result = result.replace(/`(.*?)`/g, function(match, code) {
+                return `<code>${showEscapedChars ? showEscapedHtml(code) : simpleEscapeHtml(code)}</code>`;
+            });
+            
+            // 处理标题 # Title
+            result = result.replace(/^(#{1,6})\s+(.*?)$/gm, function(match, hashes, title) {
+                const level = hashes.length;
+                return `<h${level}>${showEscapedChars ? showEscapedHtml(title) : simpleEscapeHtml(title)}</h${level}>`;
+            });
+            
+            // 处理无序列表 - item
+            result = result.replace(/^(\s*-\s+)(.*?)$/gm, function(match, indent, item) {
+                return `<li>${showEscapedChars ? showEscapedHtml(item) : simpleEscapeHtml(item)}</li>`;
+            });
+            
+            // 处理引用 > text
+            result = result.replace(/^(\s*>\s+)(.*?)$/gm, function(match, indent, text) {
+                return `<blockquote>${showEscapedChars ? showEscapedHtml(text) : simpleEscapeHtml(text)}</blockquote>`;
+            });
+            
             // 处理Markdown链接 [text](url)
             result = result.replace(/\[(.*?)\]\((.*?)\)/g, function(match, text, url) {
                 const cleanUrl = simpleValidateUrl(url);
-                const cleanText = simpleEscapeHtml(text || cleanUrl || match);
+                const cleanText = showEscapedChars ? showEscapedHtml(text || cleanUrl || match) : simpleEscapeHtml(text || cleanUrl || match);
                 
                 if (!cleanUrl) {
                     return cleanText;
@@ -4933,7 +5139,7 @@
             // 处理图片 ![alt](url)
             result = result.replace(/!\[(.*?)\]\((.*?)\)/g, function(match, alt, url) {
                 const cleanUrl = simpleValidateUrl(url);
-                const cleanAlt = simpleEscapeHtml(alt || '图片');
+                const cleanAlt = showEscapedChars ? showEscapedHtml(alt || '图片') : simpleEscapeHtml(alt || '图片');
                 
                 if (!cleanUrl) {
                     return `[图片: ${cleanAlt}]`;
@@ -4952,7 +5158,7 @@
                     return match;
                 }
                 
-                return ` <a href="${simpleEscapeHtml(cleanUrl)}" target="_blank" rel="noopener noreferrer">${simpleEscapeHtml(url)}</a>`;
+                return ` <a href="${simpleEscapeHtml(cleanUrl)}" target="_blank" rel="noopener noreferrer">${showEscapedChars ? showEscapedHtml(url) : simpleEscapeHtml(url)}</a>`;
             });
             
             // 处理换行
@@ -4962,15 +5168,15 @@
             result = simpleRemoveDangerousAttributes(result);
             
         } catch (error) {
-            console.error('简单Markdown解析错误:', error);
-            return simpleEscapeHtml(content);
+            console.error('Markdown解析错误:', error);
+            return showEscapedChars ? showEscapedHtml(content) : simpleEscapeHtml(content);
         }
         
         return result;
     }
 
-    // 覆盖全局的safeMarkdownParse函数 - 确保返回字符串
-    window.safeMarkdownParse = function(content) {
+    // 覆盖全局的safeMarkdownParse函数 - 支持HTML转义字符显示选项
+    window.safeMarkdownParse = function(content, showEscapedChars = false) {
         // 确保content是字符串
         if (content === null || content === undefined) {
             return '';
@@ -4980,11 +5186,11 @@
             content = String(content);
         }
         
-        const parsed = simpleMarkdownParse(content);
+        const parsed = enhancedMarkdownParse(content, showEscapedChars);
         
         // 最终确保返回的是字符串
         if (typeof parsed !== 'string') {
-            return simpleEscapeHtml(String(parsed));
+            return showEscapedChars ? showEscapedHtml(String(parsed)) : simpleEscapeHtml(String(parsed));
         }
         
         return parsed;
