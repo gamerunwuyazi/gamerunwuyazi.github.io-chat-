@@ -666,18 +666,35 @@
             word-break: break-all;
         }
         
-        .file-link {
+        .file-link-container .file-link {
             display: inline-flex;
             align-items: center;
             color: #1890ff;
-            text-decoration: none;
+            text-decoration: none !important;
+            border-bottom: none !important;
             font-size: 14px;
             transition: all 0.3s;
         }
         
-        .file-link:hover {
+        .file-link-container .file-link::before {
+            content: "📎";
+            margin-right: 6px;
+            font-size: 16px;
+            display: inline-block;
+        }
+        
+        .file-link-container .file-link span {
+            display: inline-block;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .file-link-container .file-link:hover {
             color: #40a9ff;
-            text-decoration: underline;
+            text-decoration: underline !important;
+            border-bottom: none !important;
         }
         
         .message-image {
@@ -1431,8 +1448,10 @@
             color: var(--link-color);
         }
         
-        .dark-mode .file-link:hover {
+        .dark-mode .file-link-container .file-link:hover {
             color: #569fff;
+            text-decoration: underline !important;
+            border-bottom: none !important;
         }
         
         .dark-mode .message-time {
@@ -3636,7 +3655,7 @@
                 <div class="message-content">
                   <div class="file-link-container">
                     <a href="${SERVER_URL}${message.imageUrl}" class="file-link" download="${escapeHtml(message.filename)}" target="_blank">
-                      📎 ${escapeHtml(message.filename)}
+                      <span>${escapeHtml(message.filename)}</span>
                     </a>
                   </div>
                 </div>
