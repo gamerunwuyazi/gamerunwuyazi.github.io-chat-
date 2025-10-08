@@ -884,35 +884,33 @@
         .upload-container {
             display: flex;
             align-items: center;
-            background-color: #3498db;
-            color: white;
-            border: none;
-            border-radius: 20px;
-            cursor: pointer;
-            transition: all 0.3s;
-            padding: 6px 12px;
+            justify-content: center;
+            padding: 0;
+            margin: 0;
             height: 36px;
             min-width: 100px;
         }
         
-        .upload-container:hover {
-            background: #2980b9;
-            transform: scale(1.05);
-        }
-        
         #uploadButton, #groupUploadButton, #imageUploadButton, #groupImageUploadButton {
-            background: none;
+            background-color: #3498db;
             border: none;
+            border-radius: 20px;
             color: white;
             cursor: pointer;
             display: flex;
             align-items: center;
+            justify-content: center;
             font-size: 14px;
             width: 100%;
             height: 100%;
-            justify-content: center;
-            padding: 0;
+            padding: 6px 12px;
             margin: 0;
+            transition: all 0.3s;
+        }
+        
+        #uploadButton:hover, #groupUploadButton:hover, #imageUploadButton:hover, #groupImageUploadButton:hover {
+            background: #2980b9;
+            transform: scale(1.05);
         }
         
         .upload-text {
@@ -1491,11 +1489,17 @@
             background-color: #3dcf70;
         }
         
-        .dark-mode .upload-container {
+        .dark-mode #uploadButton,
+        .dark-mode #groupUploadButton,
+        .dark-mode #imageUploadButton,
+        .dark-mode #groupImageUploadButton {
             background-color: #2980b9;
         }
         
-        .dark-mode .upload-container:hover {
+        .dark-mode #uploadButton:hover,
+        .dark-mode #groupUploadButton:hover,
+        .dark-mode #imageUploadButton:hover,
+        .dark-mode #groupImageUploadButton:hover {
             background-color: #1f6391;
         }
         
