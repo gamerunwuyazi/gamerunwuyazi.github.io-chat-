@@ -2395,7 +2395,7 @@
                 const displayName = isCurrentUser ? `${user.nickname} (我)` : user.nickname;
                 
                 // 确保不重复添加状态指示器
-                userInfo.innerHTML = `${avatarHtml}${escapeHtml(displayName)}`;
+                userInfo.innerHTML = `${avatarHtml}${lightEscapeHtml(displayName)}`;
                 if (isCurrentUser) {
                     userInfo.style.fontWeight = 'bold';
                 }
@@ -2479,7 +2479,7 @@
                 
                 // 用户信息
                 const userInfo = document.createElement('span');
-                userInfo.innerHTML = `${avatarHtml}${escapeHtml(user.nickname)} <span class="last-online">${formatDate(user.last_online)}</span>`;
+                userInfo.innerHTML = `${avatarHtml}${lightEscapeHtml(user.nickname)} <span class="last-online">${formatDate(user.last_online)}</span>`;
                 
                 li.appendChild(statusIndicator);
                 li.appendChild(userInfo);
@@ -2949,12 +2949,12 @@
                             <div class="member-info">
                                 ${avatarHtml}
                                 ${onlineStatus}
-                                <span class="member-name">${escapeHtml(member.nickname)}</span>
+                                <span class="member-name">${lightEscapeHtml(member.nickname)}</span>
                                 ${String(member.id) === currentUser.id ? '<span class="member-tag">(我)</span>' : ''}
                                 ${String(member.id) === window.currentGroupCreatorId ? '<span class="member-tag">(群主)</span>' : ''}
                             </div>
                             ${String(member.id) !== currentUser.id && window.isGroupCreator ? 
-                                `<button class="remove-member-btn" data-member-id="${member.id}" data-member-name="${escapeHtml(member.nickname)}">踢出</button>` : 
+                                `<button class="remove-member-btn" data-member-id="${member.id}" data-member-name="${lightEscapeHtml(member.nickname)}">踢出</button>` : 
                                 ''}
                         `;
                         
@@ -3240,7 +3240,7 @@
                             <input type="checkbox" class="available-member-checkbox" value="${member.id}" id="available-member-${member.id}">
                             <label for="available-member-${member.id}">
                                 ${member.avatarUrl ? `<img src="${SERVER_URL}${member.avatarUrl}" alt="头像" style="width: 16px; height: 16px; border-radius: 50%; margin-right: 8px;">` : ''}
-                                <span>${escapeHtml(member.nickname)}</span>
+                                <span>${lightEscapeHtml(member.nickname)}</span>
                             </label>
                         `;
                         availableMembersList.appendChild(memberItem);
@@ -3322,7 +3322,7 @@
                 li.innerHTML = `
                     <div style="display: flex; align-items: center;">
                         <span style="margin-right: 8px;">💬</span>
-                        <span>${escapeHtml(groupName)}</span>
+                        <span>${lightEscapeHtml(groupName)}</span>
                     </div>
                 `;
                 
@@ -3391,7 +3391,7 @@
                 memberItem.className = 'member-item';
                 memberItem.innerHTML = `
                     <input type="checkbox" class="member-checkbox" value="${user.id}" id="member-${user.id}">
-                    <label for="member-${user.id}">${escapeHtml(user.nickname)}</label>
+                    <label for="member-${user.id}">${lightEscapeHtml(user.nickname)}</label>
                 `;
                 groupMembersList.appendChild(memberItem);
             });
@@ -3548,9 +3548,9 @@
                     '<span class="offline-indicator" style="display: inline-block; width: 8px; height: 8px; background-color: #95a5a6; border-radius: 50%; margin-right: 5px;"></span>';
                 
                 if (String(member.id) === currentUser.id) {
-                    memberInfo.innerHTML = `${onlineStatus}${avatarHtml}<strong>${escapeHtml(member.nickname)} (我)</strong>`;
+                    memberInfo.innerHTML = `${onlineStatus}${avatarHtml}<strong>${lightEscapeHtml(member.nickname)} (我)</strong>`;
                 } else {
-                    memberInfo.innerHTML = `${onlineStatus}${avatarHtml}${escapeHtml(member.nickname)}`;
+                    memberInfo.innerHTML = `${onlineStatus}${avatarHtml}${lightEscapeHtml(member.nickname)}`;
                 }
                 
                 li.appendChild(memberInfo);
@@ -3686,7 +3686,7 @@
             messageElement.innerHTML = `
               <div class="message-header">
                 ${avatarHtml}
-                <div class="nickname">${escapeHtml(message.nickname)}</div>
+                <div class="nickname">${lightEscapeHtml(message.nickname)}</div>
               </div>
               <div class="message-time">${formatTime(message.timestamp)}</div>
               ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
@@ -3726,7 +3726,7 @@
           messageElement.innerHTML = `
             <div class="message-header">
               ${avatarHtml}
-              <div class="nickname">${escapeHtml(message.nickname)}</div>
+              <div class="nickname">${lightEscapeHtml(message.nickname)}</div>
             </div>
             ${contentHtml}
             <div class="message-time">${formatTime(message.timestamp)}</div>
@@ -3923,14 +3923,20 @@
     
         function toggleSidebar() {
             isSidebarCollapsed = !isSidebarCollapsed;
-            sidebar.classList.toggle('collapsed', isSidebarCollapsed);
-            toggleSidebarText.textContent = isSidebarCollapsed ? '展开用户列表' : '收起用户列表';
         }
     
         // 修复14：登录状态管理
         function updateLoginState(isLoggedIn) {
             if (isLoggedIn && currentUser) {
-                safeSetTextContent(currentNicknameSpan, currentUser.nickname);
+                // 对昵称进行完整的HTML实体解码处理
+                const unescapedNickname = currentUser.nickname
+                  .replace(/&amp;/g, '&')
+                  .replace(/&lt;/g, '<')
+                  .replace(/&gt;/g, '>')
+                  .replace(/&quot;/g, '"')
+                  .replace(/&#39;/g, "'");
+                
+                safeSetTextContent(currentNicknameSpan, unescapedNickname);
                 
                 if (currentUser.avatarUrl) {
                     currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl}`;
@@ -4300,9 +4306,17 @@
         socket.on('nickname-updated', (data) => {
           // 收到昵称更新
           if (data.userId == currentUser?.id) {
-            currentUser.nickname = data.newNickname;
-            safeSetTextContent(currentNicknameSpan, data.newNickname);
-            localStorage.setItem('chatUserNickname', data.newNickname);
+            // 对昵称进行完整的HTML实体解码处理
+            const unescapedNickname = data.newNickname
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'");
+            
+            currentUser.nickname = unescapedNickname;
+            safeSetTextContent(currentNicknameSpan, unescapedNickname);
+            localStorage.setItem('chatUserNickname', unescapedNickname);
             
             // 刷新用户列表显示
             socket.emit('get-online-users');
@@ -4479,9 +4493,17 @@
           .then(response => response.json())
           .then(data => {
             if (data.status === 'success') {
+              // 对昵称进行完整的HTML实体解码处理
+              const unescapedNickname = data.nickname
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'");
+              
               currentUser = {
                 id: data.userId.toString(),
-                nickname: data.nickname,
+                nickname: unescapedNickname,
                 avatarUrl: data.avatarUrl
               };
               currentSessionToken = data.sessionToken;
@@ -4675,9 +4697,19 @@
           
           // 检查本地存储的登录状态
           const savedUserId = localStorage.getItem('chatUserId');
-          const savedUserNickname = localStorage.getItem('chatUserNickname');
+          let savedUserNickname = localStorage.getItem('chatUserNickname');
           const savedUserAvatar = localStorage.getItem('chatUserAvatar');
           const savedSessionToken = localStorage.getItem('chatSessionToken');
+          
+          // 对从localStorage读取的昵称进行完整的HTML实体解码处理
+          if (savedUserNickname) {
+            savedUserNickname = savedUserNickname
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'");
+          }
           
           if (savedUserId && savedUserNickname && savedSessionToken) {
             currentUser = {
@@ -4855,15 +4887,9 @@
                 .replace(/>/g, "&gt;");
         }
         
-        // 宽松的Markdown解析函数 - 实现引号内内容不转义
+        // 宽松的Markdown解析函数 - 不再添加引号
         function looseMarkdownParse(content) {
             if (!content) return '';
-            
-            // 先检查内容是否包含HTML标签
-            if (/<[^>]*>/g.test(content)) {
-                // 针对包含HTML标签的内容，将其放入引号中
-                return `<div class="quoted-content">"${looseEscapeHtml(content)}"</div>`;
-            }
             
             // 使用marked解析原始内容
             if (typeof marked !== 'undefined') {
@@ -5003,7 +5029,19 @@
             return tempDiv.innerHTML;
         }
         
-        // 初始化宽松解析器
+        // 轻量级转义函数 - 只转义<和>，不转义&（用于昵称、群组名称等显示）
+        function lightEscapeHtml(unsafe) {
+            if (unsafe === null || unsafe === undefined) return '';
+            // 首先移除控制字符
+            let safeString = String(unsafe).replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+            
+            // 只转义<和>
+            return safeString
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+        }
+        
+        // 初始化消息解析器 - 不再限制HTML标签显示
         function initLooseParser() {
             // 检查是否已加载
             if (window.looseParserInitialized) return;
@@ -5022,7 +5060,7 @@
             window.removeDangerousAttributes = looseRemoveDangerousAttributes;
             
             window.looseParserInitialized = true;
-            console.log('宽松解析器已初始化');
+            console.log('消息解析器已初始化，HTML标签将正常显示');
         }
         
         // 最后启动应用
