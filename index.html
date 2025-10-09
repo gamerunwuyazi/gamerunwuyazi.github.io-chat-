@@ -657,28 +657,29 @@
         .file-link-container {
             display: flex;
             align-items: center;
-            justify-content: center;
-            padding: 10px;
+            padding: 12px;
             background-color: #f5f5f5;
             border-radius: 8px;
             border: 1px solid #ddd;
             max-width: 100%;
             word-break: break-all;
+            transition: all 0.3s;
+            cursor: pointer;
         }
         
         .file-link-container .file-link {
-            display: inline-flex;
+            display: flex;
             align-items: center;
             color: #1890ff;
             text-decoration: none !important;
             border-bottom: none !important;
             font-size: 14px;
-            transition: all 0.3s;
+            width: 100%;
         }
         
         .file-link-container .file-link::before {
-            content: "📎";
-            margin-right: 6px;
+            content: "📄";
+            margin-right: 8px;
             font-size: 16px;
             display: inline-block;
         }
@@ -691,7 +692,7 @@
             white-space: nowrap;
         }
         
-        .file-link-container .file-link:hover {
+        .file-link-container:hover {
             color: #40a9ff;
             text-decoration: underline !important;
             border-bottom: none !important;
@@ -1440,13 +1441,16 @@
         .dark-mode .file-link-container {
             background-color: var(--bg-tertiary);
             border-color: var(--border-color);
+            cursor: pointer;
+            transition: all 0.3s;
         }
         
         .dark-mode .file-link {
             color: var(--link-color);
+            width: 100%;
         }
         
-        .dark-mode .file-link-container .file-link:hover {
+        .dark-mode .file-link-container:hover {
             color: #569fff;
             text-decoration: underline !important;
             border-bottom: none !important;
@@ -1707,7 +1711,7 @@
     </div>
 
     <!-- 昵称设置模态框 -->
-    <div id="nicknameModal" class="modal">
+    <div id="nicknameModal" class="modal" style="display: none;">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
             <h3>修改昵称</h3>
@@ -1718,7 +1722,7 @@
     </div>
 
     <!-- 头像设置模态框 -->
-    <div id="avatarModal" class="modal">
+    <div id="avatarModal" class="modal" style="display: none;">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
             <h3>上传头像</h3>
@@ -1730,7 +1734,7 @@
     </div>
 
     <!-- 创建群组模态框 -->
-    <div id="createGroupModal" class="modal">
+    <div id="createGroupModal" class="modal" style="display: none;">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
             <h3>创建群组</h3>
@@ -1748,7 +1752,7 @@
     </div>
 
     <!-- 添加成员模态框 -->
-    <div id="addGroupMemberModal" class="modal">
+    <div id="addGroupMemberModal" class="modal" style="display: none;">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
             <h3>添加群组成员</h3>
@@ -1799,7 +1803,7 @@
     </div>
     
     <!-- 图片预览模态框 -->
-    <div id="imagePreviewModal" class="image-preview-modal">
+    <div id="imagePreviewModal" class="image-preview-modal" style="display: none;">
         <div class="close-preview">&times;</div>
         <div class="image-preview-content">
             <img id="previewImgElement" class="preview-img" src="" alt="预览图片">
@@ -2677,14 +2681,7 @@
                 });
             });
             
-            // 模态框背景点击关闭
-            document.querySelectorAll('.modal').forEach(modal => {
-                modal.addEventListener('click', function(e) {
-                    if (e.target === this) {
-                        this.style.display = 'none';
-                    }
-                });
-            });
+            // 移除模态框背景点击关闭功能，仅通过关闭按钮关闭模态框
             
             // 登录/注册标签切换
             loginTab.addEventListener('click', () => {
@@ -2769,6 +2766,19 @@
                         localStorage.setItem('chatUserAvatar', data.avatarUrl);
                         avatarMessage.textContent = '头像上传成功';
                         avatarMessage.style.color = 'green';
+                        
+                        // 通知服务器头像已更新，让服务器广播给所有客户端
+                        if (isConnected && socket) {
+                            socket.emit('avatar-updated', {
+                                userId: currentUser.id,
+                                avatarUrl: data.avatarUrl
+                            });
+                        }
+                        
+                        // 立即刷新在线用户列表
+                        if (isConnected && socket) {
+                            socket.emit('get-online-users');
+                        }
                         
                         setTimeout(() => {
                             hideAvatarModal();
@@ -3654,7 +3664,7 @@
                 </div>
               `;
             } else {
-              // 非图片文件显示为文件链接
+              // 非图片文件显示为文件链接卡片样式
               contentHtml = `
                 <div class="message-content">
                   <div class="file-link-container">
@@ -3734,6 +3744,18 @@
           `;
           
           container.appendChild(messageElement);
+          
+          // 添加文件卡片点击事件，确保整个卡片都可以点击
+          const fileContainer = messageElement.querySelector('.file-link-container');
+          if (fileContainer) {
+            fileContainer.addEventListener('click', function(e) {
+              const fileLink = this.querySelector('.file-link');
+              if (fileLink && e.target !== fileLink && !fileLink.contains(e.target)) {
+                e.preventDefault();
+                fileLink.click();
+              }
+            });
+          }
           
           // 添加撤回按钮事件监听
           if (isOwn) {
@@ -3891,7 +3913,12 @@
         function formatDate(timestamp) {
             const date = new Date(timestamp);
             const now = new Date();
-            const diffTime = Math.abs(now - date);
+            
+            // 仅比较日期部分（年、月、日），不考虑具体时间
+            const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            const nowOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            
+            const diffTime = Math.abs(nowOnly - dateOnly);
             const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
             
             if (diffDays === 0) return '今天';
@@ -3972,6 +3999,12 @@
                 createGroupBtn.style.display = 'inline-block';
                 logoutButton.style.display = 'inline-block';
                 
+                // 登录状态下隐藏登录按钮
+                let loginButtonElement = document.getElementById('loginButtonElement');
+                if (loginButtonElement) {
+                    loginButtonElement.style.display = 'none';
+                }
+                
                 messageInput.disabled = false;
                 messageInput.placeholder = '输入消息后按回车发送';
                 sendButton.disabled = false;
@@ -4004,6 +4037,29 @@
                 changeAvatarBtn.style.display = 'none';
                 createGroupBtn.style.display = 'none';
                 logoutButton.style.display = 'none';
+                
+                // 检查是否已经存在登录按钮，如果没有则创建
+                let loginButtonElement = document.getElementById('loginButtonElement');
+                if (!loginButtonElement) {
+                    loginButtonElement = document.createElement('button');
+                    loginButtonElement.id = 'loginButtonElement';
+                    loginButtonElement.textContent = '登录';
+                    loginButtonElement.style.background = 'rgba(255, 255, 255, 0.2)';
+                    loginButtonElement.style.border = 'none';
+                    loginButtonElement.style.color = 'white';
+                    loginButtonElement.style.padding = '5px 10px';
+                    loginButtonElement.style.borderRadius = '15px';
+                    loginButtonElement.style.cursor = 'pointer';
+                    loginButtonElement.style.marginLeft = '10px';
+                    currentAvatarImg.parentNode.appendChild(loginButtonElement);
+                    
+                    // 添加点击事件打开登录模态框
+                    loginButtonElement.addEventListener('click', function() {
+                        authModal.style.display = 'flex';
+                    });
+                } else {
+                    loginButtonElement.style.display = 'inline-block';
+                }
                 
                 messageInput.disabled = true;
                 messageInput.placeholder = '请先登录';
@@ -4156,6 +4212,12 @@
     
         socket.on('users-updated', (users) => {
           updateUserList(users);
+        });
+        
+        // 监听头像更新事件 - 虽然头像更新会通过users-updated广播，但这里保留以方便未来扩展
+        socket.on('avatar-updated', (data) => {
+          console.log('🔄 接收头像更新通知:', data);
+          // 头像更新已经通过users-updated事件处理，这里保留以支持额外的UI更新逻辑
         });
     
         socket.on('online-users', (users) => {
