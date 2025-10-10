@@ -4094,44 +4094,102 @@
             backToMainChat();
         }
     
+        // 通用消息发送函数，实现WebSocket优先、HTTP请求备用的机制
+        function sendMessageWithFallback(content, groupId = null, inputElement = null) {
+            if (!content || !currentUser || !currentSessionToken) {
+                console.log('发送消息条件不满足');
+                return false;
+            }
+
+            console.log(`📤 准备发送消息${groupId ? '到群组 ' + groupId : '（全局）'}:`, content);
+            
+            // 优先使用WebSocket发送
+            if (isConnected && socket) {
+                try {
+                    socket.emit('send-message', {
+                        userId: currentUser.id,
+                        content: content,
+                        groupId: groupId,
+                        sessionToken: currentSessionToken
+                    });
+                    
+                    // 清除输入框内容
+                    if (inputElement) {
+                        inputElement.value = '';
+                        autoResizeTextarea(inputElement);
+                    }
+                    
+                    console.log('✅ WebSocket消息发送请求已发送');
+                    return true;
+                } catch (wsError) {
+                    console.error('❌ WebSocket发送消息失败:', wsError);
+                    // 继续尝试HTTP请求
+                }
+            } else {
+                console.log('ℹ️ WebSocket未连接，尝试使用HTTP请求');
+            }
+
+            // WebSocket发送失败或未连接时，使用HTTP请求发送
+            const requestData = {
+                content: content,
+                groupId: groupId
+            };
+
+            console.log('📤 使用HTTP请求发送消息:', requestData);
+            
+            // 添加CSRF令牌和会话令牌到请求头
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentSessionToken}`
+            };
+
+            fetch(`${SERVER_URL}/api/send-message`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(requestData),
+                credentials: 'include'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP错误! 状态码: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    console.log('✅ HTTP消息发送成功，消息ID:', data.messageId);
+                    
+                    // 清除输入框内容
+                    if (inputElement) {
+                        inputElement.value = '';
+                        autoResizeTextarea(inputElement);
+                    }
+                } else {
+                    console.error('❌ HTTP消息发送失败:', data.message);
+                    showNotification('发送消息失败: ' + data.message, 'error');
+                }
+            })
+            .catch(httpError => {
+                console.error('❌ HTTP请求异常:', httpError);
+                showNotification('发送消息失败，请检查网络连接', 'error');
+            });
+
+            return true;
+        }
+
         // 修复15：消息发送函数
         function sendMessage() {
             const content = messageInput.value.trim();
-            if (!content || !currentUser || !isConnected || !currentSessionToken) {
-                console.log('发送消息条件不满足');
-                return;
-            }
-    
-            console.log('📤 发送消息:', content);
-            
-            socket.emit('send-message', {
-                userId: currentUser.id,
-                content: content,
-                sessionToken: currentSessionToken
-            });
-    
-            messageInput.value = '';
-            autoResizeTextarea(messageInput);
+            sendMessageWithFallback(content, null, messageInput);
         }
-    
+
         function sendGroupMessage() {
             const content = groupMessageInput.value.trim();
-            if (!content || !currentUser || !isConnected || !currentGroupId || !currentSessionToken) {
-                console.log('发送群组消息条件不满足');
+            if (!currentGroupId) {
+                console.log('发送群组消息条件不满足: 未选择群组');
                 return;
             }
-    
-            console.log('📤 发送群组消息:', content);
-            
-            socket.emit('send-message', {
-                userId: currentUser.id,
-                content: content,
-                groupId: currentGroupId,
-                sessionToken: currentSessionToken
-            });
-    
-            groupMessageInput.value = '';
-            autoResizeTextarea(groupMessageInput);
+            sendMessageWithFallback(content, currentGroupId, groupMessageInput);
         }
     
         // 修复16：Socket.IO事件处理
