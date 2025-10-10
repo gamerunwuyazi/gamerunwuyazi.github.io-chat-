@@ -7,11 +7,28 @@
     <meta name="viewport" content="width=1200, initial-scale=1.0">
     <title>简易版聊天室</title>
     <script>
-    // HTTPS到HTTP重定向功能
-    if (window.location.protocol === 'https:') {
-      var httpUrl = window.location.href.replace('https:', 'http:');
-      window.location.replace(httpUrl);
+    // HTTPS到HTTP重定向功能 - 防无限重定向版本
+    function safeHttpRedirect() {
+      // 检查是否已经尝试过重定向（避免循环重定向）
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirectAttempted = urlParams.get('redirected');
+      
+      if (window.location.protocol === 'https:' && !redirectAttempted) {
+        // 添加重定向标记参数
+        urlParams.set('redirected', 'true');
+        
+        // 构建新的HTTP URL
+        const httpUrl = 'http://' + window.location.host + 
+                       window.location.pathname + 
+                       (urlParams.toString() ? '?' + urlParams.toString() : '');
+        
+        // 执行重定向
+        window.location.replace(httpUrl);
+      }
     }
+    
+    // 页面加载时执行重定向检查
+    safeHttpRedirect();
     </script>
     
     <script>
