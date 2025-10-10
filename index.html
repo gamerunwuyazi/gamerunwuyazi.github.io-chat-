@@ -4137,10 +4137,11 @@
 
             console.log('📤 使用HTTP请求发送消息:', requestData);
             
-            // 添加CSRF令牌和会话令牌到请求头
+            // 添加正确的会话令牌头信息
             const headers = {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentSessionToken}`
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
             };
 
             fetch(`${SERVER_URL}/api/send-message`, {
