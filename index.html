@@ -7,6 +7,14 @@
     <meta name="viewport" content="width=1200, initial-scale=1.0">
     <title>简易版聊天室</title>
     <script>
+    // HTTPS到HTTP重定向功能
+    if (window.location.protocol === 'https:') {
+      var httpUrl = window.location.href.replace('https:', 'http:');
+      window.location.replace(httpUrl);
+    }
+    </script>
+    
+    <script>
     var _hmt = _hmt || [];
     (function() {
       var hm = document.createElement("script");
@@ -3434,7 +3442,9 @@
                 socket.emit('join-group', { 
                     groupId: groupId,
                     userId: currentUser.id,
-                    sessionToken: currentSessionToken
+                    sessionToken: currentSessionToken,
+                    offset: 0,
+                    limit: 200
                 });
             }
             
@@ -4025,7 +4035,9 @@
                         userId: currentUser.id,
                         nickname: currentUser.nickname,
                         avatarUrl: currentUser.avatarUrl,
-                        sessionToken: currentSessionToken
+                        sessionToken: currentSessionToken,
+                        offset: 0,
+                        limit: 200
                     });
                 }
                 
@@ -4220,7 +4232,9 @@
               userId: currentUser.id,
               nickname: currentUser.nickname,
               avatarUrl: currentUser.avatarUrl,
-              sessionToken: currentSessionToken
+              sessionToken: currentSessionToken,
+              offset: 0,
+              limit: 200
             });
             
             // 立即请求在线用户列表
@@ -4231,7 +4245,9 @@
               socket.emit('join-group', { 
                 groupId: currentGroupId,
                 userId: currentUser.id,
-                sessionToken: currentSessionToken
+                sessionToken: currentSessionToken,
+                offset: 0,
+                limit: 200
               });
             }
           }
@@ -4260,7 +4276,9 @@
               socket.emit('join-group', { 
                 groupId: currentGroupId,
                 userId: currentUser.id,
-                sessionToken: currentSessionToken
+                sessionToken: currentSessionToken,
+                offset: 0,
+                limit: 200
               });
             }
           }
@@ -4273,10 +4291,47 @@
           updateUserList(users);
         });
         
-        // 监听头像更新事件 - 虽然头像更新会通过users-updated广播，但这里保留以方便未来扩展
+        // 监听头像更新事件 - 更新已发送消息中的头像
         socket.on('avatar-updated', (data) => {
           console.log('🔄 接收头像更新通知:', data);
-          // 头像更新已经通过users-updated事件处理，这里保留以支持额外的UI更新逻辑
+          
+          // 确保有用户ID和头像URL
+          if (!data.userId || !data.avatarUrl) {
+            console.warn('⚠️ 头像更新数据不完整');
+            return;
+          }
+          
+          // 获取完整的头像URL
+          const fullAvatarUrl = `${SERVER_URL}${data.avatarUrl}`;
+          
+          // 1. 更新所有消息中的头像（包括主聊天和群聊）
+          const messageElements = document.querySelectorAll('.message');
+          messageElements.forEach(messageElement => {
+            // 获取消息的用户ID
+            const messageUserId = messageElement.getAttribute('data-user-id');
+            
+            // 检查用户ID是否匹配
+            if (messageUserId && messageUserId == data.userId) {
+              // 查找消息中的头像元素
+              const avatarImg = messageElement.querySelector('.message-avatar');
+              
+              if (avatarImg) {
+                // 先检查当前src是否已经是最新的，避免不必要的更新
+                if (avatarImg.src !== fullAvatarUrl) {
+                  avatarImg.src = fullAvatarUrl;
+                  console.log('✅ 更新了用户ID为', data.userId, '的消息头像');
+                }
+              }
+            }
+          });
+          
+          // 2. 同时也更新当前用户自己的头像（如果是自己更新的）
+          if (currentUser && currentUser.id == data.userId) {
+            const currentAvatarImg = document.getElementById('currentAvatar');
+            if (currentAvatarImg && currentAvatarImg.src !== fullAvatarUrl) {
+              currentAvatarImg.src = fullAvatarUrl;
+            }
+          }
         });
     
         socket.on('online-users', (users) => {
@@ -4315,7 +4370,15 @@
             lastMessageUpdate = data.lastUpdate;
           }
           
-          messageContainer.innerHTML = '';
+          // 保存是否有更多消息和下一页偏移量的信息
+          window.globalHasMoreMessages = data.hasMore || false;
+          window.globalNextOffset = data.offset || 0;
+          
+          // 如果是首次加载，清空容器
+          if (!hasReceivedHistory) {
+            messageContainer.innerHTML = '';
+            hasReceivedHistory = true;
+          }
           
           if (!data.messages || data.messages.length === 0) {
             emptyState.style.display = 'block';
@@ -4324,16 +4387,39 @@
           
           emptyState.style.display = 'none';
           
-          data.messages.forEach(message => {
-            const isOwn = currentUser && message.userId == currentUser.id;
-            addMessage(message, isOwn, false);
-          });
+          // 流式渲染 - 逐条渲染消息，避免一次性渲染大量DOM节点
+          let currentIndex = 0;
+          const messagesToRender = data.messages;
           
-          if (messageCount) {
-            messageCount.textContent = `消息数量: ${data.messages.length}`;
+          // 定义渲染函数
+          function renderNextMessage() {
+            if (currentIndex < messagesToRender.length) {
+              const message = messagesToRender[currentIndex];
+              const isOwn = currentUser && message.userId == currentUser.id;
+              addMessage(message, isOwn, false);
+              currentIndex++;
+              
+              // 使用requestAnimationFrame确保渲染平滑
+              requestAnimationFrame(() => {
+                renderNextMessage();
+              });
+            } else {
+              // 所有消息渲染完成
+              if (messageCount) {
+                const count = messageContainer.querySelectorAll('.message').length;
+                messageCount.textContent = `消息数量: ${count}`;
+              }
+              scrollToBottom(messageContainer);
+              
+              // 如果有更多消息，显示加载更多按钮
+              if (window.globalHasMoreMessages) {
+                showLoadMoreButton('global');
+              }
+            }
           }
           
-          scrollToBottom(messageContainer);
+          // 开始渲染第一条消息
+          renderNextMessage();
         })
         
         // 接收所有群消息被撤回的通知
@@ -4404,7 +4490,15 @@
             lastMessageUpdate = data.lastUpdate;
           }
           
-          groupMessageContainer.innerHTML = '';
+          // 保存是否有更多消息和下一页偏移量的信息
+          window.groupHasMoreMessages = data.hasMore || false;
+          window.groupNextOffset = data.offset || 0;
+          
+          // 如果是首次加载，清空容器
+          if (groupMessageContainer.innerHTML.trim() === '' || 
+              groupMessageContainer.querySelector('.empty-state')) {
+            groupMessageContainer.innerHTML = '';
+          }
           
           if (!data.messages || data.messages.length === 0) {
             groupMessageContainer.innerHTML = `
@@ -4416,12 +4510,35 @@
             return;
           }
           
-          data.messages.forEach(message => {
-            const isOwn = currentUser && message.userId == currentUser.id;
-            addMessage(message, isOwn, true);
-          });
+          // 流式渲染 - 逐条渲染消息，避免一次性渲染大量DOM节点
+          let currentIndex = 0;
+          const messagesToRender = data.messages;
           
-          scrollToBottom(groupMessageContainer);
+          // 定义渲染函数
+          function renderNextMessage() {
+            if (currentIndex < messagesToRender.length) {
+              const message = messagesToRender[currentIndex];
+              const isOwn = currentUser && message.userId == currentUser.id;
+              addMessage(message, isOwn, true);
+              currentIndex++;
+              
+              // 使用requestAnimationFrame确保渲染平滑
+              requestAnimationFrame(() => {
+                renderNextMessage();
+              });
+            } else {
+              // 所有消息渲染完成
+              scrollToBottom(groupMessageContainer);
+              
+              // 如果有更多消息，显示加载更多按钮
+              if (window.groupHasMoreMessages) {
+                showLoadMoreButton('group');
+              }
+            }
+          }
+          
+          // 开始渲染第一条消息
+          renderNextMessage();
         });
     
         socket.on('nickname-updated', (data) => {
@@ -4454,6 +4571,73 @@
             alert(`错误: ${error.message}`);
         });
     
+        // 显示加载更多按钮
+        function showLoadMoreButton(type) {
+            // 先移除已有的加载更多按钮
+            const existingButton = document.getElementById(`load-more-${type}`);
+            if (existingButton) {
+                existingButton.remove();
+            }
+            
+            // 创建加载更多按钮
+            const loadMoreButton = document.createElement('button');
+            loadMoreButton.id = `load-more-${type}`;
+            loadMoreButton.textContent = '加载更多消息';
+            loadMoreButton.className = 'load-more-button';
+            loadMoreButton.style.display = 'block';
+            loadMoreButton.style.margin = '10px auto';
+            loadMoreButton.style.padding = '8px 16px';
+            loadMoreButton.style.backgroundColor = '#3498db';
+            loadMoreButton.style.color = 'white';
+            loadMoreButton.style.border = 'none';
+            loadMoreButton.style.borderRadius = '4px';
+            loadMoreButton.style.cursor = 'pointer';
+            
+            // 添加点击事件
+            loadMoreButton.addEventListener('click', function() {
+                this.textContent = '加载中...';
+                this.disabled = true;
+                loadMoreMessages(type);
+            });
+            
+            // 根据类型添加到不同的容器
+            if (type === 'global') {
+                messageContainer.parentNode.insertBefore(loadMoreButton, messageContainer.nextSibling);
+            } else if (type === 'group') {
+                groupMessageContainer.parentNode.insertBefore(loadMoreButton, groupMessageContainer.nextSibling);
+            }
+        }
+        
+        // 加载更多消息
+        function loadMoreMessages(type) {
+            if (!currentUser || !currentSessionToken) {
+                return;
+            }
+            
+            if (type === 'global') {
+                const offset = window.globalNextOffset || 0;
+                socket.emit('user-joined', {
+                    userId: currentUser.id,
+                    nickname: currentUser.nickname,
+                    avatarUrl: currentUser.avatarUrl,
+                    sessionToken: currentSessionToken,
+                    offset: offset,
+                    limit: 200,
+                    loadMore: true // 标记为加载更多
+                });
+            } else if (type === 'group' && currentGroupId) {
+                const offset = window.groupNextOffset || 0;
+                socket.emit('join-group', {
+                    groupId: currentGroupId,
+                    userId: currentUser.id,
+                    sessionToken: currentSessionToken,
+                    offset: offset,
+                    limit: 200,
+                    loadMore: true // 标记为加载更多
+                });
+            }
+        }
+        
         // 修复17：事件监听器初始化
         function initializeEventListeners() {
             console.log('初始化事件监听器');
@@ -4647,7 +4831,9 @@
                 userId: currentUser.id,
                 nickname: currentUser.nickname,
                 avatarUrl: currentUser.avatarUrl,
-                sessionToken: currentSessionToken
+                sessionToken: currentSessionToken,
+                offset: 0,
+                limit: 200
               });
               
               // 立即请求在线用户列表
@@ -4918,7 +5104,9 @@
                     socket.emit('join-group', {
                         groupId: groupId,
                         userId: currentUser.id,
-                        sessionToken: currentSessionToken
+                        sessionToken: currentSessionToken,
+                        offset: 0,
+                        limit: 200
                     });
                 } else {
                     alert(data.message || '撤回消息失败');
