@@ -7,28 +7,17 @@
     <meta name="viewport" content="width=1200, initial-scale=1.0">
     <title>简易版聊天室</title>
     <script>
-    // HTTPS到HTTP重定向功能 - 防无限重定向版本
-    function safeHttpRedirect() {
-      // 检查是否已经尝试过重定向（避免循环重定向）
-      const urlParams = new URLSearchParams(window.location.search);
-      const redirectAttempted = urlParams.get('redirected');
-      
-      if (window.location.protocol === 'https:' && !redirectAttempted) {
-        // 添加重定向标记参数
-        urlParams.set('redirected', 'true');
-        
-        // 构建新的HTTP URL
-        const httpUrl = 'http://' + window.location.host + 
-                       window.location.pathname + 
-                       (urlParams.toString() ? '?' + urlParams.toString() : '');
-        
-        // 执行重定向
-        window.location.replace(httpUrl);
+    // 检测协议并提示用户
+    function checkProtocol() {
+      // 检查是否是HTTP协议访问
+      if (window.location.protocol === 'http:') {
+        // 显示提示信息，建议用户使用HTTP访问（根据需求描述）
+        alert('请使用HTTP访问本网页以获得最佳体验');
       }
     }
     
-    // 页面加载时执行重定向检查
-    safeHttpRedirect();
+    // 页面加载时执行协议检查
+    checkProtocol();
     </script>
     
     <script>
@@ -1931,7 +1920,7 @@
 
         <div class="status-bar">
             <div id="connectionStatus">连接状态: 连接中...</div>
-            <div id="messageCount">消息数量: 0</div>
+            <div id="messageCount">消息数量: 0（向上滚动加载消息）</div>
             <div id="storageStatus">存储状态: 未知</div>
         </div>
     </div>
@@ -2005,7 +1994,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
     document.addEventListener('DOMContentLoaded', function() {
-        const SERVER_URL = 'http://152.136.175.209:3000';
+        const SERVER_URL = 'http://localhost:3000';
         
         // 初始化变量
         let currentUser = null;
@@ -2669,7 +2658,7 @@
           
           // 更新消息计数
           if (!isGroupChat && messageCount) {
-            messageCount.textContent = `消息数量: ${messages.length}`;
+            messageCount.textContent = `消息数量: ${messages.length}（向上滚动加载消息）`;
           }
           
           console.log(`✅ 更新消息显示: ${messages.length} 条消息`);
@@ -3672,13 +3661,19 @@
             groupImageInput.disabled = true;
         }
         
-        function addMessageToContainer(message, isOwn, isGroupChat, container) {
+        function addMessageToContainer(message, isOwn, isGroupChat, container, isLoadMore = false) {
           const messageElement = document.createElement('div');
           messageElement.className = `message ${isOwn ? 'own-message' : ''}`;
           messageElement.setAttribute('data-user-id', message.userId);
           messageElement.setAttribute('data-message-id', message.id);
           
+          // 统一构建消息HTML结构
+          const avatarHtml = message.avatarUrl ? 
+            `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="${message.nickname}">` : 
+            '';
+          
           let contentHtml = '';
+          
           if (message.imageUrl) {
             // 检查是否为图片文件（根据扩展名）
             const isImage = message.filename ? /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i.test(message.filename) : !message.filename;
@@ -3705,60 +3700,12 @@
           } else {
             // 使用全局的safeMarkdownParse函数，确保宽松解析器可以正确替换
             const parsedContent = window.safeMarkdownParse(message.content);
-            // 创建一个临时div来解析HTML内容
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = parsedContent;
-            // 创建消息内容容器
-            const contentContainer = document.createElement('div');
-            contentContainer.className = 'message-content';
-            // 直接将解析后的DOM节点添加到内容容器
-            while (tempDiv.firstChild) {
-              contentContainer.appendChild(tempDiv.firstChild);
-            }
-            // 在当前分支中定义avatarHtml变量
-            const avatarHtml = message.avatarUrl ? 
-              `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="${message.nickname}">` : 
-              '';
-            // 先将所有内容构建为DOM节点
-            messageElement.innerHTML = `
-              <div class="message-header">
-                ${avatarHtml}
-                <div class="nickname">${lightEscapeHtml(message.nickname)}</div>
+            contentHtml = `
+              <div class="message-content">
+                ${parsedContent}
               </div>
-              <div class="message-time">${formatTime(message.timestamp)}</div>
-              ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
             `;
-            // 然后在正确的位置插入内容容器
-            const header = messageElement.querySelector('.message-header');
-            if (header) {
-              header.after(contentContainer);
-            }
-            // 直接返回，避免后面的innerHTML设置
-            container.appendChild(messageElement);
-            
-            // 添加撤回按钮事件监听
-            if (isOwn) {
-              const deleteButton = messageElement.querySelector('.delete-button');
-              if (deleteButton) {
-                deleteButton.addEventListener('click', function(e) {
-                  e.stopPropagation();
-                  const messageId = this.getAttribute('data-id');
-                  console.log('撤回消息:', messageId);
-                  socket.emit('delete-message', {
-                    messageId: messageId,
-                    userId: currentUser.id,
-                    sessionToken: currentSessionToken
-                  });
-                });
-              }
-            }
-            
-            return;
           }
-          
-          const avatarHtml = message.avatarUrl ? 
-            `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="${message.nickname}">` : 
-            '';
           
           messageElement.innerHTML = `
             <div class="message-header">
@@ -3770,7 +3717,18 @@
             ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
           `;
           
-          container.appendChild(messageElement);
+          // 修复：统一消息插入逻辑，确保无论消息类型如何都能按正确顺序插入
+          if (isLoadMore) {
+            // 向上滚动加载的消息应该插入到容器开头
+            if (container.firstChild) {
+              container.insertBefore(messageElement, container.firstChild);
+            } else {
+              container.appendChild(messageElement);
+            }
+          } else {
+            // 普通消息添加到容器末尾
+            container.appendChild(messageElement);
+          }
           
           // 添加文件卡片点击事件，确保整个卡片都可以点击
           const fileContainer = messageElement.querySelector('.file-link-container');
@@ -3851,8 +3809,8 @@
           });
         }
     
-        // 修复11：消息处理函数
-        function addMessage(message, isOwn = false, isGroup = false) {
+        // 修复11：消息处理函数 - 增加isLoadMore参数以支持向上滚动加载
+        function addMessage(message, isOwn = false, isGroup = false, isLoadMore = false) {
           const targetContainer = isGroup ? groupMessageContainer : messageContainer;
           const targetEmptyState = isGroup ? groupMessageContainer.querySelector('.empty-state') : emptyState;
           
@@ -3860,14 +3818,17 @@
             targetEmptyState.style.display = 'none';
           }
           
-          addMessageToContainer(message, isOwn, isGroup, targetContainer);
+          addMessageToContainer(message, isOwn, isGroup, targetContainer, isLoadMore);
           
           if (!isGroup && messageCount) {
             const count = messageContainer.querySelectorAll('.message').length;
-            messageCount.textContent = `消息数量: ${count}`;
+            messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
           }
           
-          scrollToBottom(targetContainer);
+          // 只有非向上滚动加载时才自动滚动到底部
+          if (!isLoadMore) {
+            scrollToBottom(targetContainer);
+          }
         }
     
         // 修复12：连接状态和存储状态
@@ -3963,16 +3924,69 @@
     
         function scrollToBottom(container) {
             if (autoScrollEnabled) {
-                container.scrollTo({
-                    top: container.scrollHeight,
-                    behavior: 'smooth'
-                });
+                try {
+                    // 先尝试直接设置滚动位置（更可靠）
+                    container.scrollTop = container.scrollHeight;
+                    
+                    // 双重检查确保滚动到底部
+                    setTimeout(() => {
+                        if (container.scrollTop < container.scrollHeight - container.clientHeight) {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    }, 50);
+                } catch (error) {
+                    console.error('滚动到底部失败:', error);
+                    // 降级方案
+                    container.scrollTop = container.scrollHeight;
+                }
             }
         }
     
         function autoResizeTextarea(textarea) {
             textarea.style.height = 'auto';
             textarea.style.height = textarea.scrollHeight + 'px';
+        }
+        
+        // 保持滚动条位置 - 参考box-im的实现
+        function holdingScrollBar(container, prevScrollHeight) {
+            // 确保DOM完全渲染
+            setTimeout(() => {
+                // 计算新的滚动位置
+                const newScrollHeight = container.scrollHeight;
+                const addedHeight = newScrollHeight - (prevScrollHeight || 0);
+                const targetScrollTop = addedHeight;
+                
+                // 直接设置滚动行为为auto，避免任何动画
+                container.style.scrollBehavior = 'auto';
+                
+                // 设置初始滚动位置
+                container.scrollTop = targetScrollTop;
+                
+                // 使用多轮检查确保滚动位置正确
+                const delays = [10, 50, 100, 200, 300];
+                delays.forEach((delay, index) => {
+                    setTimeout(() => {
+                        // 再次计算，因为DOM可能还在继续渲染
+                        const currentHeight = container.scrollHeight;
+                        const adjustedScrollTop = currentHeight - prevScrollHeight;
+                        
+                        // 只有当滚动位置差异较大时才调整，避免频繁调整
+                        if (Math.abs(container.scrollTop - adjustedScrollTop) > 5) {
+                            container.scrollTop = adjustedScrollTop;
+                        }
+                        
+                        // 最后一轮检查后，再微小调整一下，解决iOS等设备上的白屏问题
+                        if (index === delays.length - 1) {
+                            setTimeout(() => {
+                                container.scrollTop += 1;
+                                setTimeout(() => {
+                                    container.scrollTop -= 1;
+                                }, 5);
+                            }, 50);
+                        }
+                    }, delay);
+                });
+            }, 10);
         }
     
         function toggleSidebar() {
@@ -4054,7 +4068,7 @@
                         avatarUrl: currentUser.avatarUrl,
                         sessionToken: currentSessionToken,
                         offset: 0,
-                        limit: 200
+                        limit: 20
                     });
                 }
                 
@@ -4243,31 +4257,31 @@
           startAutoRefresh();
           
           // 登录后立即加入聊天室
-          if (currentUser && currentSessionToken) {
-            console.log('🔄 连接建立，重新加入聊天室');
-            socket.emit('user-joined', {
-              userId: currentUser.id,
-              nickname: currentUser.nickname,
-              avatarUrl: currentUser.avatarUrl,
-              sessionToken: currentSessionToken,
-              offset: 0,
-              limit: 200
-            });
-            
-            // 立即请求在线用户列表
-            socket.emit('get-online-users');
-            
-            // 如果正在群组聊天，重新加入群组
-            if (currentGroupId) {
-              socket.emit('join-group', { 
-                groupId: currentGroupId,
+            if (currentUser && currentSessionToken) {
+              console.log('🔄 连接建立，重新加入聊天室');
+              socket.emit('user-joined', {
                 userId: currentUser.id,
+                nickname: currentUser.nickname,
+                avatarUrl: currentUser.avatarUrl,
                 sessionToken: currentSessionToken,
                 offset: 0,
-                limit: 200
+                limit: 20
               });
+              
+              // 立即请求在线用户列表
+              socket.emit('get-online-users');
+              
+              // 如果正在群组聊天，重新加入群组
+              if (currentGroupId) {
+                socket.emit('join-group', { 
+                  groupId: currentGroupId,
+                  userId: currentUser.id,
+                  sessionToken: currentSessionToken,
+                  offset: 0,
+                  limit: 20
+                });
+              }
             }
-          }
         });
         
         socket.on('reconnect', (attemptNumber) => {
@@ -4276,14 +4290,16 @@
           checkStorageStatus();
           
           // 重新加入聊天室
-          if (currentUser && currentSessionToken) {
-            console.log('🔄 重新连接成功，重新加入聊天室');
-            socket.emit('user-joined', {
-              userId: currentUser.id,
-              nickname: currentUser.nickname,
-              avatarUrl: currentUser.avatarUrl,
-              sessionToken: currentSessionToken
-            });
+            if (currentUser && currentSessionToken) {
+              console.log('🔄 重新连接成功，重新加入聊天室');
+              socket.emit('user-joined', {
+                userId: currentUser.id,
+                nickname: currentUser.nickname,
+                avatarUrl: currentUser.avatarUrl,
+                sessionToken: currentSessionToken,
+                offset: 0,
+                limit: 20
+              });
             
             // 重新请求在线用户列表
             socket.emit('get-online-users');
@@ -4377,7 +4393,7 @@
           // 更新消息计数
           if (messageCount) {
             const count = messageContainer.querySelectorAll('.message').length;
-            messageCount.textContent = `消息数量: ${count}`;
+            messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
           }
         });
     
@@ -4413,7 +4429,8 @@
             if (currentIndex < messagesToRender.length) {
               const message = messagesToRender[currentIndex];
               const isOwn = currentUser && message.userId == currentUser.id;
-              addMessage(message, isOwn, false);
+              // 传递loadMore参数给addMessage函数
+              addMessage(message, isOwn, false, data.loadMore);
               currentIndex++;
               
               // 使用requestAnimationFrame确保渲染平滑
@@ -4422,16 +4439,32 @@
               });
             } else {
               // 所有消息渲染完成
-              if (messageCount) {
-                const count = messageContainer.querySelectorAll('.message').length;
-                messageCount.textContent = `消息数量: ${count}`;
-              }
-              scrollToBottom(messageContainer);
-              
-              // 如果有更多消息，显示加载更多按钮
-              if (window.globalHasMoreMessages) {
-                showLoadMoreButton('global');
-              }
+          if (messageCount) {
+            const count = messageContainer.querySelectorAll('.message').length;
+            messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
+          }
+          
+          // 清除加载中状态
+          window.isLoadingMoreMessages = false;
+          
+          // 移除加载中提示
+          const loadingIndicators = document.querySelectorAll('.loading-indicator');
+          loadingIndicators.forEach(el => el.remove());
+          
+          // 向上滚动加载时处理
+          if (data.loadMore) {
+            // 使用优化的滚动位置保持函数，避免滚动跳动
+            holdingScrollBar(messageContainer, window.globalPrevScrollHeight);
+          } else {
+            // 非向上滚动加载时自动滚动到底部
+            scrollToBottom(messageContainer);
+          }
+          
+          // 隐藏加载更多按钮，使用向上滚动加载
+          const loadMoreBtn = document.getElementById('load-more-global');
+          if (loadMoreBtn) {
+            loadMoreBtn.style.display = 'none';
+          }
             }
           }
           
@@ -4536,7 +4569,8 @@
             if (currentIndex < messagesToRender.length) {
               const message = messagesToRender[currentIndex];
               const isOwn = currentUser && message.userId == currentUser.id;
-              addMessage(message, isOwn, true);
+              // 传递loadMore参数给addMessage函数
+              addMessage(message, isOwn, true, data.loadMore);
               currentIndex++;
               
               // 使用requestAnimationFrame确保渲染平滑
@@ -4545,12 +4579,27 @@
               });
             } else {
               // 所有消息渲染完成
-              scrollToBottom(groupMessageContainer);
-              
-              // 如果有更多消息，显示加载更多按钮
-              if (window.groupHasMoreMessages) {
-                showLoadMoreButton('group');
-              }
+          // 清除加载中状态
+          window.isLoadingMoreMessages = false;
+          
+          // 移除加载中提示
+          const loadingIndicators = document.querySelectorAll('.loading-indicator');
+          loadingIndicators.forEach(el => el.remove());
+          
+          // 向上滚动加载时处理
+          if (data.loadMore) {
+            // 使用优化的滚动位置保持函数，避免滚动跳动
+            holdingScrollBar(groupMessageContainer, window.groupPrevScrollHeight);
+          } else {
+            // 非向上滚动加载时自动滚动到底部
+            scrollToBottom(groupMessageContainer);
+          }
+          
+          // 隐藏加载更多按钮，使用向上滚动加载
+          const loadMoreBtn = document.getElementById('load-more-group');
+          if (loadMoreBtn) {
+            loadMoreBtn.style.display = 'none';
+          }
             }
           }
           
@@ -4631,28 +4680,32 @@
                 return;
             }
             
-            if (type === 'global') {
-                const offset = window.globalNextOffset || 0;
-                socket.emit('user-joined', {
-                    userId: currentUser.id,
-                    nickname: currentUser.nickname,
-                    avatarUrl: currentUser.avatarUrl,
-                    sessionToken: currentSessionToken,
-                    offset: offset,
-                    limit: 200,
-                    loadMore: true // 标记为加载更多
-                });
-            } else if (type === 'group' && currentGroupId) {
-                const offset = window.groupNextOffset || 0;
-                socket.emit('join-group', {
-                    groupId: currentGroupId,
-                    userId: currentUser.id,
-                    sessionToken: currentSessionToken,
-                    offset: offset,
-                    limit: 200,
-                    loadMore: true // 标记为加载更多
-                });
-            }
+            // loadMoreMessages函数已被向上滚动加载替代
+                // 此函数保留但不实际使用，向上滚动时会自动触发加载
+                console.log('loadMoreMessages被调用，现已使用向上滚动加载替代');
+                
+                if (type === 'global') {
+                    const offset = window.globalNextOffset || 0;
+                    socket.emit('user-joined', {
+                        userId: currentUser.id,
+                        nickname: currentUser.nickname,
+                        avatarUrl: currentUser.avatarUrl,
+                        sessionToken: currentSessionToken,
+                        offset: offset,
+                        limit: 20,
+                        loadMore: true // 标记为加载更多
+                    });
+                } else if (type === 'group' && currentGroupId) {
+                    const offset = window.groupNextOffset || 0;
+                    socket.emit('join-group', {
+                        groupId: currentGroupId,
+                        userId: currentUser.id,
+                        sessionToken: currentSessionToken,
+                        offset: offset,
+                        limit: 20,
+                        loadMore: true // 标记为加载更多
+                    });
+                }
         }
         
         // 修复17：事件监听器初始化
@@ -4767,21 +4820,106 @@
                 }
             }
     
-            // 消息容器滚动事件
-            messageContainer.addEventListener('scroll', function() {
+            // 消息容器滚动事件 - 添加向上滚动加载功能
+            messageContainer.addEventListener('scroll', function(e) {
                 if (!isScrolledToBottom(this)) {
                     autoScrollEnabled = false;
                 } else {
                     autoScrollEnabled = true;
                 }
+                
+                // 向上滚动到顶部时加载新消息
+            if (this.scrollTop < 50 && window.globalHasMoreMessages) { // 使用50px的阈值，避免必须滚动到绝对顶部
+                // 避免频繁触发
+                if (!window.isLoadingMoreMessages) {
+                    // 阻止默认滚动行为，避免滚动动画
+                    e.preventDefault();
+                    
+                    window.isLoadingMoreMessages = true;
+                    
+                    // 记录当前滚动位置信息（用于加载后恢复）
+                    window.globalPrevScrollHeight = this.scrollHeight;
+                    
+                    const offset = window.globalNextOffset || 0;
+                    socket.emit('user-joined', {
+                        userId: currentUser.id,
+                        nickname: currentUser.nickname,
+                        avatarUrl: currentUser.avatarUrl,
+                        sessionToken: currentSessionToken,
+                        offset: offset,
+                        limit: 20,
+                        loadMore: true
+                    });
+                    
+                    // 添加加载中提示
+                    const loadingIndicator = document.createElement('div');
+                    loadingIndicator.className = 'loading-indicator';
+                    loadingIndicator.textContent = '加载中...';
+                    loadingIndicator.style.textAlign = 'center';
+                    loadingIndicator.style.padding = '10px';
+                    loadingIndicator.style.color = '#666';
+                    this.insertBefore(loadingIndicator, this.firstChild);
+                }
+            }
+            
+            // 持续更新滚动位置设置，确保在用户滚动时不会自动滚动到上方
+            if (this.scrollTop > 0) {
+                autoScrollEnabled = false;
+                // 保存当前滚动位置，用于在需要时恢复
+                window.globalLastScrollPosition = this.scrollTop;
+            } else {
+                autoScrollEnabled = true;
+            }
             });
-    
-            groupMessageContainer.addEventListener('scroll', function() {
+
+            groupMessageContainer.addEventListener('scroll', function(e) {
                 if (!isScrolledToBottom(this)) {
                     autoScrollEnabled = false;
                 } else {
                     autoScrollEnabled = true;
                 }
+                
+                // 向上滚动到顶部时加载新消息
+            if (this.scrollTop < 50 && window.groupHasMoreMessages && currentGroupId) { // 使用50px的阈值，避免必须滚动到绝对顶部
+                // 避免频繁触发
+                if (!window.isLoadingMoreMessages) {
+                    // 阻止默认滚动行为，避免滚动动画
+                    e.preventDefault();
+                    
+                    window.isLoadingMoreMessages = true;
+                    
+                    // 记录当前滚动位置信息（用于加载后恢复）
+                    window.groupPrevScrollHeight = this.scrollHeight;
+                    
+                    const offset = window.groupNextOffset || 0;
+                    socket.emit('join-group', {
+                        groupId: currentGroupId,
+                        userId: currentUser.id,
+                        sessionToken: currentSessionToken,
+                        offset: offset,
+                        limit: 20,
+                        loadMore: true
+                    });
+                    
+                    // 添加加载中提示
+                    const loadingIndicator = document.createElement('div');
+                    loadingIndicator.className = 'loading-indicator';
+                    loadingIndicator.textContent = '加载中...';
+                    loadingIndicator.style.textAlign = 'center';
+                    loadingIndicator.style.padding = '10px';
+                    loadingIndicator.style.color = '#666';
+                    this.insertBefore(loadingIndicator, this.firstChild);
+                }
+            }
+            
+            // 持续更新滚动位置设置，确保在用户滚动时不会自动滚动到上方
+            if (this.scrollTop > 0) {
+                autoScrollEnabled = false;
+                // 保存当前滚动位置，用于在需要时恢复
+                window.groupLastScrollPosition = this.scrollTop;
+            } else {
+                autoScrollEnabled = true;
+            }
             });
     
             // 初始化Markdown工具栏
@@ -4850,7 +4988,7 @@
                 avatarUrl: currentUser.avatarUrl,
                 sessionToken: currentSessionToken,
                 offset: 0,
-                limit: 200
+                limit: 20
               });
               
               // 立即请求在线用户列表
@@ -5066,6 +5204,18 @@
           checkStorageStatus();
           
           // 应用初始化完成
+          
+          // 初始化完成后，设置延迟再检查是否需要滚动到底部
+          setTimeout(() => {
+            if (currentUser && autoScrollEnabled) {
+              // 确保当前显示的消息容器滚动到底部
+              if (mainChat.style.display !== 'none' && messageContainer.scrollHeight > 0) {
+                scrollToBottom(messageContainer);
+              } else if (groupChat.style.display !== 'none' && currentGroupId && groupMessageContainer.scrollHeight > 0) {
+                scrollToBottom(groupMessageContainer);
+              }
+            }
+          }, 1000); // 1秒延迟，确保消息加载完成
         }
     
         // 修复21：全局函数和启动
