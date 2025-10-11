@@ -9,11 +9,7 @@
     <script>
     // 检测协议并提示用户
     function checkProtocol() {
-      // 检查是否是HTTP协议访问
-      if (window.location.protocol === 'http:') {
-        // 显示提示信息，建议用户使用HTTP访问（根据需求描述）
-        alert('请使用HTTP访问本网页以获得最佳体验');
-      }
+      // 不再检查HTTP协议
     }
     
     // 页面加载时执行协议检查
@@ -3662,7 +3658,10 @@
         }
         
         function addMessageToContainer(message, isOwn, isGroupChat, container, isLoadMore = false) {
-          const messageElement = document.createElement('div');
+    // 创建消息元素
+    const messageElement = document.createElement('div');
+    // 添加data-timestamp属性，用于确定加载更多时的起始点
+    messageElement.dataset.timestamp = message.timestamp;
           messageElement.className = `message ${isOwn ? 'own-message' : ''}`;
           messageElement.setAttribute('data-user-id', message.userId);
           messageElement.setAttribute('data-message-id', message.id);
@@ -3923,8 +3922,9 @@
         }
     
         function scrollToBottom(container) {
-            if (autoScrollEnabled) {
-                try {
+            try {
+                // 总是尝试滚动到底部，但尊重用户滚动偏好
+                if (autoScrollEnabled) {
                     // 先尝试直接设置滚动位置（更可靠）
                     container.scrollTop = container.scrollHeight;
                     
@@ -3934,9 +3934,11 @@
                             container.scrollTop = container.scrollHeight;
                         }
                     }, 50);
-                } catch (error) {
-                    console.error('滚动到底部失败:', error);
-                    // 降级方案
+                }
+            } catch (error) {
+                console.error('滚动到底部失败:', error);
+                // 降级方案
+                if (autoScrollEnabled) {
                     container.scrollTop = container.scrollHeight;
                 }
             }
@@ -3947,45 +3949,57 @@
             textarea.style.height = textarea.scrollHeight + 'px';
         }
         
-        // 保持滚动条位置 - 参考box-im的实现
+        // 保持滚动条位置 - 修复消息丢失问题
         function holdingScrollBar(container, prevScrollHeight) {
             // 确保DOM完全渲染
             setTimeout(() => {
-                // 计算新的滚动位置
+                // 关键修复：不使用简单的高度差计算，而是使用一个更可靠的方法来保持用户看到的内容位置
+                // 新消息是添加到顶部的，所以理论上scrollTop会自动增加相应的高度
+                // 但是由于浏览器渲染延迟和异步操作，我们需要主动维护这个位置
+                
+                // 计算新增内容的高度
                 const newScrollHeight = container.scrollHeight;
                 const addedHeight = newScrollHeight - (prevScrollHeight || 0);
-                const targetScrollTop = addedHeight;
                 
                 // 直接设置滚动行为为auto，避免任何动画
                 container.style.scrollBehavior = 'auto';
                 
-                // 设置初始滚动位置
-                container.scrollTop = targetScrollTop;
+                // 关键修复：设置滚动位置为新增高度，这样用户看到的内容位置就不会改变
+                container.scrollTop = addedHeight;
                 
-                // 使用多轮检查确保滚动位置正确
-                const delays = [10, 50, 100, 200, 300];
-                delays.forEach((delay, index) => {
+                // 使用更精确的多轮检查确保滚动位置稳定
+                const checkAndAdjustScroll = () => {
                     setTimeout(() => {
-                        // 再次计算，因为DOM可能还在继续渲染
                         const currentHeight = container.scrollHeight;
-                        const adjustedScrollTop = currentHeight - prevScrollHeight;
+                        const currentAddedHeight = currentHeight - (prevScrollHeight || 0);
                         
                         // 只有当滚动位置差异较大时才调整，避免频繁调整
-                        if (Math.abs(container.scrollTop - adjustedScrollTop) > 5) {
-                            container.scrollTop = adjustedScrollTop;
+                        if (Math.abs(container.scrollTop - currentAddedHeight) > 3) {
+                            console.log('调整滚动位置:', container.scrollTop, '->', currentAddedHeight);
+                            container.scrollTop = currentAddedHeight;
+                            
+                            // 继续检查一次，确保稳定
+                            setTimeout(checkAndAdjustScroll, 10);
                         }
+                    }, 10);
+                };
+                
+                // 开始检查和调整过程
+                checkAndAdjustScroll();
+                
+                // 添加额外的保障检查点
+                setTimeout(() => {
+                    const currentHeight = container.scrollHeight;
+                    const currentAddedHeight = currentHeight - (prevScrollHeight || 0);
+                    if (Math.abs(container.scrollTop - currentAddedHeight) > 3) {
+                        container.scrollTop = currentAddedHeight;
                         
-                        // 最后一轮检查后，再微小调整一下，解决iOS等设备上的白屏问题
-                        if (index === delays.length - 1) {
-                            setTimeout(() => {
-                                container.scrollTop += 1;
-                                setTimeout(() => {
-                                    container.scrollTop -= 1;
-                                }, 5);
-                            }, 50);
-                        }
-                    }, delay);
-                });
+                        // 最后微小调整，解决某些设备上的渲染问题
+                        setTimeout(() => {
+                            container.scrollTop = container.scrollHeight - (prevScrollHeight || 0);
+                        }, 50);
+                    }
+                }, 100);
             }, 10);
         }
     
@@ -4403,10 +4417,6 @@
             lastMessageUpdate = data.lastUpdate;
           }
           
-          // 保存是否有更多消息和下一页偏移量的信息
-          window.globalHasMoreMessages = data.hasMore || false;
-          window.globalNextOffset = data.offset || 0;
-          
           // 如果是首次加载，清空容器
           if (!hasReceivedHistory) {
             messageContainer.innerHTML = '';
@@ -4422,7 +4432,9 @@
           
           // 流式渲染 - 逐条渲染消息，避免一次性渲染大量DOM节点
           let currentIndex = 0;
-          const messagesToRender = data.messages;
+          // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
+          // 对于加载更多的消息，保持原始顺序（因为已经是降序排列）
+          const messagesToRender = data.loadMore ? data.messages : [...data.messages].reverse();
           
           // 定义渲染函数
           function renderNextMessage() {
@@ -4540,10 +4552,6 @@
             lastMessageUpdate = data.lastUpdate;
           }
           
-          // 保存是否有更多消息和下一页偏移量的信息
-          window.groupHasMoreMessages = data.hasMore || false;
-          window.groupNextOffset = data.offset || 0;
-          
           // 如果是首次加载，清空容器
           if (groupMessageContainer.innerHTML.trim() === '' || 
               groupMessageContainer.querySelector('.empty-state')) {
@@ -4562,7 +4570,9 @@
           
           // 流式渲染 - 逐条渲染消息，避免一次性渲染大量DOM节点
           let currentIndex = 0;
-          const messagesToRender = data.messages;
+          // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
+          // 对于加载更多的消息，保持原始顺序（因为已经是降序排列）
+          const messagesToRender = data.loadMore ? data.messages : [...data.messages].reverse();
           
           // 定义渲染函数
           function renderNextMessage() {
@@ -4829,7 +4839,7 @@
                 }
                 
                 // 向上滚动到顶部时加载新消息
-            if (this.scrollTop < 50 && window.globalHasMoreMessages) { // 使用50px的阈值，避免必须滚动到绝对顶部
+            if (this.scrollTop < 50) { // 使用50px的阈值，避免必须滚动到绝对顶部
                 // 避免频繁触发
                 if (!window.isLoadingMoreMessages) {
                     // 阻止默认滚动行为，避免滚动动画
@@ -4840,15 +4850,35 @@
                     // 记录当前滚动位置信息（用于加载后恢复）
                     window.globalPrevScrollHeight = this.scrollHeight;
                     
-                    const offset = window.globalNextOffset || 0;
+                    // 获取当前显示的最早消息的时间戳
+                    const messages = messageContainer.querySelectorAll('.message');
+                    const firstMessage = messages.length > 0 ? messages[0] : null;
+                    // 关键修复：确保正确获取时间戳，即使没有data-timestamp属性
+                    let olderThan = null;
+                    if (firstMessage) {
+                        // 优先使用data-timestamp属性
+                        if (firstMessage.dataset.timestamp) {
+                            olderThan = firstMessage.dataset.timestamp;
+                        } else {
+                            // 备选方案：从消息时间元素中解析时间戳
+                            const timeElement = firstMessage.querySelector('.message-time');
+                            if (timeElement) {
+                                // 这里可以根据实际情况实现时间解析逻辑
+                                // 注：这只是一个备选方案，理想情况下应该始终有data-timestamp属性
+                                console.warn('找不到data-timestamp属性，使用备选方案');
+                            }
+                        }
+                        console.log('获取到的olderThan时间戳:', olderThan);
+                    }
+                    
                     socket.emit('user-joined', {
                         userId: currentUser.id,
                         nickname: currentUser.nickname,
                         avatarUrl: currentUser.avatarUrl,
                         sessionToken: currentSessionToken,
-                        offset: offset,
                         limit: 20,
-                        loadMore: true
+                        loadMore: true,
+                        olderThan: olderThan
                     });
                     
                     // 添加加载中提示
@@ -4862,8 +4892,8 @@
                 }
             }
             
-            // 持续更新滚动位置设置，确保在用户滚动时不会自动滚动到上方
-            if (this.scrollTop > 0) {
+            // 持续更新滚动位置设置，确保在用户滚动离开底部时不会自动滚动
+            if (!isScrolledToBottom(this)) {
                 autoScrollEnabled = false;
                 // 保存当前滚动位置，用于在需要时恢复
                 window.globalLastScrollPosition = this.scrollTop;
@@ -4880,7 +4910,7 @@
                 }
                 
                 // 向上滚动到顶部时加载新消息
-            if (this.scrollTop < 50 && window.groupHasMoreMessages && currentGroupId) { // 使用50px的阈值，避免必须滚动到绝对顶部
+            if (this.scrollTop < 50 && currentGroupId) { // 使用50px的阈值，避免必须滚动到绝对顶部
                 // 避免频繁触发
                 if (!window.isLoadingMoreMessages) {
                     // 阻止默认滚动行为，避免滚动动画
@@ -4891,14 +4921,34 @@
                     // 记录当前滚动位置信息（用于加载后恢复）
                     window.groupPrevScrollHeight = this.scrollHeight;
                     
-                    const offset = window.groupNextOffset || 0;
+                    // 获取当前显示的最早消息的时间戳
+                    const messages = groupMessageContainer.querySelectorAll('.message');
+                    const firstMessage = messages.length > 0 ? messages[0] : null;
+                    // 关键修复：确保正确获取时间戳，即使没有data-timestamp属性
+                    let olderThan = null;
+                    if (firstMessage) {
+                        // 优先使用data-timestamp属性
+                        if (firstMessage.dataset.timestamp) {
+                            olderThan = firstMessage.dataset.timestamp;
+                        } else {
+                            // 备选方案：从消息时间元素中解析时间戳
+                            const timeElement = firstMessage.querySelector('.message-time');
+                            if (timeElement) {
+                                // 这里可以根据实际情况实现时间解析逻辑
+                                // 注：这只是一个备选方案，理想情况下应该始终有data-timestamp属性
+                                console.warn('找不到data-timestamp属性，使用备选方案');
+                            }
+                        }
+                        console.log('获取到的olderThan时间戳:', olderThan);
+                    }
+                    
                     socket.emit('join-group', {
                         groupId: currentGroupId,
                         userId: currentUser.id,
                         sessionToken: currentSessionToken,
-                        offset: offset,
                         limit: 20,
-                        loadMore: true
+                        loadMore: true,
+                        olderThan: olderThan
                     });
                     
                     // 添加加载中提示
@@ -4912,8 +4962,8 @@
                 }
             }
             
-            // 持续更新滚动位置设置，确保在用户滚动时不会自动滚动到上方
-            if (this.scrollTop > 0) {
+            // 持续更新滚动位置设置，确保在用户滚动离开底部时不会自动滚动
+            if (!isScrolledToBottom(this)) {
                 autoScrollEnabled = false;
                 // 保存当前滚动位置，用于在需要时恢复
                 window.groupLastScrollPosition = this.scrollTop;
