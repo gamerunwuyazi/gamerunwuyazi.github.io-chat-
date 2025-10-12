@@ -3425,6 +3425,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         }, 1000); // 1秒延迟，确保消息加载完成
+
+        // 初始化宽松的Markdown解析器，确保链接能够被正确解析和显示
+        initLooseParser();
     }
 
     // 修复21：全局函数和启动
@@ -3726,26 +3729,27 @@ document.addEventListener('DOMContentLoaded', function() {
             .replace(/>/g, "&gt;");
     }
 
-    // 初始化消息解析器 - 不再限制HTML标签显示
+    // 初始化消息解析器 - 确保链接能够被正确解析和显示
     function initLooseParser() {
         // 检查是否已加载
         if (window.looseParserInitialized) return;
 
         // 确保全局函数可用，无论原有函数是否存在
         window.originalSafeMarkdownParse = window.safeMarkdownParse || function(content) { return content; };
-        window.safeMarkdownParse = looseMarkdownParse;
+        // 使用enhancedMarkdownParse替代looseMarkdownParse，确保链接能够被正确解析和显示
+        window.safeMarkdownParse = enhancedMarkdownParse;
 
         window.originalEscapeHtml = window.escapeHtml || function(content) { return content; };
-        window.escapeHtml = looseEscapeHtml;
+        window.escapeHtml = simpleEscapeHtml;
 
         window.originalValidateUrl = window.validateUrl || function(url) { return url; };
-        window.validateUrl = looseValidateUrl;
+        window.validateUrl = simpleValidateUrl;
 
         window.originalRemoveDangerousAttributes = window.removeDangerousAttributes || function(html) { return html; };
-        window.removeDangerousAttributes = looseRemoveDangerousAttributes;
+        window.removeDangerousAttributes = simpleRemoveDangerousAttributes;
 
         window.looseParserInitialized = true;
-        console.log('消息解析器已初始化，HTML标签将正常显示');
+        console.log('消息解析器已初始化，使用enhancedMarkdownParse确保链接正常显示');
     }
 
     // 最后启动应用
@@ -3775,7 +3779,7 @@ function showEscapedHtml(text) {
     .replace(/'/g, '&#039;');
 }
 
-// 简单的URL验证函数
+// 简单的URL验证函数 - 更加宽松地处理URL
 function simpleValidateUrl(url) {
     if (!url) return '';
     url = String(url); // 确保是字符串
@@ -3784,12 +3788,18 @@ function simpleValidateUrl(url) {
     // 确保URL有协议
     if (!url.match(/^https?:\/\//i)) {
         url = 'http://' + url;
-    } try {
+    }
+    
+    try {
+        // 尝试标准URL验证
         new URL(url);
         return url;
     } catch (e) {
-        console.warn('URL验证失败:', url);
-        return '';
+        console.warn('标准URL验证失败，尝试更宽松的处理:', url);
+        
+        // 宽松处理：即使验证失败，也返回原始URL（作为最后的手段）
+        // 这可以确保即使后端返回的URL格式不标准，也能尝试显示
+        return url;
     }
 }
 
