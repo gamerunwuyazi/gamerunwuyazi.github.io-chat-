@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const SERVER_URL = 'http://localhost:3000';
+    const SERVER_URL = 'http://152.136.175.209:3000';
 
     // 初始化变量
     let currentUser = null;
