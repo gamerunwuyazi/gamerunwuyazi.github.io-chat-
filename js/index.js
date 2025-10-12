@@ -2169,6 +2169,12 @@ document.addEventListener('DOMContentLoaded', function() {
             changeAvatarBtn.style.display = 'inline-block';
             createGroupBtn.style.display = 'inline-block';
             logoutButton.style.display = 'inline-block';
+            
+            // 显示刷新按钮
+            const refreshButton = document.getElementById('refreshButton');
+            if (refreshButton) {
+                refreshButton.style.display = 'inline-block';
+            }
 
             // 登录状态下隐藏登录按钮
             let loginButtonElement = document.getElementById('loginButtonElement');
@@ -2210,6 +2216,12 @@ document.addEventListener('DOMContentLoaded', function() {
             changeAvatarBtn.style.display = 'none';
             createGroupBtn.style.display = 'none';
             logoutButton.style.display = 'none';
+            
+            // 隐藏刷新按钮
+            const refreshButton = document.getElementById('refreshButton');
+            if (refreshButton) {
+                refreshButton.style.display = 'none';
+            }
 
             // 检查是否已经存在登录按钮，如果没有则创建
             let loginButtonElement = document.getElementById('loginButtonElement');
@@ -2871,6 +2883,14 @@ document.addEventListener('DOMContentLoaded', function() {
     function initializeEventListeners() {
         console.log('初始化事件监听器');
 
+        // 刷新按钮点击事件
+        const refreshButton = document.getElementById('refreshButton');
+        if (refreshButton) {
+            refreshButton.addEventListener('click', function() {
+                location.reload();
+            });
+        }
+
         // 发送消息事件
         sendButton.addEventListener('click', sendMessage);
         messageInput.addEventListener('keypress', (e) => {
@@ -3180,16 +3200,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     // 设置最后更新时间
                     lastMessageUpdate = Date.now();
 
-                    // 登录后立即加入聊天室 - 无条件发送，连接建立后会自动发送
-                    socket.emit('user-joined', {
-                        userId: currentUser.id,
-                        nickname: currentUser.nickname,
-                        avatarUrl: currentUser.avatarUrl,
-                        sessionToken: currentSessionToken,
-                        offset: 0,
-                        limit: 20
-                    });
-
                     // 立即请求在线用户列表
                     socket.emit('get-online-users');
 
@@ -3328,7 +3338,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // 更新按钮文本和图标
         const darkModeToggle = document.getElementById('darkModeToggle');
         if (darkModeToggle) {
-            darkModeToggle.textContent = isDarkMode ? '🌙 深色模式' : '🌞 浅色模式';
+            darkModeToggle.textContent = isDarkMode ? '深色模式' : '浅色模式';
         }
 
         // 保存用户的深色模式偏好到本地存储
@@ -3347,12 +3357,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (savedDarkMode === 'true' || (savedDarkMode === null && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
             document.body.classList.add('dark-mode');
             if (darkModeToggle) {
-                darkModeToggle.textContent = '🌙 深色模式';
+                darkModeToggle.textContent = '深色模式';
             }
         } else {
             document.body.classList.remove('dark-mode');
             if (darkModeToggle) {
-                darkModeToggle.textContent = '🌞 浅色模式';
+                darkModeToggle.textContent = '浅色模式';
             }
         }
 
