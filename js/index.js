@@ -663,16 +663,70 @@ document.addEventListener('DOMContentLoaded', function() {
             clearInterval(autoRefreshInterval);
         }
 
-        // 每30秒自动刷新消息
+        // 每30秒自动刷新所有内容
         autoRefreshInterval = setInterval(() => {
             if (isConnected && currentUser && isPageVisible) {
-                refreshMessages();
+                refreshAllContent();
             }
         }, 30000); // 30秒
 
         // 启动自动刷新，间隔30秒
     }
 
+    // 刷新所有内容的函数
+    function refreshAllContent() {
+        if (!currentUser || !currentSessionToken) {
+            console.log('❌ 未登录，跳过刷新');
+            return;
+        }
+
+        console.log('🔄 刷新所有内容');
+        
+        // 1. 刷新消息
+        refreshMessages();
+        
+        // 2. 刷新在线用户列表
+        socket.emit('get-online-users');
+        
+        // 3. 刷新用户群组列表
+        loadUserGroups();
+        
+        // 4. 如果正在群组聊天，刷新群组成员列表
+        if (currentGroupId) {
+            loadGroupMembers(currentGroupId);
+        }
+        
+        // 5. 刷新公告内容
+        fetchAndDisplayAnnouncement();
+    }
+    
+    // 获取和显示公告内容
+    function fetchAndDisplayAnnouncement() {
+        const announcementContainer = document.getElementById('announcementContainer');
+        if (!announcementContainer) return;
+
+        // 显示加载中状态
+        announcementContainer.textContent = '公告加载中...';
+
+        // 从指定URL获取公告内容
+        // 使用 encodeURI 处理 URL 中的非 ASCII 字符
+        fetch(encodeURI('http://152.136.175.209:8800/creativity/公告.php'))
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP错误! 状态码: ${response.status}`);
+                }
+                return response.text();
+            })
+            .then(content => {
+                // 显示公告内容
+                announcementContainer.textContent = content.trim() || '暂无公告';
+            })
+            .catch(error => {
+                console.error('获取公告内容失败:', error);
+                announcementContainer.textContent = '无法加载公告';
+            });
+    }
+    
     function refreshMessages() {
         if (!currentUser || !currentSessionToken) {
             console.log('❌ 未登录，跳过刷新');
@@ -2121,6 +2175,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function toggleSidebar() {
         isSidebarCollapsed = !isSidebarCollapsed;
+        // 更新侧边栏元素的class以实现折叠效果
+        if (sidebar) {
+            if (isSidebarCollapsed) {
+                sidebar.classList.add('collapsed');
+                if (toggleSidebarText) {
+                    toggleSidebarText.textContent = '展开';
+                }
+            } else {
+                sidebar.classList.remove('collapsed');
+                if (toggleSidebarText) {
+                    toggleSidebarText.textContent = '收起侧边栏';
+                }
+            }
+        }
     }
 
     // 修复14：登录状态管理
@@ -3422,6 +3490,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // 初始化状态显示
         updateConnectionStatus('connecting', '连接中...');
         checkStorageStatus();
+
+        // 初始化公告内容
+        fetchAndDisplayAnnouncement();
 
         // 应用初始化完成
 
