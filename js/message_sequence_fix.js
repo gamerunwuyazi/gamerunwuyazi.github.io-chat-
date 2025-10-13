@@ -72,7 +72,8 @@
         });
         
         // 为现有消息添加去重功能
-        addMessageDeduplicationToExistingMessages();
+    // 使用延迟执行，确保DOM中已经有消息元素
+    setTimeout(addMessageDeduplicationToExistingMessages, 500);
         
         // 监听聊天历史事件，确保使用sequence字段进行正确排序
         if (window.socket) {
@@ -218,12 +219,11 @@
         });
     }
     
-    // 渲染消息的辅助函数
+    // 渲染消息的辅助函数 - 一次性渲染所有消息
             function renderMessages(data, isGroupChat) {
                 if (!data || !data.messages) return;
                 
                 const container = isGroupChat ? groupMessageContainer : messageContainer;
-                const isOwn = window.currentUser ? true : false;
                 
                 if (!container) return;
                 
@@ -232,7 +232,7 @@
                     container.innerHTML = '';
                 }
                 
-                // 渲染消息
+                // 一次性渲染所有消息
                 data.messages.forEach(message => {
                     const msgIsOwn = window.currentUser && message.userId == window.currentUser.id;
                     window.addMessage(message, msgIsOwn, isGroupChat, data.loadMore);

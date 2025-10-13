@@ -2586,63 +2586,67 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (!data.messages || data.messages.length === 0) {
             emptyState.style.display = 'block';
+            
+            // 清除加载中状态和加载提示
+            window.isLoadingMoreMessages = false;
+            
+            // 清除加载提示的延时器
+            if (window.loadingIndicatorTimeout) {
+                clearTimeout(window.loadingIndicatorTimeout);
+                window.loadingIndicatorTimeout = null;
+            }
+            
+            const loadingIndicators = document.querySelectorAll('.loading-indicator');
+            loadingIndicators.forEach(el => el.remove());
             return;
         }
 
         emptyState.style.display = 'none';
 
-        // 流式渲染 - 逐条渲染消息，避免一次性渲染大量DOM节点
-        let currentIndex = 0;
         // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
         // 对于加载更多的消息，保持原始顺序（因为已经是降序排列）
         const messagesToRender = data.loadMore ? data.messages : [...data.messages].reverse();
 
-        // 定义渲染函数
-        function renderNextMessage() {
-            if (currentIndex < messagesToRender.length) {
-                const message = messagesToRender[currentIndex];
-                const isOwn = currentUser && message.userId == currentUser.id;
-                // 传递loadMore参数给addMessage函数
-                addMessage(message, isOwn, false, data.loadMore);
-                currentIndex++;
+        // 一次性渲染所有消息
+        messagesToRender.forEach(message => {
+            const isOwn = currentUser && message.userId == currentUser.id;
+            // 传递loadMore参数给addMessage函数
+            addMessage(message, isOwn, false, data.loadMore);
+        });
 
-                // 使用requestAnimationFrame确保渲染平滑
-                requestAnimationFrame(() => {
-                    renderNextMessage();
-                });
-            } else {
-                // 所有消息渲染完成
-                if (messageCount) {
-                    const count = messageContainer.querySelectorAll('.message').length;
-                    messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
-                }
-
-                // 清除加载中状态
-                window.isLoadingMoreMessages = false;
-
-                // 移除加载中提示
-                const loadingIndicators = document.querySelectorAll('.loading-indicator');
-                loadingIndicators.forEach(el => el.remove());
-
-                // 向上滚动加载时处理
-                if (data.loadMore) {
-                    // 使用优化的滚动位置保持函数，避免滚动跳动
-                    holdingScrollBar(messageContainer, window.globalPrevScrollHeight);
-                } else {
-                    // 非向上滚动加载时自动滚动到底部
-                    scrollToBottom(messageContainer);
-                }
-
-                // 隐藏加载更多按钮，使用向上滚动加载
-                const loadMoreBtn = document.getElementById('load-more-global');
-                if (loadMoreBtn) {
-                    loadMoreBtn.style.display = 'none';
-                }
-            }
+        // 所有消息渲染完成
+        if (messageCount) {
+            const count = messageContainer.querySelectorAll('.message').length;
+            messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
         }
 
-        // 开始渲染第一条消息
-        renderNextMessage();
+        // 清除加载中状态
+        window.isLoadingMoreMessages = false;
+        
+        // 清除加载提示的延时器
+        if (window.loadingIndicatorTimeout) {
+            clearTimeout(window.loadingIndicatorTimeout);
+            window.loadingIndicatorTimeout = null;
+        }
+
+        // 移除加载中提示
+        const loadingIndicators = document.querySelectorAll('.loading-indicator');
+        loadingIndicators.forEach(el => el.remove());
+
+        // 向上滚动加载时处理
+        if (data.loadMore) {
+            // 使用优化的滚动位置保持函数，避免滚动跳动
+            holdingScrollBar(messageContainer, window.globalPrevScrollHeight);
+        } else {
+            // 非向上滚动加载时自动滚动到底部
+            scrollToBottom(messageContainer);
+        }
+
+        // 隐藏加载更多按钮，使用向上滚动加载
+        const loadMoreBtn = document.getElementById('load-more-global');
+        if (loadMoreBtn) {
+            loadMoreBtn.style.display = 'none';
+        }
     })
 
     // 接收所有群消息被撤回的通知
@@ -2726,56 +2730,53 @@ document.addEventListener('DOMContentLoaded', function() {
                 <p>发送第一条消息开始群聊吧!</p>
               </div>
             `;
+            
+            // 清除加载中状态和加载提示
+            window.isLoadingMoreMessages = false;
+            const loadingIndicators = document.querySelectorAll('.loading-indicator');
+            loadingIndicators.forEach(el => el.remove());
             return;
         }
 
-        // 流式渲染 - 逐条渲染消息，避免一次性渲染大量DOM节点
-        let currentIndex = 0;
         // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
         // 对于加载更多的消息，保持原始顺序（因为已经是降序排列）
         const messagesToRender = data.loadMore ? data.messages : [...data.messages].reverse();
 
-        // 定义渲染函数
-        function renderNextMessage() {
-            if (currentIndex < messagesToRender.length) {
-                const message = messagesToRender[currentIndex];
-                const isOwn = currentUser && message.userId == currentUser.id;
-                // 传递loadMore参数给addMessage函数
-                addMessage(message, isOwn, true, data.loadMore);
-                currentIndex++;
+        // 一次性渲染所有消息
+        messagesToRender.forEach(message => {
+            const isOwn = currentUser && message.userId == currentUser.id;
+            // 传递loadMore参数给addMessage函数
+            addMessage(message, isOwn, true, data.loadMore);
+        });
 
-                // 使用requestAnimationFrame确保渲染平滑
-                requestAnimationFrame(() => {
-                    renderNextMessage();
-                });
-            } else {
-                // 所有消息渲染完成
-                // 清除加载中状态
-                window.isLoadingMoreMessages = false;
-
-                // 移除加载中提示
-                const loadingIndicators = document.querySelectorAll('.loading-indicator');
-                loadingIndicators.forEach(el => el.remove());
-
-                // 向上滚动加载时处理
-                if (data.loadMore) {
-                    // 使用优化的滚动位置保持函数，避免滚动跳动
-                    holdingScrollBar(groupMessageContainer, window.groupPrevScrollHeight);
-                } else {
-                    // 非向上滚动加载时自动滚动到底部
-                    scrollToBottom(groupMessageContainer);
-                }
-
-                // 隐藏加载更多按钮，使用向上滚动加载
-                const loadMoreBtn = document.getElementById('load-more-group');
-                if (loadMoreBtn) {
-                    loadMoreBtn.style.display = 'none';
-                }
-            }
+        // 所有消息渲染完成
+        // 清除加载中状态
+        window.isLoadingMoreMessages = false;
+        
+        // 清除加载提示的延时器
+        if (window.loadingIndicatorTimeout) {
+            clearTimeout(window.loadingIndicatorTimeout);
+            window.loadingIndicatorTimeout = null;
         }
 
-        // 开始渲染第一条消息
-        renderNextMessage();
+        // 移除加载中提示
+        const loadingIndicators = document.querySelectorAll('.loading-indicator');
+        loadingIndicators.forEach(el => el.remove());
+
+        // 向上滚动加载时处理
+        if (data.loadMore) {
+            // 使用优化的滚动位置保持函数，避免滚动跳动
+            holdingScrollBar(groupMessageContainer, window.groupPrevScrollHeight);
+        } else {
+            // 非向上滚动加载时自动滚动到底部
+            scrollToBottom(groupMessageContainer);
+        }
+
+        // 隐藏加载更多按钮，使用向上滚动加载
+        const loadMoreBtn = document.getElementById('load-more-group');
+        if (loadMoreBtn) {
+            loadMoreBtn.style.display = 'none';
+        }
     });
 
     socket.on('nickname-updated', (data) => {
@@ -3050,14 +3051,19 @@ document.addEventListener('DOMContentLoaded', function() {
                         olderThan: olderThan
                     });
 
-                    // 添加加载中提示
-                    const loadingIndicator = document.createElement('div');
-                    loadingIndicator.className = 'loading-indicator';
-                    loadingIndicator.textContent = '加载中...';
-                    loadingIndicator.style.textAlign = 'center';
-                    loadingIndicator.style.padding = '10px';
-                    loadingIndicator.style.color = '#666';
-                    this.insertBefore(loadingIndicator, this.firstChild);
+                    // 0.5秒后显示加载中提示，避免加载速度快时显示
+                    window.loadingIndicatorTimeout = setTimeout(() => {
+                        // 只有在仍然处于加载状态时才显示
+                        if (window.isLoadingMoreMessages) {
+                            const loadingIndicator = document.createElement('div');
+                            loadingIndicator.className = 'loading-indicator';
+                            loadingIndicator.textContent = '加载中...';
+                            loadingIndicator.style.textAlign = 'center';
+                            loadingIndicator.style.padding = '10px';
+                            loadingIndicator.style.color = '#666';
+                            this.insertBefore(loadingIndicator, this.firstChild);
+                        }
+                    }, 500);
                 }
             }
 
@@ -3120,14 +3126,19 @@ document.addEventListener('DOMContentLoaded', function() {
                         olderThan: olderThan
                     });
 
-                    // 添加加载中提示
-                    const loadingIndicator = document.createElement('div');
-                    loadingIndicator.className = 'loading-indicator';
-                    loadingIndicator.textContent = '加载中...';
-                    loadingIndicator.style.textAlign = 'center';
-                    loadingIndicator.style.padding = '10px';
-                    loadingIndicator.style.color = '#666';
-                    this.insertBefore(loadingIndicator, this.firstChild);
+                    // 0.5秒后显示加载中提示，避免加载速度快时显示
+                    window.loadingIndicatorTimeout = setTimeout(() => {
+                        // 只有在仍然处于加载状态时才显示
+                        if (window.isLoadingMoreMessages) {
+                            const loadingIndicator = document.createElement('div');
+                            loadingIndicator.className = 'loading-indicator';
+                            loadingIndicator.textContent = '加载中...';
+                            loadingIndicator.style.textAlign = 'center';
+                            loadingIndicator.style.padding = '10px';
+                            loadingIndicator.style.color = '#666';
+                            this.insertBefore(loadingIndicator, this.firstChild);
+                        }
+                    }, 500);
                 }
             }
 
@@ -3749,11 +3760,13 @@ document.addEventListener('DOMContentLoaded', function() {
         window.removeDangerousAttributes = simpleRemoveDangerousAttributes;
 
         window.looseParserInitialized = true;
-        console.log('消息解析器已初始化，使用enhancedMarkdownParse确保链接正常显示');
     }
 
     // 最后启动应用
     initializeApp();
+    
+    // 确保消息解析器在应用初始化后初始化
+    initLooseParser();
 });
 // 增强的HTML转义函数
 function simpleEscapeHtml(text) {
