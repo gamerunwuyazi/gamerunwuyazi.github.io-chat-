@@ -4181,8 +4181,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // 确保全局函数可用，无论原有函数是否存在
         window.originalSafeMarkdownParse = window.safeMarkdownParse || function(content) { return content; };
-        // 使用enhancedMarkdownParse替代looseMarkdownParse，确保链接能够被正确解析和显示
-        window.safeMarkdownParse = enhancedMarkdownParse;
+        // 创建一个包装函数，确保默认启用HTML转义
+        window.safeMarkdownParse = function(content) {
+            // 确保始终启用HTML转义
+            return enhancedMarkdownParse(content, true);
+        };
 
         window.originalEscapeHtml = window.escapeHtml || function(content) { return content; };
         window.escapeHtml = simpleEscapeHtml;
