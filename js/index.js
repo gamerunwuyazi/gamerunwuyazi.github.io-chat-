@@ -472,6 +472,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 修复4：更新用户列表函数
     function updateUserList(users) {
+        // 未登录状态下不更新用户列表
+        if (!currentUser || !currentSessionToken) {
+            console.log('🔄 未登录，不更新用户列表');
+            return;
+        }
+        
         console.log('🔄 更新用户列表，数据:', users);
 
         if (!userList || !onlineCount) {
@@ -665,7 +671,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // 每30秒自动刷新所有内容
         autoRefreshInterval = setInterval(() => {
-            if (isConnected && currentUser && isPageVisible) {
+            if (isConnected && currentUser && currentSessionToken && isPageVisible) {
                 refreshAllContent();
             }
         }, 30000); // 30秒
@@ -702,6 +708,16 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 获取和显示公告内容
     function fetchAndDisplayAnnouncement() {
+        // 未登录状态下不加载公告内容
+        if (!currentUser || !currentSessionToken) {
+            console.log('🔄 未登录，不加载公告内容');
+            const announcementContainer = document.getElementById('announcementContainer');
+            if (announcementContainer) {
+                announcementContainer.textContent = '请登录查看公告';
+            }
+            return;
+        }
+
         const announcementContainer = document.getElementById('announcementContainer');
         if (!announcementContainer) return;
 
@@ -1372,6 +1388,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 更新群组列表中的群组名称
     function updateGroupNameInList(groupId, newGroupName) {
+        // 未登录状态下不更新群组列表
+        if (!currentUser || !currentSessionToken) {
+            console.log('🔄 未登录，不更新群组列表中的名称');
+            return;
+        }
+        
         const groupList = document.getElementById('groupList');
         if (groupList) {
             const groupItems = groupList.querySelectorAll('li[data-group-id="' + groupId + '"]');
@@ -1476,6 +1498,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateGroupList(groups) {
+        // 未登录状态下不更新群组列表
+        if (!currentUser || !currentSessionToken) {
+            console.log('🔄 未登录，不更新群组列表');
+            return;
+        }
+        
         if (!groupList) {
             console.error('groupList元素未找到，检查HTML结构');
             return;
@@ -1565,6 +1593,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateGroupMembersList(users) {
+        // 未登录状态下不更新群组成员列表
+        if (!currentUser || !currentSessionToken) {
+            console.log('🔄 未登录，不更新群组成员列表');
+            return;
+        }
+        
         if (!groupMembersList) return;
 
         groupMembersList.innerHTML = '';
@@ -1588,6 +1622,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function showGroupChat(groupId, groupName) {
+        // 未登录状态下不显示群组聊天
+        if (!currentUser || !currentSessionToken) {
+            console.log('🔄 未登录，无法访问群组聊天');
+            return;
+        }
+        
         if (!groupId || !groupName) {
             console.error('群组ID或名称为空');
             return;
@@ -1641,6 +1681,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!currentUser || !currentSessionToken) {
             addMemberBtn.style.display = 'none';
             manageGroupBtn.style.display = 'none';
+            leaveGroupBtn.style.display = 'none';
             window.isGroupCreator = false;
             return;
         }
@@ -1657,13 +1698,16 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(data => {
                 if (data.status === 'success' && data.group && String(data.group.creator_id) === currentUser.id) {
-                    // 用户是群主，显示管理按钮
+                    // 用户是群主，显示管理按钮，但隐藏退出按钮（群主不能退出，只能解散）
                     addMemberBtn.style.display = 'inline-block';
                     manageGroupBtn.style.display = 'inline-block';
+                    leaveGroupBtn.style.display = 'none';
                     window.isGroupCreator = true;
                 } else {
+                    // 非群主用户，显示退出按钮，隐藏管理按钮
                     addMemberBtn.style.display = 'none';
                     manageGroupBtn.style.display = 'none';
+                    leaveGroupBtn.style.display = 'inline-block';
                     window.isGroupCreator = false;
                 }
                 // 重新加载群组成员列表，以显示或隐藏踢出按钮
@@ -1673,6 +1717,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.error('检查群主身份失败:', error);
                 addMemberBtn.style.display = 'none';
                 manageGroupBtn.style.display = 'none';
+                leaveGroupBtn.style.display = 'inline-block'; // 发生错误时默认显示退出按钮
                 window.isGroupCreator = false;
             });
     }
@@ -1702,6 +1747,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateGroupMemberList(members) {
+        // 未登录状态下不更新群组成员列表
+        if (!currentUser || !currentSessionToken) {
+            console.log('🔄 未登录，不更新群组成员列表');
+            return;
+        }
+        
         if (!groupMemberList) return;
 
         groupMemberList.innerHTML = '';
@@ -1809,6 +1860,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function backToMainChat() {
+        // 未登录状态下仅执行基本的界面切换
+        if (!currentUser || !currentSessionToken) {
+            console.log('🔄 未登录，仅执行基本界面切换');
+            groupChat.style.display = 'none';
+            mainChat.style.display = 'block';
+            return;
+        }
+        
         if (currentGroupId) {
             socket.emit('leave-group', { groupId: currentGroupId });
             currentGroupId = null;
@@ -1827,7 +1886,52 @@ document.addEventListener('DOMContentLoaded', function() {
         groupImageInput.disabled = true;
     }
 
+    // 退出群组函数
+    function leaveGroup(groupId) {
+        if (!currentUser || !currentSessionToken) {
+            alert('请先登录');
+            return;
+        }
+
+        if (confirm(`确定要退出群组吗？退出后将不再接收该群组的消息，且群组不会再显示在你的群组列表中。`)) {
+            fetch(`${SERVER_URL}/leave-group`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                },
+                body: JSON.stringify({
+                    userId: currentUser.id,
+                    groupId: groupId
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alert('已成功退出群组');
+                        // 返回主聊天界面
+                        backToMainChat();
+                        // 刷新群组列表
+                        loadUserGroups();
+                    } else {
+                        alert(data.message || '退出群组失败');
+                    }
+                })
+                .catch(error => {
+                    console.error('退出群组失败:', error);
+                    alert('退出群组失败，请重试');
+                });
+        }
+    }
+
     function addMessageToContainer(message, isOwn, isGroupChat, container, isLoadMore = false) {
+        // 未登录状态下不添加消息到容器
+        if (!currentUser || !currentSessionToken) {
+            console.log('🔄 未登录，不添加消息到容器');
+            return;
+        }
+        
         // 创建消息元素
         const messageElement = document.createElement('div');
         // 添加data-timestamp属性，用于确定加载更多时的起始点
@@ -2263,6 +2367,9 @@ document.addEventListener('DOMContentLoaded', function() {
             // 登录后立即加载数据
             loadUserGroups();
             checkStorageStatus();
+            
+            // 登录后立即加载公告内容
+            fetchAndDisplayAnnouncement();
 
             // 如果已连接，立即加入聊天室
             if (isConnected && socket) {
@@ -2280,6 +2387,12 @@ document.addEventListener('DOMContentLoaded', function() {
             safeSetTextContent(currentNicknameSpan, '未登录');
             currentAvatarImg.style.display = 'none';
 
+            // 清空默认头像
+            const defaultAvatar = document.getElementById('defaultAvatar');
+            if (defaultAvatar) {
+                defaultAvatar.style.display = 'none';
+            }
+
             changeNicknameBtn.style.display = 'none';
             changeAvatarBtn.style.display = 'none';
             createGroupBtn.style.display = 'none';
@@ -2290,6 +2403,14 @@ document.addEventListener('DOMContentLoaded', function() {
             if (refreshButton) {
                 refreshButton.style.display = 'none';
             }
+
+            // 清空消息容器和用户列表
+            messageContainer.innerHTML = '';
+            emptyState.style.display = 'block';
+            userList.innerHTML = '<li>暂无在线用户</li>';
+            safeSetTextContent(onlineCount, '(0)');
+            safeSetTextContent(totalOnlineCount, '0');
+            offlineUserList.innerHTML = '';
 
             // 检查是否已经存在登录按钮，如果没有则创建
             let loginButtonElement = document.getElementById('loginButtonElement');
@@ -2329,6 +2450,9 @@ document.addEventListener('DOMContentLoaded', function() {
     function logout() {
         currentUser = null;
         currentSessionToken = null;
+        // 清除群组信息缓存
+        currentGroupId = null;
+        currentGroupName = '';
 
         localStorage.removeItem('chatUserId');
         localStorage.removeItem('chatUserNickname');
@@ -2339,6 +2463,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
         messageContainer.innerHTML = '';
         emptyState.style.display = 'block';
+        // 清空群组消息容器
+        groupMessageContainer.innerHTML = '';
+        // 清空群组列表容器
+        if (groupList) {
+            groupList.innerHTML = '<li>请先登录查看群组</li>';
+        }
 
         userList.innerHTML = '<li>暂无在线用户</li>';
         safeSetTextContent(onlineCount, '(0)');
@@ -2533,38 +2663,52 @@ document.addEventListener('DOMContentLoaded', function() {
     // 监听群组创建事件 - 实时更新群组列表
     socket.on('group-created', (data) => {
         console.log('🔄 接收群组创建通知:', data);
-        // 刷新用户的群组列表，不需要刷新整个页面
-        loadUserGroups();
+        // 只有登录状态才刷新群组列表
+        if (currentUser && currentSessionToken) {
+            loadUserGroups();
+        }
     });
 
     // 监听群组名称更新事件 - 实时更新群组信息
     socket.on('group-name-updated', (data) => {
         console.log('🔄 接收群组名称更新通知:', data);
-        loadUserGroups();
+        // 只有登录状态才刷新群组列表
+        if (currentUser && currentSessionToken) {
+            loadUserGroups();
+        }
     });
 
     // 监听群组成员添加事件 - 实时更新群组列表
     socket.on('members-added', (data) => {
         console.log('🔄 接收群组成员添加通知:', data);
-        loadUserGroups();
-        // 如果当前在该群组聊天，也需要更新群组成员列表
-        if (currentGroupId === data.groupId) {
-            loadGroupMembers(data.groupId);
+        // 只有登录状态才刷新群组列表
+        if (currentUser && currentSessionToken) {
+            loadUserGroups();
+            // 如果当前在该群组聊天，也需要更新群组成员列表
+            if (currentGroupId === data.groupId) {
+                loadGroupMembers(data.groupId);
+            }
         }
     });
 
     // 监听群组成员移除事件 - 实时更新群组列表
     socket.on('member-removed', (data) => {
         console.log('🔄 接收群组成员移除通知:', data);
-        loadUserGroups();
-        // 如果当前在该群组聊天，也需要更新群组成员列表
-        if (currentGroupId === data.groupId) {
-            loadGroupMembers(data.groupId);
+        // 只有登录状态才刷新群组列表
+        if (currentUser && currentSessionToken) {
+            loadUserGroups();
+            // 如果当前在该群组聊天，也需要更新群组成员列表
+            if (currentGroupId === data.groupId) {
+                loadGroupMembers(data.groupId);
+            }
         }
     });
 
     socket.on('users-updated', (users) => {
-        updateUserList(users);
+        // 只有登录状态才更新用户列表
+        if (currentUser && currentSessionToken) {
+            updateUserList(users);
+        }
     });
 
     // 监听头像更新事件 - 更新已发送消息中的头像
@@ -2611,51 +2755,95 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     socket.on('online-users', (users) => {
-        updateUserList(users);
+        // 只有登录状态才更新在线用户列表
+        if (currentUser && currentSessionToken) {
+            updateUserList(users);
+        }
     });
 
     socket.on('message-received', (message) => {
-        const isOwn = currentUser && message.userId == currentUser.id;
+        // 只有登录状态才接收和显示消息
+        if (currentUser && currentSessionToken) {
+            const isOwn = message.userId == currentUser.id;
 
-        // 判断消息类型并显示
-        if (message.groupId && currentGroupId && message.groupId == currentGroupId) {
-            // 群组消息
-            addMessage(message, isOwn, true);
-        } else if (!message.groupId && mainChat.style.display !== 'none') {
-            // 全局消息
-            addMessage(message, isOwn, false);
+            // 判断消息类型并显示
+            if (message.groupId && currentGroupId && message.groupId == currentGroupId) {
+                // 群组消息
+                addMessage(message, isOwn, true);
+            } else if (!message.groupId && mainChat.style.display !== 'none') {
+                // 全局消息
+                addMessage(message, isOwn, false);
+            }
         }
     });
 
     socket.on('message-deleted', (data) => {
-        const messageElement = document.querySelector(`.message[data-message-id="${data.messageId}"]`);
-        if (messageElement) {
-            messageElement.remove();
-        }
+        // 只有登录状态才处理消息删除
+        if (currentUser && currentSessionToken) {
+            const messageElement = document.querySelector(`.message[data-message-id="${data.messageId}"]`);
+            if (messageElement) {
+                messageElement.remove();
+            }
 
-        // 更新消息计数
-        if (messageCount) {
-            const count = messageContainer.querySelectorAll('.message').length;
-            messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
+            // 更新消息计数
+            if (messageCount) {
+                const count = messageContainer.querySelectorAll('.message').length;
+                messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
+            }
         }
     });
 
     socket.on('chat-history', (data) => {
-        // 更新最后更新时间
-        if (data.lastUpdate) {
-            lastMessageUpdate = data.lastUpdate;
-        }
+        // 只有登录状态才加载和显示聊天历史
+        if (currentUser && currentSessionToken) {
+            // 更新最后更新时间
+            if (data.lastUpdate) {
+                lastMessageUpdate = data.lastUpdate;
+            }
 
-        // 如果是首次加载，清空容器
-        if (!hasReceivedHistory) {
-            messageContainer.innerHTML = '';
-            hasReceivedHistory = true;
-        }
+            // 如果是首次加载，清空容器
+            if (!hasReceivedHistory) {
+                messageContainer.innerHTML = '';
+                hasReceivedHistory = true;
+            }
 
-        if (!data.messages || data.messages.length === 0) {
-            emptyState.style.display = 'block';
-            
-            // 清除加载中状态和加载提示
+            if (!data.messages || data.messages.length === 0) {
+                emptyState.style.display = 'block';
+                
+                // 清除加载中状态和加载提示
+                window.isLoadingMoreMessages = false;
+                
+                // 清除加载提示的延时器
+                if (window.loadingIndicatorTimeout) {
+                    clearTimeout(window.loadingIndicatorTimeout);
+                    window.loadingIndicatorTimeout = null;
+                }
+                
+                const loadingIndicators = document.querySelectorAll('.loading-indicator');
+                loadingIndicators.forEach(el => el.remove());
+                return;
+            }
+
+            emptyState.style.display = 'none';
+
+            // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
+            // 对于加载更多的消息，保持原始顺序（因为已经是降序排列）
+            const messagesToRender = data.loadMore ? data.messages : [...data.messages].reverse();
+
+            // 一次性渲染所有消息
+            messagesToRender.forEach(message => {
+                const isOwn = message.userId == currentUser.id;
+                // 传递loadMore参数给addMessage函数
+                addMessage(message, isOwn, false, data.loadMore);
+            });
+
+            // 所有消息渲染完成
+            if (messageCount) {
+                const count = messageContainer.querySelectorAll('.message').length;
+                messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
+            }
+
+            // 清除加载中状态
             window.isLoadingMoreMessages = false;
             
             // 清除加载提示的延时器
@@ -2663,213 +2851,212 @@ document.addEventListener('DOMContentLoaded', function() {
                 clearTimeout(window.loadingIndicatorTimeout);
                 window.loadingIndicatorTimeout = null;
             }
-            
+
+            // 移除加载中提示
             const loadingIndicators = document.querySelectorAll('.loading-indicator');
             loadingIndicators.forEach(el => el.remove());
-            return;
-        }
 
-        emptyState.style.display = 'none';
+            // 向上滚动加载时处理
+            if (data.loadMore) {
+                // 使用优化的滚动位置保持函数，避免滚动跳动
+                holdingScrollBar(messageContainer, window.globalPrevScrollHeight);
+            } else {
+                // 非向上滚动加载时自动滚动到底部
+                scrollToBottom(messageContainer);
+            }
 
-        // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
-        // 对于加载更多的消息，保持原始顺序（因为已经是降序排列）
-        const messagesToRender = data.loadMore ? data.messages : [...data.messages].reverse();
-
-        // 一次性渲染所有消息
-        messagesToRender.forEach(message => {
-            const isOwn = currentUser && message.userId == currentUser.id;
-            // 传递loadMore参数给addMessage函数
-            addMessage(message, isOwn, false, data.loadMore);
-        });
-
-        // 所有消息渲染完成
-        if (messageCount) {
-            const count = messageContainer.querySelectorAll('.message').length;
-            messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
-        }
-
-        // 清除加载中状态
-        window.isLoadingMoreMessages = false;
-        
-        // 清除加载提示的延时器
-        if (window.loadingIndicatorTimeout) {
-            clearTimeout(window.loadingIndicatorTimeout);
-            window.loadingIndicatorTimeout = null;
-        }
-
-        // 移除加载中提示
-        const loadingIndicators = document.querySelectorAll('.loading-indicator');
-        loadingIndicators.forEach(el => el.remove());
-
-        // 向上滚动加载时处理
-        if (data.loadMore) {
-            // 使用优化的滚动位置保持函数，避免滚动跳动
-            holdingScrollBar(messageContainer, window.globalPrevScrollHeight);
-        } else {
-            // 非向上滚动加载时自动滚动到底部
-            scrollToBottom(messageContainer);
-        }
-
-        // 隐藏加载更多按钮，使用向上滚动加载
-        const loadMoreBtn = document.getElementById('load-more-global');
-        if (loadMoreBtn) {
-            loadMoreBtn.style.display = 'none';
+            // 隐藏加载更多按钮，使用向上滚动加载
+            const loadMoreBtn = document.getElementById('load-more-global');
+            if (loadMoreBtn) {
+                loadMoreBtn.style.display = 'none';
+            }
         }
     })
 
     // 接收所有群消息被撤回的通知
     socket.on('all-group-messages-recalled', (data) => {
-        const { groupId } = data;
-        if (currentGroupId && parseInt(currentGroupId) === parseInt(groupId)) {
-            const messageContainer = document.getElementById('groupMessageContainer');
-            if (messageContainer) {
-                messageContainer.innerHTML = '<div class="message notification">💬 所有群消息已被群主撤回</div>';
+        // 只有登录状态才处理群组消息撤回
+        if (currentUser && currentSessionToken) {
+            const { groupId } = data;
+            if (currentGroupId && parseInt(currentGroupId) === parseInt(groupId)) {
+                const messageContainer = document.getElementById('groupMessageContainer');
+                if (messageContainer) {
+                    messageContainer.innerHTML = '<div class="message notification">💬 所有群消息已被群主撤回</div>';
+                }
+                alert('所有群消息已被群主撤回');
             }
-            alert('所有群消息已被群主撤回');
         }
     });
 
     // 接收群组解散的通知
     socket.on('group-dissolved', (data) => {
-        const { groupId } = data;
-        if (currentGroupId && parseInt(currentGroupId) === parseInt(groupId)) {
-            // 清空消息容器
-            const messageContainer = document.getElementById('groupMessageContainer');
-            if (messageContainer) {
-                messageContainer.innerHTML = '<div class="message notification">💥 群组已被解散</div>';
-            }
+        // 只有登录状态才处理群组解散
+        if (currentUser && currentSessionToken) {
+            const { groupId } = data;
+            if (currentGroupId && parseInt(currentGroupId) === parseInt(groupId)) {
+                // 清空消息容器
+                const messageContainer = document.getElementById('groupMessageContainer');
+                if (messageContainer) {
+                    messageContainer.innerHTML = '<div class="message notification">💥 群组已被解散</div>';
+                }
 
-            // 禁用聊天输入
-            const groupInputArea = document.querySelector('.group-input-area');
-            if (groupInputArea) {
-                groupInputArea.style.opacity = '0.5';
-                groupInputArea.style.pointerEvents = 'none';
-            }
+                // 禁用聊天输入
+                const groupInputArea = document.querySelector('.group-input-area');
+                if (groupInputArea) {
+                    groupInputArea.style.opacity = '0.5';
+                    groupInputArea.style.pointerEvents = 'none';
+                }
 
-            // 禁用管理按钮
-            const manageGroupBtn = document.getElementById('manageGroupBtn');
-            if (manageGroupBtn) {
-                manageGroupBtn.style.display = 'none';
-            }
+                // 禁用管理按钮
+                const manageGroupBtn = document.getElementById('manageGroupBtn');
+                if (manageGroupBtn) {
+                    manageGroupBtn.style.display = 'none';
+                }
 
-            // 可以选择跳转到群列表页面
+                // 可以选择跳转到群列表页面
+            }
         }
     });
 
     // 接收群组名称更新的通知
     socket.on('group-name-updated', (data) => {
-        const { groupId, newGroupName } = data;
+        // 只有登录状态才处理群组名称更新
+        if (currentUser && currentSessionToken) {
+            const { groupId, newGroupName } = data;
 
-        // 更新本地保存的群组名称
-        if (currentGroupId && parseInt(currentGroupId) === parseInt(groupId)) {
-            currentGroupName = newGroupName;
+            // 更新本地保存的群组名称
+            if (currentGroupId && parseInt(currentGroupId) === parseInt(groupId)) {
+                currentGroupName = newGroupName;
 
-            // 获取群组标题DOM元素
-            const currentGroupTitle = document.getElementById('groupTitle');
+                // 获取群组标题DOM元素
+                const currentGroupTitle = document.getElementById('groupTitle');
 
-            // 更新界面上显示的群组名称
-            if (currentGroupTitle) {
-                currentGroupTitle.textContent = newGroupName;
+                // 更新界面上显示的群组名称
+                if (currentGroupTitle) {
+                    currentGroupTitle.textContent = newGroupName;
+                }
             }
-        }
 
-        // 更新群组列表中的名称
-        updateGroupNameInList(groupId, newGroupName);
+            // 更新群组列表中的名称
+            updateGroupNameInList(groupId, newGroupName);
+        }
     });
 
     socket.on('group-chat-history', (data) => {
-        // 收到群组聊天历史
+        // 只有登录状态才处理和显示群组聊天历史
+        if (currentUser && currentSessionToken) {
+            // 收到群组聊天历史
 
-        // 更新最后更新时间
-        if (data.lastUpdate) {
-            lastMessageUpdate = data.lastUpdate;
-        }
+            // 更新最后更新时间
+            if (data.lastUpdate) {
+                lastMessageUpdate = data.lastUpdate;
+            }
 
-        // 如果是首次加载，清空容器
-        if (groupMessageContainer.innerHTML.trim() === '' ||
-            groupMessageContainer.querySelector('.empty-state')) {
-            groupMessageContainer.innerHTML = '';
-        }
+            // 如果是首次加载，清空容器
+            if (groupMessageContainer.innerHTML.trim() === '' ||
+                groupMessageContainer.querySelector('.empty-state')) {
+                groupMessageContainer.innerHTML = '';
+            }
 
-        if (!data.messages || data.messages.length === 0) {
-            groupMessageContainer.innerHTML = `
-              <div class="empty-state">
-                <h3>暂无消息</h3>
-                <p>发送第一条消息开始群聊吧!</p>
-              </div>
-            `;
-            
-            // 清除加载中状态和加载提示
+            if (!data.messages || data.messages.length === 0) {
+                groupMessageContainer.innerHTML = `
+                  <div class="empty-state">
+                    <h3>暂无消息</h3>
+                    <p>发送第一条消息开始群聊吧!</p>
+                  </div>
+                `;
+                
+                // 清除加载中状态和加载提示
+                window.isLoadingMoreMessages = false;
+                const loadingIndicators = document.querySelectorAll('.loading-indicator');
+                loadingIndicators.forEach(el => el.remove());
+                return;
+            }
+
+            // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
+            // 对于加载更多的消息，保持原始顺序（因为已经是降序排列）
+            const messagesToRender = data.loadMore ? data.messages : [...data.messages].reverse();
+
+            // 一次性渲染所有消息
+            messagesToRender.forEach(message => {
+                const isOwn = message.userId == currentUser.id;
+                // 传递loadMore参数给addMessage函数
+                addMessage(message, isOwn, true, data.loadMore);
+            });
+
+            // 所有消息渲染完成
+            // 清除加载中状态
             window.isLoadingMoreMessages = false;
+            
+            // 清除加载提示的延时器
+            if (window.loadingIndicatorTimeout) {
+                clearTimeout(window.loadingIndicatorTimeout);
+                window.loadingIndicatorTimeout = null;
+            }
+
+            // 移除加载中提示
             const loadingIndicators = document.querySelectorAll('.loading-indicator');
             loadingIndicators.forEach(el => el.remove());
-            return;
-        }
 
-        // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
-        // 对于加载更多的消息，保持原始顺序（因为已经是降序排列）
-        const messagesToRender = data.loadMore ? data.messages : [...data.messages].reverse();
+            // 向上滚动加载时处理
+            if (data.loadMore) {
+                // 使用优化的滚动位置保持函数，避免滚动跳动
+                holdingScrollBar(groupMessageContainer, window.groupPrevScrollHeight);
+            } else {
+                // 非向上滚动加载时自动滚动到底部
+                scrollToBottom(groupMessageContainer);
+            }
 
-        // 一次性渲染所有消息
-        messagesToRender.forEach(message => {
-            const isOwn = currentUser && message.userId == currentUser.id;
-            // 传递loadMore参数给addMessage函数
-            addMessage(message, isOwn, true, data.loadMore);
-        });
-
-        // 所有消息渲染完成
-        // 清除加载中状态
-        window.isLoadingMoreMessages = false;
-        
-        // 清除加载提示的延时器
-        if (window.loadingIndicatorTimeout) {
-            clearTimeout(window.loadingIndicatorTimeout);
-            window.loadingIndicatorTimeout = null;
-        }
-
-        // 移除加载中提示
-        const loadingIndicators = document.querySelectorAll('.loading-indicator');
-        loadingIndicators.forEach(el => el.remove());
-
-        // 向上滚动加载时处理
-        if (data.loadMore) {
-            // 使用优化的滚动位置保持函数，避免滚动跳动
-            holdingScrollBar(groupMessageContainer, window.groupPrevScrollHeight);
-        } else {
-            // 非向上滚动加载时自动滚动到底部
-            scrollToBottom(groupMessageContainer);
-        }
-
-        // 隐藏加载更多按钮，使用向上滚动加载
-        const loadMoreBtn = document.getElementById('load-more-group');
-        if (loadMoreBtn) {
-            loadMoreBtn.style.display = 'none';
+            // 隐藏加载更多按钮，使用向上滚动加载
+            const loadMoreBtn = document.getElementById('load-more-group');
+            if (loadMoreBtn) {
+                loadMoreBtn.style.display = 'none';
+            }
         }
     });
 
     socket.on('nickname-updated', (data) => {
-        // 收到昵称更新
-        if (data.userId == currentUser?.id) {
-            // 对昵称进行完整的HTML实体解码处理
-            const unescapedNickname = data.newNickname
-                .replace(/&amp;/g, '&')
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
-                .replace(/&quot;/g, '"')
-                .replace(/&#39;/g, "'");
+        // 只有登录状态才处理昵称更新
+        if (currentUser && currentSessionToken) {
+            // 收到昵称更新
+            if (data.userId == currentUser.id) {
+                // 对昵称进行完整的HTML实体解码处理
+                const unescapedNickname = data.newNickname
+                    .replace(/&amp;/g, '&')
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>')
+                    .replace(/&quot;/g, '"')
+                    .replace(/&#39;/g, "'");
 
-            currentUser.nickname = unescapedNickname;
-            safeSetTextContent(currentNicknameSpan, unescapedNickname);
-            localStorage.setItem('chatUserNickname', unescapedNickname);
+                currentUser.nickname = unescapedNickname;
+                safeSetTextContent(currentNicknameSpan, unescapedNickname);
+                localStorage.setItem('chatUserNickname', unescapedNickname);
 
-            // 刷新用户列表显示
-            socket.emit('get-online-users');
+                // 刷新用户列表显示
+                socket.emit('get-online-users');
+            }
         }
     });
 
     socket.on('session-expired', () => {
         alert('会话已过期，请重新登录');
         logout();
+    });
+
+    // 监听账号在其他地方登录的通知
+    socket.on('account-logged-in-elsewhere', (data) => {
+        console.log('🔴 账号在其他地方登录:', data);
+        // 显示顶号提示，并自动弹出登录模态框
+        alert('⚠️ ' + data.message);
+        logout();
+        // 显示登录模态框
+        if (authModal) {
+            authModal.style.display = 'flex';
+            // 聚焦到登录表单
+            if (loginUsername) {
+                loginUsername.focus();
+            }
+        }
     });
 
     socket.on('error', (error) => {
@@ -3000,6 +3187,15 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
+        // 退出群组按钮点击事件
+        const leaveGroupBtn = document.getElementById('leaveGroupBtn');
+        if (leaveGroupBtn) {
+            leaveGroupBtn.addEventListener('click', function() {
+                if (!currentGroupId) return;
+                leaveGroup(currentGroupId);
+            });
+        }
+
         // 退出登录
         logoutButton.addEventListener('click', logout);
 
@@ -3109,15 +3305,20 @@ document.addEventListener('DOMContentLoaded', function() {
                         console.log('获取到的olderThan时间戳:', olderThan);
                     }
 
-                    socket.emit('user-joined', {
-                        userId: currentUser.id,
-                        nickname: currentUser.nickname,
-                        avatarUrl: currentUser.avatarUrl,
-                        sessionToken: currentSessionToken,
-                        limit: 20,
-                        loadMore: true,
-                        olderThan: olderThan
-                    });
+                    if (currentUser && currentSessionToken) {
+                        socket.emit('user-joined', {
+                            userId: currentUser.id,
+                            nickname: currentUser.nickname,
+                            avatarUrl: currentUser.avatarUrl,
+                            sessionToken: currentSessionToken,
+                            limit: 20,
+                            loadMore: true,
+                            olderThan: olderThan
+                        });
+                    } else {
+                        console.log('🔄 未登录，不发送user-joined请求');
+                        window.isLoadingMoreMessages = false;
+                    }
 
                     // 0.5秒后显示加载中提示，避免加载速度快时显示
                     window.loadingIndicatorTimeout = setTimeout(() => {
@@ -3185,14 +3386,19 @@ document.addEventListener('DOMContentLoaded', function() {
                         console.log('获取到的olderThan时间戳:', olderThan);
                     }
 
-                    socket.emit('join-group', {
-                        groupId: currentGroupId,
-                        userId: currentUser.id,
-                        sessionToken: currentSessionToken,
-                        limit: 20,
-                        loadMore: true,
-                        olderThan: olderThan
-                    });
+                    if (currentUser && currentSessionToken) {
+                        socket.emit('join-group', {
+                            groupId: currentGroupId,
+                            userId: currentUser.id,
+                            sessionToken: currentSessionToken,
+                            limit: 20,
+                            loadMore: true,
+                            olderThan: olderThan
+                        });
+                    } else {
+                        console.log('🔄 未登录，不发送join-group请求');
+                        window.isLoadingMoreMessages = false;
+                    }
 
                     // 0.5秒后显示加载中提示，避免加载速度快时显示
                     window.loadingIndicatorTimeout = setTimeout(() => {
@@ -3286,8 +3492,46 @@ document.addEventListener('DOMContentLoaded', function() {
                     startAutoRefresh();
 
                 } else {
+                    // 显示登录失败消息
                     loginMessage.textContent = data.message;
                     loginMessage.style.display = 'block';
+                    
+                    // 增强：如果是IP封禁，添加特殊样式和倒计时效果
+                    if (data.isBanned && data.remainingTime) {
+                        loginMessage.style.color = '#d32f2f';
+                        loginMessage.style.fontWeight = 'bold';
+                        loginMessage.style.padding = '10px';
+                        loginMessage.style.border = '1px solid #ffcdd2';
+                        loginMessage.style.backgroundColor = '#ffebee';
+                        loginMessage.style.borderRadius = '4px';
+                        
+                        // 为封禁消息添加倒计时效果（可选）
+                        let remainingSeconds = data.remainingTime.totalSeconds;
+                        const updateCountdown = () => {
+                            if (remainingSeconds > 0) {
+                                remainingSeconds--;
+                                const days = Math.floor(remainingSeconds / (24 * 60 * 60));
+                                const hours = Math.floor((remainingSeconds % (24 * 60 * 60)) / (60 * 60));
+                                const minutes = Math.floor((remainingSeconds % (60 * 60)) / 60);
+                                const seconds = remainingSeconds % 60;
+                                
+                                loginMessage.textContent = `您的IP已被封禁，还剩 ${days}天${hours}小时${minutes}分钟${seconds}秒解封`;
+                                setTimeout(updateCountdown, 1000);
+                            }
+                        };
+                        
+                        // 启动倒计时
+                        updateCountdown();
+                    } else {
+                        // 恢复默认样式
+                        loginMessage.style.color = '';
+                        loginMessage.style.fontWeight = '';
+                        loginMessage.style.padding = '';
+                        loginMessage.style.border = '';
+                        loginMessage.style.backgroundColor = '';
+                        loginMessage.style.borderRadius = '';
+                    }
+                    
                     loginButton.disabled = false;
                     loginButton.textContent = '登录';
                 }
@@ -3345,6 +3589,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 文件上传函数 - 支持所有类型的文件
     function uploadFile(file, isGroup) {
+        // 未登录状态下不允许上传文件
+        if (!currentUser || !currentSessionToken) {
+            alert('请先登录再上传文件');
+            console.log('🔄 未登录，不允许上传文件');
+            return;
+        }
+
         if (!file) {
             alert('请选择有效的文件');
             return;

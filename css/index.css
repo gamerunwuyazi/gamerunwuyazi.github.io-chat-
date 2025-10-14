@@ -1260,8 +1260,25 @@ button {
     transition: background-color 0.2s ease;
 }
 
+#leaveGroupBtn {
+    background-color: #ff4d4f;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    font-weight: 600;
+}
+
 #addMemberBtn:hover {
     background-color: #05a653;
+}
+
+#leaveGroupBtn:hover {
+    background-color: #ff7875;
+    transform: scale(1.05);
 }
 
 .group-management-tabs {
