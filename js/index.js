@@ -460,14 +460,89 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
-    // 显示重新登录提示
-    function showReLoginPrompt() {
-        if (confirm('您的会话已过期，请重新登录以继续使用聊天功能。\n点击确定重新登录，取消将继续使用当前页面（可能无法发送消息）。')) {
+    // 显示会话过期通知（顶号提醒）
+    function showSessionExpiredNotification() {
+        // 创建通知元素
+        const notification = document.createElement('div');
+        notification.className = 'session-expired-notification';
+        notification.style.position = 'fixed';
+        notification.style.top = '50%';
+        notification.style.left = '50%';
+        notification.style.transform = 'translate(-50%, -50%)';
+        notification.style.backgroundColor = '#fff';
+        notification.style.border = '2px solid #d32f2f';
+        notification.style.borderRadius = '8px';
+        notification.style.padding = '20px';
+        notification.style.boxShadow = '0 4px 20px rgba(0,0,0,0.3)';
+        notification.style.zIndex = '9999';
+        notification.style.textAlign = 'center';
+        notification.style.minWidth = '300px';
+        
+        notification.innerHTML = `
+            <h3 style="color: #d32f2f; margin-top: 0;">您的账号在其他设备登录</h3>
+            <p style="margin: 15px 0;">您的会话已被终止，需要重新登录。</p>
+            <button id="relogin-btn" style="background-color: #d32f2f; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">重新登录</button>
+        `;
+        
+        // 添加遮罩层
+        const overlay = document.createElement('div');
+        overlay.className = 'notification-overlay';
+        overlay.style.position = 'fixed';
+        overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100%';
+        overlay.style.height = '100%';
+        overlay.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        overlay.style.zIndex = '9998';
+        
+        document.body.appendChild(overlay);
+        document.body.appendChild(notification);
+        
+        // 添加重新登录按钮事件
+        document.getElementById('relogin-btn').addEventListener('click', function() {
+            // 移除通知和遮罩
+            document.body.removeChild(notification);
+            document.body.removeChild(overlay);
+            
+            // 执行登出操作
             logout();
+            
+            // 显示登录模态框
             authModal.style.display = 'flex';
-            // 聚焦到登录表单
             loginUsername.focus();
-        }
+        });
+    }
+    
+    // 代码块复制功能
+    function initializeCodeBlockCopy() {
+        // 监听代码块复制按钮点击事件
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('copy-button')) {
+                const code = decodeURIComponent(e.target.getAttribute('data-code'));
+                navigator.clipboard.writeText(code).then(function() {
+                    // 显示复制成功提示
+                    const notice = e.target.previousElementSibling;
+                    notice.textContent = '已复制';
+                    notice.style.display = 'inline';
+                    notice.style.color = 'green';
+                    
+                    // 2秒后隐藏提示
+                    setTimeout(function() {
+                        notice.style.display = 'none';
+                    }, 2000);
+                }).catch(function(err) {
+                    console.error('复制失败:', err);
+                    const notice = e.target.previousElementSibling;
+                    notice.textContent = '复制失败';
+                    notice.style.display = 'inline';
+                    notice.style.color = 'red';
+                    
+                    setTimeout(function() {
+                        notice.style.display = 'none';
+                    }, 2000);
+                });
+            }
+        });
     }
 
     // 修复4：更新用户列表函数
@@ -3147,20 +3222,45 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
 
+        // 初始化代码块复制功能
+        initializeCodeBlockCopy();
+
         // 发送消息事件
         sendButton.addEventListener('click', sendMessage);
-        messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+        messageInput.addEventListener('keydown', (e) => {
+            // Enter发送消息
+            if (e.key === 'Enter' && !e.ctrlKey && !e.shiftKey) {
                 e.preventDefault();
                 sendMessage();
+            }
+            // Ctrl+Enter插入换行
+            else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
+                e.preventDefault();
+                const start = messageInput.selectionStart;
+                const end = messageInput.selectionEnd;
+                const value = messageInput.value;
+                messageInput.value = value.substring(0, start) + '\n' + value.substring(end);
+                // 设置光标位置到换行符后
+                messageInput.selectionStart = messageInput.selectionEnd = start + 1;
             }
         });
 
         sendGroupMessageBtn.addEventListener('click', sendGroupMessage);
-        groupMessageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+        groupMessageInput.addEventListener('keydown', (e) => {
+            // Enter发送消息
+            if (e.key === 'Enter' && !e.ctrlKey && !e.shiftKey) {
                 e.preventDefault();
                 sendGroupMessage();
+            }
+            // Ctrl+Enter插入换行
+            else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
+                e.preventDefault();
+                const start = groupMessageInput.selectionStart;
+                const end = groupMessageInput.selectionEnd;
+                const value = groupMessageInput.value;
+                groupMessageInput.value = value.substring(0, start) + '\n' + value.substring(end);
+                // 设置光标位置到换行符后
+                groupMessageInput.selectionStart = groupMessageInput.selectionEnd = start + 1;
             }
         });
 
@@ -3483,15 +3583,27 @@ document.addEventListener('DOMContentLoaded', function() {
                     updateLoginState(true);
 
                     // 设置最后更新时间
-                    lastMessageUpdate = Date.now();
+                lastMessageUpdate = Date.now();
 
-                    // 立即请求在线用户列表
-                    socket.emit('get-online-users');
+                // 立即请求在线用户列表
+                socket.emit('get-online-users');
 
-                    // 启动自动刷新
-                    startAutoRefresh();
+                // 启动自动刷新
+                startAutoRefresh();
+                
+                // 调用刷新所有内容函数，确保登录后显示所有信息
+                refreshAllContent();
+                
+                // 确保消息容器清空并重新加载
+                messageContainer.innerHTML = '';
+                groupMessageContainer.innerHTML = '';
+                
+                // 添加顶号提醒功能 - 监听会话被顶掉的事件
+                socket.on('session-expired', function() {
+                    showSessionExpiredNotification();
+                });
 
-                } else {
+            } else {
                     // 显示登录失败消息
                     loginMessage.textContent = data.message;
                     loginMessage.style.display = 'block';
@@ -4213,8 +4325,66 @@ function handleBoldAndItalic(text, showEscapedChars, regex, tag) {
 
 function handleCodeBlocks(text, showEscapedChars, regex) {
     return text.replace(regex, function (match, code) {
+        // 解析语言类型，检查代码块第一行是否包含语言指定
+        let language = '';
+        const codeLines = code.split('\n');
+        if (codeLines.length > 0 && codeLines[0].trim()) {
+            // 第一行可能是语言标识
+            const firstLine = codeLines[0].trim();
+            // 检查是否为有效的语言标识（不含空格和特殊字符）
+            if (/^[a-zA-Z0-9+#-]+$/.test(firstLine)) {
+                language = firstLine;
+                // 移除第一行（语言标识）
+                codeLines.shift();
+                code = codeLines.join('\n');
+            }
+        }
+        
+        // 先移除代码末尾的空行
+        while (codeLines.length > 0 && !codeLines[codeLines.length - 1].trim()) {
+            codeLines.pop();
+        }
+        code = codeLines.join('\n');
         const escapedCode = escapeText(code, showEscapedChars);
-        return `<pre><code>${escapedCode}</code></pre>`;
+        
+        // 然后基于清理后的代码行数生成行号，避免在最后一行添加换行符
+        const lineCount = codeLines.length;
+        let lineNumbers = '';
+        for (let i = 1; i <= lineCount; i++) {
+            lineNumbers += `<span class="line">${i}</span>`;
+            // 只在非最后一行添加换行符
+            if (i < lineCount) {
+                lineNumbers += '<br>';
+            }
+        }
+        
+        // 模仿code.html的HTML结构
+        return `
+        <figure class="highlight">
+            <div class="highlight-tools">
+                <div class="macStyle">
+                    <div class="mac-close"></div>
+                    <div class="mac-minimize"></div>
+                    <div class="mac-maximize"></div>
+                </div>
+                <div class="code-lang">${language || 'code'}</div>
+                <div class="copy-notice"></div>
+                <i class="fas fa-paste copy-button" data-code="${encodeURIComponent(escapedCode)}"></i>
+                <i class="fa-solid fa-up-right-and-down-left-from-center fullpage-button"></i>
+            </div>
+            <table>
+                <tbody>
+                    <tr>
+                        <td class="gutter">
+                            <pre>${lineNumbers}</pre>
+                        </td>
+                        <td class="code">
+                            <pre><code>${escapedCode}</code></pre>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </figure>`;
     });
 }
 
