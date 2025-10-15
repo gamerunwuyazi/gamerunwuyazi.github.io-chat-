@@ -1450,10 +1450,18 @@ button {
     color: var(--text-primary);
 }
 
-.dark-mode .message-content pre {
+.dark-mode .highlight {
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+.dark-mode .code pre {
     background-color: var(--bg-tertiary);
     border-color: var(--border-color);
     color: var(--text-primary);
+    padding-bottom: 12px !important;
+    bottom: 0 !important;
 }
 
 .dark-mode .message-content a {

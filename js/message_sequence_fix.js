@@ -119,13 +119,9 @@
                 
                 data.messages = uniqueMessages;
                 
-                // 调用原始的事件处理器
-                if (originalChatHistoryHandler) {
-                    originalChatHistoryHandler(data);
-                } else {
-                    // 如果没有原始处理器，手动渲染消息
-                    renderMessages(data, false);
-                }
+                // 不再调用原始的事件处理器，直接使用我们自己的渲染函数
+                // 避免index.js中的反转操作干扰我们已经排好序的消息
+                renderMessages(data, false);
                 
                 // 确保重置加载状态，无论是否调用了原始处理器
                 window.isLoadingMoreMessages = false;
@@ -177,13 +173,9 @@
                 
                 data.messages = uniqueMessages;
                 
-                // 调用原始的事件处理器
-                if (originalGroupChatHistoryHandler) {
-                    originalGroupChatHistoryHandler(data);
-                } else {
-                    // 如果没有原始处理器，手动渲染消息
-                    renderMessages(data, true);
-                }
+                // 不再调用原始的事件处理器，直接使用我们自己的渲染函数
+                // 避免index.js中的反转操作干扰我们已经排好序的消息
+                renderMessages(data, true);
                 
                 // 确保重置加载状态，无论是否调用了原始处理器
                 window.isLoadingMoreMessages = false;
