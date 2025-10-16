@@ -2014,6 +2014,8 @@ document.addEventListener('DOMContentLoaded', function() {
         messageElement.className = `message ${isOwn ? 'own-message' : ''}`;
         messageElement.setAttribute('data-user-id', message.userId);
         messageElement.setAttribute('data-message-id', message.id);
+    // 添加data-message属性存储完整的消息对象，用于加载更多功能
+    messageElement.setAttribute('data-message', JSON.stringify(message));
 
         // 统一构建消息HTML结构
         const avatarHtml = message.avatarUrl ?
@@ -3387,22 +3389,19 @@ document.addEventListener('DOMContentLoaded', function() {
                     // 获取当前显示的最早消息的时间戳
                     const messages = messageContainer.querySelectorAll('.message');
                     const firstMessage = messages.length > 0 ? messages[0] : null;
-                    // 关键修复：确保正确获取时间戳，即使没有data-timestamp属性
+                    // 关键修复：使用sequence值代替时间戳来加载更多消息
                     let olderThan = null;
                     if (firstMessage) {
-                        // 优先使用data-timestamp属性
-                        if (firstMessage.dataset.timestamp) {
-                            olderThan = firstMessage.dataset.timestamp;
-                        } else {
-                            // 备选方案：从消息时间元素中解析时间戳
-                            const timeElement = firstMessage.querySelector('.message-time');
-                            if (timeElement) {
-                                // 这里可以根据实际情况实现时间解析逻辑
-                                // 注：这只是一个备选方案，理想情况下应该始终有data-timestamp属性
-                                console.warn('找不到data-timestamp属性，使用备选方案');
+                        // 从data-message中获取消息数据并提取sequence值
+                        if (firstMessage.dataset.message) {
+                            try {
+                                const messageData = JSON.parse(firstMessage.dataset.message);
+                                olderThan = messageData.sequence;
+                            } catch (e) {
+                                console.error('解析消息数据失败:', e);
                             }
                         }
-                        console.log('获取到的olderThan时间戳:', olderThan);
+                        console.log('获取到的olderThan sequence:', olderThan);
                     }
 
                     if (currentUser && currentSessionToken) {
@@ -3471,19 +3470,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     // 关键修复：确保正确获取时间戳，即使没有data-timestamp属性
                     let olderThan = null;
                     if (firstMessage) {
-                        // 优先使用data-timestamp属性
-                        if (firstMessage.dataset.timestamp) {
-                            olderThan = firstMessage.dataset.timestamp;
-                        } else {
-                            // 备选方案：从消息时间元素中解析时间戳
-                            const timeElement = firstMessage.querySelector('.message-time');
-                            if (timeElement) {
-                                // 这里可以根据实际情况实现时间解析逻辑
-                                // 注：这只是一个备选方案，理想情况下应该始终有data-timestamp属性
-                                console.warn('找不到data-timestamp属性，使用备选方案');
+                        // 从data-message中获取消息数据并提取sequence值
+                        if (firstMessage.dataset.message) {
+                            try {
+                                const messageData = JSON.parse(firstMessage.dataset.message);
+                                olderThan = messageData.sequence;
+                            } catch (e) {
+                                console.error('解析消息数据失败:', e);
                             }
                         }
-                        console.log('获取到的olderThan时间戳:', olderThan);
+                        console.log('获取到的olderThan sequence:', olderThan);
                     }
 
                     if (currentUser && currentSessionToken) {
