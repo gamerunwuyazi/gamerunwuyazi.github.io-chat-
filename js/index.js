@@ -3577,6 +3577,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
 
                     updateLoginState(true);
+                    
+                    // 登录成功后立即刷新页面，防止一些问题
+                    location.reload();
 
                     // 设置最后更新时间
                 lastMessageUpdate = Date.now();
