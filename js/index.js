@@ -3576,31 +3576,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
                     }
 
-                    updateLoginState(true);
+                    // 发送登录事件
+                    socket.emit('user-logged-in', { userId: currentUser.id, nickname: currentUser.nickname });
                     
-                    // 登录成功后立即刷新页面，防止一些问题
-                    location.reload();
-
-                    // 设置最后更新时间
-                lastMessageUpdate = Date.now();
-
-                // 立即请求在线用户列表
-                socket.emit('get-online-users');
-
-                // 启动自动刷新
-                startAutoRefresh();
-                
-                // 调用刷新所有内容函数，确保登录后显示所有信息
-                refreshAllContent();
-                
-                // 确保消息容器清空并重新加载
-                messageContainer.innerHTML = '';
-                groupMessageContainer.innerHTML = '';
-                
-                // 添加顶号提醒功能 - 监听会话被顶掉的事件
-                socket.on('session-expired', function() {
-                    showSessionExpiredNotification();
-                });
+                    // 不关闭拟态框，直接刷新网页
+                    setTimeout(() => {
+                        location.reload();
+                    }, 100);
 
             } else {
                     // 显示登录失败消息
