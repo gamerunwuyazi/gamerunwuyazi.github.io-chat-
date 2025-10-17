@@ -2040,24 +2040,33 @@ document.addEventListener('DOMContentLoaded', function() {
 
         let contentHtml = '';
 
-        if (message.imageUrl) {
-            // 检查是否为图片文件（根据扩展名）
-            const isImage = message.filename ? /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i.test(message.filename) : !message.filename;
+        // 支持图片URL和文件URL两种格式
+        const fileUrl = message.imageUrl || message.fileUrl;
+        const isImageFile = message.imageUrl && (!message.filename || /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i.test(message.filename));
 
+        // Unicode字符反转义函数
+        function unescapeUnicode(str) {
+            return str.replace(/\\u([0-9a-fA-F]{4})/g, function(match, hex) {
+                return String.fromCharCode(parseInt(hex, 16));
+            });
+        }
+
+        if (fileUrl) {
             // 如果是图片文件，显示图片预览
-            if (isImage) {
+            if (isImageFile) {
                 contentHtml = `
                 <div class="message-content">
-                  <img src="${SERVER_URL}${message.imageUrl}" class="message-image" alt="聊天图片" onclick="openImagePreview('${SERVER_URL}${message.imageUrl}')">
+                  <img src="${SERVER_URL}${fileUrl}" class="message-image" alt="聊天图片" onclick="openImagePreview('${SERVER_URL}${fileUrl}')">
                 </div>
               `;
             } else {
-                // 非图片文件显示为文件链接卡片样式
+                // 非图片文件显示为文件链接卡片样式，先反转义Unicode字符再显示
+                const displayFilename = message.filename ? unescapeUnicode(message.filename) : '';
                 contentHtml = `
                 <div class="message-content">
                   <div class="file-link-container">
-                    <a href="${SERVER_URL}${message.imageUrl}" class="file-link" download="${escapeHtml(message.filename)}" target="_blank">
-                      <span>${escapeHtml(message.filename)}</span>
+                    <a href="${SERVER_URL}${fileUrl}" class="file-link" download="${escapeHtml(displayFilename)}" target="_blank">
+                      <span>${escapeHtml(displayFilename)}</span>
                     </a>
                   </div>
                 </div>
@@ -3816,9 +3825,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 }, 500);
 
                 if (data.status === 'success') {
-                    console.log('文件上传成功');
-                    // 不需要额外操作，因为/upload接口已经将消息保存到数据库并广播给所有客户端
-                    // 客户端会通过socket.io接收message-received事件来更新界面
+                    console.log('文件上传成功', data);
+                    // 移除主动创建消息的代码，只依赖服务器的Socket.IO广播
+                    // 这样可以避免显示两个重复的消息
                 } else {
                     alert('文件上传失败: ' + data.message);
                 }
