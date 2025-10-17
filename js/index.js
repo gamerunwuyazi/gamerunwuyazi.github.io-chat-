@@ -17,6 +17,9 @@ document.addEventListener('DOMContentLoaded', function() {
     let lastMessageUpdate = 0;
     let autoRefreshInterval = null;
     let isPageVisible = true;
+    // 未读消息计数
+    let unreadMessages = { global: 0, groups: {} };
+    let originalTitle = document.title;
 
     // 获取DOM元素
     const messageInput = document.getElementById('messageInput');
@@ -1716,6 +1719,13 @@ document.addEventListener('DOMContentLoaded', function() {
         mainChat.style.display = 'none';
         groupChat.style.display = 'flex';
         safeSetTextContent(groupTitle, groupName);
+        
+        // 清除该群组未读消息计数
+        if (unreadMessages.groups[groupId] > 0) {
+            unreadMessages.groups[groupId] = 0;
+            updateGroupUnreadIndicator(groupId, 0);
+            updateTitleWithUnreadCount();
+        }
 
         groupMessageContainer.innerHTML = `
                 <div class="empty-state">
@@ -1951,6 +1961,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
         groupChat.style.display = 'none';
         mainChat.style.display = 'block';
+        
+        // 清除全局未读消息计数
+        if (unreadMessages.global > 0) {
+            unreadMessages.global = 0;
+            updateTitleWithUnreadCount();
+        }
 
         groupMessageInput.disabled = true;
         groupMessageInput.placeholder = '请先加入群组';
@@ -2838,10 +2854,76 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // 更新标题栏未读消息数
+    function updateTitleWithUnreadCount() {
+        const totalUnread = unreadMessages.global + Object.values(unreadMessages.groups).reduce((sum, count) => sum + count, 0);
+        if (totalUnread > 0) {
+            document.title = `简易聊天室（${totalUnread}条消息未读）`;
+        } else {
+            document.title = originalTitle;
+        }
+    }
+
+    // 更新群组未读消息指示器
+    function updateGroupUnreadIndicator(groupId, count) {
+        const groupItem = document.querySelector(`.group-item[data-group-id="${groupId}"]`);
+        if (!groupItem) return;
+
+        let indicator = groupItem.querySelector('.unread-indicator');
+        if (count > 0) {
+            if (!indicator) {
+                indicator = document.createElement('div');
+                indicator.className = 'unread-indicator';
+                indicator.style.cssText = `
+                    position: absolute;
+                    top: -5px;
+                    left: -5px;
+                    background: #e74c3c;
+                    color: white;
+                    border-radius: 50%;
+                    min-width: 20px;
+                    height: 20px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 12px;
+                    font-weight: bold;
+                    padding: 0 6px;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                `;
+                groupItem.style.position = 'relative';
+                groupItem.appendChild(indicator);
+            }
+            indicator.textContent = count > 99 ? '99+' : count;
+            indicator.style.display = 'flex';
+        } else if (indicator) {
+            indicator.style.display = 'none';
+        }
+    }
+
     socket.on('message-received', (message) => {
         // 只有登录状态才接收和显示消息
         if (currentUser && currentSessionToken) {
             const isOwn = message.userId == currentUser.id;
+            
+            // 忽略自己发送的消息的未读计数
+            if (!isOwn) {
+                // 检查是否需要增加未读计数
+                if (message.groupId) {
+                    // 群组消息
+                    if (currentGroupId !== message.groupId) {
+                        unreadMessages.groups[message.groupId] = (unreadMessages.groups[message.groupId] || 0) + 1;
+                        updateGroupUnreadIndicator(message.groupId, unreadMessages.groups[message.groupId]);
+                        updateTitleWithUnreadCount();
+                    }
+                } else {
+                    // 全局消息
+                    if (mainChat.style.display === 'none') {
+                        unreadMessages.global += 1;
+                        updateTitleWithUnreadCount();
+                    }
+                }
+            }
 
             // 判断消息类型并显示
             if (message.groupId && currentGroupId && message.groupId == currentGroupId) {
@@ -4186,24 +4268,26 @@ document.addEventListener('DOMContentLoaded', function() {
     // 确保消息解析器在应用初始化后初始化
     initLooseParser();
 });
-// 增强的HTML转义函数
+// 增强的HTML转义函数 - 使用更智能的正则表达式避免二次转义
 function simpleEscapeHtml(text) {
     if (text === null || text === undefined) return '';
     text = String(text); // 确保是字符串
+    // 只转义未转义的&符号，避免二次转义
     return text
-    .replace(/&/g, '&amp;')
+    .replace(/&(?!(amp|lt|gt|quot|#039);)/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
 
-// 显示HTML转义字符的函数
+// 显示HTML转义字符的函数 - 使用更智能的正则表达式避免二次转义
 function showEscapedHtml(text) {
     if (text === null || text === undefined) return '';
     text = String(text); // 确保是字符串
+    // 只转义未转义的&符号，避免二次转义
     return text
-    .replace(/&/g, '&amp;')
+    .replace(/&(?!(amp|lt|gt|quot|#039);)/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
@@ -4307,29 +4391,49 @@ function handleBoldAndItalic(text, showEscapedChars, regex, tag) {
     });
 }
 
+// HTML解码函数，用于防止二次转义
+function unescapeHtml(text) {
+    if (!text) return '';
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = text;
+    return textarea.value;
+}
+
 function handleCodeBlocks(text, showEscapedChars, regex) {
     return text.replace(regex, function (match, code) {
         // 解析语言类型，检查代码块第一行是否包含语言指定
         let language = '';
-        const codeLines = code.split('\n');
+        let codeLines = code.split('\n');
+        
+        // 移除开头的空行
+        while (codeLines.length > 0 && !codeLines[0].trim()) {
+            codeLines.shift();
+        }
+        
+        // 检查第一行是否为语言标识
         if (codeLines.length > 0 && codeLines[0].trim()) {
-            // 第一行可能是语言标识
             const firstLine = codeLines[0].trim();
-            // 检查是否为有效的语言标识（不含空格和特殊字符）
             if (/^[a-zA-Z0-9+#-]+$/.test(firstLine)) {
                 language = firstLine;
-                // 移除第一行（语言标识）
+                // 移除语言标识行
                 codeLines.shift();
-                code = codeLines.join('\n');
             }
         }
         
-        // 先移除代码末尾的空行
+        // 移除末尾的空行
         while (codeLines.length > 0 && !codeLines[codeLines.length - 1].trim()) {
             codeLines.pop();
         }
-        code = codeLines.join('\n');
-        const escapedCode = escapeText(code, showEscapedChars);
+        
+        // 对于代码块，使用更智能的正则表达式避免二次转义
+        let escapedCode = codeLines.join('\n')
+            .replace(/&(?!(amp|lt|gt|quot|#039);)/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;')
+            .replace(/\n/g, '<br>');
+            
         
         // 然后基于清理后的代码行数生成行号，避免在最后一行添加换行符
         const lineCount = codeLines.length;
@@ -4353,7 +4457,7 @@ function handleCodeBlocks(text, showEscapedChars, regex) {
                 </div>
                 <div class="code-lang">${language || 'code'}</div>
                 <div class="copy-notice"></div>
-                <i class="fas fa-paste copy-button" data-code="${encodeURIComponent(escapedCode)}"></i>
+                <i class="fas fa-paste copy-button" data-code="${encodeURIComponent(unescapeHtml(codeLines.join('\n')))}"></i>
                 <i class="fa-solid fa-up-right-and-down-left-from-center fullpage-button"></i>
             </div>
             <table>
@@ -4374,7 +4478,13 @@ function handleCodeBlocks(text, showEscapedChars, regex) {
 
 function handleInlineCode(text, showEscapedChars, regex) {
     return text.replace(regex, function (match, code) {
-        const escapedCode = escapeText(code, showEscapedChars);
+        // 对于行内代码，使用更智能的正则表达式避免二次转义
+        const escapedCode = code
+            .replace(/&(?!(amp|lt|gt|quot|#039);)/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
         return `<code>${escapedCode}</code>`;
     });
 }
@@ -4435,5 +4545,11 @@ function handleUrls(text, showEscapedChars, regex) {
 }
 
 function escapeText(text, showEscapedChars) {
+    // 确保传入的是字符串
+    if (text === null || text === undefined) return '';
+    text = String(text);
+    
+    // 对于普通文本，使用simpleEscapeHtml，但避免二次转义
+    if (simpleEscapeHtml === undefined) return text;
     return showEscapedChars ? showEscapedHtml(text) : simpleEscapeHtml(text);
 }
