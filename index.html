@@ -11,7 +11,9 @@
     <script>
         if (window.location.protocol === 'https:') {
             if (confirm('请使用HTTP协议访问本页面。点击确定将自动跳转至HTTP版本。')) {
-                window.location.href = 'http://chat.gamerunwuyazi.dpdns.org/';
+                alert('糟糕，跳转不了，你可以直接在地址栏输入http://chat.gamerunwuyazi.dpdns.org/访问。')
+            } else {
+                alert('继续访问聊不聊天，刷新重选')
             }
         }
     </script>
