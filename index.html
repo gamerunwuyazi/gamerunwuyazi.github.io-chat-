@@ -90,6 +90,10 @@
             <textarea id="groupDescriptionInput" placeholder="群组描述（可选）" maxlength="200"></textarea>
             
             <h4>选择成员（至少选择2人）</h4>
+            <div class="select-all-container" style="margin-bottom: 10px;">
+                <input type="checkbox" id="selectAllGroupMembers">
+                <label for="selectAllGroupMembers">全选</label>
+            </div>
             <div class="member-list" id="groupMembersList">
                 <div>加载中...</div>
             </div>
@@ -104,6 +108,10 @@
         <div class="modal-content">
             <span class="close-modal">&times;</span>
             <h3>添加群组成员</h3>
+            <div class="select-all-container" style="margin-bottom: 10px;">
+                <input type="checkbox" id="selectAllAvailableMembers">
+                <label for="selectAllAvailableMembers">全选</label>
+            </div>
             <div class="member-list" id="availableMembersList">
                 <div>加载中...</div>
             </div>

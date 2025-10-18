@@ -3997,6 +3997,92 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // 初始化宽松的Markdown解析器，确保链接能够被正确解析和显示
         initLooseParser();
+        
+        // 初始化全选复选框功能
+        initSelectAllCheckboxes();
+    }
+    
+    // 初始化全选复选框功能
+    function initSelectAllCheckboxes() {
+        // 创建群组时的全选功能
+        const selectAllGroupMembers = document.getElementById('selectAllGroupMembers');
+        if (selectAllGroupMembers) {
+            // 全选/取消全选功能
+            selectAllGroupMembers.addEventListener('change', function() {
+                document.querySelectorAll('.member-checkbox').forEach(checkbox => {
+                    checkbox.checked = this.checked;
+                });
+            });
+            
+            // 当成员列表更新后，设置反向同步
+            const groupMembersList = document.getElementById('groupMembersList');
+            if (groupMembersList) {
+                // 使用MutationObserver监听成员列表的变化
+                const observer1 = new MutationObserver(function() {
+                    // 添加单个复选框的反向同步
+                    document.querySelectorAll('.member-checkbox').forEach(checkbox => {
+                        checkbox.addEventListener('change', updateSelectAllState);
+                    });
+                    
+                    // 更新全选状态
+                    updateSelectAllState();
+                });
+                
+                observer1.observe(groupMembersList, { childList: true, subtree: true });
+                
+                // 更新全选状态的函数
+                function updateSelectAllState() {
+                    const checkboxes = document.querySelectorAll('.member-checkbox');
+                    if (checkboxes.length === 0) {
+                        selectAllGroupMembers.checked = false;
+                        return;
+                    }
+                    
+                    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+                    selectAllGroupMembers.checked = allChecked;
+                }
+            }
+        }
+        
+        // 添加成员时的全选功能
+        const selectAllAvailableMembers = document.getElementById('selectAllAvailableMembers');
+        if (selectAllAvailableMembers) {
+            // 全选/取消全选功能
+            selectAllAvailableMembers.addEventListener('change', function() {
+                document.querySelectorAll('.available-member-checkbox').forEach(checkbox => {
+                    checkbox.checked = this.checked;
+                });
+            });
+            
+            // 当可用成员列表更新后，设置反向同步
+            const availableMembersList = document.getElementById('availableMembersList');
+            if (availableMembersList) {
+                // 使用MutationObserver监听成员列表的变化
+                const observer2 = new MutationObserver(function() {
+                    // 添加单个复选框的反向同步
+                    document.querySelectorAll('.available-member-checkbox').forEach(checkbox => {
+                        checkbox.addEventListener('change', updateAvailableSelectAllState);
+                    });
+                    
+                    // 更新全选状态
+                    updateAvailableSelectAllState();
+                });
+                
+                observer2.observe(availableMembersList, { childList: true, subtree: true });
+                
+                // 更新全选状态的函数
+                function updateAvailableSelectAllState() {
+                    const checkboxes = document.querySelectorAll('.available-member-checkbox');
+                    if (checkboxes.length === 0) {
+                        selectAllAvailableMembers.checked = false;
+                        return;
+                    }
+                    
+                    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+                    selectAllAvailableMembers.checked = allChecked;
+                }
+            }
+        }
     }
 
     // 修复21：全局函数和启动
