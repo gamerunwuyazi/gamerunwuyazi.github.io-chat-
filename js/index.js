@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const SERVER_URL = 'http://152.136.175.209:3000';
+    const SERVER_URL = 'https://back.hs.airoe.cn';
 
     // 初始化变量
     let currentUser = null;
@@ -817,7 +817,7 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(error => {
                 console.error('获取公告内容失败:', error);
-                announcementContainer.textContent = '无法加载公告';
+                announcementContainer.textContent = '进来的宣传一下';
             });
     }
     
@@ -981,11 +981,24 @@ document.addEventListener('DOMContentLoaded', function() {
         saveNicknameBtn.addEventListener('click', () => {
             const newNickname = nicknameInput.value.trim();
             if (newNickname && currentUser && currentSessionToken) {
+                // 先更新本地用户信息
+                currentUser.nickname = newNickname;
+                safeSetTextContent(currentNicknameSpan, newNickname);
+                localStorage.setItem('chatUserNickname', newNickname);
+                
+                // 向服务器发送更新请求
                 socket.emit('update-nickname', {
                     userId: currentUser.id,
                     newNickname: newNickname,
                     sessionToken: currentSessionToken
                 });
+                
+                // 同时广播昵称修改消息给所有客户端
+                socket.emit('broadcast-nickname-change', {
+                    userId: currentUser.id,
+                    newNickname: newNickname
+                });
+                
                 hideNicknameModal();
             }
         });
@@ -3183,6 +3196,45 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // 监听昵称广播更新事件
+    socket.on('broadcast-nickname-change', (data) => {
+        // 对昵称进行HTML实体解码处理
+        const unescapedNickname = data.newNickname
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'");
+        
+        // 如果是当前用户自己，可能已经在保存按钮事件中更新过，但仍需确保一致
+        if (currentUser && data.userId == currentUser.id) {
+            currentUser.nickname = unescapedNickname;
+            safeSetTextContent(currentNicknameSpan, unescapedNickname);
+            localStorage.setItem('chatUserNickname', unescapedNickname);
+            socket.emit('get-online-users'); // 刷新用户列表
+        }
+        
+        // 更新聊天记录中该用户的所有历史消息昵称
+        const chatMessagesContainer = document.querySelector('.chat-messages');
+        if (chatMessagesContainer) {
+            // 查找所有包含该用户ID的消息元素
+            const userMessageElements = chatMessagesContainer.querySelectorAll(`.message[data-user-id="${data.userId}"]`);
+            userMessageElements.forEach(messageElement => {
+                // 更新消息中的昵称显示
+                const nicknameElement = messageElement.querySelector('.message-header .sender-name');
+                if (nicknameElement) {
+                    safeSetTextContent(nicknameElement, unescapedNickname);
+                }
+                // 检查是否有其他昵称显示元素需要更新
+                const otherNicknameElements = messageElement.querySelectorAll('.sender-name');
+                otherNicknameElements.forEach(el => {
+                    safeSetTextContent(el, unescapedNickname);
+                });
+            });
+        }
+    });
+    
+    // 保留原有nickname-updated监听器作为备份
     socket.on('nickname-updated', (data) => {
         // 只有登录状态才处理昵称更新
         if (currentUser && currentSessionToken) {
