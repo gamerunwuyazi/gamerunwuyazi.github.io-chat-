@@ -595,8 +595,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // 用户头像 - 添加avatar_url兼容性处理和默认头像
             const avatarUrl = user.avatarUrl || user.avatar_url || null;
             let avatarHtml = '';
-            if (avatarUrl) {
-                avatarHtml = `<img src="${SERVER_URL}${avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">`;
+            if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
+                avatarHtml = `<img src="${SERVER_URL}${avatarUrl.trim()}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">`;
             } else {
                 // 使用安全的默认头像图标
                 const firstChar = user.nickname && user.nickname.length > 0 ? user.nickname.charAt(0).toUpperCase() : 'U';
@@ -999,9 +999,56 @@ document.addEventListener('DOMContentLoaded', function() {
                     newNickname: newNickname
                 });
                 
+                // 立即更新本地所有历史消息中的昵称显示（同时更新主聊天和群聊）
+                updateAllMessagesNickname(currentUser.id, newNickname);
+                
                 hideNicknameModal();
             }
         });
+        
+        // 更新所有消息中的昵称显示函数
+        function updateAllMessagesNickname(userId, newNickname) {
+            // 确保参数有效性
+            if (!userId || typeof userId !== 'string' || !newNickname || typeof newNickname !== 'string') {
+                return;
+            }
+            
+            // 更新所有聊天记录中该用户的历史消息昵称（包括主聊天和群聊）
+            const messageContainers = [
+                document.querySelector('.chat-messages'),      // 主聊天区域
+                document.querySelector('.group-chat-messages')  // 群聊区域
+            ];
+            
+            messageContainers.forEach(container => {
+                if (container) {
+                    // 查找所有包含该用户ID的消息元素（使用多种选择器组合提高准确性）
+                    const userMessageElements = container.querySelectorAll(`
+                        .message[data-user-id="${userId}"],
+                        .message[data-sender-id="${userId}"],
+                        .message:has(.avatar[data-user-id="${userId}"])
+                    `);
+                    
+                    userMessageElements.forEach(messageElement => {
+                        // 查找多种可能的昵称元素选择器
+                        const nicknameSelectors = [
+                            '.message-header .nickname',
+                            '.nickname',
+                            '.message-header .sender-name',
+                            '.sender-name',
+                            '.message-info .sender-name',
+                            '.message-user-name'
+                        ];
+                        
+                        nicknameSelectors.forEach(selector => {
+                            const elements = messageElement.querySelectorAll(selector);
+                            elements.forEach(element => {
+                                safeSetTextContent(element, newNickname);
+                            });
+                        });
+                    });
+                }
+            });
+        }
 
         // 更改头像按钮
         changeAvatarBtn.addEventListener('click', showAvatarModal);
@@ -1040,8 +1087,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        currentUser.avatarUrl = data.avatarUrl;
-                        currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
+                        currentUser.avatarUrl = data.avatarUrl && typeof data.avatarUrl === 'string' ? data.avatarUrl.trim() : null;
+            if (currentUser.avatarUrl) {
+                currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl}`;
+            }
                         currentAvatarImg.style.display = 'inline';
 
                         // 隐藏默认头像
@@ -1058,7 +1107,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         if (isConnected && socket) {
                             socket.emit('avatar-updated', {
                                 userId: currentUser.id,
-                                avatarUrl: data.avatarUrl
+                                avatarUrl: data.avatarUrl && typeof data.avatarUrl === 'string' ? data.avatarUrl.trim() : null
                             });
                         }
 
@@ -1233,8 +1282,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         const memberItem = document.createElement('div');
                         memberItem.className = 'manage-member-item';
 
-                        const avatarHtml = member.avatar_url ?
-                            `<img src="${SERVER_URL}${member.avatar_url}" class="user-avatar" style="width: 24px; height: 24px; margin-right: 8px; border-radius: 50%;">` :
+                        const avatarHtml = member.avatar_url && typeof member.avatar_url === 'string' && member.avatar_url.trim() !== '' ?
+                            `<img src="${SERVER_URL}${member.avatar_url.trim()}" class="user-avatar" style="width: 24px; height: 24px; margin-right: 8px; border-radius: 50%;">` :
                             '';
 
                         // 在线状态指示器
@@ -1542,7 +1591,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         memberItem.innerHTML = `
                             <input type="checkbox" class="available-member-checkbox" value="${member.id}" id="available-member-${member.id}">
                             <label for="available-member-${member.id}">
-                                ${member.avatarUrl ? `<img src="${SERVER_URL}${member.avatarUrl}" alt="头像" style="width: 16px; height: 16px; border-radius: 50%; margin-right: 8px;">` : ''}
+                                ${member.avatarUrl && typeof member.avatarUrl === 'string' && member.avatarUrl.trim() !== '' ? `<img src="${SERVER_URL}${member.avatarUrl.trim()}" alt="头像" style="width: 16px; height: 16px; border-radius: 50%; margin-right: 8px;">` : ''}
                                 <span>${lightEscapeHtml(member.nickname)}</span>
                             </label>
                         `;
@@ -1872,8 +1921,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // 添加avatar_url兼容性处理和默认头像
             const avatarUrl = member.avatarUrl || member.avatar_url || null;
             let avatarHtml = '';
-            if (avatarUrl) {
-                avatarHtml = `<img src="${SERVER_URL}${avatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">`;
+            if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
+                avatarHtml = `<img src="${SERVER_URL}${avatarUrl.trim()}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">`;
             } else {
                 // 使用默认头像图标
                 avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px;">${member.nickname.charAt(0).toUpperCase()}</span>`;
@@ -2047,8 +2096,8 @@ document.addEventListener('DOMContentLoaded', function() {
     messageElement.setAttribute('data-message', JSON.stringify(message));
 
         // 统一构建消息HTML结构
-        const avatarHtml = message.avatarUrl ?
-            `<img src="${SERVER_URL}${message.avatarUrl}" class="message-avatar" alt="${message.nickname}">` :
+        const avatarHtml = message.avatarUrl && typeof message.avatarUrl === 'string' && message.avatarUrl.trim() !== '' ?
+            `<img src="${SERVER_URL}${message.avatarUrl.trim()}" class="message-avatar" alt="${message.nickname}">` :
             '';
 
         let contentHtml = '';
@@ -2423,9 +2472,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
             safeSetTextContent(currentNicknameSpan, unescapedNickname);
 
-            if (currentUser.avatarUrl) {
-                currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl}`;
-                currentAvatarImg.style.display = 'inline';
+            if (currentUser.avatarUrl && typeof currentUser.avatarUrl === 'string' && currentUser.avatarUrl.trim() !== '') {
+            currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl.trim()}`;
+            currentAvatarImg.style.display = 'inline';
             } else {
                 // 显示默认头像 - 使用用户昵称的第一个字符
                 currentAvatarImg.style.display = 'none';
@@ -2491,7 +2540,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 socket.emit('user-joined', {
                     userId: currentUser.id,
                     nickname: currentUser.nickname,
-                    avatarUrl: currentUser.avatarUrl,
+                    avatarUrl: currentUser.avatarUrl && typeof currentUser.avatarUrl === 'string' ? currentUser.avatarUrl.trim() : null,
                     sessionToken: currentSessionToken,
                     offset: 0,
                     limit: 20
@@ -2702,6 +2751,56 @@ document.addEventListener('DOMContentLoaded', function() {
         autoConnect: true
     });
 
+    // 检查IP封禁和用户存在性函数
+    function checkUserAndIPStatus(callback) {
+        console.log('🔍 检查IP封禁和用户状态...');
+        
+        fetch(`${SERVER_URL}/check-status`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP错误! 状态码: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('✅ IP和用户状态检查结果:', data);
+            
+            // 检查IP是否被封禁
+            if (data.ipBanned) {
+                console.log('🚫 IP已被封禁');
+                const message = `您的IP已被封禁，原因: ${data.banReason || '未知'}。` +
+                              (data.banExpiry ? ` 解封时间: ${new Date(data.banExpiry).toLocaleString()}` : '');
+                alert(message);
+                logout();
+                callback(false);
+                return;
+            }
+            
+            // 如果有用户登录，检查用户是否仍然存在
+            if (currentUser && !data.userExists) {
+                console.log('❌ 用户不存在');
+                alert('您的账户可能已被删除或禁用，请联系管理员。');
+                logout();
+                callback(false);
+                return;
+            }
+            
+            // 检查通过
+            callback(true);
+        })
+        .catch(error => {
+            console.error('❌ IP和用户状态检查失败:', error);
+            // 检查失败时，允许继续连接（容错处理）
+            console.log('⚠️ 状态检查失败，允许继续连接');
+            callback(true);
+        });
+    }
+
     socket.on('connect', () => {
         // 已成功连接到服务器
         isConnected = true;
@@ -2711,31 +2810,37 @@ document.addEventListener('DOMContentLoaded', function() {
         // 启动自动刷新
         startAutoRefresh();
 
-        // 登录后立即加入聊天室
+        // 登录后先检查IP和用户状态，然后再加入聊天室
         if (currentUser && currentSessionToken) {
-            console.log('🔄 连接建立，重新加入聊天室');
-            socket.emit('user-joined', {
-                userId: currentUser.id,
-                nickname: currentUser.nickname,
-                avatarUrl: currentUser.avatarUrl,
-                sessionToken: currentSessionToken,
-                offset: 0,
-                limit: 20
+            console.log('🔄 连接建立，检查用户和IP状态后加入聊天室');
+            
+            checkUserAndIPStatus((canProceed) => {
+                if (canProceed) {
+                    // 检查通过，发送user-joined事件
+                    socket.emit('user-joined', {
+                            userId: currentUser.id,
+                            nickname: currentUser.nickname,
+                            avatarUrl: currentUser.avatarUrl && typeof currentUser.avatarUrl === 'string' ? currentUser.avatarUrl.trim() : null,
+                            sessionToken: currentSessionToken,
+                            offset: 0,
+                            limit: 20
+                        });
+
+                    // 立即请求在线用户列表
+                    socket.emit('get-online-users');
+
+                    // 如果正在群组聊天，重新加入群组
+                    if (currentGroupId) {
+                        socket.emit('join-group', {
+                            groupId: currentGroupId,
+                            userId: currentUser.id,
+                            sessionToken: currentSessionToken,
+                            offset: 0,
+                            limit: 20
+                        });
+                    }
+                }
             });
-
-            // 立即请求在线用户列表
-            socket.emit('get-online-users');
-
-            // 如果正在群组聊天，重新加入群组
-            if (currentGroupId) {
-                socket.emit('join-group', {
-                    groupId: currentGroupId,
-                    userId: currentUser.id,
-                    sessionToken: currentSessionToken,
-                    offset: 0,
-                    limit: 20
-                });
-            }
         }
     });
 
@@ -2744,31 +2849,37 @@ document.addEventListener('DOMContentLoaded', function() {
         updateConnectionStatus('connected', '已重新连接');
         checkStorageStatus();
 
-        // 重新加入聊天室
+        // 重新连接后先检查IP和用户状态，然后再加入聊天室
         if (currentUser && currentSessionToken) {
-            console.log('🔄 重新连接成功，重新加入聊天室');
-            socket.emit('user-joined', {
-                userId: currentUser.id,
-                nickname: currentUser.nickname,
-                avatarUrl: currentUser.avatarUrl,
-                sessionToken: currentSessionToken,
-                offset: 0,
-                limit: 20
+            console.log('🔄 重新连接成功，检查用户和IP状态后加入聊天室');
+            
+            checkUserAndIPStatus((canProceed) => {
+                if (canProceed) {
+                    // 检查通过，发送user-joined事件
+                    socket.emit('user-joined', {
+                        userId: currentUser.id,
+                        nickname: currentUser.nickname,
+                        avatarUrl: currentUser.avatarUrl && typeof currentUser.avatarUrl === 'string' ? currentUser.avatarUrl.trim() : null,
+                        sessionToken: currentSessionToken,
+                        offset: 0,
+                        limit: 20
+                    });
+
+                    // 重新请求在线用户列表
+                    socket.emit('get-online-users');
+
+                    // 如果正在群组聊天，重新加入群组
+                    if (currentGroupId) {
+                        socket.emit('join-group', {
+                            groupId: currentGroupId,
+                            userId: currentUser.id,
+                            sessionToken: currentSessionToken,
+                            offset: 0,
+                            limit: 200
+                        });
+                    }
+                }
             });
-
-            // 重新请求在线用户列表
-            socket.emit('get-online-users');
-
-            // 如果正在群组聊天，重新加入群组
-            if (currentGroupId) {
-                socket.emit('join-group', {
-                    groupId: currentGroupId,
-                    userId: currentUser.id,
-                    sessionToken: currentSessionToken,
-                    offset: 0,
-                    limit: 200
-                });
-            }
         }
 
         // 重新启动自动刷新
@@ -2830,14 +2941,21 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('avatar-updated', (data) => {
         console.log('🔄 接收头像更新通知:', data);
 
-        // 确保有用户ID和头像URL
-        if (!data.userId || !data.avatarUrl) {
-            console.warn('⚠️ 头像更新数据不完整');
+        // 确保有用户ID
+        if (!data.userId) {
+            console.warn('⚠️ 头像更新数据不完整（缺少用户ID）');
+            return;
+        }
+
+        // 检查并处理头像URL
+        const avatarUrl = data.avatarUrl && typeof data.avatarUrl === 'string' ? data.avatarUrl.trim() : null;
+        if (!avatarUrl) {
+            console.warn('⚠️ 头像更新数据中没有有效的头像URL');
             return;
         }
 
         // 获取完整的头像URL
-        const fullAvatarUrl = `${SERVER_URL}${data.avatarUrl}`;
+        const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
 
         // 1. 更新所有消息中的头像（包括主聊天和群聊）
         const messageElements = document.querySelectorAll('.message');
@@ -3198,6 +3316,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 监听昵称广播更新事件
     socket.on('broadcast-nickname-change', (data) => {
+        // 确保数据完整性
+        if (!data || !data.userId || !data.newNickname) {
+            console.warn('⚠️ 昵称更新数据不完整');
+            return;
+        }
+        
         // 对昵称进行HTML实体解码处理
         const unescapedNickname = data.newNickname
             .replace(/&amp;/g, '&')
@@ -3214,24 +3338,27 @@ document.addEventListener('DOMContentLoaded', function() {
             socket.emit('get-online-users'); // 刷新用户列表
         }
         
-        // 更新聊天记录中该用户的所有历史消息昵称
-        const chatMessagesContainer = document.querySelector('.chat-messages');
-        if (chatMessagesContainer) {
-            // 查找所有包含该用户ID的消息元素
-            const userMessageElements = chatMessagesContainer.querySelectorAll(`.message[data-user-id="${data.userId}"]`);
-            userMessageElements.forEach(messageElement => {
-                // 更新消息中的昵称显示
-                const nicknameElement = messageElement.querySelector('.message-header .sender-name');
-                if (nicknameElement) {
-                    safeSetTextContent(nicknameElement, unescapedNickname);
-                }
-                // 检查是否有其他昵称显示元素需要更新
-                const otherNicknameElements = messageElement.querySelectorAll('.sender-name');
-                otherNicknameElements.forEach(el => {
-                    safeSetTextContent(el, unescapedNickname);
+        // 更新所有聊天记录中该用户的历史消息昵称（包括主聊天和群聊）
+        const messageContainers = [
+            document.querySelector('.chat-messages'),      // 主聊天区域
+            document.querySelector('.group-chat-messages')  // 群聊区域
+        ];
+        
+        messageContainers.forEach(container => {
+            if (container) {
+                // 查找所有包含该用户ID的消息元素
+                const userMessageElements = container.querySelectorAll(`.message[data-user-id="${data.userId}"]`);
+                userMessageElements.forEach(messageElement => {
+                    // 更新消息中的昵称显示
+                    const nicknameElements = messageElement.querySelectorAll('.message-header .sender-name, .sender-name');
+                    nicknameElements.forEach(nicknameElement => {
+                        if (nicknameElement) {
+                            safeSetTextContent(nicknameElement, unescapedNickname);
+                        }
+                    });
                 });
-            });
-        }
+            }
+        });
     });
     
     // 保留原有nickname-updated监听器作为备份
@@ -3336,7 +3463,7 @@ document.addEventListener('DOMContentLoaded', function() {
             socket.emit('user-joined', {
                 userId: currentUser.id,
                 nickname: currentUser.nickname,
-                avatarUrl: currentUser.avatarUrl,
+                avatarUrl: currentUser.avatarUrl && typeof currentUser.avatarUrl === 'string' ? currentUser.avatarUrl.trim() : null,
                 sessionToken: currentSessionToken,
                 offset: offset,
                 limit: 20,
@@ -3707,13 +3834,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     currentUser = {
                         id: data.userId.toString(),
                         nickname: unescapedNickname,
-                        avatarUrl: data.avatarUrl
+                        avatarUrl: data.avatarUrl && typeof data.avatarUrl === 'string' ? data.avatarUrl.trim() : null
                     };
                     currentSessionToken = data.sessionToken;
 
                     localStorage.setItem('chatUserId', currentUser.id);
                     localStorage.setItem('chatUserNickname', currentUser.nickname);
-                    localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
+                    localStorage.setItem('chatUserAvatar', currentUser.avatarUrl || '');
                     localStorage.setItem('chatSessionToken', currentSessionToken);
                     if (currentUser.avatarUrl) {
                         localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
@@ -3959,6 +4086,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // 立即设置最后更新时间
             lastMessageUpdate = Date.now();
+            
+            // 初始化时立即检查IP封禁和用户存在状态
+            checkUserAndIPStatus((canProceed) => {
+                if (!canProceed) {
+                    console.log('🚫 初始化时状态检查失败，已清理用户信息');
+                }
+            });
         } else {
             updateLoginState(false);
         }
