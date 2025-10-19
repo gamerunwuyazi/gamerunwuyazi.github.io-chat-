@@ -1090,8 +1090,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         currentUser.avatarUrl = data.avatarUrl && typeof data.avatarUrl === 'string' ? data.avatarUrl.trim() : null;
             if (currentUser.avatarUrl) {
                 currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl}`;
+                currentAvatarImg.style.display = 'inline';
+            } else {
+                currentAvatarImg.style.display = 'none';
             }
-                        currentAvatarImg.style.display = 'inline';
 
                         // 隐藏默认头像
                         const defaultAvatar = document.getElementById('defaultAvatar');
@@ -1099,7 +1101,12 @@ document.addEventListener('DOMContentLoaded', function() {
                             defaultAvatar.style.display = 'none';
                         }
 
-                        localStorage.setItem('chatUserAvatar', data.avatarUrl);
+                        // 只有当头像URL有效时才存储到localStorage
+                        if (data.avatarUrl && typeof data.avatarUrl === 'string') {
+                            localStorage.setItem('chatUserAvatar', data.avatarUrl.trim());
+                        } else {
+                            localStorage.removeItem('chatUserAvatar');
+                        }
                         avatarMessage.textContent = '头像上传成功';
                         avatarMessage.style.color = 'green';
 
@@ -1128,6 +1135,30 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.error('上传错误:', error);
                     avatarMessage.textContent = '头像上传失败';
                     avatarMessage.style.color = 'red';
+                    
+                    // 重置当前用户的头像URL为null，避免显示错误的头像
+                    currentUser.avatarUrl = null;
+                    
+                    // 更新本地存储，移除头像信息
+                    localStorage.removeItem('chatUserAvatar');
+                    
+                    // 更新当前用户界面上的头像显示
+                    const currentAvatarImg = document.getElementById('currentAvatar');
+                    const defaultAvatar = document.getElementById('defaultAvatar');
+                    if (currentAvatarImg) {
+                        currentAvatarImg.style.display = 'none';
+                    }
+                    if (defaultAvatar) {
+                        defaultAvatar.style.display = 'inline-block';
+                    }
+                    
+                    // 通知其他用户头像已被重置（移除）
+                    if (isConnected && socket) {
+                        socket.emit('avatar-updated', {
+                            userId: currentUser.id,
+                            avatarUrl: null
+                        });
+                    }
                 });
         });
 
@@ -2949,13 +2980,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // 检查并处理头像URL
         const avatarUrl = data.avatarUrl && typeof data.avatarUrl === 'string' ? data.avatarUrl.trim() : null;
-        if (!avatarUrl) {
-            console.warn('⚠️ 头像更新数据中没有有效的头像URL');
-            return;
-        }
-
-        // 获取完整的头像URL
-        const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
+        
+        // 获取完整的头像URL或空字符串（表示移除头像）
+        const fullAvatarUrl = avatarUrl ? `${SERVER_URL}${avatarUrl}` : '';
 
         // 1. 更新所有消息中的头像（包括主聊天和群聊）
         const messageElements = document.querySelectorAll('.message');
@@ -2969,10 +2996,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 const avatarImg = messageElement.querySelector('.message-avatar');
 
                 if (avatarImg) {
-                    // 先检查当前src是否已经是最新的，避免不必要的更新
-                    if (avatarImg.src !== fullAvatarUrl) {
-                        avatarImg.src = fullAvatarUrl;
-                        console.log('✅ 更新了用户ID为', data.userId, '的消息头像');
+                    if (fullAvatarUrl) {
+                        // 有有效的头像URL，更新src
+                        if (avatarImg.src !== fullAvatarUrl) {
+                            avatarImg.src = fullAvatarUrl;
+                            console.log('✅ 更新了用户ID为', data.userId, '的消息头像');
+                        }
+                    } else {
+                        // 没有有效的头像URL，移除头像元素
+                        if (avatarImg.parentNode) {
+                            avatarImg.parentNode.removeChild(avatarImg);
+                            console.log('✅ 移除了用户ID为', data.userId, '的消息头像');
+                        }
                     }
                 }
             }
@@ -2981,9 +3016,32 @@ document.addEventListener('DOMContentLoaded', function() {
         // 2. 同时也更新当前用户自己的头像（如果是自己更新的）
         if (currentUser && currentUser.id == data.userId) {
             const currentAvatarImg = document.getElementById('currentAvatar');
-            if (currentAvatarImg && currentAvatarImg.src !== fullAvatarUrl) {
-                currentAvatarImg.src = fullAvatarUrl;
+            const defaultAvatar = document.getElementById('defaultAvatar');
+            
+            if (currentAvatarImg) {
+                if (fullAvatarUrl) {
+                    // 有有效的头像URL，更新src并显示
+                    if (currentAvatarImg.src !== fullAvatarUrl) {
+                        currentAvatarImg.src = fullAvatarUrl;
+                        currentAvatarImg.style.display = 'inline';
+                    }
+                    // 隐藏默认头像
+                    if (defaultAvatar) {
+                        defaultAvatar.style.display = 'none';
+                    }
+                } else {
+                    // 没有有效的头像URL，隐藏头像并显示默认头像
+                    currentAvatarImg.style.display = 'none';
+                    if (defaultAvatar) {
+                        defaultAvatar.style.display = 'inline-block';
+                    }
+                }
             }
+        }
+        
+        // 3. 刷新在线用户列表，确保列表中的头像也正确更新
+        if (isConnected && socket) {
+            socket.emit('get-online-users');
         }
     });
 
@@ -3840,10 +3898,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     localStorage.setItem('chatUserId', currentUser.id);
                     localStorage.setItem('chatUserNickname', currentUser.nickname);
-                    localStorage.setItem('chatUserAvatar', currentUser.avatarUrl || '');
                     localStorage.setItem('chatSessionToken', currentSessionToken);
-                    if (currentUser.avatarUrl) {
-                        localStorage.setItem('chatUserAvatar', currentUser.avatarUrl);
+                    // 只有当头像URL有效时才设置到localStorage
+                    if (currentUser.avatarUrl && typeof currentUser.avatarUrl === 'string') {
+                        localStorage.setItem('chatUserAvatar', currentUser.avatarUrl.trim());
+                    } else {
+                        localStorage.removeItem('chatUserAvatar');
                     }
 
                     // 发送登录事件
@@ -4079,7 +4139,7 @@ document.addEventListener('DOMContentLoaded', function() {
             currentUser = {
                 id: savedUserId,
                 nickname: savedUserNickname,
-                avatarUrl: savedUserAvatar
+                avatarUrl: savedUserAvatar && typeof savedUserAvatar === 'string' ? savedUserAvatar.trim() : null
             };
             currentSessionToken = savedSessionToken;
             updateLoginState(true);
