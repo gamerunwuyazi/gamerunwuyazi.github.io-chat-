@@ -1212,9 +1212,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         loadUserGroups();
 
-                        setTimeout(() => {
-                            hideCreateGroupModal();
-                        }, 2000);
+                        // 立即关闭模态框，防止重复创建
+                        hideCreateGroupModal();
                     } else {
                         createGroupMessage.textContent = data.message;
                         createGroupMessage.style.color = 'red';
@@ -2138,11 +2137,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const isImageFile = message.imageUrl && (!message.filename || /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i.test(message.filename));
 
         // Unicode字符反转义函数
-        function unescapeUnicode(str) {
-            return str.replace(/\\u([0-9a-fA-F]{4})/g, function(match, hex) {
-                return String.fromCharCode(parseInt(hex, 16));
-            });
-        }
+        // 已移除unescapeUnicode函数，因为后端不再将中文字符转换为Unicode转义序列
 
         if (fileUrl) {
             // 如果是图片文件，显示图片预览
@@ -2153,8 +2148,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
               `;
             } else {
-                // 非图片文件显示为文件链接卡片样式，先反转义Unicode字符再显示
-                const displayFilename = message.filename ? unescapeUnicode(message.filename) : '';
+                // 非图片文件显示为文件链接卡片样式，直接使用原始文件名（后端已不再进行Unicode转义）
+                const displayFilename = message.filename || '';
                 contentHtml = `
                 <div class="message-content">
                   <div class="file-link-container">

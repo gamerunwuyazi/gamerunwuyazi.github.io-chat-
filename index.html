@@ -42,17 +42,17 @@
             
             <div class="modal-form active" id="loginForm">
                 <h3>登录聊天室</h3>
-                <input type="text" id="loginUsername" placeholder="用户名" required maxlength="20">
-                <input type="password" id="loginPassword" placeholder="密码" required maxlength="100">
+                <input type="text" id="loginUsername" placeholder="用户名" required>
+                <input type="password" id="loginPassword" placeholder="密码" required>
                 <button id="loginButton">登录</button>
                 <div id="loginMessage" style="color: red; margin-top: 10px; display: none;"></div>
             </div>
             
             <div class="modal-form" id="registerForm">
                 <h3>注册新账户</h3>
-                <input type="text" id="registerUsername" placeholder="用户名（3-20位字母数字）" required maxlength="20">
-                <input type="password" id="registerPassword" placeholder="密码（至少6位）" required maxlength="100">
-                <input type="text" id="registerNickname" placeholder="昵称（1-20位）" required maxlength="20">
+                <input type="text" id="registerUsername" placeholder="用户名" required>
+                <input type="password" id="registerPassword" placeholder="密码" required>
+                <input type="text" id="registerNickname" placeholder="昵称" required>
                 <button id="registerButton">注册</button>
                 <div id="registerMessage" style="color: red; margin-top: 10px; display: none;"></div>
             </div>
@@ -65,7 +65,7 @@
             <span class="close-modal">&times;</span>
             <h3>修改昵称</h3>
             <p>请输入新的昵称</p>
-            <input type="text" id="nicknameInput" placeholder="请输入昵称" maxlength="20">
+            <input type="text" id="nicknameInput" placeholder="请输入昵称">
             <button id="saveNickname">保存</button>
         </div>
     </div>
@@ -87,8 +87,8 @@
         <div class="modal-content">
             <span class="close-modal">&times;</span>
             <h3>创建群组</h3>
-            <input type="text" id="groupNameInput" placeholder="群组名称" required maxlength="20">
-            <textarea id="groupDescriptionInput" placeholder="群组描述（可选）" maxlength="200"></textarea>
+            <input type="text" id="groupNameInput" placeholder="群组名称" required>
+            <textarea id="groupDescriptionInput" placeholder="群组描述（可选）"></textarea>
             
             <h4>选择成员（至少选择2人）</h4>
             <div class="select-all-container" style="margin-bottom: 10px;">
