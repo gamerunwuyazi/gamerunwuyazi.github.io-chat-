@@ -163,7 +163,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 };
 
                 // 增强图片渲染功能 - 支持更多图片Markdown语法特性
-                const imageRenderer = renderer.image;
                 renderer.image = function(href, title, text) {
                     try {
                         // 确保href、title和text是字符串
@@ -171,8 +170,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         title = typeof title === 'string' ? title : '';
                         text = typeof text === 'string' ? text : '';
 
-                        // 验证图片URL安全性
-                        const cleanHref = validateUrl(href);
+                        // 使用更宽松的URL验证，确保图片能正常渲染
+                        const cleanHref = simpleValidateUrl(href);
                         const cleanTitle = title ? escapeHtml(title) : '';
                         const cleanText = escapeHtml(text);
 
@@ -2283,9 +2282,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
         addMessageToContainer(message, isOwn, isGroup, targetContainer, isLoadMore);
 
-        if (!isGroup && messageCount) {
-            const count = messageContainer.querySelectorAll('.message').length;
-            messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
+        // 更新消息计数
+        if (messageCount) {
+            if (isGroup) {
+                // 群组聊天消息计数
+                const count = groupMessageContainer.querySelectorAll('.message').length;
+                messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
+            } else {
+                // 全局聊天消息计数
+                const count = messageContainer.querySelectorAll('.message').length;
+                messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
+            }
         }
 
         // 只有非向上滚动加载时才自动滚动到底部
@@ -4598,6 +4605,8 @@ document.addEventListener('DOMContentLoaded', function() {
         window.looseParserInitialized = true;
     }
 
+    // 初始化宽松解析器，确保Markdown渲染正确
+    initLooseParser();
     // 最后启动应用
     initializeApp();
     
@@ -4705,11 +4714,11 @@ function enhancedMarkdownParse(content, showEscapedChars = false) {
         // 处理引用 > text
         result = handleBlockquote(result, showEscapedChars, /^(\s*>\s+)(.*?)$/gm);
 
+        // 处理图片 ![alt](url) - 先于链接处理，避免被错误解析
+        result = handleImages(result, showEscapedChars, /!\[(.*?)\]\((.*?)\)/g);
+
         // 处理Markdown链接 [text](url)
         result = handleLinks(result, showEscapedChars, /\[(.*?)\]\((.*?)\)/g);
-
-        // 处理图片 ![alt](url)
-        result = handleImages(result, showEscapedChars, /!\[(.*?)\]\((.*?)\)/g);
 
         // 处理纯URL链接
         result = handleUrls(result, showEscapedChars, /(?:^|\s)(https?:\/\/[^\s<>]+)(?![^<>]*>)/g);
