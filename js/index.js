@@ -803,7 +803,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // 从指定URL获取公告内容
         // 使用 encodeURI 处理 URL 中的非 ASCII 字符
-        fetch(encodeURI('http://152.136.175.209:8800/creativity/公告.php'))
+        fetch(encodeURI('https://mft.wu.airoe.cn/creativity/公告.php'))
             .then(response => {
                 if (!response.ok) {
                     throw new Error(`HTTP错误! 状态码: ${response.status}`);
@@ -816,7 +816,7 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(error => {
                 console.error('获取公告内容失败:', error);
-                announcementContainer.textContent = '进来的宣传一下';
+                announcementContainer.textContent = '公告加载失败';
             });
     }
     
