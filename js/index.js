@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const SERVER_URL = 'https://back.hs.airoe.cn';
+    const SERVER_URL = 'https://chat-dns.wu.airoe.cn';
 
     // 初始化变量
     let currentUser = null;
@@ -3948,13 +3948,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         // 启动倒计时
                         updateCountdown();
                     } else {
-                        // 恢复默认样式
-                        loginMessage.style.color = '';
+                        // 保留红色错误提示样式
+                        loginMessage.style.color = 'red';
                         loginMessage.style.fontWeight = '';
                         loginMessage.style.padding = '';
                         loginMessage.style.border = '';
                         loginMessage.style.backgroundColor = '';
                         loginMessage.style.borderRadius = '';
+                        
+                        // 显示剩余尝试次数（如果后端返回）
+                        if (data.remainingAttempts !== undefined && data.remainingAttempts >= 0) {
+                            loginMessage.textContent += ` (还剩${data.remainingAttempts}次机会)`;
+                        }
                     }
                     
                     loginButton.disabled = false;
