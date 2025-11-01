@@ -570,7 +570,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
         onlineUsersList = users;
 
-        userList.innerHTML = '';
+        // 只清除现有的用户项，保留其他内容
+        const itemsToRemove = [];
+        for (let i = 0; i < userList.children.length; i++) {
+            const child = userList.children[i];
+            // 清除普通用户项和"暂无在线用户"提示
+            if (child.tagName === 'LI' && (child.querySelector('.status-indicator') || child.textContent.includes('暂无在线用户') || child.textContent.includes('用户数据格式错误'))) {
+                itemsToRemove.push(child);
+            }
+        }
+        itemsToRemove.forEach(item => item.remove());
+        
         safeSetTextContent(onlineCount, `(${users.length})`);
         safeSetTextContent(totalOnlineCount, users.length.toString());
 
@@ -593,13 +603,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // 用户头像 - 添加avatar_url兼容性处理和默认头像
             const avatarUrl = user.avatarUrl || user.avatar_url || null;
+            // 始终先创建默认头像，然后在正式头像加载完成后替换
+            const firstChar = user.nickname && user.nickname.length > 0 ? user.nickname.charAt(0).toUpperCase() : 'U';
             let avatarHtml = '';
+            
             if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
-                avatarHtml = `<img src="${SERVER_URL}${avatarUrl.trim()}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">`;
+                // 创建包含默认头像的容器，后续通过JavaScript预加载并替换
+                avatarHtml = `<div class="avatar-container" style="position: relative; display: inline-block; width: 16px; height: 16px; margin-right: 5px;">` +
+                              `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; font-size: 10px; vertical-align: middle;">${escapeHtml(firstChar)}</span>` +
+                              `<img class="user-avatar" style="position: absolute; top: 0; left: 0; width: 16px; height: 16px; border-radius: 50%; opacity: 0; transition: opacity 0.3s ease;">` +
+                              `</div>`;
             } else {
-                // 使用安全的默认头像图标
-                const firstChar = user.nickname && user.nickname.length > 0 ? user.nickname.charAt(0).toUpperCase() : 'U';
-                avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px;">${escapeHtml(firstChar)}</span>`;
+                // 只有默认头像
+                avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px; vertical-align: middle;">${escapeHtml(firstChar)}</span>`;
             }
 
             // 用户信息
@@ -616,6 +632,25 @@ document.addEventListener('DOMContentLoaded', function() {
             li.appendChild(statusIndicator);
             li.appendChild(userInfo);
             userList.appendChild(li);
+            
+            // 对头像进行预加载处理
+            if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
+                const avatarImg = userInfo.querySelector('.user-avatar');
+                const defaultAvatar = userInfo.querySelector('.default-avatar');
+                if (avatarImg) {
+                    const fullAvatarUrl = `${SERVER_URL}${avatarUrl.trim()}`;
+                    const tempImg = new Image();
+                    tempImg.onload = function() {
+                        // 头像加载完成后再设置src并显示，同时隐藏默认头像
+                        avatarImg.src = fullAvatarUrl;
+                        avatarImg.style.opacity = '1';
+                        if (defaultAvatar) {
+                            defaultAvatar.style.display = 'none';
+                        }
+                    };
+                    tempImg.src = fullAvatarUrl;
+                }
+            }
         });
 
         // 用户列表更新完成
@@ -679,15 +714,32 @@ document.addEventListener('DOMContentLoaded', function() {
             let avatarHtml = '';
             // 检查多种可能的头像URL字段名和值
             const avatarUrl = user.avatarUrl || user.avatar_url || null;
+            const firstChar = user.nickname && user.nickname.length > 0 ? user.nickname.charAt(0).toUpperCase() : 'U';
 
             // 增强的头像URL检查逻辑
             if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
                 // 确保URL格式正确，避免使用undefined或空字符串
                 const fullAvatarUrl = `${SERVER_URL}${avatarUrl.trim()}`;
-                avatarHtml = `<img src="${fullAvatarUrl}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">`;
+                // 创建包含默认头像和正式头像的容器，确保两者位置完全重合
+                avatarHtml = `<div class="avatar-container" style="position: relative; display: inline-block; width: 16px; height: 16px; margin-right: 5px;">` +
+                              `<span class="default-avatar" style="position: absolute; top: 0; left: 0; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; font-size: 10px;">${firstChar}</span>` +
+                              `<img src="${fullAvatarUrl}" class="user-avatar" style="position: absolute; top: 0; left: 0; width: 16px; height: 16px; border-radius: 50%; opacity: 0; transition: opacity 0.3s ease;">` +
+                              `</div>`;
+                // 立即预加载这个头像，并在加载完成后隐藏默认头像
+                const tempImg = new Image();
+                tempImg.onload = function() {
+                    // 当头像加载完成后，在下一个渲染周期设置图片显示并隐藏默认头像
+                    setTimeout(() => {
+                        const img = userInfo.querySelector('.user-avatar');
+                        const defaultAvatar = userInfo.querySelector('.default-avatar');
+                        if (img) img.style.opacity = '1';
+                        if (defaultAvatar) defaultAvatar.style.display = 'none';
+                    }, 0);
+                };
+                tempImg.src = fullAvatarUrl;
             } else {
                 // 使用默认头像图标
-                avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px;">${user.nickname.charAt(0).toUpperCase()}</span>`;
+                avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px; vertical-align: middle;">${firstChar}</span>`;
             }
 
             // 用户信息
@@ -1087,12 +1139,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(data => {
                     if (data.status === 'success') {
                         currentUser.avatarUrl = data.avatarUrl && typeof data.avatarUrl === 'string' ? data.avatarUrl.trim() : null;
-            if (currentUser.avatarUrl) {
-                currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl}`;
-                currentAvatarImg.style.display = 'inline';
-            } else {
-                currentAvatarImg.style.display = 'none';
-            }
+                        if (currentUser.avatarUrl) {
+                            // 预加载新头像，等完全加载后再显示
+                            const newAvatarUrl = `${SERVER_URL}${currentUser.avatarUrl}`;
+                            if (currentAvatarImg.src !== newAvatarUrl) {
+                                const tempImg = new Image();
+                                tempImg.onload = function() {
+                                    // 新头像加载完成后再更新
+                                    currentAvatarImg.src = newAvatarUrl;
+                                    currentAvatarImg.style.display = 'inline';
+                                };
+                                tempImg.src = newAvatarUrl;
+                            } else {
+                                currentAvatarImg.style.display = 'inline';
+                            }
+                        } else {
+                            currentAvatarImg.style.display = 'none';
+                        }
 
                         // 隐藏默认头像
                         const defaultAvatar = document.getElementById('defaultAvatar');
@@ -1949,12 +2012,31 @@ document.addEventListener('DOMContentLoaded', function() {
             // 修复头像显示逻辑：头像在状态指示点后面，使用SERVER_URL + 数据库头像链接
             // 添加avatar_url兼容性处理和默认头像
             const avatarUrl = member.avatarUrl || member.avatar_url || null;
+            const firstChar = member.nickname && member.nickname.length > 0 ? member.nickname.charAt(0).toUpperCase() : 'U';
             let avatarHtml = '';
+            
             if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
-                avatarHtml = `<img src="${SERVER_URL}${avatarUrl.trim()}" class="user-avatar" style="width: 16px; height: 16px; margin-right: 5px; border-radius: 50%;">`;
+                // 创建带默认头像和预加载功能的头像HTML
+                const fullAvatarUrl = `${SERVER_URL}${avatarUrl.trim()}`;
+                avatarHtml = `<div class="avatar-container" style="position: relative; display: inline-block; width: 16px; height: 16px; margin-right: 5px;">` +
+                              `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; font-size: 10px; vertical-align: middle;">${firstChar}</span>` +
+                              `<img src="${fullAvatarUrl}" class="user-avatar" style="position: absolute; top: 0; left: 0; width: 16px; height: 16px; border-radius: 50%; opacity: 0; transition: opacity 0.3s ease;">` +
+                              `</div>`;
+                // 立即预加载这个头像，并在加载完成后显示
+                const tempImg = new Image();
+                tempImg.onload = function() {
+                    // 当头像加载完成后，在下一个渲染周期设置图片显示并隐藏默认头像
+                    setTimeout(() => {
+                        const img = memberInfo.querySelector('.user-avatar');
+                        const defaultAvatar = memberInfo.querySelector('.default-avatar');
+                        if (img) img.style.opacity = '1';
+                        if (defaultAvatar) defaultAvatar.style.display = 'none';
+                    }, 0);
+                };
+                tempImg.src = fullAvatarUrl;
             } else {
                 // 使用默认头像图标
-                avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px;">${member.nickname.charAt(0).toUpperCase()}</span>`;
+                avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px; vertical-align: middle;">${firstChar}</span>`;
             }
 
             const memberInfo = document.createElement('div');
@@ -2125,9 +2207,20 @@ document.addEventListener('DOMContentLoaded', function() {
     messageElement.setAttribute('data-message', JSON.stringify(message));
 
         // 统一构建消息HTML结构
-        const avatarHtml = message.avatarUrl && typeof message.avatarUrl === 'string' && message.avatarUrl.trim() !== '' ?
-            `<img src="${SERVER_URL}${message.avatarUrl.trim()}" class="message-avatar" alt="${message.nickname}">` :
-            '';
+        // 创建包含默认头像的容器，后续通过JavaScript预加载并替换
+        const firstChar = message.nickname && message.nickname.length > 0 ? message.nickname.charAt(0).toUpperCase() : 'U';
+        
+        let avatarHtml = '';
+        if (message.avatarUrl && typeof message.avatarUrl === 'string' && message.avatarUrl.trim() !== '') {
+            // 包含默认头像和正式头像的容器
+            avatarHtml = `<div class="avatar-container" style="position: relative; display: inline-block; width: 20px; height: 20px; margin-right: 8px;">` +
+                          `<span class="default-avatar" style="display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; background-color: #ecf0f1; border-radius: 50%; font-size: 12px; vertical-align: middle;">${firstChar}</span>` +
+                          `<img class="message-avatar" alt="${message.nickname}" style="position: absolute; top: 0; left: 0; opacity: 0; transition: opacity 0.3s ease;">` +
+                          `</div>`;
+        } else {
+            // 只有默认头像
+            avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 8px; font-size: 12px; vertical-align: middle;">${firstChar}</span>`;
+        }
 
         let contentHtml = '';
 
@@ -2169,6 +2262,7 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
         }
 
+        // 设置完整的HTML内容
         messageElement.innerHTML = `
             <div class="message-header">
               ${avatarHtml}
@@ -2178,6 +2272,29 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="message-time">${formatTime(message.timestamp)}</div>
             ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
           `;
+
+        // 对头像进行预加载处理
+        if (message.avatarUrl && typeof message.avatarUrl === 'string' && message.avatarUrl.trim() !== '') {
+            const avatarImg = messageElement.querySelector('.message-avatar');
+            const defaultAvatar = messageElement.querySelector('.default-avatar');
+            if (avatarImg) {
+                const fullAvatarUrl = `${SERVER_URL}${message.avatarUrl.trim()}`;
+                const tempImg = new Image();
+                tempImg.onload = function() {
+                    // 头像加载完成后再设置src并显示，同时隐藏默认头像
+                    avatarImg.src = fullAvatarUrl;
+                    avatarImg.style.opacity = '1';
+                    if (defaultAvatar) {
+                        defaultAvatar.style.display = 'none';
+                    }
+                };
+                tempImg.onerror = function() {
+                    // 头像加载失败时隐藏头像
+                    avatarImg.style.display = 'none';
+                };
+                tempImg.src = fullAvatarUrl;
+            }
+        }
 
         // 修复：统一消息插入逻辑，确保无论消息类型如何都能按正确顺序插入
         if (isLoadMore) {
@@ -2506,8 +2623,20 @@ document.addEventListener('DOMContentLoaded', function() {
             safeSetTextContent(currentNicknameSpan, unescapedNickname);
 
             if (currentUser.avatarUrl && typeof currentUser.avatarUrl === 'string' && currentUser.avatarUrl.trim() !== '') {
-            currentAvatarImg.src = `${SERVER_URL}${currentUser.avatarUrl.trim()}`;
-            currentAvatarImg.style.display = 'inline';
+                // 预加载新头像，等完全加载后再显示
+                const newAvatarUrl = `${SERVER_URL}${currentUser.avatarUrl.trim()}`;
+                if (currentAvatarImg.src !== newAvatarUrl) {
+                    const tempImg = new Image();
+                    tempImg.onload = function() {
+                        // 新头像加载完成后再更新
+                        currentAvatarImg.src = newAvatarUrl;
+                        currentAvatarImg.style.display = 'inline';
+                    };
+                    tempImg.src = newAvatarUrl;
+                } else {
+                    // 头像URL没有变化，保持当前显示
+                    currentAvatarImg.style.display = 'inline';
+                }
             } else {
                 // 显示默认头像 - 使用用户昵称的第一个字符
                 currentAvatarImg.style.display = 'none';
@@ -2999,10 +3128,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 if (avatarImg) {
                     if (fullAvatarUrl) {
-                        // 有有效的头像URL，更新src
+                        // 有有效的头像URL，使用预加载技术更新
                         if (avatarImg.src !== fullAvatarUrl) {
-                            avatarImg.src = fullAvatarUrl;
-                            console.log('✅ 更新了用户ID为', data.userId, '的消息头像');
+                            const tempImg = new Image();
+                            tempImg.onload = function() {
+                                // 新头像加载完成后再更新
+                                avatarImg.src = fullAvatarUrl;
+                                console.log('✅ 更新了用户ID为', data.userId, '的消息头像');
+                            };
+                            tempImg.src = fullAvatarUrl;
                         }
                     } else {
                         // 没有有效的头像URL，移除头像元素
