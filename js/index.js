@@ -21,6 +21,56 @@ document.addEventListener('DOMContentLoaded', function() {
     let unreadMessages = { global: 0, groups: {} };
     let originalTitle = document.title;
 
+    // 头像缓存机制
+    const avatarCache = new Map();
+    const AVATAR_CACHE_MAX_AGE = 5 * 60 * 1000; // 5分钟缓存时间
+    const AVATAR_CACHE_MAX_SIZE = 100; // 最大缓存数量
+
+    // 头像缓存管理函数
+    function updateAvatarCache(userId, avatarUrl, avatarElement = null) {
+        if (!userId || !avatarUrl) return;
+        
+        const cacheKey = `${userId}_${avatarUrl}`;
+        const now = Date.now();
+        
+        // 清理过期缓存
+        if (avatarCache.size >= AVATAR_CACHE_MAX_SIZE) {
+            const oldestKey = Array.from(avatarCache.keys())[0];
+            avatarCache.delete(oldestKey);
+        }
+        
+        // 更新缓存
+        avatarCache.set(cacheKey, {
+            url: avatarUrl,
+            timestamp: now,
+            element: avatarElement
+        });
+        
+        return cacheKey;
+    }
+
+    function getCachedAvatar(userId, avatarUrl) {
+        if (!userId || !avatarUrl) return null;
+        
+        const cacheKey = `${userId}_${avatarUrl}`;
+        const cached = avatarCache.get(cacheKey);
+        
+        if (cached && (Date.now() - cached.timestamp) < AVATAR_CACHE_MAX_AGE) {
+            return cached;
+        }
+        
+        // 缓存过期或不存在
+        if (cached) {
+            avatarCache.delete(cacheKey);
+        }
+        
+        return null;
+    }
+
+    function clearAvatarCache() {
+        avatarCache.clear();
+    }
+
     // 获取DOM元素
     const messageInput = document.getElementById('messageInput');
     const sendButton = document.getElementById('sendButton');
@@ -972,7 +1022,7 @@ document.addEventListener('DOMContentLoaded', function() {
             messageCount.textContent = `消息数量: ${messages.length}（向上滚动加载消息）`;
         }
 
-        console.log(`✅ 更新消息显示: ${messages.length} 条消息`);
+        console.log(`✅ 更新消息显示: ${messages.length} 条消息（仅添加新消息，不重新加载已有头像）`);
     }
 
     function insertMarkdownSyntax(textarea, prefix, suffix, sample) {
@@ -2273,26 +2323,44 @@ document.addEventListener('DOMContentLoaded', function() {
             ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息">×</button>` : ''}
           `;
 
-        // 对头像进行预加载处理
+        // 对头像进行预加载处理（使用缓存机制）
         if (message.avatarUrl && typeof message.avatarUrl === 'string' && message.avatarUrl.trim() !== '') {
             const avatarImg = messageElement.querySelector('.message-avatar');
             const defaultAvatar = messageElement.querySelector('.default-avatar');
             if (avatarImg) {
                 const fullAvatarUrl = `${SERVER_URL}${message.avatarUrl.trim()}`;
-                const tempImg = new Image();
-                tempImg.onload = function() {
-                    // 头像加载完成后再设置src并显示，同时隐藏默认头像
-                    avatarImg.src = fullAvatarUrl;
+                
+                // 检查缓存中是否已有该头像
+                const cachedAvatar = getCachedAvatar(message.userId, fullAvatarUrl);
+                
+                if (cachedAvatar) {
+                    // 使用缓存中的头像
+                    avatarImg.src = cachedAvatar.url;
                     avatarImg.style.opacity = '1';
                     if (defaultAvatar) {
                         defaultAvatar.style.display = 'none';
                     }
-                };
-                tempImg.onerror = function() {
-                    // 头像加载失败时隐藏头像
-                    avatarImg.style.display = 'none';
-                };
-                tempImg.src = fullAvatarUrl;
+                    // 更新缓存中的元素引用
+                    updateAvatarCache(message.userId, fullAvatarUrl, avatarImg);
+                } else {
+                    // 缓存中没有，进行预加载
+                    const tempImg = new Image();
+                    tempImg.onload = function() {
+                        // 头像加载完成后再设置src并显示，同时隐藏默认头像
+                        avatarImg.src = fullAvatarUrl;
+                        avatarImg.style.opacity = '1';
+                        if (defaultAvatar) {
+                            defaultAvatar.style.display = 'none';
+                        }
+                        // 更新缓存
+                        updateAvatarCache(message.userId, fullAvatarUrl, avatarImg);
+                    };
+                    tempImg.onerror = function() {
+                        // 头像加载失败时隐藏头像
+                        avatarImg.style.display = 'none';
+                    };
+                    tempImg.src = fullAvatarUrl;
+                }
             }
         }
 
@@ -2358,8 +2426,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('📄 页面可见性变化:', isPageVisible ? '可见' : '隐藏');
 
                 if (isPageVisible && isConnected) {
-                    // 页面从隐藏变为可见，立即刷新消息
-                    console.log('🔄 页面恢复可见，刷新消息');
+                    // 页面从隐藏变为可见，只获取新消息而不重新加载已有头像
+                    console.log('🔄 页面恢复可见，获取新消息（不重新加载已有头像）');
                     refreshMessages();
                     // 重新请求在线用户列表
                     if (currentUser) {
@@ -2372,7 +2440,7 @@ document.addEventListener('DOMContentLoaded', function() {
         window.addEventListener('focus', function() {
             if (!isPageVisible) {
                 isPageVisible = true;
-                console.log('🔄 窗口获得焦点，刷新消息');
+                console.log('🔄 窗口获得焦点，获取新消息（不重新加载已有头像）');
                 if (isConnected) {
                     refreshMessages();
                     if (currentUser) {
