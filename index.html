@@ -207,7 +207,13 @@
                 
                 <!-- 修复群组列表：删除多余容器，直接显示群组 -->
                 <div class="group-section">
-                    <h3>我的群组 <span class="toggle-section">▼</span></h3>
+                    <div class="group-header-container">
+                        <h3>我的群组 <span class="toggle-section">▼</span></h3>
+                        <div class="group-search-container">
+                            <input type="text" id="groupSearchInput" placeholder="搜索群组..." class="group-search-input">
+                            <button id="clearGroupSearch" class="clear-search-btn" style="display: none;">×</button>
+                        </div>
+                    </div>
                     <ul class="user-list" id="groupList">
                         <li>暂无群组</li>
                     </ul>

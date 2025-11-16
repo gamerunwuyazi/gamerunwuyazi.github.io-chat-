@@ -280,6 +280,111 @@ body {
     cursor: pointer;
 }
 
+/* 群组搜索框样式 */
+.group-header-container {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.group-header-container h3 {
+    margin: 0;
+    flex-shrink: 0;
+    font-size: 1rem;
+}
+
+.group-search-container {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+    max-width: 120px;
+}
+
+#groupSearchInput {
+    width: 100% !important;
+    max-width: 120px;
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    background-color: white;
+    color: #333;
+    transition: border-color 0.3s, box-shadow 0.3s;
+    height: 28px;
+}
+
+#groupSearchInput:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+#groupSearchInput::placeholder {
+    color: #999;
+    font-size: 0.8rem;
+}
+
+#clearGroupSearch {
+    background: none;
+    border: none;
+    color: #999;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    transition: background-color 0.2s, color 0.2s;
+    display: none;
+}
+
+#clearGroupSearch:hover {
+    background-color: #f0f0f0;
+    color: #666;
+}
+
+#clearGroupSearch.show {
+    display: block;
+}
+
+/* 深色模式下的搜索框样式 */
+.dark-mode #groupSearchInput {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    border-color: var(--border-color);
+}
+
+.dark-mode #groupSearchInput:focus {
+    border-color: #4a9eff;
+    box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.25);
+}
+
+.dark-mode #groupSearchInput::placeholder {
+    color: var(--text-secondary);
+}
+
+.dark-mode #clearGroupSearch {
+    color: var(--text-secondary);
+}
+
+.dark-mode #clearGroupSearch:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+/* 群组列表项高亮样式 */
+#groupList li.highlight {
+    background-color: #fff3cd;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+}
+
+.dark-mode #groupList li.highlight {
+    background-color: rgba(255, 193, 7, 0.2);
+}
+
 .user-list {
     list-style: none;
     overflow-y: auto;
@@ -773,10 +878,31 @@ button {
     flex: 1;
     overflow-y: auto;
     padding: 15px;
-    background-color: #f5f5f5;
+    background-color: var(--bg-secondary);
     display: flex;
     flex-direction: column;
     min-height: 0;
+    position: relative;
+}
+
+#groupMessageContainer .message {
+    background: var(--bg-message);
+    padding: 12px 15px;
+    margin-bottom: 12px;
+    border-radius: 10px;
+    box-shadow: 0 2px 5px var(--shadow-color);
+    max-width: 80%;
+    position: relative;
+    animation: fadeIn 0.3s ease;
+    min-height: auto;
+    word-wrap: break-word;
+}
+
+#groupMessageContainer .message.own-message {
+    background: var(--bg-message-own);
+    margin-left: 20%;
+    max-width: 80%;
+    display: block;
 }
 
 /* Markdown编辑器容器 */
@@ -1215,9 +1341,11 @@ button {
     flex: 1;
     overflow-y: auto;
     padding: 15px;
-    background-color: #f5f5f5;
+    background-color: var(--bg-secondary);
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    position: relative;
 }
 
 .group-input-area {

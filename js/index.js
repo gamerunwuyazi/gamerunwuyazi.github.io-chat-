@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // 未读消息计数
     let unreadMessages = { global: 0, groups: {} };
     let originalTitle = document.title;
+    
+    // 群组搜索功能相关变量
+    let allGroups = [];
 
     // 头像缓存机制
     const avatarCache = new Map();
@@ -683,22 +686,41 @@ document.addEventListener('DOMContentLoaded', function() {
             li.appendChild(userInfo);
             userList.appendChild(li);
             
-            // 对头像进行预加载处理
+            // 对头像进行预加载处理（使用缓存机制）
             if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
                 const avatarImg = userInfo.querySelector('.user-avatar');
                 const defaultAvatar = userInfo.querySelector('.default-avatar');
                 if (avatarImg) {
                     const fullAvatarUrl = `${SERVER_URL}${avatarUrl.trim()}`;
-                    const tempImg = new Image();
-                    tempImg.onload = function() {
-                        // 头像加载完成后再设置src并显示，同时隐藏默认头像
-                        avatarImg.src = fullAvatarUrl;
+                    
+                    // 检查缓存
+                    const cachedAvatar = getCachedAvatar(user.id, fullAvatarUrl);
+                    if (cachedAvatar) {
+                        // 使用缓存
+                        avatarImg.src = cachedAvatar.url;
                         avatarImg.style.opacity = '1';
                         if (defaultAvatar) {
                             defaultAvatar.style.display = 'none';
                         }
-                    };
-                    tempImg.src = fullAvatarUrl;
+                    } else {
+                        // 预加载并缓存
+                        const tempImg = new Image();
+                        tempImg.onload = function() {
+                            // 头像加载完成后再设置src并显示，同时隐藏默认头像
+                            avatarImg.src = fullAvatarUrl;
+                            avatarImg.style.opacity = '1';
+                            if (defaultAvatar) {
+                                defaultAvatar.style.display = 'none';
+                            }
+                            // 添加到缓存
+                            updateAvatarCache(user.id, fullAvatarUrl, avatarImg);
+                        };
+                        tempImg.onerror = function() {
+                            // 头像加载失败时保持默认头像显示
+                            console.warn('在线用户头像加载失败:', fullAvatarUrl);
+                        };
+                        tempImg.src = fullAvatarUrl;
+                    }
                 }
             }
         });
@@ -773,20 +795,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 创建包含默认头像和正式头像的容器，确保两者位置完全重合
                 avatarHtml = `<div class="avatar-container" style="position: relative; display: inline-block; width: 16px; height: 16px; margin-right: 5px;">` +
                               `<span class="default-avatar" style="position: absolute; top: 0; left: 0; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; font-size: 10px;">${firstChar}</span>` +
-                              `<img src="${fullAvatarUrl}" class="user-avatar" style="position: absolute; top: 0; left: 0; width: 16px; height: 16px; border-radius: 50%; opacity: 0; transition: opacity 0.3s ease;">` +
+                              `<img class="user-avatar" style="position: absolute; top: 0; left: 0; width: 16px; height: 16px; border-radius: 50%; opacity: 0; transition: opacity 0.3s ease;">` +
                               `</div>`;
-                // 立即预加载这个头像，并在加载完成后隐藏默认头像
-                const tempImg = new Image();
-                tempImg.onload = function() {
-                    // 当头像加载完成后，在下一个渲染周期设置图片显示并隐藏默认头像
-                    setTimeout(() => {
-                        const img = userInfo.querySelector('.user-avatar');
-                        const defaultAvatar = userInfo.querySelector('.default-avatar');
-                        if (img) img.style.opacity = '1';
-                        if (defaultAvatar) defaultAvatar.style.display = 'none';
-                    }, 0);
-                };
-                tempImg.src = fullAvatarUrl;
             } else {
                 // 使用默认头像图标
                 avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px; vertical-align: middle;">${firstChar}</span>`;
@@ -799,6 +809,44 @@ document.addEventListener('DOMContentLoaded', function() {
             li.appendChild(statusIndicator);
             li.appendChild(userInfo);
             offlineUserList.appendChild(li);
+            
+            // 对头像进行预加载处理（修复：将预加载代码移到循环内部，使用缓存机制）
+            if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
+                const avatarImg = userInfo.querySelector('.user-avatar');
+                const defaultAvatar = userInfo.querySelector('.default-avatar');
+                if (avatarImg) {
+                    const fullAvatarUrl = `${SERVER_URL}${avatarUrl.trim()}`;
+                    
+                    // 检查缓存
+                    const cachedAvatar = getCachedAvatar(user.id, fullAvatarUrl);
+                    if (cachedAvatar) {
+                        // 使用缓存
+                        avatarImg.src = cachedAvatar.url;
+                        avatarImg.style.opacity = '1';
+                        if (defaultAvatar) {
+                            defaultAvatar.style.display = 'none';
+                        }
+                    } else {
+                        // 预加载并缓存
+                        const tempImg = new Image();
+                        tempImg.onload = function() {
+                            // 头像加载完成后再设置src并显示，同时隐藏默认头像
+                            avatarImg.src = fullAvatarUrl;
+                            avatarImg.style.opacity = '1';
+                            if (defaultAvatar) {
+                                defaultAvatar.style.display = 'none';
+                            }
+                            // 添加到缓存
+                            updateAvatarCache(user.id, fullAvatarUrl, avatarImg);
+                        };
+                        tempImg.onerror = function() {
+                            // 头像加载失败时保持默认头像显示
+                            console.warn('离线用户头像加载失败:', fullAvatarUrl);
+                        };
+                        tempImg.src = fullAvatarUrl;
+                    }
+                }
+            }
         });
     }
 
@@ -1810,6 +1858,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // 正确使用map函数渲染列表
         groups.forEach((group, index) => {
             const li = document.createElement('li');
+            li.className = 'group-item';
             li.style.padding = '10px';
             li.style.borderBottom = '1px solid #eee';
             li.style.cursor = 'pointer';
@@ -1850,6 +1899,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         console.log(`群组列表更新完成，共渲染 ${groups.length} 个群组`);
+        
+        // 保存群组数据以支持搜索功能
+        allGroups = groups || [];
+        
+        // 如果有搜索词，重新应用搜索
+        const groupSearchInput = document.getElementById('groupSearchInput');
+        if (groupSearchInput && groupSearchInput.value.trim()) {
+            filterGroups(groupSearchInput.value.trim().toLowerCase());
+        }
     }
 
     function loadAllUsers() {
@@ -1920,8 +1978,28 @@ document.addEventListener('DOMContentLoaded', function() {
         currentGroupId = groupId;
         currentGroupName = groupName;
 
-        mainChat.style.display = 'none';
-        groupChat.style.display = 'flex';
+        // 添加过渡动画
+        mainChat.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+        groupChat.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+        
+        // 先淡出主聊天
+        mainChat.style.opacity = '0';
+        mainChat.style.transform = 'translateX(-20px)';
+        
+        setTimeout(() => {
+            mainChat.style.display = 'none';
+            groupChat.style.display = 'flex';
+            groupChat.style.opacity = '0';
+            groupChat.style.transform = 'translateX(20px)';
+            
+            // 触发重排以确保过渡生效
+            groupChat.offsetHeight;
+            
+            // 淡入群组聊天
+            groupChat.style.opacity = '1';
+            groupChat.style.transform = 'translateX(0)';
+        }, 300);
+        
         safeSetTextContent(groupTitle, groupName);
         
         // 清除该群组未读消息计数
@@ -2182,8 +2260,27 @@ document.addEventListener('DOMContentLoaded', function() {
             currentGroupName = '';
         }
 
-        groupChat.style.display = 'none';
-        mainChat.style.display = 'block';
+        // 添加过渡动画
+        mainChat.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+        groupChat.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+
+        // 先淡出群组聊天
+        groupChat.style.opacity = '0';
+        groupChat.style.transform = 'translateX(20px)';
+        
+        setTimeout(() => {
+            groupChat.style.display = 'none';
+            mainChat.style.display = 'block';
+            mainChat.style.opacity = '0';
+            mainChat.style.transform = 'translateX(-20px)';
+            
+            // 触发重排以确保过渡生效
+            mainChat.offsetHeight;
+            
+            // 淡入主聊天
+            mainChat.style.opacity = '1';
+            mainChat.style.transform = 'translateX(0)';
+        }, 300);
         
         // 清除全局未读消息计数
         if (unreadMessages.global > 0) {
@@ -2609,33 +2706,44 @@ document.addEventListener('DOMContentLoaded', function() {
     function holdingScrollBar(container, prevScrollHeight) {
         // 确保DOM完全渲染
         setTimeout(() => {
-            // 关键修复：不使用简单的高度差计算，而是使用一个更可靠的方法来保持用户看到的内容位置
-            // 新消息是添加到顶部的，所以理论上scrollTop会自动增加相应的高度
-            // 但是由于浏览器渲染延迟和异步操作，我们需要主动维护这个位置
-
             // 计算新增内容的高度
             const newScrollHeight = container.scrollHeight;
             const addedHeight = newScrollHeight - (prevScrollHeight || 0);
+
+            // 如果没有有效的prevScrollHeight，不进行滚动位置调整
+            if (!prevScrollHeight || prevScrollHeight <= 0) {
+                return;
+            }
 
             // 直接设置滚动行为为auto，避免任何动画
             container.style.scrollBehavior = 'auto';
 
             // 关键修复：设置滚动位置为新增高度，这样用户看到的内容位置就不会改变
-            container.scrollTop = addedHeight;
+            // 但是要确保不小于0
+            const targetScrollTop = Math.max(0, addedHeight);
+            container.scrollTop = targetScrollTop;
 
             // 使用更精确的多轮检查确保滚动位置稳定
+            let checkCount = 0;
+            const maxChecks = 5;
             const checkAndAdjustScroll = () => {
+                checkCount++;
+                
                 setTimeout(() => {
                     const currentHeight = container.scrollHeight;
                     const currentAddedHeight = currentHeight - (prevScrollHeight || 0);
+                    const targetScrollTop = Math.max(0, currentAddedHeight);
+                    const currentScrollTop = container.scrollTop;
+                    const scrollDiff = Math.abs(currentScrollTop - targetScrollTop);
 
                     // 只有当滚动位置差异较大时才调整，避免频繁调整
-                    if (Math.abs(container.scrollTop - currentAddedHeight) > 3) {
-                        console.log('调整滚动位置:', container.scrollTop, '->', currentAddedHeight);
-                        container.scrollTop = currentAddedHeight;
+                    if (scrollDiff > 3) {
+                        container.scrollTop = targetScrollTop;
 
                         // 继续检查一次，确保稳定
-                        setTimeout(checkAndAdjustScroll, 10);
+                        if (checkCount < maxChecks) {
+                            setTimeout(checkAndAdjustScroll, 10);
+                        }
                     }
                 }, 10);
             };
@@ -2647,12 +2755,16 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(() => {
                 const currentHeight = container.scrollHeight;
                 const currentAddedHeight = currentHeight - (prevScrollHeight || 0);
-                if (Math.abs(container.scrollTop - currentAddedHeight) > 3) {
-                    container.scrollTop = currentAddedHeight;
+                const targetScrollTop = Math.max(0, currentAddedHeight);
+                const currentScrollTop = container.scrollTop;
+                const finalScrollDiff = Math.abs(currentScrollTop - targetScrollTop);
+                
+                if (finalScrollDiff > 3) {
+                    container.scrollTop = targetScrollTop;
 
                     // 最后微小调整，解决某些设备上的渲染问题
                     setTimeout(() => {
-                        container.scrollTop = container.scrollHeight - (prevScrollHeight || 0);
+                        container.scrollTop = targetScrollTop;
                     }, 50);
                 }
             }, 100);
@@ -3196,13 +3308,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 if (avatarImg) {
                     if (fullAvatarUrl) {
-                        // 有有效的头像URL，使用预加载技术更新
+                        // 有有效的头像URL，使用缓存和预加载技术更新
                         if (avatarImg.src !== fullAvatarUrl) {
+                            // 清除旧缓存
+                            clearAvatarCache();
+                            
                             const tempImg = new Image();
                             tempImg.onload = function() {
                                 // 新头像加载完成后再更新
                                 avatarImg.src = fullAvatarUrl;
+                                avatarImg.style.opacity = '1';
+                                // 更新缓存
+                                updateAvatarCache(data.userId, fullAvatarUrl, avatarImg);
                                 console.log('✅ 更新了用户ID为', data.userId, '的消息头像');
+                            };
+                            tempImg.onerror = function() {
+                                console.warn('头像更新失败:', fullAvatarUrl);
                             };
                             tempImg.src = fullAvatarUrl;
                         }
@@ -3506,8 +3627,6 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('group-chat-history', (data) => {
         // 只有登录状态才处理和显示群组聊天历史
         if (currentUser && currentSessionToken) {
-            // 收到群组聊天历史
-
             // 更新最后更新时间
             if (data.lastUpdate) {
                 lastMessageUpdate = data.lastUpdate;
@@ -3520,12 +3639,29 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             if (!data.messages || data.messages.length === 0) {
-                groupMessageContainer.innerHTML = `
-                  <div class="empty-state">
-                    <h3>暂无消息</h3>
-                    <p>发送第一条消息开始群聊吧!</p>
-                  </div>
-                `;
+                // 只有在加载更多时才显示"没有更多消息"的提示
+                if (data.loadMore) {
+                    // 检查是否已经有"没有更多消息"的提示
+                    const existingNoMoreMsg = groupMessageContainer.querySelector('.no-more-messages');
+                    if (!existingNoMoreMsg) {
+                        const noMoreMessages = document.createElement('div');
+                        noMoreMessages.className = 'no-more-messages';
+                        noMoreMessages.innerHTML = `
+                          <div style="text-align: center; padding: 20px; color: #666; font-style: italic;">
+                            没有更多历史消息了
+                          </div>
+                        `;
+                        groupMessageContainer.insertBefore(noMoreMessages, groupMessageContainer.firstChild);
+                    }
+                } else {
+                    // 首次加载且没有消息时显示空状态
+                    groupMessageContainer.innerHTML = `
+                      <div class="empty-state">
+                        <h3>暂无消息</h3>
+                        <p>发送第一条消息开始群聊吧!</p>
+                      </div>
+                    `;
+                }
                 
                 // 清除加载中状态和加载提示
                 window.isLoadingMoreMessages = false;
@@ -3535,14 +3671,16 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
-            // 对于加载更多的消息，保持原始顺序（因为已经是降序排列）
+            // 对于加载更多的消息，保持服务器返回的降序顺序，但需要插入到容器顶部
             const messagesToRender = data.loadMore ? data.messages : [...data.messages].reverse();
 
             // 一次性渲染所有消息
+            let renderedCount = 0;
             messagesToRender.forEach(message => {
                 const isOwn = message.userId == currentUser.id;
-                // 传递loadMore参数给addMessage函数
+                // 传递loadMore参数给addMessage函数，确保消息插入位置正确
                 addMessage(message, isOwn, true, data.loadMore);
+                renderedCount++;
             });
 
             // 所有消息渲染完成
@@ -3566,6 +3704,16 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 // 非向上滚动加载时自动滚动到底部
                 scrollToBottom(groupMessageContainer);
+                
+                // 额外保障：确保在DOM完全渲染后滚动到底部
+                setTimeout(() => {
+                    scrollToBottom(groupMessageContainer);
+                }, 100);
+                
+                // 再次保障：确保在消息完全加载后滚动到底部
+                setTimeout(() => {
+                    scrollToBottom(groupMessageContainer);
+                }, 300);
             }
 
             // 隐藏加载更多按钮，使用向上滚动加载
@@ -3573,6 +3721,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (loadMoreBtn) {
                 loadMoreBtn.style.display = 'none';
             }
+        } else {
+            // 用户未登录，忽略数据
         }
     });
 
@@ -3703,10 +3853,25 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         // 根据类型添加到不同的容器
+        let targetContainer = null;
+        let insertPosition = null;
+        
         if (type === 'global') {
-            messageContainer.parentNode.insertBefore(loadMoreButton, messageContainer.nextSibling);
+            targetContainer = messageContainer;
+            insertPosition = messageContainer.nextSibling;
         } else if (type === 'group') {
-            groupMessageContainer.parentNode.insertBefore(loadMoreButton, groupMessageContainer.nextSibling);
+            targetContainer = groupMessageContainer;
+            insertPosition = groupMessageContainer.nextSibling;
+        }
+
+        if (targetContainer && targetContainer.parentNode) {
+            targetContainer.parentNode.insertBefore(loadMoreButton, insertPosition);
+        } else {
+            console.error('无法插入按钮，目标容器不存在:', {
+                type: type,
+                targetContainer: !!targetContainer,
+                parentExists: targetContainer ? !!targetContainer.parentNode : false
+            });
         }
     }
 
@@ -3718,11 +3883,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // loadMoreMessages函数已被向上滚动加载替代
         // 此函数保留但不实际使用，向上滚动时会自动触发加载
-        console.log('loadMoreMessages被调用，现已使用向上滚动加载替代');
 
         if (type === 'global') {
             const offset = window.globalNextOffset || 0;
-            socket.emit('user-joined', {
+            const requestData = {
                 userId: currentUser.id,
                 nickname: currentUser.nickname,
                 avatarUrl: currentUser.avatarUrl && typeof currentUser.avatarUrl === 'string' ? currentUser.avatarUrl.trim() : null,
@@ -3730,16 +3894,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 offset: offset,
                 limit: 20,
                 loadMore: true // 标记为加载更多
-            });
+            };
+            
+            socket.emit('user-joined', requestData);
+            
         } else if (type === 'group' && currentGroupId) {
             const offset = window.groupNextOffset || 0;
-            socket.emit('join-group', {
+            const requestData = {
                 groupId: currentGroupId,
                 userId: currentUser.id,
                 sessionToken: currentSessionToken,
                 offset: offset,
                 limit: 20,
                 loadMore: true // 标记为加载更多
+            };
+            
+            socket.emit('join-group', requestData);
+            
+        } else {
+            console.log('无效的加载类型或群组ID:', {
+                type: type,
+                currentGroupId: currentGroupId,
+                isValidGlobal: type === 'global',
+                isValidGroup: type === 'group' && !!currentGroupId
             });
         }
     }
@@ -3910,9 +4087,6 @@ document.addEventListener('DOMContentLoaded', function() {
             if (this.scrollTop < 50) { // 使用50px的阈值，避免必须滚动到绝对顶部
                 // 避免频繁触发
                 if (!window.isLoadingMoreMessages) {
-                    // 阻止默认滚动行为，避免滚动动画
-                    e.preventDefault();
-
                     window.isLoadingMoreMessages = true;
 
                     // 记录当前滚动位置信息（用于加载后恢复）
@@ -3933,51 +4107,38 @@ document.addEventListener('DOMContentLoaded', function() {
                                 console.error('解析消息数据失败:', e);
                             }
                         }
-                        console.log('获取到的olderThan sequence:', olderThan);
                     }
-
-                    if (currentUser && currentSessionToken) {
-                        socket.emit('user-joined', {
-                            userId: currentUser.id,
-                            nickname: currentUser.nickname,
-                            avatarUrl: currentUser.avatarUrl,
-                            sessionToken: currentSessionToken,
-                            limit: 20,
-                            loadMore: true,
-                            olderThan: olderThan
-                        });
-                    } else {
-                        console.log('🔄 未登录，不发送user-joined请求');
-                        window.isLoadingMoreMessages = false;
-                    }
-
-                    // 0.5秒后显示加载中提示，避免加载速度快时显示
-                    window.loadingIndicatorTimeout = setTimeout(() => {
-                        // 只有在仍然处于加载状态时才显示
-                        if (window.isLoadingMoreMessages) {
-                            const loadingIndicator = document.createElement('div');
-                            loadingIndicator.className = 'loading-indicator';
-                            loadingIndicator.textContent = '加载中...';
-                            loadingIndicator.style.textAlign = 'center';
-                            loadingIndicator.style.padding = '10px';
-                            loadingIndicator.style.color = '#666';
-                            this.insertBefore(loadingIndicator, this.firstChild);
-                        }
-                    }, 500);
                 }
-            }
 
-            // 持续更新滚动位置设置，确保在用户滚动离开底部时不会自动滚动
-            if (!isScrolledToBottom(this)) {
-                autoScrollEnabled = false;
-                // 保存当前滚动位置，用于在需要时恢复
-                window.globalLastScrollPosition = this.scrollTop;
-            } else {
-                autoScrollEnabled = true;
-            }
-        });
+                if (currentUser && currentSessionToken) {
+                    socket.emit('user-joined', {
+                        userId: currentUser.id,
+                        nickname: currentUser.nickname,
+                        avatarUrl: currentUser.avatarUrl,
+                        sessionToken: currentSessionToken,
+                        limit: 20,
+                        loadMore: true,
+                        olderThan: olderThan
+                    });
+                } else {
+                    window.isLoadingMoreMessages = false;
+                }
 
-        groupMessageContainer.addEventListener('scroll', function(e) {
+                // 0.5秒后显示加载中提示，避免加载速度快时显示
+                window.loadingIndicatorTimeout = setTimeout(() => {
+                    // 只有在仍然处于加载状态时才显示
+                    if (window.isLoadingMoreMessages) {
+                        const loadingIndicator = document.createElement('div');
+                        loadingIndicator.className = 'loading-indicator';
+                        loadingIndicator.textContent = '加载中...';
+                        loadingIndicator.style.textAlign = 'center';
+                        loadingIndicator.style.padding = '10px';
+                        loadingIndicator.style.color = '#666';
+                        this.insertBefore(loadingIndicator, this.firstChild);
+                    }
+                }, 500);
+            }
+            
             if (!isScrolledToBottom(this)) {
                 autoScrollEnabled = false;
             } else {
@@ -3999,6 +4160,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // 获取当前显示的最早消息的时间戳
                     const messages = groupMessageContainer.querySelectorAll('.message');
                     const firstMessage = messages.length > 0 ? messages[0] : null;
+                    
                     // 关键修复：确保正确获取时间戳，即使没有data-timestamp属性
                     let olderThan = null;
                     if (firstMessage) {
@@ -4011,20 +4173,19 @@ document.addEventListener('DOMContentLoaded', function() {
                                 console.error('解析消息数据失败:', e);
                             }
                         }
-                        console.log('获取到的olderThan sequence:', olderThan);
                     }
 
                     if (currentUser && currentSessionToken) {
-                        socket.emit('join-group', {
+                        const requestData = {
                             groupId: currentGroupId,
                             userId: currentUser.id,
                             sessionToken: currentSessionToken,
                             limit: 20,
                             loadMore: true,
                             olderThan: olderThan
-                        });
+                        };
+                        socket.emit('join-group', requestData);
                     } else {
-                        console.log('🔄 未登录，不发送join-group请求');
                         window.isLoadingMoreMessages = false;
                     }
 
@@ -4117,8 +4278,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     setTimeout(() => {
                         location.reload();
                     }, 100);
-
-            } else {
+                } else {
                     // 显示登录失败消息
                     loginMessage.textContent = data.message;
                     loginMessage.style.display = 'block';
@@ -4224,7 +4384,6 @@ document.addEventListener('DOMContentLoaded', function() {
         // 未登录状态下不允许上传文件
         if (!currentUser || !currentSessionToken) {
             alert('请先登录再上传文件');
-            console.log('🔄 未登录，不允许上传文件');
             return;
         }
 
@@ -4819,7 +4978,124 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 确保消息解析器在应用初始化后初始化
     initLooseParser();
+    
+    // 初始化群组搜索功能
+    initializeGroupSearch();
 });
+// 群组搜索功能
+function initializeGroupSearch() {
+    const groupSearchInput = document.getElementById('groupSearchInput');
+    const clearGroupSearch = document.getElementById('clearGroupSearch');
+    
+    if (!groupSearchInput || !clearGroupSearch) {
+        console.warn('群组搜索框元素未找到');
+        return;
+    }
+    
+    // 输入事件处理
+    groupSearchInput.addEventListener('input', function() {
+        const searchTerm = this.value.trim().toLowerCase();
+        filterGroups(searchTerm);
+        
+        // 显示/隐藏清除按钮
+        clearGroupSearch.style.display = searchTerm ? 'block' : 'none';
+    });
+    
+    // 清除按钮点击事件
+    clearGroupSearch.addEventListener('click', function() {
+        groupSearchInput.value = '';
+        filterGroups('');
+        this.style.display = 'none';
+        groupSearchInput.focus();
+    });
+    
+    // 回车键搜索
+    groupSearchInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const searchTerm = this.value.trim().toLowerCase();
+            filterGroups(searchTerm);
+        }
+    });
+}
+
+function filterGroups(searchTerm) {
+    const groupList = document.getElementById('groupList');
+    if (!groupList) return;
+    
+    const groupItems = groupList.querySelectorAll('.group-item');
+    let visibleCount = 0;
+    
+    groupItems.forEach(item => {
+        const groupName = item.textContent.toLowerCase();
+        const groupId = item.getAttribute('data-group-id') || '';
+        
+        if (searchTerm === '' || groupName.includes(searchTerm) || groupId.includes(searchTerm)) {
+            item.style.display = 'flex';
+            visibleCount++;
+            
+            // 高亮匹配的文本
+            if (searchTerm) {
+                highlightSearchTerm(item, searchTerm);
+            } else {
+                removeHighlight(item);
+            }
+        } else {
+            item.style.display = 'none';
+        }
+    });
+    
+    // 显示无结果提示
+    showNoGroupResults(visibleCount === 0 && searchTerm !== '');
+}
+
+function highlightSearchTerm(element, searchTerm) {
+    const textContent = element.textContent;
+    const highlightedText = textContent.replace(
+        new RegExp(`(${searchTerm})`, 'gi'),
+        '<mark>$1</mark>'
+    );
+    
+    // 保存原始文本
+    if (!element.hasAttribute('data-original-text')) {
+        element.setAttribute('data-original-text', textContent);
+    }
+    
+    element.innerHTML = highlightedText;
+}
+
+function removeHighlight(element) {
+    const originalText = element.getAttribute('data-original-text');
+    if (originalText) {
+        element.textContent = originalText;
+        element.removeAttribute('data-original-text');
+    }
+}
+
+function showNoGroupResults(show) {
+    const groupList = document.getElementById('groupList');
+    if (!groupList) return;
+    
+    // 移除现有的无结果提示
+    const existingNoResults = groupList.querySelector('.no-group-results');
+    if (existingNoResults) {
+        existingNoResults.remove();
+    }
+    
+    if (show) {
+        const noResultsDiv = document.createElement('div');
+        noResultsDiv.className = 'no-group-results';
+        noResultsDiv.textContent = '未找到匹配的群组';
+        noResultsDiv.style.cssText = `
+            padding: 20px;
+            text-align: center;
+            color: #999;
+            font-style: italic;
+        `;
+        groupList.appendChild(noResultsDiv);
+    }
+}
+
 // 增强的HTML转义函数 - 使用更智能的正则表达式避免二次转义
 function simpleEscapeHtml(text) {
     if (text === null || text === undefined) return '';
