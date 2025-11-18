@@ -1902,6 +1902,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // 保存群组数据以支持搜索功能
         allGroups = groups || [];
+        // 同时设置为全局变量，供控制台函数使用
+        window.allGroups = allGroups;
         
         // 如果有搜索词，重新应用搜索
         const groupSearchInput = document.getElementById('groupSearchInput');
@@ -2955,6 +2957,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function logout() {
         currentUser = null;
+        window.currentUser = null;
         currentSessionToken = null;
         // 清除群组信息缓存
         currentGroupId = null;
@@ -4259,6 +4262,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         nickname: unescapedNickname,
                         avatarUrl: data.avatarUrl && typeof data.avatarUrl === 'string' ? data.avatarUrl.trim() : null
                     };
+                    // 同时设置为全局变量，供控制台函数使用
+                    window.currentUser = currentUser;
                     currentSessionToken = data.sessionToken;
 
                     localStorage.setItem('chatUserId', currentUser.id);
@@ -4509,6 +4514,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 nickname: savedUserNickname,
                 avatarUrl: savedUserAvatar && typeof savedUserAvatar === 'string' ? savedUserAvatar.trim() : null
             };
+            // 同时设置为全局变量，供控制台函数使用
+            window.currentUser = currentUser;
             currentSessionToken = savedSessionToken;
             updateLoginState(true);
 
@@ -5019,6 +5026,111 @@ function initializeGroupSearch() {
     });
 }
 
+// 通过群组ID搜索群组的函数 - 可在控制台调用（仅限用户自己的群组）
+window.searchGroupById = function(groupId) {
+    if (!groupId) {
+        console.error('❌ 请提供群组ID');
+        return null;
+    }
+    
+    // 检查用户是否已登录
+    if (!window.currentUser || !window.currentUser.id) {
+        console.error('❌ 请先登录后再使用调试功能');
+        return null;
+    }
+    
+    // 检查allGroups是否已初始化
+    if (!window.allGroups || !Array.isArray(window.allGroups)) {
+        console.error('❌ 群组数据尚未加载，请稍后再试');
+        return null;
+    }
+    
+    const groupIdStr = String(groupId);
+    const foundGroup = window.allGroups.find(group => String(group.id) === groupIdStr);
+    
+    if (foundGroup) {
+        console.log(`✅ 找到您的群组:`, {
+            id: foundGroup.id,
+            name: foundGroup.name,
+            description: foundGroup.description,
+            creator_id: foundGroup.creator_id
+        });
+        return foundGroup;
+    } else {
+        console.log(`❌ 您未加入ID为 ${groupId} 的群组`);
+        console.log(`📋 您当前加入的群组ID列表:`, window.allGroups.map(g => g.id));
+        return null;
+    }
+};
+
+// 通过群组名称搜索群组的函数 - 可在控制台调用（仅限用户自己的群组）
+window.searchGroupByName = function(name) {
+    if (!name) {
+        console.error('❌ 请提供群组名称');
+        return null;
+    }
+    
+    // 检查用户是否已登录
+    if (!window.currentUser || !window.currentUser.id) {
+        console.error('❌ 请先登录后再使用调试功能');
+        return null;
+    }
+    
+    // 检查allGroups是否已初始化
+    if (!window.allGroups || !Array.isArray(window.allGroups)) {
+        console.error('❌ 群组数据尚未加载，请稍后再试');
+        return null;
+    }
+    
+    const nameStr = String(name).toLowerCase();
+    const foundGroups = window.allGroups.filter(group => 
+        group.name && group.name.toLowerCase().includes(nameStr)
+    );
+    
+    if (foundGroups.length > 0) {
+        console.log(`✅ 找到 ${foundGroups.length} 个您的群组:`, foundGroups.map(g => ({
+            id: g.id,
+            name: g.name,
+            description: g.description,
+            creator_id: g.creator_id
+        })));
+        return foundGroups;
+    } else {
+        console.log(`❌ 您未加入名称包含 "${name}" 的群组`);
+        console.log(`📋 您当前加入的群组名称列表:`, window.allGroups.map(g => g.name));
+        return [];
+    }
+};
+
+// 列出所有群组的函数 - 可在控制台调用（仅限用户自己的群组）
+window.listAllGroups = function() {
+    // 检查用户是否已登录
+    if (!window.currentUser || !window.currentUser.id) {
+        console.error('❌ 请先登录后再使用调试功能');
+        return [];
+    }
+    
+    // 检查allGroups是否已初始化
+    if (!window.allGroups || !Array.isArray(window.allGroups)) {
+        console.error('❌ 群组数据尚未加载，请稍后再试');
+        return [];
+    }
+    
+    console.log(`📋 用户 ${window.currentUser.nickname} (ID: ${window.currentUser.id}) 加入的群组列表:`);
+    window.allGroups.forEach((group, index) => {
+        const isCreator = String(group.creator_id) === String(window.currentUser.id);
+        console.log(`${index + 1}. ID: ${group.id}, 名称: ${group.name}${isCreator ? ' (群主)' : ''}`);
+    });
+    console.log(`📊 总计: ${window.allGroups.length} 个群组`);
+    return window.allGroups.map(g => ({
+        id: g.id,
+        name: g.name,
+        description: g.description,
+        creator_id: g.creator_id,
+        is_creator: String(g.creator_id) === String(window.currentUser.id)
+    }));
+};
+
 function filterGroups(searchTerm) {
     const groupList = document.getElementById('groupList');
     if (!groupList) return;
@@ -5026,11 +5138,11 @@ function filterGroups(searchTerm) {
     const groupItems = groupList.querySelectorAll('.group-item');
     let visibleCount = 0;
     
-    groupItems.forEach(item => {
-        const groupName = item.textContent.toLowerCase();
-        const groupId = item.getAttribute('data-group-id') || '';
+    groupItems.forEach((item, index) => {
+        // 只使用群组名称进行搜索，不匹配ID
+        const groupName = (item.getAttribute('data-group-name') || '').toLowerCase();
         
-        if (searchTerm === '' || groupName.includes(searchTerm) || groupId.includes(searchTerm)) {
+        if (searchTerm === '' || groupName.includes(searchTerm)) {
             item.style.display = 'flex';
             visibleCount++;
             
@@ -5050,7 +5162,10 @@ function filterGroups(searchTerm) {
 }
 
 function highlightSearchTerm(element, searchTerm) {
-    const textContent = element.textContent;
+    // 获取纯群组名称，避免包含emoji
+    const groupName = element.getAttribute('data-group-name') || '';
+    const textContent = groupName;
+    
     const highlightedText = textContent.replace(
         new RegExp(`(${searchTerm})`, 'gi'),
         '<mark>$1</mark>'
@@ -5061,13 +5176,23 @@ function highlightSearchTerm(element, searchTerm) {
         element.setAttribute('data-original-text', textContent);
     }
     
-    element.innerHTML = highlightedText;
+    // 更新HTML，保持emoji不变
+    const emojiSpan = element.querySelector('span:first-child');
+    const nameSpan = element.querySelector('span:nth-child(2)');
+    
+    if (nameSpan) {
+        nameSpan.innerHTML = highlightedText;
+    }
 }
 
 function removeHighlight(element) {
     const originalText = element.getAttribute('data-original-text');
     if (originalText) {
-        element.textContent = originalText;
+        // 恢复HTML，保持emoji不变
+        const nameSpan = element.querySelector('span:nth-child(2)');
+        if (nameSpan) {
+            nameSpan.textContent = originalText;
+        }
         element.removeAttribute('data-original-text');
     }
 }
