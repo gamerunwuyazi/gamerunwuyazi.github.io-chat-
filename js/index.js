@@ -4111,35 +4111,35 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                         }
                     }
-                }
 
-                if (currentUser && currentSessionToken) {
-                    socket.emit('user-joined', {
-                        userId: currentUser.id,
-                        nickname: currentUser.nickname,
-                        avatarUrl: currentUser.avatarUrl,
-                        sessionToken: currentSessionToken,
-                        limit: 20,
-                        loadMore: true,
-                        olderThan: olderThan
-                    });
-                } else {
-                    window.isLoadingMoreMessages = false;
-                }
-
-                // 0.5秒后显示加载中提示，避免加载速度快时显示
-                window.loadingIndicatorTimeout = setTimeout(() => {
-                    // 只有在仍然处于加载状态时才显示
-                    if (window.isLoadingMoreMessages) {
-                        const loadingIndicator = document.createElement('div');
-                        loadingIndicator.className = 'loading-indicator';
-                        loadingIndicator.textContent = '加载中...';
-                        loadingIndicator.style.textAlign = 'center';
-                        loadingIndicator.style.padding = '10px';
-                        loadingIndicator.style.color = '#666';
-                        this.insertBefore(loadingIndicator, this.firstChild);
+                    if (currentUser && currentSessionToken) {
+                        socket.emit('user-joined', {
+                            userId: currentUser.id,
+                            nickname: currentUser.nickname,
+                            avatarUrl: currentUser.avatarUrl,
+                            sessionToken: currentSessionToken,
+                            limit: 20,
+                            loadMore: true,
+                            olderThan: olderThan
+                        });
+                    } else {
+                        window.isLoadingMoreMessages = false;
                     }
-                }, 500);
+
+                    // 0.5秒后显示加载中提示，避免加载速度快时显示
+                    window.loadingIndicatorTimeout = setTimeout(() => {
+                        // 只有在仍然处于加载状态时才显示
+                        if (window.isLoadingMoreMessages) {
+                            const loadingIndicator = document.createElement('div');
+                            loadingIndicator.className = 'loading-indicator';
+                            loadingIndicator.textContent = '加载中...';
+                            loadingIndicator.style.textAlign = 'center';
+                            loadingIndicator.style.padding = '10px';
+                            loadingIndicator.style.color = '#666';
+                            this.insertBefore(loadingIndicator, this.firstChild);
+                        }
+                    }, 500);
+                }
             }
             
             if (!isScrolledToBottom(this)) {
