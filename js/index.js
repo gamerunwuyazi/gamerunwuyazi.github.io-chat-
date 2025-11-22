@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const SERVER_URL = 'https://chat-dns.wu.airoe.cn';
+    const SERVER_URL = 'https://sh.hs.airoe.cn';
 
     // 初始化变量
     let currentUser = null;
