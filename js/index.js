@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const SERVER_URL = 'https://chat-dns.wu.airoe.cn';
+    const SERVER_URL = 'http://chat-dns.wu.airoe.cn:3000';
 
     // 初始化变量
     let currentUser = null;
@@ -937,7 +937,6 @@ document.addEventListener('DOMContentLoaded', function() {
     function fetchAndDisplayAnnouncement() {
         // 未登录状态下不加载公告内容
         if (!currentUser || !currentSessionToken) {
-            console.log('🔄 未登录，不加载公告内容');
             const announcementContainer = document.getElementById('announcementContainer');
             if (announcementContainer) {
                 announcementContainer.textContent = '请登录查看公告';
@@ -2341,7 +2340,13 @@ document.addEventListener('DOMContentLoaded', function() {
     function addMessageToContainer(message, isOwn, isGroupChat, container, isLoadMore = false) {
         // 未登录状态下不添加消息到容器
         if (!currentUser || !currentSessionToken) {
-            console.log('🔄 未登录，不添加消息到容器');
+            return;
+        }
+        
+        // 检查是否已存在相同ID的消息，实现去重功能
+        const existingMessage = container.querySelector(`[data-message-id="${message.id}"]`);
+        if (existingMessage) {
+            // 已存在相同ID的消息，不重复添加
             return;
         }
         
@@ -2706,71 +2711,38 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 保持滚动条位置 - 修复消息丢失问题
     function holdingScrollBar(container, prevScrollHeight) {
-        // 确保DOM完全渲染
-        setTimeout(() => {
+        // 如果没有有效的prevScrollHeight，不进行滚动位置调整
+        if (!prevScrollHeight || prevScrollHeight <= 0) {
+            return;
+        }
+
+        // 直接设置滚动行为为auto，避免任何动画效果导致的闪烁
+        container.style.scrollBehavior = 'auto';
+        
+        // 使用requestAnimationFrame确保在渲染周期内进行计算和设置
+        requestAnimationFrame(() => {
             // 计算新增内容的高度
             const newScrollHeight = container.scrollHeight;
-            const addedHeight = newScrollHeight - (prevScrollHeight || 0);
-
-            // 如果没有有效的prevScrollHeight，不进行滚动位置调整
-            if (!prevScrollHeight || prevScrollHeight <= 0) {
-                return;
-            }
-
-            // 直接设置滚动行为为auto，避免任何动画
-            container.style.scrollBehavior = 'auto';
-
-            // 关键修复：设置滚动位置为新增高度，这样用户看到的内容位置就不会改变
-            // 但是要确保不小于0
+            const addedHeight = newScrollHeight - prevScrollHeight;
+            
+            // 设置滚动位置为新增高度，这样用户看到的内容位置就不会改变
             const targetScrollTop = Math.max(0, addedHeight);
             container.scrollTop = targetScrollTop;
-
-            // 使用更精确的多轮检查确保滚动位置稳定
-            let checkCount = 0;
-            const maxChecks = 5;
-            const checkAndAdjustScroll = () => {
-                checkCount++;
-                
-                setTimeout(() => {
-                    const currentHeight = container.scrollHeight;
-                    const currentAddedHeight = currentHeight - (prevScrollHeight || 0);
-                    const targetScrollTop = Math.max(0, currentAddedHeight);
-                    const currentScrollTop = container.scrollTop;
-                    const scrollDiff = Math.abs(currentScrollTop - targetScrollTop);
-
-                    // 只有当滚动位置差异较大时才调整，避免频繁调整
-                    if (scrollDiff > 3) {
-                        container.scrollTop = targetScrollTop;
-
-                        // 继续检查一次，确保稳定
-                        if (checkCount < maxChecks) {
-                            setTimeout(checkAndAdjustScroll, 10);
-                        }
-                    }
-                }, 10);
-            };
-
-            // 开始检查和调整过程
-            checkAndAdjustScroll();
-
-            // 添加额外的保障检查点
-            setTimeout(() => {
-                const currentHeight = container.scrollHeight;
-                const currentAddedHeight = currentHeight - (prevScrollHeight || 0);
-                const targetScrollTop = Math.max(0, currentAddedHeight);
+            
+            // 使用requestAnimationFrame进行一次精确的最终调整
+            requestAnimationFrame(() => {
+                // 再次计算以确保准确性
+                const finalHeight = container.scrollHeight;
+                const finalAddedHeight = finalHeight - prevScrollHeight;
+                const finalTargetScrollTop = Math.max(0, finalAddedHeight);
                 const currentScrollTop = container.scrollTop;
-                const finalScrollDiff = Math.abs(currentScrollTop - targetScrollTop);
                 
-                if (finalScrollDiff > 3) {
-                    container.scrollTop = targetScrollTop;
-
-                    // 最后微小调整，解决某些设备上的渲染问题
-                    setTimeout(() => {
-                        container.scrollTop = targetScrollTop;
-                    }, 50);
+                // 只有当实际滚动位置与目标位置有明显差异时才进行最终调整
+                if (Math.abs(currentScrollTop - finalTargetScrollTop) > 2) {
+                    container.scrollTop = finalTargetScrollTop;
                 }
-            }, 100);
-        }, 10);
+            });
+        });
     }
 
     function toggleSidebar() {
@@ -3479,57 +3451,79 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     socket.on('chat-history', (data) => {
-        // 只有登录状态才加载和显示聊天历史
-        if (currentUser && currentSessionToken) {
-            // 更新最后更新时间
-            if (data.lastUpdate) {
-                lastMessageUpdate = data.lastUpdate;
-            }
-
-            // 如果是首次加载，清空容器
-            if (!hasReceivedHistory) {
-                messageContainer.innerHTML = '';
-                hasReceivedHistory = true;
-            }
-
-            if (!data.messages || data.messages.length === 0) {
-                emptyState.style.display = 'block';
-                
-                // 清除加载中状态和加载提示
-                window.isLoadingMoreMessages = false;
-                
-                // 清除加载提示的延时器
-                if (window.loadingIndicatorTimeout) {
-                    clearTimeout(window.loadingIndicatorTimeout);
-                    window.loadingIndicatorTimeout = null;
+        // console.log('📜 [接收] 聊天历史数据:', data);
+        // 无论如何都确保在函数结束时重置加载状态
+        try {
+            // 只有登录状态才加载和显示聊天历史
+            if (currentUser && currentSessionToken) {
+                // 更新最后更新时间
+                if (data.lastUpdate) {
+                    lastMessageUpdate = data.lastUpdate;
                 }
-                
-                const loadingIndicators = document.querySelectorAll('.loading-indicator');
-                loadingIndicators.forEach(el => el.remove());
-                return;
+
+                // 如果是首次加载，清空容器
+                if (!hasReceivedHistory) {
+                    messageContainer.innerHTML = '';
+                    hasReceivedHistory = true;
+                }
+
+                if (!data.messages || !Array.isArray(data.messages) || data.messages.length === 0) {
+                    emptyState.style.display = 'block';
+                    return;
+                }
+
+                emptyState.style.display = 'none';
+
+                // 对消息进行排序，优先使用sequence字段
+                const sortedMessages = [...data.messages].sort((a, b) => {
+                    if (a.sequence !== undefined && b.sequence !== undefined) {
+                        return b.sequence - a.sequence; // 降序排列（新消息在前）
+                    }
+                    return b.timestamp - a.timestamp;
+                });
+
+                // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
+                // 对于加载更多的消息，保持原始顺序
+                const messagesToRender = data.loadMore ? sortedMessages : sortedMessages.reverse();
+
+                // 一次性渲染所有消息
+                let addedCount = 0;
+                messagesToRender.forEach(message => {
+                    // 确保消息有必要的属性
+                    if (!message || !message.id) {
+                        // console.warn('📜 [警告] 收到无效消息:', message);
+                        return;
+                    }
+                    
+                    const isOwn = message.userId == currentUser.id || message.sender == currentUser.id;
+                    // 传递loadMore参数给addMessage函数
+                    addMessage(message, isOwn, false, data.loadMore);
+                    addedCount++;
+                });
+
+                // console.log('📜 [全局消息] 渲染消息数量:', addedCount);
+
+                // 所有消息渲染完成
+                if (messageCount) {
+                    const count = messageContainer.querySelectorAll('.message').length;
+                    messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
+                }
+
+                // 向上滚动加载时处理
+                if (data.loadMore) {
+                    // 使用优化的滚动位置保持函数，避免滚动跳动
+                    holdingScrollBar(messageContainer, window.globalPrevScrollHeight);
+                } else {
+                    // 非向上滚动加载时自动滚动到底部
+                    scrollToBottom(messageContainer);
+                }
             }
-
-            emptyState.style.display = 'none';
-
-            // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
-            // 对于加载更多的消息，保持原始顺序（因为已经是降序排列）
-            const messagesToRender = data.loadMore ? data.messages : [...data.messages].reverse();
-
-            // 一次性渲染所有消息
-            messagesToRender.forEach(message => {
-                const isOwn = message.userId == currentUser.id;
-                // 传递loadMore参数给addMessage函数
-                addMessage(message, isOwn, false, data.loadMore);
-            });
-
-            // 所有消息渲染完成
-            if (messageCount) {
-                const count = messageContainer.querySelectorAll('.message').length;
-                messageCount.textContent = `消息数量: ${count}（向上滚动加载消息）`;
-            }
-
-            // 清除加载中状态
+        } catch (error) {
+            // console.error('📜 [错误] 处理聊天历史时出错:', error);
+        } finally {
+            // 重要：无论如何都要重置加载状态
             window.isLoadingMoreMessages = false;
+            // console.log('📜 [全局消息] 重置加载状态为false');
             
             // 清除加载提示的延时器
             if (window.loadingIndicatorTimeout) {
@@ -3540,22 +3534,14 @@ document.addEventListener('DOMContentLoaded', function() {
             // 移除加载中提示
             const loadingIndicators = document.querySelectorAll('.loading-indicator');
             loadingIndicators.forEach(el => el.remove());
-
-            // 向上滚动加载时处理
-            if (data.loadMore) {
-                // 使用优化的滚动位置保持函数，避免滚动跳动
-                holdingScrollBar(messageContainer, window.globalPrevScrollHeight);
-            } else {
-                // 非向上滚动加载时自动滚动到底部
-                scrollToBottom(messageContainer);
-            }
-
-            // 隐藏加载更多按钮，使用向上滚动加载
-            const loadMoreBtn = document.getElementById('load-more-global');
-            if (loadMoreBtn) {
-                loadMoreBtn.style.display = 'none';
-            }
         }
+
+        // 隐藏加载更多按钮，使用向上滚动加载
+        const loadMoreBtn = document.getElementById('load-more-global');
+        if (loadMoreBtn) {
+            loadMoreBtn.style.display = 'none';
+        }
+        
     })
 
     // 接收所有群消息被撤回的通知
@@ -4080,8 +4066,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // 消息容器滚动事件 - 添加向上滚动加载功能
         messageContainer.addEventListener('scroll', function(e) {
+            // 持续更新滚动位置设置，确保在用户滚动离开底部时不会自动滚动
             if (!isScrolledToBottom(this)) {
                 autoScrollEnabled = false;
+                // 保存当前滚动位置，用于在需要时恢复
+                window.groupLastScrollPosition = this.scrollTop;
             } else {
                 autoScrollEnabled = true;
             }
@@ -4091,105 +4080,97 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 避免频繁触发
                 if (!window.isLoadingMoreMessages) {
                     window.isLoadingMoreMessages = true;
-
-                    // 记录当前滚动位置信息（用于加载后恢复）
-                    window.globalPrevScrollHeight = this.scrollHeight;
-
-                    // 获取当前显示的最早消息的时间戳
-                    const messages = messageContainer.querySelectorAll('.message');
-                    const firstMessage = messages.length > 0 ? messages[0] : null;
-                    // 关键修复：使用sequence值代替时间戳来加载更多消息
-                    let olderThan = null;
-                    if (firstMessage) {
-                        // 从data-message中获取消息数据并提取sequence值
-                        if (firstMessage.dataset.message) {
-                            try {
-                                const messageData = JSON.parse(firstMessage.dataset.message);
-                                olderThan = messageData.sequence;
-                            } catch (e) {
-                                console.error('解析消息数据失败:', e);
-                            }
-                        }
-                    }
-
-                    if (currentUser && currentSessionToken) {
-                        socket.emit('user-joined', {
-                            userId: currentUser.id,
-                            nickname: currentUser.nickname,
-                            avatarUrl: currentUser.avatarUrl,
-                            sessionToken: currentSessionToken,
-                            limit: 20,
-                            loadMore: true,
-                            olderThan: olderThan
-                        });
-                    } else {
-                        window.isLoadingMoreMessages = false;
-                    }
-
-                    // 0.5秒后显示加载中提示，避免加载速度快时显示
-                    window.loadingIndicatorTimeout = setTimeout(() => {
-                        // 只有在仍然处于加载状态时才显示
-                        if (window.isLoadingMoreMessages) {
-                            const loadingIndicator = document.createElement('div');
-                            loadingIndicator.className = 'loading-indicator';
-                            loadingIndicator.textContent = '加载中...';
-                            loadingIndicator.style.textAlign = 'center';
-                            loadingIndicator.style.padding = '10px';
-                            loadingIndicator.style.color = '#666';
-                            this.insertBefore(loadingIndicator, this.firstChild);
-                        }
-                    }, 500);
-                }
-            }
-            
-            if (!isScrolledToBottom(this)) {
-                autoScrollEnabled = false;
-            } else {
-                autoScrollEnabled = true;
-            }
-
-            // 向上滚动到顶部时加载新消息
-            if (this.scrollTop < 50 && currentGroupId) { // 使用50px的阈值，避免必须滚动到绝对顶部
-                // 避免频繁触发
-                if (!window.isLoadingMoreMessages) {
-                    // 阻止默认滚动行为，避免滚动动画
-                    e.preventDefault();
-
-                    window.isLoadingMoreMessages = true;
-
-                    // 记录当前滚动位置信息（用于加载后恢复）
-                    window.groupPrevScrollHeight = this.scrollHeight;
-
-                    // 获取当前显示的最早消息的时间戳
-                    const messages = groupMessageContainer.querySelectorAll('.message');
-                    const firstMessage = messages.length > 0 ? messages[0] : null;
+                    // console.log('📜 [消息加载] 设置window.isLoadingMoreMessages = true');
                     
-                    // 关键修复：确保正确获取时间戳，即使没有data-timestamp属性
-                    let olderThan = null;
-                    if (firstMessage) {
-                        // 从data-message中获取消息数据并提取sequence值
-                        if (firstMessage.dataset.message) {
+                    // 记录当前滚动位置信息（用于加载后恢复）
+                    if (currentGroupId) {
+                        window.groupPrevScrollHeight = this.scrollHeight;
+                    } else {
+                        window.globalPrevScrollHeight = this.scrollHeight;
+                    }
+                    // console.log('📜 [消息加载] 记录当前scrollHeight:', this.scrollHeight);
+                    
+                    // 根据是否有群组ID决定是加载群组消息还是全局消息
+                    if (currentGroupId) {
+                        console.log('📊 [群组消息] 触发向上滚动加载条件，scrollTop:', this.scrollTop, 'groupId:', currentGroupId);
+                        // 阻止默认滚动行为，避免滚动动画
+                        e.preventDefault();
+
+                        // 获取当前显示的最早消息的sequence值
+                        const messages = groupMessageContainer.querySelectorAll('.message');
+                        console.log('📊 [群组消息] 当前可见消息数量:', messages.length);
+                        const firstMessage = messages.length > 0 ? messages[0] : null;
+                        
+                        let olderThan = null;
+                        if (firstMessage && firstMessage.dataset.message) {
                             try {
                                 const messageData = JSON.parse(firstMessage.dataset.message);
                                 olderThan = messageData.sequence;
+                                console.log('📊 [群组消息] 成功解析并获取sequence值:', olderThan);
                             } catch (e) {
-                                console.error('解析消息数据失败:', e);
+                                console.error('📊 [群组消息] 解析消息数据失败:', e);
                             }
                         }
-                    }
 
-                    if (currentUser && currentSessionToken) {
-                        const requestData = {
-                            groupId: currentGroupId,
-                            userId: currentUser.id,
-                            sessionToken: currentSessionToken,
-                            limit: 20,
-                            loadMore: true,
-                            olderThan: olderThan
-                        };
-                        socket.emit('join-group', requestData);
+                        if (currentUser && currentSessionToken) {
+                            const requestData = {
+                                groupId: currentGroupId,
+                                userId: currentUser.id,
+                                sessionToken: currentSessionToken,
+                                limit: 20,
+                                loadMore: true,
+                                olderThan: olderThan
+                            };
+                            console.log('📊 [群组消息] join-group事件请求参数:', requestData);
+                            socket.emit('join-group', requestData);
+                        } else {
+                            console.log('📊 [群组消息] 用户未登录，取消加载更多消息');
+                            window.isLoadingMoreMessages = false;
+                        }
                     } else {
-                        window.isLoadingMoreMessages = false;
+                        // console.log('📜 [全局消息] 触发向上滚动加载条件，scrollTop:', this.scrollTop);
+                        
+                        // 获取当前显示的最早消息的sequence值
+                        const messages = messageContainer.querySelectorAll('.message');
+                        let olderThan = null;
+                        
+                        // 优化：从所有消息中查找最小的sequence值
+                        if (messages.length > 0) {
+                            let minSequence = null;
+                            for (let i = 0; i < messages.length; i++) {
+                                const msg = messages[i];
+                                if (msg.dataset.message) {
+                                    try {
+                                        const messageData = JSON.parse(msg.dataset.message);
+                                        if (messageData.sequence !== undefined) {
+                                            if (minSequence === null || messageData.sequence < minSequence) {
+                                                minSequence = messageData.sequence;
+                                            }
+                                        }
+                                    } catch (e) {
+                                        // console.error('📜 [全局消息] 解析消息数据失败:', e);
+                                    }
+                                }
+                            }
+                            olderThan = minSequence;
+                            // console.log('📜 [全局消息] 成功获取最早消息的sequence值:', olderThan);
+                        }
+
+                        if (currentUser && currentSessionToken) {
+                            // console.log('📜 [全局消息] 请求参数:', { userId: currentUser.id, limit: 20, loadMore: true, olderThan: olderThan });
+                            socket.emit('user-joined', {
+                                userId: currentUser.id,
+                                nickname: currentUser.nickname,
+                                avatarUrl: currentUser.avatarUrl,
+                                sessionToken: currentSessionToken,
+                                limit: 20,
+                                loadMore: true,
+                                olderThan: olderThan
+                            });
+                        } else {
+                            // console.log('📜 [全局消息] 用户未登录，取消加载更多消息');
+                            window.isLoadingMoreMessages = false;
+                        }
                     }
 
                     // 0.5秒后显示加载中提示，避免加载速度快时显示
@@ -4206,15 +4187,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     }, 500);
                 }
-            }
-
-            // 持续更新滚动位置设置，确保在用户滚动离开底部时不会自动滚动
-            if (!isScrolledToBottom(this)) {
-                autoScrollEnabled = false;
-                // 保存当前滚动位置，用于在需要时恢复
-                window.groupLastScrollPosition = this.scrollTop;
-            } else {
-                autoScrollEnabled = true;
             }
         });
 

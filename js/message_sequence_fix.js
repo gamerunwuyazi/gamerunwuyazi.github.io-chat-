@@ -17,7 +17,7 @@
     
     // 初始化函数
     function initMessageSequenceFix() {
-        console.log('🚀 初始化消息序号修复功能');
+
         
         // 获取DOM元素引用
         messageContainer = document.getElementById('messageContainer');
@@ -47,14 +47,12 @@
                 const groupMsgIds = groupMessageIds.get(currentGroupId);
                 
                 if (groupMsgIds.has(message.id)) {
-                    console.log('🔄 跳过重复的群组消息:', message.id);
                     return;
                 }
                 
                 groupMsgIds.add(message.id);
             } else {
                 if (globalMessageIds.has(message.id)) {
-                    console.log('🔄 跳过重复的全局消息:', message.id);
                     return;
                 }
                 
@@ -67,9 +65,8 @@
         
         // 监听群组切换事件
         window.addEventListener('groupChanged', (event) => {
-            currentGroupId = event.detail.groupId;
-            console.log('📋 切换到群组:', currentGroupId);
-        });
+                currentGroupId = event.detail.groupId;
+            });
         
         // 为现有消息添加去重功能
     // 使用延迟执行，确保DOM中已经有消息元素
@@ -92,11 +89,11 @@
                 
                 // 优先使用sequence字段排序，如果没有则回退到timestamp
                 if (data.messages.length > 0 && typeof data.messages[0].sequence === 'number') {
-                    console.log('📊 使用sequence字段对全局消息进行排序');
+
                     // 按sequence升序排序（最早的消息在前）
                     data.messages.sort((a, b) => a.sequence - b.sequence);
                 } else {
-                    console.log('📊 使用timestamp字段对全局消息进行排序');
+
                     // 按timestamp升序排序
                     data.messages.sort((a, b) => a.timestamp - b.timestamp);
                 }
@@ -142,11 +139,11 @@
                 
                 // 优先使用sequence字段排序，如果没有则回退到timestamp
                 if (data.messages.length > 0 && typeof data.messages[0].sequence === 'number') {
-                    console.log(`📊 使用sequence字段对群组 ${data.groupId} 的消息进行排序`);
+
                     // 按sequence升序排序（最早的消息在前）
                     data.messages.sort((a, b) => a.sequence - b.sequence);
                 } else {
-                    console.log(`📊 使用timestamp字段对群组 ${data.groupId} 的消息进行排序`);
+
                     // 按timestamp升序排序
                     data.messages.sort((a, b) => a.timestamp - b.timestamp);
                 }
@@ -182,7 +179,7 @@
             });
         }
         
-        console.log('✅ 消息序号修复功能初始化完成');
+
     }
     
     // 为现有消息添加去重功能
@@ -191,7 +188,7 @@
         
         // 获取所有消息元素
         const messageElements = document.querySelectorAll('.message');
-        console.log(`🔍 找到 ${messageElements.length} 条现有消息，为其添加去重功能`);
+
         
         // 遍历所有消息元素，提取ID并添加到去重集合
         messageElements.forEach(element => {
@@ -219,6 +216,13 @@
                 
                 if (!container) return;
                 
+                // 记录加载前的滚动高度（用于加载更多时保持滚动位置）
+                let prevScrollHeight = 0;
+                if (data.loadMore && container) {
+                    prevScrollHeight = container.scrollHeight;
+
+                }
+                
                 // 清空容器
                 if (!data.loadMore) {
                     container.innerHTML = '';
@@ -230,18 +234,33 @@
                     window.addMessage(message, msgIsOwn, isGroupChat, data.loadMore);
                 });
                 
+                // 向上滚动加载时保持滚动位置
+                if (data.loadMore && container && prevScrollHeight > 0) {
+                    const newScrollHeight = container.scrollHeight;
+                    const heightDifference = newScrollHeight - prevScrollHeight;
+                    container.scrollTop = container.scrollTop + heightDifference;
+
+                } else if (!data.loadMore && container) {
+                    // 非加载更多时滚动到底部
+                    container.scrollTop = container.scrollHeight;
+                }
+                
                 // 确保重置加载状态
+
                 window.isLoadingMoreMessages = false;
+                
+                // 清除加载提示
+                const loadingIndicators = document.querySelectorAll('.loading-indicator');
+                loadingIndicators.forEach(el => el.remove());
             }
     
     // 暴露一些方法给外部使用
     window.messageSequenceFix = {
         init: initMessageSequenceFix,
         clearMessageCache: function() {
-            globalMessageIds.clear();
-            groupMessageIds.clear();
-            console.log('🧹 清空消息缓存');
-        },
+                globalMessageIds.clear();
+                groupMessageIds.clear();
+            },
         setCurrentGroupId: function(groupId) {
             currentGroupId = groupId;
         }
