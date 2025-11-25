@@ -2004,10 +2004,16 @@ document.addEventListener('DOMContentLoaded', function() {
         safeSetTextContent(groupTitle, groupName);
         
         // 清除该群组未读消息计数
-        if (unreadMessages.groups[groupId] > 0) {
+        const currentUnreadCount = unreadMessages.groups[groupId] || 0;
+        // console.log('🔔 [未读消息] 切换到群组 - 群组ID:', groupId, '当前未读数:', currentUnreadCount);
+        
+        if (currentUnreadCount > 0) {
+            // console.log('🔔 [未读消息] 清除群组未读计数 - 群组ID:', groupId, '从', currentUnreadCount, '清除到0');
             unreadMessages.groups[groupId] = 0;
             updateGroupUnreadIndicator(groupId, 0);
             updateTitleWithUnreadCount();
+        } else {
+            // console.log('🔔 [未读消息] 群组无未读消息，无需清除 - 群组ID:', groupId);
         }
 
         groupMessageContainer.innerHTML = `
@@ -2284,9 +2290,14 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 300);
         
         // 清除全局未读消息计数
+        // console.log('🔔 [未读消息] 返回全局聊天 - 当前全局未读数:', unreadMessages.global);
+        
         if (unreadMessages.global > 0) {
+            // console.log('🔔 [未读消息] 清除全局未读计数 - 从', unreadMessages.global, '清除到0');
             unreadMessages.global = 0;
             updateTitleWithUnreadCount();
+        } else {
+            // console.log('🔔 [未读消息] 全局无未读消息，无需清除');
         }
 
         groupMessageInput.disabled = true;
@@ -2511,7 +2522,31 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // 全局页面可见性状态变量
+    window.isPageVisible = true;
+
     function setupPageVisibility() {
+        // 初始化页面可见性状态
+        window.isPageVisible = !document.hidden;
+        
+        // 定义清除未读消息的函数
+        function clearUnreadMessages() {
+            // 清除全局未读消息计数
+            unreadMessages.global = 0;
+            
+            // 清除所有群组未读消息计数并更新UI
+            Object.keys(unreadMessages.groups).forEach(groupId => {
+                if (unreadMessages.groups[groupId] > 0) {
+                    unreadMessages.groups[groupId] = 0;
+                    // 确保更新群组未读指示器
+                    updateGroupUnreadIndicator(groupId, 0);
+                }
+            });
+            
+            // 更新标题
+            updateTitleWithUnreadCount();
+        }
+        
         // 现代浏览器的页面可见性API
         let visibilityProperty;
         if ('hidden' in document) {
@@ -2526,37 +2561,63 @@ document.addEventListener('DOMContentLoaded', function() {
             const visibilityChangeEvent = visibilityProperty.replace('hidden', 'visibilitychange');
 
             document.addEventListener(visibilityChangeEvent, function() {
-                isPageVisible = !document[visibilityProperty];
-                console.log('📄 页面可见性变化:', isPageVisible ? '可见' : '隐藏');
+                const wasVisible = window.isPageVisible;
+                window.isPageVisible = !document[visibilityProperty];
 
-                if (isPageVisible && isConnected) {
+                if (window.isPageVisible && !wasVisible && isConnected) {
                     // 页面从隐藏变为可见，只获取新消息而不重新加载已有头像
-                    console.log('🔄 页面恢复可见，获取新消息（不重新加载已有头像）');
                     refreshMessages();
                     // 重新请求在线用户列表
                     if (currentUser) {
                         socket.emit('get-online-users');
                     }
+                    
+                    // 清除未读消息计数
+                    clearUnreadMessages();
                 }
             });
         }
-        // 传统浏览器的窗口焦点事件
+        
+        // 移除重复的事件监听器，只保留一个focus事件处理
+        // 无论页面之前是否可见，只要获得焦点就清除未读消息
         window.addEventListener('focus', function() {
-            if (!isPageVisible) {
-                isPageVisible = true;
-                console.log('🔄 窗口获得焦点，获取新消息（不重新加载已有头像）');
-                if (isConnected) {
-                    refreshMessages();
-                    if (currentUser) {
-                        socket.emit('get-online-users');
-                    }
+            // 确保更新全局变量
+            window.isPageVisible = true;
+            
+            // 页面获得焦点时，无条件清除未读消息计数
+            clearUnreadMessages();
+            
+            if (isConnected) {
+                // 获取新消息
+                refreshMessages();
+                // 重新请求在线用户列表
+                if (currentUser) {
+                    // console.log('🔄 [触发] 由于窗口获得焦点，获取在线用户列表');
+                    socket.emit('get-online-users');
                 }
             }
         });
-
+        
+        // 监听窗口失去焦点事件
+        // console.log('🔍 [事件监听] 设置窗口失去焦点事件监听');
         window.addEventListener('blur', function() {
-            isPageVisible = false;
-            console.log('📄 窗口失去焦点');
+            // 确保使用全局变量
+            const wasVisible = window.isPageVisible;
+            window.isPageVisible = false;
+            
+            // 当页面重新获得焦点时，更新未读消息计数显示
+            updateTitleWithUnreadCount();
+        });
+        
+        // 监听页面可见性变化（标签页切换等情况）
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                isPageVisible = false;
+            } else {
+                isPageVisible = true;
+                // 当页面重新可见时，更新未读消息计数显示
+                updateTitleWithUnreadCount();
+            }
         });
     }
 
@@ -2719,14 +2780,18 @@ document.addEventListener('DOMContentLoaded', function() {
         // 直接设置滚动行为为auto，避免任何动画效果导致的闪烁
         container.style.scrollBehavior = 'auto';
         
+        // 保存当前的滚动位置
+        const currentScrollTop = container.scrollTop;
+        
         // 使用requestAnimationFrame确保在渲染周期内进行计算和设置
         requestAnimationFrame(() => {
             // 计算新增内容的高度
             const newScrollHeight = container.scrollHeight;
             const addedHeight = newScrollHeight - prevScrollHeight;
             
-            // 设置滚动位置为新增高度，这样用户看到的内容位置就不会改变
-            const targetScrollTop = Math.max(0, addedHeight);
+            // 设置滚动位置为当前滚动位置加上新增高度，这样用户看到的内容位置就不会改变
+            // 确保滚动位置不会为负数
+            const targetScrollTop = Math.max(0, currentScrollTop + addedHeight);
             container.scrollTop = targetScrollTop;
             
             // 使用requestAnimationFrame进行一次精确的最终调整
@@ -2734,11 +2799,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 再次计算以确保准确性
                 const finalHeight = container.scrollHeight;
                 const finalAddedHeight = finalHeight - prevScrollHeight;
-                const finalTargetScrollTop = Math.max(0, finalAddedHeight);
-                const currentScrollTop = container.scrollTop;
+                const finalTargetScrollTop = Math.max(0, currentScrollTop + finalAddedHeight);
+                const currentScrollTopAfterFirstAdjust = container.scrollTop;
                 
                 // 只有当实际滚动位置与目标位置有明显差异时才进行最终调整
-                if (Math.abs(currentScrollTop - finalTargetScrollTop) > 2) {
+                if (Math.abs(currentScrollTopAfterFirstAdjust - finalTargetScrollTop) > 2) {
                     container.scrollTop = finalTargetScrollTop;
                 }
             });
@@ -3354,9 +3419,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 更新标题栏未读消息数
     function updateTitleWithUnreadCount() {
+        // 使用与message-received中相同的方式获取页面可见性状态
+        const pageVisibilityStatus = window.isPageVisible !== undefined ? window.isPageVisible : true;
+        
         const totalUnread = unreadMessages.global + Object.values(unreadMessages.groups).reduce((sum, count) => sum + count, 0);
+        
+        // 无论页面是否可见，只要有未读消息就更新标题显示未读消息数
         if (totalUnread > 0) {
-            document.title = `简易聊天室（${totalUnread}条消息未读）`;
+            const newTitle = `简易聊天室（${totalUnread}条消息未读）`;
+            document.title = newTitle;
         } else {
             document.title = originalTitle;
         }
@@ -3365,11 +3436,17 @@ document.addEventListener('DOMContentLoaded', function() {
     // 更新群组未读消息指示器
     function updateGroupUnreadIndicator(groupId, count) {
         const groupItem = document.querySelector(`.group-item[data-group-id="${groupId}"]`);
-        if (!groupItem) return;
+        if (!groupItem) {
+            // console.log('🔔 [未读消息] 警告: 找不到群组项元素 - 群组ID:', groupId);
+            return;
+        }
 
         let indicator = groupItem.querySelector('.unread-indicator');
         if (count > 0) {
+            // console.log('🔔 [未读消息] 显示未读指示器 - 群组ID:', groupId, '未读数:', count);
+            
             if (!indicator) {
+                // console.log('🔔 [未读消息] 创建新的未读指示器元素 - 群组ID:', groupId);
                 indicator = document.createElement('div');
                 indicator.className = 'unread-indicator';
                 indicator.style.cssText = `
@@ -3392,35 +3469,61 @@ document.addEventListener('DOMContentLoaded', function() {
                 groupItem.style.position = 'relative';
                 groupItem.appendChild(indicator);
             }
-            indicator.textContent = count > 99 ? '99+' : count;
+            
+            const displayCount = count > 99 ? '99+' : count;
+            // console.log('🔔 [未读消息] 设置未读数量文本 - 显示文本:', displayCount);
+            indicator.textContent = displayCount;
             indicator.style.display = 'flex';
         } else if (indicator) {
+            // console.log('🔔 [未读消息] 隐藏未读指示器 - 群组ID:', groupId);
             indicator.style.display = 'none';
+        } else {
+            // console.log('🔔 [未读消息] 未读为0且无指示器元素 - 群组ID:', groupId);
         }
     }
 
     socket.on('message-received', (message) => {
+        // console.log('🔔 [未读消息] 收到新消息:', message);
+        
         // 只有登录状态才接收和显示消息
         if (currentUser && currentSessionToken) {
             const isOwn = message.userId == currentUser.id;
+            // console.log('🔔 [未读消息] 消息是否为自己发送:', isOwn, '当前用户ID:', currentUser.id, '消息发送者ID:', message.userId);
             
             // 忽略自己发送的消息的未读计数
             if (!isOwn) {
+                // console.log('🔔 [未读消息] 非自己发送的消息，开始处理未读计数');
+                // 检查页面可见性状态
+                const pageVisibilityStatus = window.isPageVisible !== undefined ? window.isPageVisible : true;
+                // console.log('🔔 [未读消息] 页面可见性状态:', pageVisibilityStatus ? '可见' : '不可见');
+                
                 // 检查是否需要增加未读计数
                 if (message.groupId) {
-                    // 群组消息
-                    if (currentGroupId !== message.groupId) {
-                        unreadMessages.groups[message.groupId] = (unreadMessages.groups[message.groupId] || 0) + 1;
+                    // console.log('🔔 [未读消息] 群组消息 - 群组ID:', message.groupId, '当前所在群组ID:', currentGroupId);
+                    // 群组消息：当页面不可见或不在对应群组时增加未读计数
+                    if (!pageVisibilityStatus || currentGroupId !== message.groupId) {
+                        const beforeCount = unreadMessages.groups[message.groupId] || 0;
+                        unreadMessages.groups[message.groupId] = beforeCount + 1;
+                        // console.log('🔔 [未读消息] 增加群组未读数 - 群组ID:', message.groupId, '之前:', beforeCount, '之后:', unreadMessages.groups[message.groupId]);
                         updateGroupUnreadIndicator(message.groupId, unreadMessages.groups[message.groupId]);
                         updateTitleWithUnreadCount();
+                    } else {
+                        // console.log('🔔 [未读消息] 消息来自当前所在群组且页面可见，不增加未读数');
                     }
                 } else {
-                    // 全局消息
-                    if (mainChat.style.display === 'none') {
+                    // console.log('🔔 [未读消息] 全局消息 - 全局聊天是否可见:', mainChat.style.display !== 'none');
+                    // 全局消息：当页面不可见或不在全局聊天时增加未读计数
+                    if (!pageVisibilityStatus || mainChat.style.display === 'none') {
+                        const beforeCount = unreadMessages.global;
                         unreadMessages.global += 1;
+                        // console.log('🔔 [未读消息] 增加全局未读数 - 之前:', beforeCount, '之后:', unreadMessages.global);
                         updateTitleWithUnreadCount();
+                    } else {
+                        // console.log('🔔 [未读消息] 全局聊天可见且页面可见，不增加未读数');
                     }
                 }
+            } else {
+                // console.log('🔔 [未读消息] 自己发送的消息，忽略未读计数');
             }
 
             // 判断消息类型并显示
