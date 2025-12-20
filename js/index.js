@@ -274,8 +274,33 @@ document.addEventListener('DOMContentLoaded', function() {
                     renderer: renderer
                 });
 
-                // 直接解析原始内容
-                let parsedContent = marked.parse(content);
+                // 先处理数学公式，将$包裹的内容替换为占位符，避免marked解析干扰
+                const mathPlaceholders = [];
+                let processedContent = content;
+                
+                // 先处理块级数学公式：$$...$$
+                processedContent = processedContent.replace(/\$\$([\s\S]+?)\$\$/g, (match) => {
+                    const placeholder = `__MATH_BLOCK_${mathPlaceholders.length}__`;
+                    mathPlaceholders.push({ type: 'block', formula: match });
+                    return placeholder;
+                });
+                
+                // 再处理行内数学公式：$...$
+                processedContent = processedContent.replace(/\$([^$]+)\$/g, (match) => {
+                    const placeholder = `__MATH_INLINE_${mathPlaceholders.length}__`;
+                    mathPlaceholders.push({ type: 'inline', formula: match });
+                    return placeholder;
+                });
+
+                // 使用marked解析处理后的内容
+                let parsedContent = marked.parse(processedContent);
+
+                // 将数学公式占位符替换回实际的数学公式
+                mathPlaceholders.forEach((math, index) => {
+                    const placeholder = math.type === 'inline' ? `__MATH_INLINE_${index}__` : `__MATH_BLOCK_${index}__`;
+                    // 直接使用原始的数学公式（包含$分隔符）
+                    parsedContent = parsedContent.replace(new RegExp(placeholder, 'g'), math.formula);
+                });
 
                 // 移除可能的危险属性
                 parsedContent = removeDangerousAttributes(parsedContent);
@@ -2490,6 +2515,21 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             // 普通消息添加到容器末尾
             container.appendChild(messageElement);
+        }
+
+        // 使用KaTeX渲染数学公式（必须在元素添加到DOM后执行）
+        if (typeof renderMathInElement !== 'undefined') {
+            try {
+                renderMathInElement(messageElement, {
+                    delimiters: [
+                        {left: '$', right: '$', display: false},
+                        {left: '$$', right: '$$', display: true}
+                    ],
+                    throwOnError: false
+                });
+            } catch (error) {
+                console.error('KaTeX渲染错误:', error);
+            }
         }
 
         // 添加文件卡片点击事件，确保整个卡片都可以点击
