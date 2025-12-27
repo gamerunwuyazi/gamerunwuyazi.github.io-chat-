@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const SERVER_URL = 'https://sh.hs.airoe.cn';
+    const SERVER_URL = 'https://back.hs.airoe.cn';
 
     // 初始化变量
     let currentUser = null;
@@ -20,6 +20,46 @@ document.addEventListener('DOMContentLoaded', function() {
     // 未读消息计数
     let unreadMessages = { global: 0, groups: {} };
     let originalTitle = document.title;
+    
+    // 从localStorage中加载用户信息和会话令牌
+    function loadUserFromLocalStorage() {
+        try {
+            const savedUser = localStorage.getItem('currentUser');
+            const savedToken = localStorage.getItem('currentSessionToken');
+            
+            if (savedUser && savedToken) {
+                currentUser = JSON.parse(savedUser);
+                currentSessionToken = savedToken;
+                console.log('从localStorage加载用户信息成功:', currentUser);
+                return true;
+            }
+        } catch (error) {
+            console.error('从localStorage加载用户信息失败:', error);
+            // 清除可能损坏的数据
+            localStorage.removeItem('currentUser');
+            localStorage.removeItem('currentSessionToken');
+        }
+        return false;
+    }
+    
+    // 保存用户信息和会话令牌到localStorage
+    function saveUserToLocalStorage(user, token) {
+        try {
+            localStorage.setItem('currentUser', JSON.stringify(user));
+            localStorage.setItem('currentSessionToken', token);
+        } catch (error) {
+            console.error('保存用户信息到localStorage失败:', error);
+        }
+    }
+    
+    // 清除localStorage中的用户信息
+    function clearUserFromLocalStorage() {
+        localStorage.removeItem('currentUser');
+        localStorage.removeItem('currentSessionToken');
+    }
+    
+    // 尝试从localStorage加载用户信息
+    loadUserFromLocalStorage();
     
     // 群组搜索功能相关变量
     let allGroups = [];
@@ -3044,6 +3084,8 @@ document.addEventListener('DOMContentLoaded', function() {
         localStorage.removeItem('chatUserNickname');
         localStorage.removeItem('chatUserAvatar');
         localStorage.removeItem('chatSessionToken');
+        // 清除新的localStorage用户信息
+        clearUserFromLocalStorage();
 
         updateLoginState(false);
 
@@ -4390,6 +4432,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     } else {
                         localStorage.removeItem('chatUserAvatar');
                     }
+                    
+                    // 保存用户信息和会话令牌到新的localStorage键
+                    saveUserToLocalStorage(currentUser, currentSessionToken);
 
                     // 发送登录事件
                     socket.emit('user-logged-in', { userId: currentUser.id, nickname: currentUser.nickname });
