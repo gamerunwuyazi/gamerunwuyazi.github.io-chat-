@@ -1,27 +1,23 @@
+/* 代码块样式 */
 .highlight {
     position: relative;
+    margin: 10px 0;
     border-radius: 8px;
     overflow: hidden;
-    margin: 15px 0;
-    box-shadow: none;
-    line-height: 0;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
 }
 
 .highlight-tools {
-    background: #f8f8f8;
-    border-bottom: 1px solid #ddd;
-    padding: 8px 12px;
     display: flex;
     align-items: center;
-    font-size: 12px;
-    line-height: 1;
+    padding: 8px 12px;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
 }
 
 .macStyle {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     margin-right: 12px;
 }
 
@@ -32,7 +28,7 @@
 }
 
 .mac-close {
-    background-color: #ff5f56;
+    background-color: #ff5f57;
 }
 
 .mac-minimize {
@@ -40,25 +36,28 @@
 }
 
 .mac-maximize {
-    background-color: #27c93f;
+    background-color: #28ca42;
 }
 
 .code-lang {
+    flex: 1;
+    font-size: 12px;
     color: #666;
-    font-weight: bold;
-    margin-right: auto;
+    font-weight: 500;
 }
 
 .copy-notice {
-    margin-right: 8px;
+    margin-right: 10px;
+    font-size: 12px;
     color: #666;
     display: none;
 }
 
 .copy-button, .fullpage-button {
     cursor: pointer;
-    margin-left: 8px;
+    margin-left: 10px;
     color: #666;
+    font-size: 14px;
     transition: color 0.2s;
 }
 
@@ -69,111 +68,59 @@
 .highlight table {
     width: 100%;
     border-collapse: collapse;
-    margin: 0;
-    border-spacing: 0;
-    font-size: 0;
+    background-color: #fff;
 }
 
-.highlight table tbody {
-    margin: 0;
+.highlight .gutter {
+    background-color: #f8f9fa;
+    border-right: 1px solid #e9ecef;
     padding: 0;
-}
-
-.highlight table tr {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-}
-
-.highlight table td {
-    margin: 0;
-    padding: 0;
-    vertical-align: top;
-}
-
-/* 行数区域样式 */
-.gutter {
-    background-color: #f5f5f5;
-    border-right: 1px solid #ddd;
-    width: 40px; /* 限制行数区域宽度 */
     text-align: right;
-    vertical-align: top;
-    padding: 0;
+    width: 40px;
     user-select: none;
-    display: table-cell;
-    height: 100%;
-}
-
-.gutter pre {
-    margin: 0;
-    padding: 10px 8px;
-    background: transparent;
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 13px;
-    color: #666;
-    line-height: 1.4;
-    overflow: hidden;
-    white-space: nowrap;
-    display: block;
-}
-
-.code {
     vertical-align: top;
-    padding: 0;
+}
+
+.highlight .gutter pre {
     margin: 0;
-    display: table-cell;
-    width: 100%;
-    height: 100%;
-    line-height: 0;
-    position: relative;
-}
-
-.code pre {
-    margin: 0 !important;
-    padding: 10px;
-    background: #fafafa;
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 13px;
-    line-height: 1.4;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    text-indent: 0;
-    height: auto;
-    min-height: 0;
-    padding-top: 10px;
-    padding-bottom: 20px;
-    display: block;
-    border: none;
-    box-shadow: none;
-    position: relative;
-    bottom: 0;
-}
-
-.code code {
-    background: transparent;
-    padding: 0;
-    border: none;
-    display: inline-block;
-    text-indent: 0;
-}
-
-/* 顶号提醒样式 */
-.session-expired-notification h3 {
-    font-size: 18px;
-    font-weight: 600;
-}
-
-.session-expired-notification p {
-    font-size: 14px;
+    padding: 10px 0;
+    background-color: #f8f9fa;
     color: #666;
+    font-size: 14px;
+    font-family: 'Courier New', monospace;
+    line-height: 1.5;
 }
 
-#relogin-btn:hover {
-    background-color: #c62828;
-    transition: background-color 0.2s;
+.highlight .code {
+    padding: 0;
+    width: 100%;
+    vertical-align: top;
 }
 
-.notification-overlay {
-    backdrop-filter: blur(2px);
+.highlight .code pre {
+    margin: 0;
+    padding: 0;
+    font-size: 14px;
+    font-family: 'Courier New', monospace;
+    white-space: pre;
+    overflow-x: auto;
+    background-color: #fff;
+    line-height: 1.5;
+}
+
+.highlight .code code {
+    background: none;
+    padding: 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    white-space: pre;
+    display: block;
+}
+
+.highlight .line {
+    font-size: 14px;
+    line-height: 1.5;
+    display: block;
+    padding: 0 10px;
+    margin: 0;
 }

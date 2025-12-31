@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>注册 - 简易版聊天室</title>
+    <link rel="stylesheet" href="css/login.css">
+    <link rel="icon" href="chat.png">
+    <style>
+        /* 全局样式重置 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        /* 注册容器样式 */
+        #register-container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        #register-container:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+        }
+        
+        /* 标题样式 */
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        /* 表单样式 */
+        #register-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        /* 输入组样式 */
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        /* 标签样式 */
+        label {
+            font-size: 14px;
+            font-weight: 500;
+            color: #555;
+        }
+        
+        /* 输入框样式 */
+        input {
+            padding: 12px 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            background-color: #f9fafb;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            background-color: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        /* 按钮样式 */
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        /* 登录链接样式 */
+        .login-link {
+            text-align: center;
+            margin-top: 25px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .login-link a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+        
+        .login-link a:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+        
+        /* 消息提示样式 */
+        #registerMessage {
+            color: #d32f2f;
+            text-align: center;
+            font-size: 14px;
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #ffebee;
+            border-radius: 6px;
+            border: 1px solid #ffcdd2;
+        }
+        
+        /* 验证消息样式 */
+        .validation-message {
+            font-size: 12px;
+            min-height: 16px;
+            margin-top: 4px;
+        }
+        
+        .validation-message.error {
+            color: #d32f2f;
+        }
+        
+        .validation-message.success {
+            color: #388e3c;
+        }
+        
+        /* 密码强度样式 */
+        .password-strength {
+            font-size: 12px;
+            margin-top: 8px;
+        }
+        
+        .password-strength.weak {
+            color: #d32f2f;
+        }
+        
+        .password-strength.medium {
+            color: #fbc02d;
+        }
+        
+        .password-strength.strong {
+            color: #388e3c;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 480px) {
+            #register-container {
+                padding: 30px 20px;
+            }
+            
+            h1 {
+                font-size: 22px;
+            }
+            
+            input, button {
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="register-container">
+        <h1>注册聊天室账号</h1>
+        <form id="register-form">
+            <div class="input-group">
+                <label for="username">用户名</label>
+                <input type="text" id="username" name="username" required placeholder="请输入用户名">
+                <div class="validation-message" id="usernameValidation"></div>
+            </div>
+            <div class="input-group">
+                <label for="nickname">昵称</label>
+                <input type="text" id="nickname" name="nickname" required placeholder="请输入昵称">
+                <div class="validation-message" id="nicknameValidation"></div>
+            </div>
+            <div class="input-group">
+                <label for="password">密码</label>
+                <input type="password" id="password" name="password" required placeholder="请输入密码">
+                <div class="validation-message" id="passwordValidation"></div>
+                <div class="password-strength" id="passwordStrength"></div>
+            </div>
+            <div class="input-group">
+                <label for="confirmPassword">确认密码</label>
+                <input type="password" id="confirmPassword" name="confirmPassword" required placeholder="请再次输入密码">
+                <div class="validation-message" id="confirmPasswordValidation"></div>
+            </div>
+            <button type="submit" id="registerButton">注册</button>
+        </form>
+        <p class="login-link">已有账号？<a href="login.html">去登录</a></p>
+        <div id="registerMessage" style="display: none;"></div>
+    </div>
+    
+    <script>
+        // 获取DOM元素
+        const registerForm = document.getElementById('register-form');
+        const usernameInput = document.getElementById('username');
+        const usernameValidation = document.getElementById('usernameValidation');
+        const nicknameInput = document.getElementById('nickname');
+        const nicknameValidation = document.getElementById('nicknameValidation');
+        const passwordInput = document.getElementById('password');
+        const passwordValidation = document.getElementById('passwordValidation');
+        const passwordStrength = document.getElementById('passwordStrength');
+        const confirmPasswordInput = document.getElementById('confirmPassword');
+        const confirmPasswordValidation = document.getElementById('confirmPasswordValidation');
+        const registerMessage = document.getElementById('registerMessage');
+        const registerButton = document.getElementById('registerButton');
+        
+        // 实时验证用户名
+        usernameInput.addEventListener('input', validateUsername);
+        
+        // 实时验证昵称
+        nicknameInput.addEventListener('input', validateNickname);
+        
+        // 实时验证密码
+        passwordInput.addEventListener('input', validatePassword);
+        
+        // 实时验证确认密码
+        confirmPasswordInput.addEventListener('input', validateConfirmPassword);
+        
+        // 验证用户名
+        function validateUsername() {
+            const username = usernameInput.value.trim();
+            if (!username) {
+                usernameValidation.textContent = '';
+                return false;
+            }
+            
+            if (username.length < 3) {
+                usernameValidation.textContent = '用户名长度不能少于3个字符';
+                usernameValidation.className = 'validation-message error';
+                return false;
+            }
+            
+            if (username.length > 20) {
+                usernameValidation.textContent = '用户名长度不能超过20个字符';
+                usernameValidation.className = 'validation-message error';
+                return false;
+            }
+            
+            usernameValidation.textContent = '用户名可用';
+            usernameValidation.className = 'validation-message success';
+            return true;
+        }
+        
+        // 验证昵称
+        function validateNickname() {
+            const nickname = nicknameInput.value.trim();
+            if (!nickname) {
+                nicknameValidation.textContent = '';
+                return false;
+            }
+            
+            if (nickname.length < 2) {
+                nicknameValidation.textContent = '昵称长度不能少于2个字符';
+                nicknameValidation.className = 'validation-message error';
+                return false;
+            }
+            
+            if (nickname.length > 20) {
+                nicknameValidation.textContent = '昵称长度不能超过20个字符';
+                nicknameValidation.className = 'validation-message error';
+                return false;
+            }
+            
+            nicknameValidation.textContent = '昵称可用';
+            nicknameValidation.className = 'validation-message success';
+            return true;
+        }
+        
+        // 验证密码
+        function validatePassword() {
+            const password = passwordInput.value;
+            if (!password) {
+                passwordValidation.textContent = '';
+                passwordStrength.textContent = '';
+                return false;
+            }
+            
+            if (password.length < 6) {
+                passwordValidation.textContent = '密码长度不能少于6个字符';
+                passwordValidation.className = 'validation-message error';
+                passwordStrength.textContent = '';
+                return false;
+            }
+            
+            passwordValidation.textContent = '';
+            passwordValidation.className = 'validation-message';
+            
+            // 检测密码强度
+            checkPasswordStrength(password);
+            return true;
+        }
+        
+        // 检测密码强度
+        function checkPasswordStrength(password) {
+            let strength = 0;
+            
+            // 长度大于等于6
+            if (password.length >= 6) strength++;
+            
+            // 包含数字
+            if (/[0-9]/.test(password)) strength++;
+            
+            // 包含小写字母
+            if (/[a-z]/.test(password)) strength++;
+            
+            // 包含大写字母
+            if (/[A-Z]/.test(password)) strength++;
+            
+            // 包含特殊字符
+            if (/[^A-Za-z0-9]/.test(password)) strength++;
+            
+            let strengthText = '';
+            let strengthClass = '';
+            
+            if (strength <= 2) {
+                strengthText = '密码强度：弱';
+                strengthClass = 'password-strength weak';
+            } else if (strength <= 3) {
+                strengthText = '密码强度：中等';
+                strengthClass = 'password-strength medium';
+            } else {
+                strengthText = '密码强度：强';
+                strengthClass = 'password-strength strong';
+            }
+            
+            passwordStrength.textContent = strengthText;
+            passwordStrength.className = strengthClass;
+        }
+        
+        // 验证确认密码
+        function validateConfirmPassword() {
+            const password = passwordInput.value;
+            const confirmPassword = confirmPasswordInput.value;
+            
+            if (!confirmPassword) {
+                confirmPasswordValidation.textContent = '';
+                return false;
+            }
+            
+            if (password !== confirmPassword) {
+                confirmPasswordValidation.textContent = '两次输入的密码不一致';
+                confirmPasswordValidation.className = 'validation-message error';
+                return false;
+            }
+            
+            confirmPasswordValidation.textContent = '密码一致';
+            confirmPasswordValidation.className = 'validation-message success';
+            return true;
+        }
+        
+        // 验证所有字段
+        function validateAll() {
+            const isUsernameValid = validateUsername();
+            const isNicknameValid = validateNickname();
+            const isPasswordValid = validatePassword();
+            const isConfirmPasswordValid = validateConfirmPassword();
+            
+            return isUsernameValid && isNicknameValid && isPasswordValid && isConfirmPasswordValid;
+        }
+        
+        // 注册表单提交事件处理
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (!validateAll()) {
+                showMessage('请修正表单中的错误后再提交', 'error');
+                return;
+            }
+            
+            const username = usernameInput.value.trim();
+            const nickname = nicknameInput.value.trim();
+            const password = passwordInput.value.trim();
+            
+            try {
+                // 显示加载状态
+                registerButton.disabled = true;
+                registerButton.textContent = '注册中...';
+                
+                // 提交注册请求
+                const response = await fetch('https://back.hs.airoe.cn/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        nickname: nickname,
+                        password: password
+                    })
+                });
+                
+                console.log('注册请求响应状态:', response.status);
+                const responseText = await response.text();
+                console.log('注册请求响应文本:', responseText);
+                
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                    console.log('注册请求解析后的数据:', data);
+                } catch (parseError) {
+                    console.error('解析响应失败:', parseError);
+                    showMessage('服务器响应格式错误，请稍后重试', 'error');
+                    return;
+                }
+                
+                // 改进的响应处理逻辑，支持不同的响应格式
+                if (data.success || data.status === 'success' || data.code === 200) {
+                    showMessage('注册成功，即将跳转到登录页面...', 'success');
+                    // 注册成功，跳转到登录页面
+                    setTimeout(() => {
+                        window.location.href = 'login.html';
+                    }, 1500);
+                } else {
+                    // 注册失败，显示错误信息
+                    const errorMessage = data.message || data.msg || '注册失败，请稍后重试';
+                    console.log('注册失败:', errorMessage);
+                    showMessage(errorMessage, 'error');
+                }
+            } catch (error) {
+                console.error('注册请求失败:', error);
+                showMessage('注册请求失败，请稍后重试', 'error');
+            } finally {
+                // 恢复按钮状态
+                registerButton.disabled = false;
+                registerButton.textContent = '注册';
+            }
+        });
+        
+        // 显示消息函数
+        function showMessage(message, type) {
+            registerMessage.textContent = message;
+            registerMessage.style.display = 'block';
+            
+            if (type === 'error') {
+                registerMessage.style.color = '#d32f2f';
+                registerMessage.style.backgroundColor = '#ffebee';
+                registerMessage.style.borderColor = '#ffcdd2';
+            } else if (type === 'success') {
+                registerMessage.style.color = '#388e3c';
+                registerMessage.style.backgroundColor = '#e8f5e8';
+                registerMessage.style.borderColor = '#c8e6c9';
+            }
+        }
+    </script>
+</body>
+</html>

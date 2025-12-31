@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 简易版聊天室</title>
+    <link rel="icon" href="chat.png">
+    <style>
+        /* 全局样式重置 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        /* 登录容器样式 */
+        #login-container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        #login-container:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+        }
+        
+        /* 标题样式 */
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        /* 表单样式 */
+        #login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        /* 输入组样式 */
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        /* 标签样式 */
+        label {
+            font-size: 14px;
+            font-weight: 500;
+            color: #555;
+        }
+        
+        /* 输入框样式 */
+        input {
+            padding: 12px 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            background-color: #f9fafb;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            background-color: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        /* 按钮样式 */
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        /* 注册链接样式 */
+        .register-link {
+            text-align: center;
+            margin-top: 25px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .register-link a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+        
+        .register-link a:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+        
+        /* 消息提示样式 */
+        #loginMessage {
+            color: #d32f2f;
+            text-align: center;
+            font-size: 14px;
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #ffebee;
+            border-radius: 6px;
+            border: 1px solid #ffcdd2;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 480px) {
+            #login-container {
+                padding: 30px 20px;
+            }
+            
+            h1 {
+                font-size: 22px;
+            }
+            
+            input, button {
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="login-container">
+        <h1>登录聊天室</h1>
+        <form id="login-form">
+            <div class="input-group">
+                <label for="username">用户名</label>
+                <input type="text" id="username" name="username" required placeholder="请输入用户名">
+            </div>
+            <div class="input-group">
+                <label for="password">密码</label>
+                <input type="password" id="password" name="password" required placeholder="请输入密码">
+            </div>
+            <button type="submit">登录</button>
+        </form>
+        <p class="register-link">还没有账号？<a href="register.html">去注册</a></p>
+        <div id="loginMessage" style="display: none;"></div>
+    </div>
+    
+    <script>
+        // 获取DOM元素
+        const loginForm = document.getElementById('login-form');
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const loginMessage = document.getElementById('loginMessage');
+        
+        // 登录表单提交事件处理
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+            
+            if (!username || !password) {
+                showMessage('请输入用户名和密码', 'error');
+                return;
+            }
+            
+            try {
+                // 提交登录请求
+                const response = await fetch('https://back.hs.airoe.cn/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                });
+                
+                console.log('登录请求响应状态:', response.status);
+                const responseText = await response.text();
+                console.log('登录请求响应文本:', responseText);
+                
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                    console.log('登录请求解析后的数据:', data);
+                } catch (parseError) {
+                    console.error('解析响应失败:', parseError);
+                    showMessage('服务器响应格式错误，请稍后重试', 'error');
+                    return;
+                }
+                
+                // 改进的响应处理逻辑，支持不同的响应格式
+                if (data.success || data.status === 'success' || data.code === 200) {
+                    // 登录成功，构造正确的用户信息对象
+                    const userId = data.userId || (data.user && data.user.id) || (data.data && data.data.id) || '';
+                    const nickname = data.nickname || (data.user && data.user.nickname) || (data.data && data.data.nickname) || '';
+                    const avatarUrl = data.avatarUrl || (data.user && data.user.avatarUrl) || (data.data && data.data.avatarUrl) || (data.user && data.user.avatar) || (data.data && data.data.avatar) || null;
+                    const sessionToken = data.sessionToken || data.token || data.session_token;
+                    
+                    // 构造与原UI一致的currentUser对象
+                    const userData = {
+                        id: userId ? String(userId) : '',
+                        nickname: nickname,
+                        avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
+                    };
+                    
+                    console.log('登录成功，构造的用户信息:', userData);
+                    console.log('登录成功，会话令牌:', sessionToken);
+                    
+                    // 保存到新的localStorage键（与原UI一致）
+                    localStorage.setItem('currentUser', JSON.stringify(userData));
+                    localStorage.setItem('currentSessionToken', sessionToken);
+                    
+                    // 同时保存到旧的localStorage键，确保兼容性（与原UI一致）
+                    localStorage.setItem('chatUserId', userData.id);
+                    localStorage.setItem('chatUserNickname', userData.nickname);
+                    localStorage.setItem('chatSessionToken', sessionToken);
+                    
+                    // 只有当头像URL有效时才设置到localStorage（与原UI一致）
+                    if (userData.avatarUrl && typeof userData.avatarUrl === 'string') {
+                        localStorage.setItem('chatUserAvatar', userData.avatarUrl.trim());
+                    } else {
+                        localStorage.removeItem('chatUserAvatar');
+                    }
+                    
+                    // 跳转到新的聊天室页面
+                    window.location.href = 'newindex.html';
+                } else {
+                    // 登录失败，显示错误信息
+                    const errorMessage = data.message || data.msg || '登录失败，请检查用户名和密码';
+                    console.log('登录失败:', errorMessage);
+                    showMessage(errorMessage, 'error');
+                }
+            } catch (error) {
+                console.error('登录请求失败:', error);
+                showMessage('登录请求失败，请稍后重试', 'error');
+            }
+        });
+        
+        // 显示消息函数
+        function showMessage(message, type) {
+            loginMessage.textContent = message;
+            loginMessage.style.display = 'block';
+            
+            if (type === 'error') {
+                loginMessage.style.color = '#d32f2f';
+                loginMessage.style.backgroundColor = '#ffebee';
+                loginMessage.style.borderColor = '#ffcdd2';
+            } else if (type === 'success') {
+                loginMessage.style.color = '#388e3c';
+                loginMessage.style.backgroundColor = '#e8f5e8';
+                loginMessage.style.borderColor = '#c8e6c9';
+            }
+        }
+    </script>
+</body>
+</html>
