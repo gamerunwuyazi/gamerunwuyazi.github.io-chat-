@@ -161,7 +161,12 @@
                 <div class="modal-body">
                     <div class="group-info-item">
                         <label>群组名称:</label>
-                        <span id="modalGroupNameValue"></span>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span id="modalGroupNameValue"></span>
+                            <button id="editGroupNameBtn" class="edit-group-name-btn" style="padding: 4px 8px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                                编辑
+                            </button>
+                        </div>
                     </div>
                     <div class="group-info-item">
                         <label>群组ID:</label>
@@ -170,6 +175,26 @@
                     <div class="group-info-item">
                         <label>成员数量:</label>
                         <span id="modalGroupMemberCount"></span>
+                    </div>
+                    <div class="group-info-item">
+                        <label>群主:</label>
+                        <span id="modalGroupOwner">加载中...</span>
+                    </div>
+                    
+                    <!-- 群组成员列表 -->
+                    <div class="group-members-section">
+                        <h3>群组成员</h3>
+                        <div id="groupMembersContainer" class="group-members-container">
+                            <div class="loading-members">正在加载成员列表...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 群主管理区域 -->
+                    <div id="groupManageSection" class="group-manage-section" style="display: none;">
+                        <h3>群组管理</h3>
+                        <div class="group-manage-buttons">
+                            <button id="refreshGroupMembers" class="save-btn">刷新成员列表</button>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -281,7 +306,6 @@
                         <h2 id="currentGroupName">群组名称</h2>
                         <div class="group-actions">
                             <button id="groupInfoButton">群组信息</button>
-                            <button id="groupMembersButton">群成员</button>
                             <button id="leaveGroupButton">退出群组</button>
                         </div>
                     </div>

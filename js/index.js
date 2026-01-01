@@ -671,6 +671,15 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         
+        // 监听群组名称更新事件
+        socket.on('group-name-updated', (data) => {
+            console.log('🔄 接收群组名称更新通知:', data);
+            // 只有登录状态才刷新群组列表
+            if (currentUser && currentSessionToken) {
+                loadGroupList();
+            }
+        });
+        
         // 保存socket实例
         window.chatSocket = socket;
         
@@ -2349,7 +2358,6 @@ document.addEventListener('DOMContentLoaded', function() {
     function addGroupButtonListeners() {
         // 直接获取按钮元素
         const groupInfoButton = document.getElementById('groupInfoButton');
-        const groupMembersButton = document.getElementById('groupMembersButton');
         const createGroupButton = document.getElementById('createGroupButton');
         const leaveGroupButton = document.getElementById('leaveGroupButton');
         
@@ -2426,14 +2434,17 @@ document.addEventListener('DOMContentLoaded', function() {
                                 const modalGroupOwner = document.getElementById('modalGroupOwner');
                                 const groupManageSection = document.getElementById('groupManageSection');
                                 
-                                modalGroupName.textContent = `${data.group.name} - 群组信息`;
-                                modalGroupNameValue.textContent = data.group.name;
+                                // 对群组名称进行反转义，避免二次转义
+                                const originalGroupName = unescapeHtml(data.group.name);
+                                
+                                modalGroupName.textContent = `${originalGroupName} - 群组信息`;
+                                modalGroupNameValue.textContent = originalGroupName;
                                 modalGroupIdValue.textContent = data.group.id;
                                 modalGroupMemberCount.textContent = Array.isArray(data.group.members) ? data.group.members.length : data.group.memberCount || data.group.count || data.group.userCount || data.group.groupCount || 0;
                                 
-                                // 显示群主信息
-                                const ownerId = data.group.ownerId || data.group.creatorId || data.group.adminId;
-                                const isOwner = currentUser.id === ownerId;
+                                // 显示群主信息（使用与原UI一致的creator_id）
+                                const ownerId = data.group.creator_id || data.group.ownerId || data.group.creatorId || data.group.adminId;
+                                const isOwner = currentUser.id === String(ownerId);
                                 
                                 if (modalGroupOwner) {
                                     modalGroupOwner.textContent = `群主ID: ${ownerId}`;
@@ -2448,7 +2459,104 @@ document.addEventListener('DOMContentLoaded', function() {
                                     }
                                 }
                                 
-                                modal.style.display = 'block';
+                                // 显示或隐藏群组名称编辑按钮
+                                const editGroupNameBtn = document.getElementById('editGroupNameBtn');
+                                if (editGroupNameBtn) {
+                                    if (isOwner) {
+                                        editGroupNameBtn.style.display = 'inline-block';
+                                        // 为编辑按钮添加点击事件
+                                        editGroupNameBtn.onclick = function() {
+                                            const modalGroupNameValue = document.getElementById('modalGroupNameValue');
+                                            const currentName = modalGroupNameValue.textContent;
+                                            
+                                            // 创建编辑输入框
+                                            const editInput = document.createElement('input');
+                                            editInput.type = 'text';
+                                            editInput.value = currentName;
+                                            editInput.className = 'edit-group-name-input';
+                                            editInput.style.padding = '6px';
+                                            editInput.style.border = '1px solid #dee2e6';
+                                            editInput.style.borderRadius = '4px';
+                                            editInput.style.fontSize = '14px';
+                                            
+                                            // 创建保存和取消按钮
+                                            const saveBtn = document.createElement('button');
+                                            saveBtn.textContent = '保存';
+                                            saveBtn.className = 'save-group-name-btn';
+                                            saveBtn.style.marginLeft = '5px';
+                                            saveBtn.style.padding = '6px 12px';
+                                            saveBtn.style.background = '#27ae60';
+                                            saveBtn.style.color = 'white';
+                                            saveBtn.style.border = 'none';
+                                            saveBtn.style.borderRadius = '4px';
+                                            saveBtn.style.cursor = 'pointer';
+                                            saveBtn.style.fontSize = '12px';
+                                            
+                                            const cancelBtn = document.createElement('button');
+                                            cancelBtn.textContent = '取消';
+                                            cancelBtn.className = 'cancel-group-name-btn';
+                                            cancelBtn.style.marginLeft = '5px';
+                                            cancelBtn.style.padding = '6px 12px';
+                                            cancelBtn.style.background = '#6c757d';
+                                            cancelBtn.style.color = 'white';
+                                            cancelBtn.style.border = 'none';
+                                            cancelBtn.style.borderRadius = '4px';
+                                            cancelBtn.style.cursor = 'pointer';
+                                            cancelBtn.style.fontSize = '12px';
+                                            
+                                            // 替换显示为编辑界面
+                                            const groupNameContainer = modalGroupNameValue.parentElement;
+                                            groupNameContainer.innerHTML = '';
+                                            groupNameContainer.appendChild(editInput);
+                                            groupNameContainer.appendChild(saveBtn);
+                                            groupNameContainer.appendChild(cancelBtn);
+                                            
+                                            // 聚焦到输入框
+                                            editInput.focus();
+                                            
+                                            // 保存按钮点击事件
+                                            saveBtn.onclick = function() {
+                                                const newGroupName = editInput.value.trim();
+                                                if (newGroupName && newGroupName !== currentName) {
+                                                    // 更新群组名称
+                                                    updateGroupName(currentGroupId, newGroupName);
+                                                }
+                                            };
+                                            
+                                            // 取消按钮点击事件
+                                            cancelBtn.onclick = function() {
+                                                // 恢复显示
+                                                groupNameContainer.innerHTML = `
+                                                    <span id="modalGroupNameValue">${currentName}</span>
+                                                    <button id="editGroupNameBtn" class="edit-group-name-btn" style="padding: 4px 8px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                                                        编辑
+                                                    </button>
+                                                `;
+                                                // 重新绑定编辑按钮事件
+                                                const newEditBtn = groupNameContainer.querySelector('#editGroupNameBtn');
+                                                if (newEditBtn) {
+                                                    newEditBtn.onclick = editGroupNameBtn.onclick;
+                                                }
+                                            };
+                                        };
+                                    } else {
+                                        editGroupNameBtn.style.display = 'none';
+                                    }
+                                }
+                                
+                                // 显示模态框
+                                modal.style.display = 'flex';
+                                
+                                // 加载群组成员列表
+                                loadGroupMembers(currentGroupId, isOwner);
+                                
+                                // 添加刷新成员列表按钮事件
+                                const refreshGroupMembersBtn = document.getElementById('refreshGroupMembers');
+                                if (refreshGroupMembersBtn) {
+                                    refreshGroupMembersBtn.onclick = function() {
+                                        loadGroupMembers(currentGroupId, isOwner);
+                                    };
+                                }
                             } else {
                                 alert('获取群组信息失败: ' + (data.message || '未知错误'));
                             }
@@ -2459,21 +2567,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                 }
         
-        // 群组成员按钮点击事件
-        if (groupMembersButton) {
+
+        
+        // 退出/解散群组按钮点击事件
+        if (leaveGroupButton) {
             // 移除所有现有的点击事件监听器
-            const newGroupMembersButton = groupMembersButton.cloneNode(true);
-            groupMembersButton.parentNode.replaceChild(newGroupMembersButton, groupMembersButton);
+            const newLeaveGroupButton = leaveGroupButton.cloneNode(true);
+            leaveGroupButton.parentNode.replaceChild(newLeaveGroupButton, leaveGroupButton);
             
-            // 为新按钮添加点击事件
-            newGroupMembersButton.addEventListener('click', function() {
-                if (!currentGroupId) {
-                    alert('请先选择一个群组');
-                    return;
-                }
-                
-                // 使用fetch API获取群组成员
-                fetch(`${SERVER_URL}/group-members/${currentGroupId}`, {
+            // 检查用户是否是群主
+            let isOwner = false;
+            if (currentGroupId) {
+                fetch(`${SERVER_URL}/group-info/${currentGroupId}`, {
                     headers: {
                         'user-id': currentUser.id,
                         'session-token': currentSessionToken
@@ -2482,24 +2587,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        // 显示群组成员
-                        const membersList = data.members.map(member => `${member.nickname} (ID: ${member.id})`).join('\n');
-                        alert(`群组成员:\n${membersList}`);
-                    } else {
-                        alert('获取群组成员失败: ' + (data.message || '未知错误'));
+                        const ownerId = data.group.creator_id || data.group.ownerId || data.group.creatorId || data.group.adminId;
+                        isOwner = currentUser.id === String(ownerId);
+                        
+                        // 根据是否是群主修改按钮文本
+                        if (isOwner) {
+                            newLeaveGroupButton.textContent = '解散群组';
+                        } else {
+                            newLeaveGroupButton.textContent = '退出群组';
+                        }
                     }
                 })
                 .catch(error => {
-                    alert('获取群组成员失败，网络错误');
+                    console.error('获取群组信息失败:', error);
                 });
-            });
-        }
-        
-        // 退出群组按钮点击事件
-        if (leaveGroupButton) {
-            // 移除所有现有的点击事件监听器
-            const newLeaveGroupButton = leaveGroupButton.cloneNode(true);
-            leaveGroupButton.parentNode.replaceChild(newLeaveGroupButton, leaveGroupButton);
+            }
             
             // 为新按钮添加点击事件
             newLeaveGroupButton.addEventListener('click', function() {
@@ -2508,54 +2610,357 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
                 
-                if (confirm('确定要退出该群组吗？')) {
-                    // 使用fetch API退出群组
-                    fetch(`${SERVER_URL}/leave-group`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'user-id': currentUser.id,
-                            'session-token': currentSessionToken
-                        },
-                        body: JSON.stringify({
-                            groupId: currentGroupId
-                        })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.status === 'success') {
-                            alert('已成功退出群组');
-                            // 重新加载群组列表
-                            loadGroupList();
-                            
-                            // 清空当前群组信息
-                            currentGroupId = null;
-                            currentGroupName = '';
-                            
-                            // 显示群组选择界面
-                            const groupEmptyState = document.getElementById('groupEmptyState');
-                            const groupChatInterface = document.getElementById('groupChatInterface');
-                            const currentGroupNameElement = document.getElementById('currentGroupName');
-                            
-                            if (groupEmptyState) {
-                                groupEmptyState.style.display = 'flex';
-                            }
-                            if (groupChatInterface) {
-                                groupChatInterface.style.display = 'none';
-                            }
-                            if (currentGroupNameElement) {
-                                currentGroupNameElement.textContent = '群组名称';
+                // 检查用户是否是群主
+                fetch(`${SERVER_URL}/group-info/${currentGroupId}`, {
+                    headers: {
+                        'user-id': currentUser.id,
+                        'session-token': currentSessionToken
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        const ownerId = data.group.creator_id || data.group.ownerId || data.group.creatorId || data.group.adminId;
+                        const isOwner = currentUser.id === String(ownerId);
+                        
+                        if (isOwner) {
+                            // 群主：解散群组
+                            if (confirm('确定要解散该群组吗？此操作不可恢复，所有群消息将被删除。')) {
+                                dissolveGroup(currentGroupId);
                             }
                         } else {
-                            alert('退出群组失败: ' + (data.message || '未知错误'));
+                            // 非群主：退出群组
+                            if (confirm('确定要退出该群组吗？')) {
+                                // 使用fetch API退出群组
+                                fetch(`${SERVER_URL}/leave-group`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'user-id': currentUser.id,
+                                        'session-token': currentSessionToken
+                                    },
+                                    body: JSON.stringify({
+                                        groupId: currentGroupId
+                                    })
+                                })
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.status === 'success') {
+                                        alert('已成功退出群组');
+                                        // 重新加载群组列表
+                                        loadGroupList();
+                                        
+                                        // 清空当前群组信息
+                                        currentGroupId = null;
+                                        currentGroupName = '';
+                                        
+                                        // 显示群组选择界面
+                                        const groupEmptyState = document.getElementById('groupEmptyState');
+                                        const groupChatInterface = document.getElementById('groupChatInterface');
+                                        const currentGroupNameElement = document.getElementById('currentGroupName');
+                                        
+                                        if (groupEmptyState) {
+                                            groupEmptyState.style.display = 'flex';
+                                        }
+                                        if (groupChatInterface) {
+                                            groupChatInterface.style.display = 'none';
+                                        }
+                                        if (currentGroupNameElement) {
+                                            currentGroupNameElement.textContent = '群组名称';
+                                        }
+                                    } else {
+                                        alert('退出群组失败: ' + (data.message || '未知错误'));
+                                    }
+                                })
+                                .catch(error => {
+                                    alert('退出群组失败，网络错误');
+                                });
+                            }
                         }
-                    })
-                    .catch(error => {
-                        alert('退出群组失败，网络错误');
-                    });
-                }
+                    }
+                })
+                .catch(error => {
+                    alert('获取群组信息失败，网络错误');
+                });
             });
         }
+    }
+    
+    // 加载群组成员列表
+    function loadGroupMembers(groupId, isOwner) {
+        console.log(`📋 [群组成员] 开始加载群组成员列表，群组ID: ${groupId}，是否为群主: ${isOwner}`);
+        
+        const groupMembersContainer = document.getElementById('groupMembersContainer');
+        if (!groupMembersContainer) {
+            console.error('❌ [群组成员] 未找到群组成员容器');
+            return;
+        }
+        
+        groupMembersContainer.innerHTML = '<div class="loading-members">正在加载成员列表...</div>';
+        
+        console.log(`🔄 [群组成员] 发送请求获取群组成员列表，群组ID: ${groupId}`);
+        fetch(`${SERVER_URL}/group-members/${groupId}`, {
+            headers: {
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log(`✅ [群组成员] 收到群组成员列表响应，状态: ${data.status}，数据:`, data);
+            
+            if (data.status === 'success') {
+                console.log(`📊 [群组成员] 成功获取群组成员列表，共 ${data.members.length} 个成员`);
+                updateGroupMembersList(data.members, isOwner, groupId);
+            } else {
+                const errorMsg = data.message || '未知错误';
+                console.error(`❌ [群组成员] 加载群组成员列表失败: ${errorMsg}`);
+                groupMembersContainer.innerHTML = `<div class="loading-members">加载成员列表失败: ${errorMsg}</div>`;
+            }
+        })
+        .catch(error => {
+            console.error('❌ [群组成员] 网络错误加载群组成员列表:', error);
+            groupMembersContainer.innerHTML = '<div class="loading-members">加载成员列表失败，网络错误</div>';
+        });
+    }
+    
+    // 更新群组成员列表显示
+    function updateGroupMembersList(members, isOwner, groupId) {
+        console.log(`📋 [群组成员] 开始更新群组成员列表，群组ID: ${groupId}，是否为群主: ${isOwner}，成员数量: ${members ? members.length : 0}`);
+        
+        const groupMembersContainer = document.getElementById('groupMembersContainer');
+        if (!groupMembersContainer) {
+            console.error('❌ [群组成员] 未找到群组成员容器');
+            return;
+        }
+        
+        if (!members || !Array.isArray(members) || members.length === 0) {
+            console.log(`📊 [群组成员] 群组成员列表为空，群组ID: ${groupId}`);
+            groupMembersContainer.innerHTML = '<div class="loading-members">没有可用的成员</div>';
+            return;
+        }
+        
+        console.log(`📊 [群组成员] 开始渲染 ${members.length} 个成员，群组ID: ${groupId}`);
+        let membersHtml = '';
+        members.forEach((member, index) => {
+            // 检查是否是群主
+            const isMemberOwner = String(member.id) === String(currentUser.id);
+            
+            console.log(`👤 [群组成员] 处理成员 ${index + 1}/${members.length}: ID=${member.id}, 昵称=${member.nickname}, 是当前用户: ${isMemberOwner}`);
+            
+            membersHtml += `
+                <div class="group-member-item">
+                    <div class="group-member-info">
+                        <span class="group-member-name">${member.nickname}</span>
+                        <span class="group-member-id">ID: ${member.id}</span>
+                        ${isMemberOwner ? '<span class="group-member-role">（我）</span>' : ''}
+                    </div>
+                    ${isOwner && !isMemberOwner ? `
+                        <button class="kick-member-btn" data-group-id="${groupId}" data-member-id="${member.id}" data-member-name="${member.nickname}">
+                            踢出
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+        });
+        
+        console.log(`✅ [群组成员] 成员列表HTML生成完成，共 ${members.length} 个成员`);
+        groupMembersContainer.innerHTML = membersHtml;
+        
+        // 添加踢出成员按钮事件
+        if (isOwner) {
+            const kickButtons = groupMembersContainer.querySelectorAll('.kick-member-btn');
+            console.log(`🔧 [群组成员] 添加 ${kickButtons.length} 个踢出成员按钮事件`);
+            
+            kickButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const groupId = this.getAttribute('data-group-id');
+                    const memberId = this.getAttribute('data-member-id');
+                    const memberName = this.getAttribute('data-member-name');
+                    
+                    console.log(`🚫 [群组成员] 点击踢出按钮，群组ID: ${groupId}，成员ID: ${memberId}，成员昵称: ${memberName}`);
+                    removeMemberFromGroup(groupId, memberId, memberName);
+                });
+            });
+        }
+        
+        console.log(`✅ [群组成员] 群组成员列表更新完成，群组ID: ${groupId}`);
+    }
+    
+    // 踢出成员函数
+    function removeMemberFromGroup(groupId, memberId, memberName) {
+        if (!confirm(`确定要踢出成员 ${memberName} 吗？`)) return;
+        if (!currentUser || !currentSessionToken) {
+            alert('请先登录');
+            return;
+        }
+        
+        fetch(`${SERVER_URL}/remove-group-member`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
+            },
+            body: JSON.stringify({
+                groupId: groupId,
+                memberId: memberId
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert(`已成功踢出成员 ${memberName}`);
+                // 重新加载群组成员列表
+                loadGroupMembers(groupId, true);
+            } else {
+                alert('踢出成员失败: ' + (data.message || '未知错误'));
+            }
+        })
+        .catch(error => {
+            alert('踢出成员失败，网络错误');
+        });
+    }
+    
+    // 更新群组名称
+    function updateGroupName(groupId, newGroupName) {
+        if (!currentUser || !currentSessionToken) {
+            alert('请先登录');
+            return;
+        }
+        
+        fetch(`${SERVER_URL}/update-group-name`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
+            },
+            body: JSON.stringify({
+                groupId: groupId,
+                newGroupName: newGroupName
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 对服务器返回的新群组名称进行反转义，避免二次转义
+                const unescapedGroupName = unescapeHtml(data.newGroupName);
+                
+                // 更新本地群组名称
+                currentGroupName = unescapedGroupName;
+                
+                // 更新界面上的群组名称
+                const currentGroupNameElement = document.getElementById('currentGroupName');
+                if (currentGroupNameElement) {
+                    currentGroupNameElement.textContent = unescapedGroupName;
+                }
+                
+                // 更新群组列表中的名称
+                updateGroupNameInList(groupId, unescapedGroupName);
+                
+                alert('群组名称已成功更新');
+                
+                // 关闭管理模态框
+                const manageGroupModal = document.getElementById('manageGroupModal');
+                if (manageGroupModal) {
+                    manageGroupModal.style.display = 'none';
+                }
+            } else {
+                alert('修改群组名称失败: ' + (data.message || '未知错误'));
+            }
+        })
+        .catch(error => {
+            alert('修改群组名称失败，网络错误');
+        });
+    }
+    
+    // 更新群组列表中的群组名称
+    function updateGroupNameInList(groupId, newGroupName) {
+        const groupList = document.getElementById('groupList');
+        if (!groupList) return;
+        
+        const groupItems = groupList.querySelectorAll(`li[data-group-id="${groupId}"]`);
+        groupItems.forEach(item => {
+            const groupNameEl = item.querySelector('.group-name');
+            if (groupNameEl) {
+                groupNameEl.textContent = newGroupName;
+            }
+        });
+    }
+    
+    // 解散群组
+    function dissolveGroup(groupId) {
+        if (!currentUser || !currentSessionToken) {
+            alert('请先登录');
+            return;
+        }
+        
+        if (!confirm('确定要解散本群组吗？此操作不可恢复，所有群消息将被删除。')) {
+            return;
+        }
+        
+        fetch(`${SERVER_URL}/dissolve-group`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
+            },
+            body: JSON.stringify({
+                userId: currentUser.id,
+                groupId: groupId
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert('群组已成功解散，所有群消息已删除');
+                
+                // 返回主聊天界面
+                backToMainChat();
+                
+                // 重新加载群组列表
+                loadGroupList();
+            } else {
+                alert('解散群组失败: ' + (data.message || '未知错误'));
+            }
+        })
+        .catch(error => {
+            alert('解散群组失败，网络错误');
+        });
+    }
+    
+    // 返回主聊天界面
+    function backToMainChat() {
+        // 显示主聊天界面
+        const publicChatContent = document.querySelector('.chat-content[data-content="public-chat"]');
+        const groupChatInterface = document.getElementById('groupChatInterface');
+        const groupEmptyState = document.getElementById('groupEmptyState');
+        const currentGroupNameElement = document.getElementById('currentGroupName');
+        
+        if (publicChatContent) {
+            publicChatContent.classList.add('active');
+        }
+        
+        if (groupChatInterface) {
+            groupChatInterface.style.display = 'none';
+        }
+        
+        if (groupEmptyState) {
+            groupEmptyState.style.display = 'flex';
+        }
+        
+        if (currentGroupNameElement) {
+            currentGroupNameElement.textContent = '群组名称';
+        }
+        
+        // 清空当前群组信息
+        currentGroupId = null;
+        currentGroupName = '';
+        
+        // 设置当前活动聊天室为主聊天
+        setActiveChat('main');
     }
     
     // 初始化群组信息和成员按钮事件
@@ -2762,14 +3167,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // 处理页面可见性变化
     function handlePageVisibilityChange() {
         isPageVisible = !document.hidden;
-        console.log(`👁️  页面可见性变化: ${isPageVisible ? '可见' : '不可见'}`);
+        // console.log(`👁️  页面可见性变化: ${isPageVisible ? '可见' : '不可见'}`);
         
         // 页面从不可见变为可见时，清除当前活动聊天室的未读计数
         if (isPageVisible) {
             if (currentActiveChat === 'main') {
                 // 清除主聊天室未读计数
                 if (unreadMessages.global > 0) {
-                    console.log(`🔔 主聊天室获得焦点，清除未读消息计数: ${unreadMessages.global}`);
+                    // console.log(`🔔 主聊天室获得焦点，清除未读消息计数: ${unreadMessages.global}`);
                     unreadMessages.global = 0;
                     updateTitleWithUnreadCount();
                 }
@@ -3056,6 +3461,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     const targetChatContent = document.querySelector(`.chat-content[data-content="${targetSection}"]`);
                     if (targetChatContent) {
                         targetChatContent.classList.add('active');
+                        
+                        // 当切换到主聊天室时，更新当前活动聊天室并清除未读计数
+                        if (targetSection === 'public-chat') {
+                            setActiveChat('main');
+                        }
                     }
                 });
             });
@@ -3109,6 +3519,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 currentGroupNameElement.textContent = groupName;
                 currentGroupId = groupId;
                 currentGroupName = groupName;
+                
+                // 更新当前活动聊天室并清除未读计数
+                setActiveChat('group', groupId);
                 
                 // TODO: 加载群组聊天记录
             });

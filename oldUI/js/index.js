@@ -2074,7 +2074,9 @@ document.addEventListener('DOMContentLoaded', function() {
             groupChat.style.transform = 'translateX(0)';
         }, 300);
         
-        safeSetTextContent(groupTitle, groupName);
+        // 修复群组名称二次转义问题 - 对已经转义过的名称进行反转义
+        const unescapedGroupName = unescapeHtml(groupName);
+        safeSetTextContent(groupTitle, unescapedGroupName);
         
         // 清除该群组未读消息计数
         const currentUnreadCount = unreadMessages.groups[groupId] || 0;
