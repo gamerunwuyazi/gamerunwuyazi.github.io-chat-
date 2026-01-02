@@ -3228,6 +3228,9 @@ document.addEventListener('DOMContentLoaded', function() {
         timeout: 20000,
         autoConnect: true
     });
+    
+    // 在线用户列表定时请求定时器
+    let onlineUsersTimer = null;
 
     // 检查IP封禁和用户存在性函数
     function checkUserAndIPStatus(callback) {
@@ -3248,11 +3251,10 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(data => {
             console.log('✅ IP和用户状态检查结果:', data);
             
-            // 检查IP是否被封禁
-            if (data.ipBanned) {
+            // 检查IP是否被封禁，根据后端返回的isBanned字段判断
+            if (data.isBanned) {
                 console.log('🚫 IP已被封禁');
-                const message = `您的IP已被封禁，原因: ${data.banReason || '未知'}。` +
-                              (data.banExpiry ? ` 解封时间: ${new Date(data.banExpiry).toLocaleString()}` : '');
+                const message = `您的IP已被封禁，${data.message || '无法访问'}`;
                 alert(message);
                 logout();
                 callback(false);
@@ -3317,6 +3319,15 @@ document.addEventListener('DOMContentLoaded', function() {
                             limit: 20
                         });
                     }
+                    
+                    // 启动定时请求在线用户列表（每30秒一次），用于及时获取IP封禁消息
+                    if (!onlineUsersTimer) {
+                        onlineUsersTimer = setInterval(() => {
+                            if (isConnected && currentUser && currentSessionToken) {
+                                socket.emit('get-online-users');
+                            }
+                        }, 30000); // 30秒
+                    }
                 }
             });
         }
@@ -3356,12 +3367,32 @@ document.addEventListener('DOMContentLoaded', function() {
                             limit: 200
                         });
                     }
+                    
+                    // 确保定时请求在线用户列表的定时器已启动
+                    if (!onlineUsersTimer) {
+                        onlineUsersTimer = setInterval(() => {
+                            if (isConnected && currentUser && currentSessionToken) {
+                                socket.emit('get-online-users');
+                            }
+                        }, 30000); // 30秒
+                    }
                 }
             });
         }
 
         // 重新启动自动刷新
         startAutoRefresh();
+    });
+    
+    // 断开连接事件
+    socket.on('disconnect', () => {
+        isConnected = false;
+        updateConnectionStatus('disconnected', '已断开连接');
+        // 清除在线用户列表定时请求定时器
+        if (onlineUsersTimer) {
+            clearInterval(onlineUsersTimer);
+            onlineUsersTimer = null;
+        }
     });
 
     // 监听群组创建事件 - 实时更新群组列表
@@ -3987,6 +4018,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     socket.on('session-expired', () => {
         alert('会话已过期，请重新登录');
+        logout();
+    });
+
+    // 监听账号被封禁通知
+    socket.on('account-banned', (data) => {
+        const message = `您的IP已被封禁，${data.message || '无法访问'}`;
+        alert(message);
         logout();
     });
 
