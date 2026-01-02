@@ -366,6 +366,7 @@ body {
     background: transparent;
     resize: none;
     font-size: 14px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     line-height: 1.5;
     color: #495057;
     outline: none;
@@ -1456,7 +1457,7 @@ body {
     box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
 }
 
-#messageInput {
+#messageInput, #groupMessageInput, .editable-div {
     width: 100%;
     min-height: 60px;
     max-height: 200px;
@@ -1464,10 +1465,70 @@ body {
     background: transparent;
     resize: none;
     font-size: 14px;
+    font-weight: 500;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     line-height: 1.5;
     color: #495057;
     outline: none;
     box-sizing: border-box;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* 可编辑div的placeholder样式 - 使用更高优先级的选择器 */
+#messageInput[placeholder]:empty:before, 
+#groupMessageInput[placeholder]:empty:before {
+    content: attr(placeholder);
+    color: #95a5a6 !important;
+    pointer-events: none !important;
+    display: inline-block !important;
+    font-style: normal !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    line-height: 1.5 !important;
+}
+
+/* 确保placeholder在聚焦时也能显示 */
+#messageInput[placeholder]:empty:focus:before, 
+#groupMessageInput[placeholder]:empty:focus:before {
+    content: attr(placeholder);
+    color: #95a5a6 !important;
+    pointer-events: none !important;
+    display: inline-block !important;
+}
+
+/* 重置可能影响空元素判断的样式 */
+#messageInput, #groupMessageInput {
+    min-height: 60px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    overflow: hidden;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* 确保输入框真正为空，移除所有空白字符 */
+#messageInput:empty, #groupMessageInput:empty {
+    content: '';
+}
+
+/* 确保聚焦时的样式一致 */
+.editable-div:focus {
+    outline: none;
+}
+
+/* 确保div的行为与textarea类似 */
+.editable-div {
+    padding: 0;
+    margin: 0;
+    display: block;
+    font: inherit;
+    text-align: left;
+    word-break: break-word;
 }
 
 #messageInput::placeholder {

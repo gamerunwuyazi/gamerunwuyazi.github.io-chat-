@@ -667,14 +667,14 @@ document.addEventListener('DOMContentLoaded', function() {
         socket.on('message', (data) => {
             // 检查是否是会话过期消息
             if (Array.isArray(data) && data[0] === 'session-expired') {
-                alert('会话已过期，请重新登录');
+                alert('网站已更新，请重新登录');
                 logout();
             }
         });
         
         // 会话过期事件
         socket.on('session-expired', () => {
-            alert('会话已过期，请重新登录');
+            alert('网站已更新，请重新登录');
             logout();
         });
         
@@ -2051,7 +2051,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 按Enter发送消息
                 if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
                     // 确保输入框已启用
-                    if (!messageInput.disabled) {
+                    if (messageInput.contentEditable === 'true') {
                         e.preventDefault(); // 阻止默认换行
                         sendMessage();
                     }
@@ -2059,12 +2059,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Ctrl+Enter插入换行（原UI逻辑）
                 else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
                     e.preventDefault();
-                    const start = messageInput.selectionStart;
-                    const end = messageInput.selectionEnd;
-                    const value = messageInput.value;
-                    messageInput.value = value.substring(0, start) + '\n' + value.substring(end);
-                    // 设置光标位置到换行符后
-                    messageInput.selectionStart = messageInput.selectionEnd = start + 1;
+                    // 使用selection API处理div输入框的光标位置和文本插入
+                    const selection = window.getSelection();
+                    const range = selection.getRangeAt(0);
+                    
+                    // 插入换行符
+                    const br = document.createElement('br');
+                    range.deleteContents();
+                    range.insertNode(br);
+                    
+                    // 将光标移动到换行符后面
+                    range.setStartAfter(br);
+                    range.setEndAfter(br);
+                    selection.removeAllRanges();
+                    selection.addRange(range);
                 }
                 // Shift+Enter也允许换行
                 else if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey) {
@@ -2101,17 +2109,34 @@ document.addEventListener('DOMContentLoaded', function() {
                     const suffix = this.getAttribute('data-suffix') || '';
                     const sample = this.getAttribute('data-sample') || '示例文本';
                     
-                    // 插入Markdown语法
-                    const cursorPos = messageInput.selectionStart;
-                    const textBefore = messageInput.value.substring(0, cursorPos);
-                    const textAfter = messageInput.value.substring(messageInput.selectionEnd);
+                    // 使用Selection API处理div输入框的文本插入和光标定位
+                    const selection = window.getSelection();
+                    const range = selection.getRangeAt(0);
                     
-                    messageInput.value = textBefore + prefix + sample + suffix + textAfter;
+                    // 获取当前选中文本
+                    const selectedText = range.toString();
+                    
+                    // 创建包含新文本的文档片段
+                    const newText = prefix + (selectedText || sample) + suffix;
+                    const textNode = document.createTextNode(newText);
+                    
+                    // 删除当前选区并插入新文本
+                    range.deleteContents();
+                    range.insertNode(textNode);
+                    
+                    // 设置新的光标位置
+                    const newCursorStart = prefix.length;
+                    const newCursorEnd = (selectedText ? prefix.length + selectedText.length : prefix.length + sample.length);
+                    
+                    range.setStart(textNode, newCursorStart);
+                    range.setEnd(textNode, newCursorEnd);
+                    
+                    // 更新选区
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                    
+                    // 确保输入框获得焦点
                     messageInput.focus();
-                    messageInput.setSelectionRange(
-                        cursorPos + prefix.length,
-                        cursorPos + prefix.length + sample.length
-                    );
                 });
             });
         }
@@ -2147,17 +2172,34 @@ document.addEventListener('DOMContentLoaded', function() {
                     const suffix = this.getAttribute('data-suffix') || '';
                     const sample = this.getAttribute('data-sample') || '示例文本';
                     
-                    // 插入Markdown语法
-                    const cursorPos = groupMessageInput.selectionStart;
-                    const textBefore = groupMessageInput.value.substring(0, cursorPos);
-                    const textAfter = groupMessageInput.value.substring(groupMessageInput.selectionEnd);
+                    // 使用Selection API处理div输入框的文本插入和光标定位
+                    const selection = window.getSelection();
+                    const range = selection.getRangeAt(0);
                     
-                    groupMessageInput.value = textBefore + prefix + sample + suffix + textAfter;
+                    // 获取当前选中文本
+                    const selectedText = range.toString();
+                    
+                    // 创建包含新文本的文档片段
+                    const newText = prefix + (selectedText || sample) + suffix;
+                    const textNode = document.createTextNode(newText);
+                    
+                    // 删除当前选区并插入新文本
+                    range.deleteContents();
+                    range.insertNode(textNode);
+                    
+                    // 设置新的光标位置
+                    const newCursorStart = prefix.length;
+                    const newCursorEnd = (selectedText ? prefix.length + selectedText.length : prefix.length + sample.length);
+                    
+                    range.setStart(textNode, newCursorStart);
+                    range.setEnd(textNode, newCursorEnd);
+                    
+                    // 更新选区
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                    
+                    // 确保输入框获得焦点
                     groupMessageInput.focus();
-                    groupMessageInput.setSelectionRange(
-                        cursorPos + prefix.length,
-                        cursorPos + prefix.length + sample.length
-                    );
                 });
             });
         }
@@ -2190,7 +2232,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         function sendMessage() {
             const messageInput = document.getElementById('messageInput');
-            const content = messageInput.value.trim();
+            // 移除可能的空标签，获取纯文本内容
+            const content = messageInput.textContent.trim() || messageInput.innerHTML.trim();
             
             if (content && isConnected && window.chatSocket) {
                 // 使用Socket.io发送消息，确保格式正确
@@ -2203,7 +2246,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 window.chatSocket.emit('send-message', messageData);
                 
                 // 清空输入框
-                messageInput.value = '';
+                messageInput.innerHTML = '';
             }
         }
         
@@ -2329,7 +2372,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 按Enter发送消息
                 if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
                     // 确保输入框已启用
-                    if (!groupMessageInput.disabled) {
+                    if (groupMessageInput.contentEditable === 'true') {
                         e.preventDefault(); // 阻止默认换行
                         sendGroupMessage();
                     }
@@ -2337,12 +2380,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Ctrl+Enter插入换行（原UI逻辑）
                 else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
                     e.preventDefault();
-                    const start = groupMessageInput.selectionStart;
-                    const end = groupMessageInput.selectionEnd;
-                    const value = groupMessageInput.value;
-                    groupMessageInput.value = value.substring(0, start) + '\n' + value.substring(end);
-                    // 设置光标位置到换行符后
-                    groupMessageInput.selectionStart = groupMessageInput.selectionEnd = start + 1;
+                    // 使用selection API处理div输入框的光标位置和文本插入
+                    const selection = window.getSelection();
+                    const range = selection.getRangeAt(0);
+                    
+                    // 插入换行符
+                    const br = document.createElement('br');
+                    range.deleteContents();
+                    range.insertNode(br);
+                    
+                    // 将光标移动到换行符后面
+                    range.setStartAfter(br);
+                    range.setEndAfter(br);
+                    selection.removeAllRanges();
+                    selection.addRange(range);
                 }
                 // Shift+Enter也允许换行
                 else if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey) {
@@ -2357,7 +2408,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             const groupMessageInput = document.getElementById('groupMessageInput');
-            const content = groupMessageInput.value.trim();
+            // 移除可能的空标签，获取纯文本内容
+            const content = groupMessageInput.textContent.trim() || groupMessageInput.innerHTML.trim();
             
             if (content && isConnected && window.chatSocket) {
                 // 使用Socket.io发送群组消息，与原UI保持一致，使用send-message事件并包含groupId参数
@@ -2370,7 +2422,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 window.chatSocket.emit('send-message', messageData);
                 
                 // 清空输入框
-                groupMessageInput.value = '';
+                groupMessageInput.innerHTML = '';
             }
         }
     }

@@ -733,14 +733,17 @@ document.addEventListener('DOMContentLoaded', function() {
             const firstChar = user.nickname && user.nickname.length > 0 ? user.nickname.charAt(0).toUpperCase() : 'U';
             let avatarHtml = '';
             
-            if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
+            // 检查头像URL是否为SVG格式，如果是则使用默认头像，防止SVG XSS攻击
+            const isSvgAvatar = avatarUrl && typeof avatarUrl === 'string' && /\.svg$/i.test(avatarUrl.trim());
+            
+            if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '' && !isSvgAvatar) {
                 // 创建包含默认头像的容器，后续通过JavaScript预加载并替换
                 avatarHtml = `<div class="avatar-container" style="position: relative; display: inline-block; width: 16px; height: 16px; margin-right: 5px;">` +
                               `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; font-size: 10px; vertical-align: middle;">${escapeHtml(firstChar)}</span>` +
                               `<img class="user-avatar" style="position: absolute; top: 0; left: 0; width: 16px; height: 16px; border-radius: 50%; opacity: 0; transition: opacity 0.3s ease;">` +
                               `</div>`;
             } else {
-                // 只有默认头像
+                // 只有默认头像（包括SVG头像的情况）
                 avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px; vertical-align: middle;">${escapeHtml(firstChar)}</span>`;
             }
 
@@ -861,8 +864,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const avatarUrl = user.avatarUrl || user.avatar_url || null;
             const firstChar = user.nickname && user.nickname.length > 0 ? user.nickname.charAt(0).toUpperCase() : 'U';
 
+            // 检查头像URL是否为SVG格式，如果是则使用默认头像，防止SVG XSS攻击
+            const isSvgAvatar = avatarUrl && typeof avatarUrl === 'string' && /\.svg$/i.test(avatarUrl.trim());
+
             // 增强的头像URL检查逻辑
-            if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
+            if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '' && !isSvgAvatar) {
                 // 确保URL格式正确，避免使用undefined或空字符串
                 const fullAvatarUrl = `${SERVER_URL}${avatarUrl.trim()}`;
                 // 创建包含默认头像和正式头像的容器，确保两者位置完全重合
@@ -871,7 +877,7 @@ document.addEventListener('DOMContentLoaded', function() {
                               `<img class="user-avatar" style="position: absolute; top: 0; left: 0; width: 16px; height: 16px; border-radius: 50%; opacity: 0; transition: opacity 0.3s ease;">` +
                               `</div>`;
             } else {
-                // 使用默认头像图标
+                // 使用默认头像图标（包括SVG头像的情况）
                 avatarHtml = `<span class="default-avatar" style="display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background-color: #ecf0f1; border-radius: 50%; margin-right: 5px; font-size: 10px; vertical-align: middle;">${firstChar}</span>`;
             }
 
