@@ -42,17 +42,27 @@
             
             <div class="modal-form active" id="loginForm">
                 <h3>登录聊天室</h3>
-                <input type="text" id="loginUsername" placeholder="用户名" required>
-                <input type="password" id="loginPassword" placeholder="密码" required>
+                <input type="text" id="loginUsername" placeholder="用户名" required style="padding: 10px; font-size: 16px;">
+                <input type="password" id="loginPassword" placeholder="密码" required style="padding: 10px; font-size: 16px;">
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="loginCaptcha" placeholder="请输入验证码" required style="padding: 10px; font-size: 16px;width: 120px;">
+                    <div id="loginCaptchaContainer"></div>
+                    <button type="button" id="refreshLoginCaptcha" style="background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">刷新</button>
+                </div>
                 <button id="loginButton">登录</button>
                 <div id="loginMessage" style="color: red; margin-top: 10px; display: none;"></div>
             </div>
             
             <div class="modal-form" id="registerForm">
                 <h3>注册新账户</h3>
-                <input type="text" id="registerUsername" placeholder="用户名" required>
-                <input type="password" id="registerPassword" placeholder="密码" required>
-                <input type="text" id="registerNickname" placeholder="昵称" required>
+                <input type="text" id="registerUsername" placeholder="用户名" required style="padding: 10px; font-size: 16px;">
+                <input type="password" id="registerPassword" placeholder="密码" required style="padding: 10px; font-size: 16px;">
+                <input type="text" id="registerNickname" placeholder="昵称" required style="padding: 10px; font-size: 16px;">
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="registerCaptcha" placeholder="请输入验证码" required style="padding: 10px; font-size: 16px;width: 120px;">
+                    <div id="registerCaptchaContainer"></div>
+                    <button type="button" id="refreshRegisterCaptcha" style="background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">刷新</button>
+                </div>
                 <button id="registerButton">注册</button>
                 <div id="registerMessage" style="color: red; margin-top: 10px; display: none;"></div>
             </div>

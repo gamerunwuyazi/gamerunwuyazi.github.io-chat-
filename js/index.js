@@ -2253,7 +2253,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // 上传图片
         function uploadImage(file) {
             const formData = new FormData();
-            formData.append('image', file);
+            formData.append('image', file); // 保持与原UI一致，使用'image'字段名
+            formData.append('userId', currentUser.id);
+            
+            if (currentGroupId) {
+                formData.append('groupId', currentGroupId);
+            }
             
             // 显示上传进度
             const uploadProgress = document.getElementById('uploadProgress');
@@ -2264,7 +2269,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // 发送图片上传请求
-            fetch(`${SERVER_URL}/upload-image`, {
+            fetch(`${SERVER_URL}/upload`, {
                 method: 'POST',
                 headers: {
                     'user-id': currentUser.id,
@@ -2274,17 +2279,9 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(response => response.json())
             .then(data => {
-                if (data.success) {
-                    // 图片上传成功，发送图片消息，确保格式正确
-                    if (isConnected && window.chatSocket) {
-                        const messageData = {
-                            content: `![${file.name}](${data.imageUrl})`,
-                            groupId: null, // 公共聊天时groupId为null
-                            sessionToken: currentSessionToken,
-                            userId: currentUser.id
-                        };
-                        window.chatSocket.emit('send-message', messageData);
-                    }
+                if (data.status === 'success') {
+                    // 上传成功，只依赖服务器的Socket.IO广播，避免显示重复消息
+                    console.log('图片上传成功', data);
                 } else {
                     showError(data.message || '图片上传失败');
                 }
@@ -2305,7 +2302,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // 上传文件
         function uploadFile(file) {
             const formData = new FormData();
-            formData.append('file', file);
+            formData.append('image', file); // 保持与原UI一致，使用'image'字段名
+            formData.append('userId', currentUser.id);
+            
+            if (currentGroupId) {
+                formData.append('groupId', currentGroupId);
+            }
             
             // 显示上传进度
             const uploadProgress = document.getElementById('uploadProgress');
@@ -2316,7 +2318,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // 发送文件上传请求
-            fetch(`${SERVER_URL}/upload-file`, {
+            fetch(`${SERVER_URL}/upload`, {
                 method: 'POST',
                 headers: {
                     'user-id': currentUser.id,
@@ -2326,17 +2328,9 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(response => response.json())
             .then(data => {
-                if (data.success) {
-                    // 文件上传成功，发送文件消息，确保格式正确
-                    if (isConnected && window.chatSocket) {
-                        const messageData = {
-                            content: `[${file.name}](${data.fileUrl})`,
-                            groupId: null, // 公共聊天时groupId为null
-                            sessionToken: currentSessionToken,
-                            userId: currentUser.id
-                        };
-                        window.chatSocket.emit('send-message', messageData);
-                    }
+                if (data.status === 'success') {
+                    // 上传成功，只依赖服务器的Socket.IO广播，避免显示重复消息
+                    console.log('文件上传成功', data);
                 } else {
                     showError(data.message || '文件上传失败');
                 }
@@ -2441,6 +2435,105 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             });
         }
+        
+        // 初始化头像上传功能
+        const chooseAvatarButton = document.getElementById('chooseAvatarButton');
+        const avatarFileInput = document.getElementById('avatarFileInput');
+        const uploadAvatarButton = document.getElementById('uploadAvatarButton');
+        const avatarPreview = document.getElementById('avatarPreview');
+        const currentAvatarImg = document.getElementById('currentAvatarImg');
+        const noAvatar = document.getElementById('noAvatar');
+        
+        if (chooseAvatarButton && avatarFileInput) {
+            // 选择头像按钮点击事件
+            chooseAvatarButton.addEventListener('click', function() {
+                avatarFileInput.click();
+            });
+            
+            // 文件选择变化事件
+            avatarFileInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    // 预览图片
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        if (currentAvatarImg && avatarPreview && noAvatar) {
+                            currentAvatarImg.src = e.target.result;
+                            currentAvatarImg.style.display = 'block';
+                            noAvatar.style.display = 'none';
+                        }
+                    };
+                    reader.readAsDataURL(file);
+                    
+                    // 启用上传按钮
+                    if (uploadAvatarButton) {
+                        uploadAvatarButton.disabled = false;
+                    }
+                }
+            });
+        }
+        
+        if (uploadAvatarButton) {
+            // 上传头像按钮点击事件
+            uploadAvatarButton.addEventListener('click', function() {
+                const file = avatarFileInput.files[0];
+                if (file) {
+                    uploadUserAvatar(file);
+                }
+            });
+        }
+    }
+    
+    // 上传用户头像
+    function uploadUserAvatar(file) {
+        const formData = new FormData();
+        formData.append('avatar', file);
+        formData.append('userId', currentUser.id);
+        
+        fetch(`${SERVER_URL}/upload-avatar`, {
+            method: 'POST',
+            headers: {
+                'session-token': currentSessionToken,
+                'user-id': currentUser.id
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showSuccess('头像上传成功');
+                
+                // 更新本地用户信息
+                if (data.avatarUrl) {
+                    currentUser.avatarUrl = data.avatarUrl;
+                    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                    
+                    // 更新UI中的头像
+                    const currentUserAvatar = document.getElementById('currentUserAvatar');
+                    if (currentUserAvatar) {
+                        currentUserAvatar.src = `${SERVER_URL}${data.avatarUrl}`;
+                        currentUserAvatar.style.display = 'block';
+                    }
+                    
+                    // 更新头像预览
+                    const currentAvatarImg = document.getElementById('currentAvatarImg');
+                    if (currentAvatarImg) {
+                        currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
+                    }
+                }
+                
+                // 重置上传按钮状态
+                const uploadAvatarButton = document.getElementById('uploadAvatarButton');
+                if (uploadAvatarButton) {
+                    uploadAvatarButton.disabled = true;
+                }
+            } else {
+                showError(data.message || '头像上传失败');
+            }
+        })
+        .catch(error => {
+            showError('头像上传失败，请重试');
+        });
     }
     
     // 处理设置表单提交
@@ -4083,26 +4176,26 @@ document.addEventListener('DOMContentLoaded', function() {
                     const prevScrollTop = container.scrollTop;
                     
                     // 获取当前显示的最早消息的sequence值
-                            const messages = container.querySelectorAll('.message');
-                            let olderThan = null;
-                            
-                            if (messages.length > 0) {
-                                let minSequence = null;
-                                for (let i = 0; i < messages.length; i++) {
-                                    const msg = messages[i];
-                                    // 从data-sequence属性获取sequence值
-                                    const sequenceAttr = msg.getAttribute('data-sequence');
-                                    if (sequenceAttr !== null) {
-                                        const sequence = parseInt(sequenceAttr);
-                                        if (!isNaN(sequence)) {
-                                            if (minSequence === null || sequence < minSequence) {
-                                                minSequence = sequence;
-                                            }
-                                        }
+                    const messages = container.querySelectorAll('.message');
+                    let olderThan = null;
+                    
+                    if (messages.length > 0) {
+                        let minSequence = null;
+                        for (let i = 0; i < messages.length; i++) {
+                            const msg = messages[i];
+                            // 从data-sequence属性获取sequence值
+                            const sequenceAttr = msg.getAttribute('data-sequence');
+                            if (sequenceAttr !== null) {
+                                const sequence = parseInt(sequenceAttr);
+                                if (!isNaN(sequence)) {
+                                    if (minSequence === null || sequence < minSequence) {
+                                        minSequence = sequence;
                                     }
                                 }
-                                olderThan = minSequence;
                             }
+                        }
+                        olderThan = minSequence;
+                    }
                     
                     // 发送加载更多请求
                     if (currentUser && currentSessionToken) {
@@ -4116,7 +4209,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 loadMore: true,
                                 olderThan: olderThan
                             };
-                            window.chatSocket.emit('join-group', joinGroupData);
+                            window.chatSocket.emit('get-group-chat-history', joinGroupData);
                         } else {
                             // 加载全局消息，使用新的WebSocket事件
                             window.chatSocket.emit('get-chat-history', {

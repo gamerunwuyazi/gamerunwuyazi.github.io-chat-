@@ -559,6 +559,38 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
+    // 获取验证码相关DOM元素
+    const loginCaptchaInput = document.getElementById('loginCaptcha');
+    const loginCaptchaContainer = document.getElementById('loginCaptchaContainer');
+    const refreshLoginCaptchaBtn = document.getElementById('refreshLoginCaptcha');
+    const registerCaptchaInput = document.getElementById('registerCaptcha');
+    const registerCaptchaContainer = document.getElementById('registerCaptchaContainer');
+    const refreshRegisterCaptchaBtn = document.getElementById('refreshRegisterCaptcha');
+
+    // 验证码ID存储
+    let loginCaptchaId = '';
+    let registerCaptchaId = '';
+
+    // 获取验证码函数
+    async function getCaptcha(container, captchaType = 'login') {
+        try {
+            const response = await fetch(`${SERVER_URL}/captcha`);
+            const data = await response.json();
+            if (data.status === 'success') {
+                container.innerHTML = data.captchaSvg;
+                // 存储验证码ID
+                if (captchaType === 'login') {
+                    loginCaptchaId = data.captchaId;
+                } else {
+                    registerCaptchaId = data.captchaId;
+                }
+            }
+        } catch (error) {
+            console.error('获取验证码失败:', error);
+            container.innerHTML = '验证码获取失败';
+        }
+    }
+
     // 检查会话有效性
     function checkSessionValidity() {
         fetch(`${SERVER_URL}/session-check`, {
@@ -4272,6 +4304,25 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
+        // 验证码初始化和事件监听
+        if (loginCaptchaContainer) {
+            getCaptcha(loginCaptchaContainer, 'login');
+        }
+        if (registerCaptchaContainer) {
+            getCaptcha(registerCaptchaContainer, 'register');
+        }
+        
+        if (refreshLoginCaptchaBtn) {
+            refreshLoginCaptchaBtn.addEventListener('click', () => {
+                getCaptcha(loginCaptchaContainer, 'login');
+            });
+        }
+        if (refreshRegisterCaptchaBtn) {
+            refreshRegisterCaptchaBtn.addEventListener('click', () => {
+                getCaptcha(registerCaptchaContainer, 'register');
+            });
+        }
+
         // 登录注册按钮
         loginButton.addEventListener('click', handleLogin);
         registerButton.addEventListener('click', handleRegister);
@@ -4342,17 +4393,28 @@ document.addEventListener('DOMContentLoaded', function() {
                         // 获取当前显示的最早消息的sequence值
                         const messages = groupMessageContainer.querySelectorAll('.message');
                         console.log('📊 [群组消息] 当前可见消息数量:', messages.length);
-                        const firstMessage = messages.length > 0 ? messages[0] : null;
-                        
                         let olderThan = null;
-                        if (firstMessage && firstMessage.dataset.message) {
-                            try {
-                                const messageData = JSON.parse(firstMessage.dataset.message);
-                                olderThan = messageData.sequence;
-                                console.log('📊 [群组消息] 成功解析并获取sequence值:', olderThan);
-                            } catch (e) {
-                                console.error('📊 [群组消息] 解析消息数据失败:', e);
+                        
+                        // 优化：从所有消息中查找最小的sequence值
+                        if (messages.length > 0) {
+                            let minSequence = null;
+                            for (let i = 0; i < messages.length; i++) {
+                                const msg = messages[i];
+                                if (msg.dataset.message) {
+                                    try {
+                                        const messageData = JSON.parse(msg.dataset.message);
+                                        if (messageData.sequence !== undefined) {
+                                            if (minSequence === null || messageData.sequence < minSequence) {
+                                                minSequence = messageData.sequence;
+                                            }
+                                        }
+                                    } catch (e) {
+                                        console.error('📊 [群组消息] 解析消息数据失败:', e);
+                                    }
+                                }
                             }
+                            olderThan = minSequence;
+                            console.log('📊 [群组消息] 成功获取最早消息的sequence值:', olderThan);
                         }
 
                         if (currentUser && currentSessionToken) {
@@ -4364,8 +4426,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 loadMore: true,
                                 olderThan: olderThan
                             };
-                            console.log('📊 [群组消息] join-group事件请求参数:', requestData);
-                            socket.emit('join-group', requestData);
+                            console.log('📊 [群组消息] 获取历史消息请求参数:', requestData);
+                            socket.emit('get-group-chat-history', requestData);
                         } else {
                             console.log('📊 [群组消息] 用户未登录，取消加载更多消息');
                             window.isLoadingMoreMessages = false;
@@ -4401,10 +4463,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         if (currentUser && currentSessionToken) {
                             // console.log('📜 [全局消息] 请求参数:', { userId: currentUser.id, limit: 20, loadMore: true, olderThan: olderThan });
-                            socket.emit('user-joined', {
+                            socket.emit('get-chat-history', {
                                 userId: currentUser.id,
-                                nickname: currentUser.nickname,
-                                avatarUrl: currentUser.avatarUrl,
                                 sessionToken: currentSessionToken,
                                 limit: 20,
                                 loadMore: true,
@@ -4444,9 +4504,10 @@ document.addEventListener('DOMContentLoaded', function() {
     function handleLogin() {
         const username = loginUsername.value.trim();
         const password = loginPassword.value.trim();
+        const captcha = loginCaptchaInput.value.trim();
 
-        if (!username || !password) {
-            loginMessage.textContent = '请填写用户名和密码';
+        if (!username || !password || !captcha || !loginCaptchaId) {
+            loginMessage.textContent = '请填写用户名、密码和验证码';
             loginMessage.style.display = 'block';
             return;
         }
@@ -4459,7 +4520,12 @@ document.addEventListener('DOMContentLoaded', function() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ username, password })
+            body: JSON.stringify({
+                username: username,
+                password: password,
+                captchaId: loginCaptchaId,
+                captchaCode: captcha
+            })
         })
             .then(response => response.json())
             .then(data => {
@@ -4505,6 +4571,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     // 显示登录失败消息
                     loginMessage.textContent = data.message;
                     loginMessage.style.display = 'block';
+                    
+                    // 失败时刷新验证码
+                    getCaptcha(loginCaptchaContainer, 'login');
                     
                     // 增强：如果是IP封禁，添加特殊样式和倒计时效果
                     if (data.isBanned && data.remainingTime) {
@@ -4557,6 +4626,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 loginMessage.style.display = 'block';
                 loginButton.disabled = false;
                 loginButton.textContent = '登录';
+                // 失败时刷新验证码
+                getCaptcha(loginCaptchaContainer, 'login');
             });
     }
 
@@ -4564,9 +4635,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const username = registerUsername.value.trim();
         const password = registerPassword.value.trim();
         const nickname = registerNickname.value.trim();
+        const captcha = registerCaptchaInput.value.trim();
 
-        if (!username || !password || !nickname) {
-            registerMessage.textContent = '请填写所有字段';
+        if (!username || !password || !nickname || !captcha || !registerCaptchaId) {
+            registerMessage.textContent = '请填写所有字段和验证码';
             registerMessage.style.display = 'block';
             return;
         }
@@ -4576,7 +4648,13 @@ document.addEventListener('DOMContentLoaded', function() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ username, password, nickname })
+            body: JSON.stringify({
+                username: username,
+                password: password,
+                nickname: nickname,
+                captchaId: registerCaptchaId,
+                captchaCode: captcha
+            })
         })
             .then(response => response.json())
             .then(data => {
@@ -4593,12 +4671,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     registerMessage.textContent = data.message;
                     registerMessage.style.display = 'block';
+                    // 失败时刷新验证码
+                    getCaptcha(registerCaptchaContainer, 'register');
                 }
             })
             .catch(error => {
                 console.error('注册错误:', error);
                 registerMessage.textContent = '注册失败，请重试';
                 registerMessage.style.display = 'block';
+                // 失败时刷新验证码
+                getCaptcha(registerCaptchaContainer, 'register');
             });
     }
 

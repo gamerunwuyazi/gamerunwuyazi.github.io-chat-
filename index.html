@@ -2,7 +2,7 @@
 <html lang="zh-cn">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=1200, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>简易版聊天室</title>
     <link rel="stylesheet" href="css/index.css">
     <link rel="stylesheet" href="css/code-highlight.css">
@@ -549,81 +549,12 @@
         </div>
     </div>
     
-    <!-- 手机适配容器 -->
-    <div id="mobile-chat">
-        <!-- 手机顶部导航栏 -->
-        <div class="mobile-header">
-            <button id="mobileMenuBtn" class="menu-btn">
-                <i class="fas fa-bars"></i>
-            </button>
-            <h1>简易版聊天室</h1>
-            <div class="header-actions">
-                <button class="menu-btn" id="mobileSettingsBtn">
-                    <i class="fas fa-cog"></i>
-                </button>
-            </div>
-        </div>
-        
-        <!-- 手机侧边菜单 -->
-        <div id="mobileSidebar" class="mobile-sidebar">
-            <!-- 侧边菜单头部 -->
-            <div class="mobile-sidebar-header">
-                <div id="mobileUserAvatar" class="user-avatar">
-                    <img id="mobileCurrentUserAvatar" src="" alt="用户头像" class="user-avatar-img">
-                </div>
-                <div class="user-info">
-                    <div id="mobileUserName"></div>
-                </div>
-            </div>
-            
-            <!-- 侧边菜单项 -->
-            <ul class="mobile-menu-list">
-                <li class="mobile-menu-item active" data-section="public-chat">
-                    <i class="fas fa-comment-alt"></i>
-                    <span>公共聊天</span>
-                </li>
-                <li class="mobile-menu-item" data-section="group-chat">
-                    <i class="fas fa-users"></i>
-                    <span>群组聊天</span>
-                </li>
-                <li class="mobile-menu-item" data-section="settings">
-                    <i class="fas fa-cog"></i>
-                    <span>设置</span>
-                </li>
-                <li class="mobile-menu-item" data-section="logout">
-                    <i class="fas fa-sign-out-alt"></i>
-                    <span>退出登录</span>
-                </li>
-            </ul>
-        </div>
-        
-        <!-- 侧边菜单遮罩层 -->
-        <div class="mobile-sidebar-overlay"></div>
-        
-        <!-- 手机消息容器 -->
-        <div class="mobile-message-container" id="mobileMessageContainer">
-            <!-- 消息将通过JavaScript动态添加 -->
-        </div>
-        
-        <!-- 手机输入区域 -->
-        <div class="mobile-input-area">
-            <div class="mobile-input-container">
-                <div id="mobileMessageInput" class="editable-div" placeholder="发送消息" contenteditable="true"></div>
-            </div>
-            <div class="mobile-input-buttons">
-                <button id="mobileSendButton">发送</button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- 手机适配CSS和JS -->
-    <link rel="stylesheet" href="css/mobile.css">
+
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
     <script src="js/libraries/marked.min.js"></script>
     <link rel="stylesheet" href="js/libraries/katex.min.css">
     <script src="js/libraries/katex.min.js"></script>
     <script src="js/libraries/auto-render.min.js"></script>
     <script src="js/index.js"></script>
-    <script src="js/mobile.js"></script>
 </body>
 </html>

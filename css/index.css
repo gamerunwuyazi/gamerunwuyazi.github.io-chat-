@@ -9,7 +9,8 @@ body {
     width: 100vw;
     height: 100vh;
     display: flex;
-    overflow: hidden;
+    overflow: auto;
+    min-width: 800px; /* 设置最小宽度，确保聊天室内容完整显示 */
 }
 
 /* 左侧边栏样式 */
@@ -115,6 +116,7 @@ body {
     border-radius: 8px;
     margin: 5px 0;
     position: relative;
+    background-color: transparent; /* 明确设置背景色为透明，继承父元素的深色背景 */
 }
 
 .menu-item:hover {
