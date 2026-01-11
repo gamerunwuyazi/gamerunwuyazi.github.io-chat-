@@ -5,6 +5,39 @@ body {
     background-color: #f0f2f5;
 }
 
+/* 消息容器样式，限制最大大小 */
+#messageContainer,
+#groupMessageContainer {
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    word-break: break-word;
+    hyphens: auto;
+}
+
+/* 文件链接容器样式，确保文件样式正确 */
+.file-link-container {
+    display: inline-block;
+    margin: 5px 0;
+    padding: 8px 12px;
+    background-color: #f1f1f1;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+}
+
+.file-icon {
+    margin-right: 8px;
+}
+
+.message-link {
+    color: #3498db !important;
+    text-decoration: none !important;
+}
+
+.message-link:hover {
+    text-decoration: underline !important;
+}
+
 #main-chat {
     width: 100vw;
     height: 100vh;
@@ -353,6 +386,7 @@ body {
     border-radius: 8px;
     padding: 10px;
     transition: all 0.3s ease;
+    max-height: 220px; /* 输入框最大高度200px + 内边距10px*2 */
 }
 
 .group-input-container:focus-within {
@@ -1161,11 +1195,11 @@ body {
     width: 100% !important;
 }
 
+/* 移除默认的文件链接图标，避免与JavaScript添加的图标重复 */
 .message .message-content .file-link-container .file-link::before {
-    content: "📄" !important;
-    margin-right: 8px !important;
-    font-size: 16px !important;
-    display: inline-block !important;
+    content: none !important;
+    margin-right: 0 !important;
+    display: none !important;
 }
 
 .message .message-content .file-link-container .file-link span {
@@ -1452,6 +1486,7 @@ body {
     border-radius: 8px;
     padding: 10px;
     transition: all 0.3s ease;
+    max-height: 220px; /* 输入框最大高度200px + 内边距10px*2 */
 }
 
 .input-container:focus-within {

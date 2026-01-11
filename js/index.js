@@ -246,6 +246,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         
                         // 如果正在群组聊天，加入群组并使用新事件获取群组聊天历史
                         if (currentGroupId) {
+                            // console.log(`📥 准备获取群组聊天历史 - 群组ID: ${currentGroupId}, 用户ID: ${currentUser.id}`);
+                            
                             // 加入群组
                             socket.emit('join-group', {
                                 groupId: currentGroupId,
@@ -254,12 +256,14 @@ document.addEventListener('DOMContentLoaded', function() {
                             });
                             
                             // 使用新的WebSocket事件获取群组聊天历史
-                            socket.emit('get-group-chat-history', {
+                            const historyRequest = {
                                 groupId: currentGroupId,
                                 userId: currentUser.id,
                                 sessionToken: currentSessionToken,
                                 limit: 20
-                            });
+                            };
+                            // console.log(`📡 发送群组聊天历史请求 - 事件: get-group-chat-history, 请求参数:`, historyRequest);
+                            socket.emit('get-group-chat-history', historyRequest);
                         }
                         
                         // 启用消息发送功能
@@ -313,6 +317,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         
                         // 如果正在群组聊天，重新加入群组并使用新事件获取群组聊天历史
                         if (currentGroupId) {
+                            // console.log(`📥 重连后获取群组聊天历史 - 群组ID: ${currentGroupId}, 用户ID: ${currentUser.id}`);
+                            
                             // 重新加入群组
                             socket.emit('join-group', {
                                 groupId: currentGroupId,
@@ -321,12 +327,14 @@ document.addEventListener('DOMContentLoaded', function() {
                             });
                             
                             // 使用新的WebSocket事件获取群组聊天历史
-                            socket.emit('get-group-chat-history', {
+                            const historyRequest = {
                                 groupId: currentGroupId,
                                 userId: currentUser.id,
                                 sessionToken: currentSessionToken,
                                 limit: 20
-                            });
+                            };
+                            // console.log(`📡 重连后发送群组聊天历史请求 - 事件: get-group-chat-history, 请求参数:`, historyRequest);
+                            socket.emit('get-group-chat-history', historyRequest);
                         }
                         
                         // 启用消息发送功能
@@ -518,15 +526,25 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // 群组聊天历史记录事件
         socket.on('group-chat-history', (data) => {
+            // console.log(`📥 收到群组聊天历史响应 - 群组ID: ${data.groupId || currentGroupId}, 消息数量: ${data.messages ? data.messages.length : 0}, 是否加载更多: ${data.loadMore ? '是' : '否'}`);
+            
             // 检查历史记录响应中是否包含新的会话令牌
             if (data.sessionToken) {
+                // console.log(`🔄 更新会话令牌 - 来自群组聊天历史响应`);
                 // 更新会话令牌
                 currentSessionToken = data.sessionToken;
                 localStorage.setItem('currentSessionToken', currentSessionToken);
             }
             
             const groupMessageContainer = document.getElementById('groupMessageContainer');
-            if (!groupMessageContainer) return;
+            if (!groupMessageContainer) {
+                // console.error('❌ 群组消息容器不存在 - 无法显示历史消息');
+                // 重置加载状态
+                if (window.resetLoadingState) {
+                    window.resetLoadingState();
+                }
+                return;
+            }
             
             const groupEmptyState = groupMessageContainer.querySelector('.empty-state');
             
@@ -536,6 +554,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (!hasReceivedGroupHistory) {
                     groupMessageContainer.innerHTML = '';
                     hasReceivedGroupHistory = true;
+                }
+                
+                // 修复：处理加载更多返回0条消息的情况
+                if (data.loadMore && (!data.messages || !Array.isArray(data.messages) || data.messages.length === 0)) {
+                    // console.log(`📥 加载更多返回0条消息 - 已到达群组聊天历史尽头`);
+                    // 重置加载状态
+                    if (window.resetLoadingState) {
+                        window.resetLoadingState();
+                    }
+                    return;
                 }
                 
                 if (!data.messages || !Array.isArray(data.messages) || data.messages.length === 0) {
@@ -586,40 +614,60 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 
                 // 一次性渲染所有消息
-                messagesToRender.forEach(message => {
-                    // 确保消息有必要的属性
-                    if (!message || !message.id) {
-                        return;
-                    }
-                    
-                    // 检查消息ID是否已经处理过，避免重复
-                    if (processedMessageIds.has(String(message.id))) {
-                        return;
-                    }
-                    
-                    // 标记为已处理
-                    processedMessageIds.add(String(message.id));
-                    
-                    // 对于加载更多的消息，返回元素并插入到顶部
-                    if (data.loadMore) {
+                if (data.loadMore) {
+                    // 对于加载更多的消息，从旧到新顺序，插入到顶部
+                    messagesToRender.forEach(message => {
+                        // 确保消息有必要的属性
+                        if (!message || !message.id) {
+                            return;
+                        }
+                        
+                        // 检查消息ID是否已经处理过，避免重复
+                        if (processedMessageIds.has(String(message.id))) {
+                            return;
+                        }
+                        
+                        // 标记为已处理
+                        processedMessageIds.add(String(message.id));
+                        
                         const messageElement = displayGroupMessage(message, true);
                         if (messageElement) {
                             groupMessageContainer.insertBefore(messageElement, groupMessageContainer.firstChild);
                         }
-                    } else {
+                    });
+                } else {
+                    // 对于首次加载的消息，从旧到新顺序，添加到末尾
+                    // messagesToRender已经是反转后的顺序（最早消息在前），直接按顺序渲染
+                    messagesToRender.forEach(message => {
+                        // 确保消息有必要的属性
+                        if (!message || !message.id) {
+                            return;
+                        }
+                        
+                        // 检查消息ID是否已经处理过，避免重复
+                        if (processedMessageIds.has(String(message.id))) {
+                            return;
+                        }
+                        
+                        // 标记为已处理
+                        processedMessageIds.add(String(message.id));
+                        
                         // 正常加载，直接添加到容器
                         displayGroupMessage(message);
-                    }
-                });
+                    });
+                }
                 
-                // 恢复滚动位置，确保用户体验流畅（仅在加载更多时）
+                // 恢复滚动位置，确保用户体验流畅
                 if (data.loadMore && prevScrollHeight !== undefined && prevScrollTop !== undefined) {
+                    // 加载更多后，保持用户原来的相对位置
                     const newScrollHeight = groupMessageContainer.scrollHeight;
                     const heightDifference = newScrollHeight - prevScrollHeight;
-                    groupMessageContainer.scrollTop = prevScrollTop + heightDifference;
-                } else if (!data.loadMore) {
-                    // 首次加载时滚动到底部
-                    groupMessageContainer.scrollTop = groupMessageContainer.scrollHeight;
+                    groupMessageContainer.scrollTop = heightDifference;
+                } else {
+                    // 首次加载时，确保滚动到底部
+                    setTimeout(() => {
+                        groupMessageContainer.scrollTop = groupMessageContainer.scrollHeight;
+                    }, 0);
                 }
             }
             
@@ -705,7 +753,6 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // 监听群组名称更新事件
         socket.on('group-name-updated', (data) => {
-            console.log('🔄 接收群组名称更新通知:', data);
             // 只有登录状态才刷新群组列表
             if (currentUser && currentSessionToken) {
                 loadGroupList();
@@ -730,16 +777,27 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // 导出获取群组聊天历史的函数，供外部调用
         window.getGroupChatHistory = function(groupId, options = {}) {
-            if (!window.chatSocket || !groupId) return;
+            if (!window.chatSocket || !groupId) {
+                console.warn('⚠️  无法获取群组聊天历史 - WebSocket未连接或群组ID无效');
+                return;
+            }
             
-            window.chatSocket.emit('get-group-chat-history', {
+            const historyOptions = {
                 userId: currentUser.id,
                 sessionToken: currentSessionToken,
                 groupId: groupId,
                 loadMore: options.loadMore || false,
                 olderThan: options.olderThan || null,
                 limit: options.limit || 20
-            });
+            };
+            
+            if (historyOptions.loadMore) {
+                // console.log(`📥 请求加载更多群组聊天历史 - 群组ID: ${groupId}, 限制: ${historyOptions.limit}, 更早于: ${historyOptions.olderThan || '最新'}`);
+            } else {
+                // console.log(`📥 请求刷新群组聊天历史 - 群组ID: ${groupId}, 限制: ${historyOptions.limit}`);
+            }
+            
+            window.chatSocket.emit('get-group-chat-history', historyOptions);
         };
         
         // 创建集中化的模态框管理器
@@ -1373,25 +1431,24 @@ document.addEventListener('DOMContentLoaded', function() {
     // 移除handleReceivedMessage函数，改为使用特定的Socket.io事件处理不同类型的消息
     
     // 显示消息
-    function displayMessage(message, returnElement = false) {
-        const messageContainer = document.getElementById('messageContainer');
-        if (!messageContainer) return;
-        
-        // 检查消息对象是否有效
-        if (!message) {
-            return;
-        }
-        
-        // 检查消息ID是否已经存在，避免重复渲染
-        if (document.querySelector(`#messageContainer [data-id="${message.id}"]`)) {
-            return;
-        }
-        
-        // 允许content为null或空字符串，支持纯图片或文件消息
-        // 移除额外的检查，确保所有有效的历史消息都能显示
-        if (!message.content && !message.imageUrl && !message.fileUrl && !message.text) {
-            return;
-        }
+        function displayMessage(message, returnElement = false) {
+            const messageContainer = document.getElementById('messageContainer');
+            if (!messageContainer) return;
+            
+            // 检查消息对象是否有效
+            if (!message) {
+                return;
+            }
+            
+            // 检查消息ID是否已经存在，避免重复渲染
+            if (document.querySelector(`#messageContainer [data-id="${message.id}"]`)) {
+                return;
+            }
+            
+            // 允许content为null或空字符串，支持纯图片或文件消息
+            if (!message.content && !message.imageUrl && !message.fileUrl && !message.text) {
+                return;
+            }
         
         // 适配不同消息格式，支持直接包含userId、nickname等字段的消息
         const messageUser = message.user || {
@@ -1456,9 +1513,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // 重写code方法，生成带有highlight类的figure结构
                 renderer.code = function(code, language) {
-                    // 添加详细调试日志
-
-                    
                     const lang = language || 'code';
                     
                     // 生成行号
@@ -1514,24 +1568,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 先对原始内容进行HTML转义，防止XSS
                 contentToParse = escapeHtml(contentToParse);
                 
-                // 如果消息直接包含imageUrl或fileUrl字段，转换为Markdown格式
-                if (message.imageUrl) {
-                    const filename = message.filename || '';
-                    const isSvgFile = /\.svg$/i.test(filename);
-                    
-                    // 直接包含图片URL的消息，转换为Markdown图片格式
-                    if (isSvgFile) {
-                        // SVG文件特殊处理：转换为文件链接，而不是直接嵌入图片
-                        contentToParse = `[${escapeHtml(filename || 'SVG图片')}](${escapeHtml(message.imageUrl)})`;
-                    } else {
-                        // 普通图片文件，转换为图片格式
-                        contentToParse = `![${escapeHtml(filename || '图片')}](${escapeHtml(message.imageUrl)})`;
-                    }
-                } else if (message.fileUrl) {
-                    // 直接包含文件URL的消息，转换为Markdown链接格式
-                    contentToParse = `[${escapeHtml(message.filename || '文件')}](${escapeHtml(message.fileUrl)})`;
-                }
-                
                 // 处理图片和文件链接，确保URL完整
                 // 替换相对URL为完整URL
                 if (SERVER_URL) {
@@ -1575,8 +1611,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 parsedContent = parsedContent.replace(/<a([^>]*)(href="([^"]*)")([^>]*)>([^<]*)<\/a>/g, (match, attr1, hrefAttr, href, attr2, text) => {
                     // 检查是否为文件链接（包含文件扩展名或下载属性）
                     const hasDownloadAttr = match.includes('download');
-                    const hasFileExtension = /\.\w+$/.test(href);
+                    const isHttpLink = /^https?:\/\//i.test(href);
                     const isImageLink = /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(href);
+                    
+                    // 定义常见的文件扩展名
+                    const fileExtensions = /\.(pdf|doc|docx|txt|rtf|xls|xlsx|csv|zip|rar|7z|tar|gz|mp3|wav|ogg|flac|mp4|avi|mov|wmv|flv|exe|dll|bat|sh|ppt|pptx|js|ts|html|css|php|py|java|c|cpp|cs|go|rb|swift|kt|svg)$/i;
+                    const hasFileExtension = fileExtensions.test(href);
                     
                     // 如果是图片链接，不添加文件容器
                     if (isImageLink) {
@@ -1584,17 +1624,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                     
                     // 如果是文件链接，添加文件容器和图标
-                    if (hasDownloadAttr || hasFileExtension) {
+                    if (hasDownloadAttr || (!isHttpLink && hasFileExtension)) {
                         // 提取文件扩展名
-                        const fileExtension = text.split('.').pop().toLowerCase();
+                        const fileExtension = href.split('.').pop().toLowerCase();
                         
                         // 根据文件类型选择图标
                         let fileIcon = '📄'; // 默认文件图标
-                        if (/^(pdf|doc|docx|txt|rtf)$/.test(fileExtension)) {
+                        if (/^(pdf|doc|docx|txt|rtf)$/i.test(fileExtension)) {
                             fileIcon = '📝';
-                        } else if (/^(xls|xlsx|csv)$/.test(fileExtension)) {
+                        } else if (/^(xls|xlsx|csv)$/i.test(fileExtension)) {
                             fileIcon = '📊';
-                        } else if (/^(zip|rar|7z|tar|gz)$/.test(fileExtension)) {
+                        } else if (/^(zip|rar|7z|tar|gz)$/i.test(fileExtension)) {
                             fileIcon = '🗜️';
                         } else if (/^(jpg|jpeg|png|gif|bmp|webp)$/i.test(fileExtension)) {
                             fileIcon = '🖼️';
@@ -1628,11 +1668,60 @@ document.addEventListener('DOMContentLoaded', function() {
         // 确保图片有正确的样式
         parsedContent = parsedContent.replace(/<img/g, '<img class="message-image" style="max-width: 100%; height: auto; cursor: pointer;"');
         
-        // 确保链接有正确的样式
+        // 为链接添加正确样式，区分文件链接和普通链接（优先处理）
         parsedContent = parsedContent.replace(/<a/g, '<a class="message-link" target="_blank" rel="noopener noreferrer" style="color: #3498db; text-decoration: none;"');
         
-        // 为链接添加悬停效果
-        parsedContent = parsedContent.replace(/<\/a>/g, '</a>');
+        // 为文件链接添加容器，确保文件卡片样式正确应用
+        // 匹配所有带有下载属性或文件扩展名的链接
+        parsedContent = parsedContent.replace(/<a([^>]*)(href="([^"]*)")([^>]*)>([^<]*)<\/a>/g, (match, attr1, hrefAttr, href, attr2, text) => {
+            // 检查是否为文件链接（包含文件扩展名或下载属性）
+            const hasDownloadAttr = match.includes('download');
+            const isHttpLink = /^https?:\/\//i.test(href);
+            const isImageLink = /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(href);
+            
+            // 定义常见的文件扩展名
+            const fileExtensions = /\.(pdf|doc|docx|txt|rtf|xls|xlsx|csv|zip|rar|7z|tar|gz|mp3|wav|ogg|flac|mp4|avi|mov|wmv|flv|exe|dll|bat|sh|ppt|pptx|js|ts|html|css|php|py|java|c|cpp|cs|go|rb|swift|kt|svg)$/i;
+            const hasFileExtension = fileExtensions.test(href);
+            
+            // 如果是图片链接，保持图片链接样式
+            if (isImageLink) {
+                return match;
+            }
+            
+            // 如果是文件链接，添加文件容器和图标
+            if (hasDownloadAttr || (!isHttpLink && hasFileExtension)) {
+                // 提取文件扩展名
+                const fileExtension = href.split('.').pop().toLowerCase();
+                
+                // 根据文件类型选择图标
+                let fileIcon = '📄'; // 默认文件图标
+                if (/^(pdf|doc|docx|txt|rtf)$/i.test(fileExtension)) {
+                    fileIcon = '📝';
+                } else if (/^(xls|xlsx|csv)$/i.test(fileExtension)) {
+                    fileIcon = '📊';
+                } else if (/^(zip|rar|7z|tar|gz)$/i.test(fileExtension)) {
+                    fileIcon = '🗜️';
+                } else if (/^(jpg|jpeg|png|gif|bmp|webp)$/i.test(fileExtension)) {
+                    fileIcon = '🖼️';
+                } else if (/^(mp3|wav|ogg|flac)$/i.test(fileExtension)) {
+                    fileIcon = '🎵';
+                } else if (/^(mp4|avi|mov|wmv|flv)$/i.test(fileExtension)) {
+                    fileIcon = '🎬';
+                } else if (/^(exe|dll|bat|sh)$/i.test(fileExtension)) {
+                    fileIcon = '⚙️';
+                } else if (/^(ppt|pptx)$/i.test(fileExtension)) {
+                    fileIcon = '📋';
+                } else if (/^(js|ts|html|css|php|py|java|c|cpp|cs|go|rb|swift|kt)$/i.test(fileExtension)) {
+                    fileIcon = '💻';
+                }
+                
+                // 确保链接可以点击，使用正确的分组引用
+                return `<div class="file-link-container"><a${attr1} ${hrefAttr}${attr2} class="file-link" target="_blank"><span class="file-icon">${fileIcon}</span><span>${text}</span></a></div>`;
+            }
+            
+            // 普通链接，保持原样式
+            return match;
+        });
         
         // 移除文件卡片外面的文件名显示，因为文件名已经在文件卡片内部显示
         // 只有当消息不是直接包含文件URL时，才可能需要显示文件名
@@ -1657,6 +1746,51 @@ document.addEventListener('DOMContentLoaded', function() {
             `<img src="${fullAvatarUrl}" alt="${senderNickname}" class="user-avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 10px;">` : 
             `<div class="user-avatar default-avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 10px; background-color: #e0e0e0; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #666;">${senderNickname.charAt(0).toUpperCase()}</div>`;
         
+        // 直接渲染图片和文件，不通过Markdown转换
+        let messageContent = '';
+        
+        // 渲染图片
+        if (message.imageUrl && message.imageUrl !== null && message.imageUrl !== '') {
+            const imgSrc = message.imageUrl.startsWith('http') ? message.imageUrl : `${SERVER_URL}${message.imageUrl}`;
+            messageContent += `<img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(message.filename || '图片')}" class="message-image" style="max-width: 100%; height: auto; cursor: pointer;">`;
+        }
+        
+        // 渲染文件
+        if (message.fileUrl && message.fileUrl !== null && message.fileUrl !== '') {
+            const fileUrl = message.fileUrl.startsWith('http') ? message.fileUrl : `${SERVER_URL}${message.fileUrl}`;
+            const filename = message.filename || '文件';
+            const fileExtension = filename.split('.').pop().toLowerCase();
+            
+            // 根据文件类型选择图标
+            let fileIcon = '📄';
+            if (/^(pdf|doc|docx|txt|rtf)$/i.test(fileExtension)) {
+                fileIcon = '📝';
+            } else if (/^(xls|xlsx|csv)$/i.test(fileExtension)) {
+                fileIcon = '📊';
+            } else if (/^(zip|rar|7z|tar|gz)$/i.test(fileExtension)) {
+                fileIcon = '🗜️';
+            } else if (/^(jpg|jpeg|png|gif|bmp|webp)$/i.test(fileExtension)) {
+                fileIcon = '🖼️';
+            } else if (/^(mp3|wav|ogg|flac)$/i.test(fileExtension)) {
+                fileIcon = '🎵';
+            } else if (/^(mp4|avi|mov|wmv|flv)$/i.test(fileExtension)) {
+                fileIcon = '🎬';
+            } else if (/^(exe|dll|bat|sh)$/i.test(fileExtension)) {
+                fileIcon = '⚙️';
+            } else if (/^(ppt|pptx)$/i.test(fileExtension)) {
+                fileIcon = '📋';
+            } else if (/^(js|ts|html|css|php|py|java|c|cpp|cs|go|rb|swift|kt)$/i.test(fileExtension)) {
+                fileIcon = '💻';
+            }
+            
+            messageContent += `<div class="file-link-container"><a href="${escapeHtml(fileUrl)}" class="file-link" target="_blank" style="color: #3498db; text-decoration: none;"><span class="file-icon">${fileIcon}</span><span>${escapeHtml(filename)}</span></a></div>`;
+        }
+        
+        // 渲染文本内容（如果有），但如果是纯文件或图片消息，则不渲染
+        if ((parsedContent && parsedContent.trim() !== '') && !(message.fileUrl || message.imageUrl)) {
+            messageContent += parsedContent;
+        }
+        
         messageElement.innerHTML = `
             <div class="message-header" style="display: flex; align-items: center; margin-bottom: 5px;">
                 ${avatarHtml}
@@ -1666,7 +1800,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息" style="background: none; border: none; color: #999; font-size: 16px; cursor: pointer; margin-left: 10px;">×</button>` : ''}
             </div>
-            <div class="message-content">${parsedContent}</div>
+            <div class="message-content">${messageContent}</div>
         `;
         
         if (returnElement) {
@@ -1681,7 +1815,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         messageContainer.appendChild(messageElement);
-        messageContainer.scrollTop = messageContainer.scrollHeight;
+        
+        // 改进滚动逻辑：只有当用户已经在聊天底部，或者是用户自己发送的消息时才滚动到底部
+        const isAtBottom = messageContainer.scrollTop + messageContainer.clientHeight >= messageContainer.scrollHeight - 100;
+        if (isAtBottom || isOwn) {
+            // 使用setTimeout确保DOM更新完成后再滚动
+            setTimeout(() => {
+                messageContainer.scrollTop = messageContainer.scrollHeight;
+            }, 0);
+        }
         
         // 渲染数学公式
         if (typeof renderMathInElement !== 'undefined') {
@@ -1798,9 +1940,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // 重写code方法，生成带有highlight类的figure结构
                 renderer.code = function(code, language) {
-                    // 添加详细调试日志
-
-                    
                     const lang = language || 'code';
                     
                     // 生成行号
@@ -1856,24 +1995,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 先对原始内容进行HTML转义，防止XSS
                 contentToParse = escapeHtml(contentToParse);
                 
-                // 如果消息直接包含imageUrl或fileUrl字段，转换为Markdown格式
-                if (message.imageUrl) {
-                    const filename = message.filename || '';
-                    const isSvgFile = /\.svg$/i.test(filename);
-                    
-                    // 直接包含图片URL的消息，转换为Markdown图片格式
-                    if (isSvgFile) {
-                        // SVG文件特殊处理：转换为文件链接，而不是直接嵌入图片
-                        contentToParse = `[${escapeHtml(filename || 'SVG图片')}](${escapeHtml(message.imageUrl)})`;
-                    } else {
-                        // 普通图片文件，转换为图片格式
-                        contentToParse = `![${escapeHtml(filename || '图片')}](${escapeHtml(message.imageUrl)})`;
-                    }
-                } else if (message.fileUrl) {
-                    // 直接包含文件URL的消息，转换为Markdown链接格式
-                    contentToParse = `[${escapeHtml(message.filename || '文件')}](${escapeHtml(message.fileUrl)})`;
-                }
-                
                 // 处理图片和文件链接，确保URL完整
                 // 替换相对URL为完整URL
                 if (SERVER_URL) {
@@ -1921,11 +2042,60 @@ document.addEventListener('DOMContentLoaded', function() {
         // 确保图片有正确的样式
         parsedContent = parsedContent.replace(/<img/g, '<img class="message-image" style="max-width: 100%; height: auto; cursor: pointer;"');
         
-        // 确保链接有正确的样式
+        // 为链接添加正确样式，区分文件链接和普通链接（优先处理）
         parsedContent = parsedContent.replace(/<a/g, '<a class="message-link" target="_blank" rel="noopener noreferrer" style="color: #3498db; text-decoration: none;"');
         
-        // 为链接添加悬停效果
-        parsedContent = parsedContent.replace(/<\/a>/g, '</a>');
+        // 为文件链接添加容器，确保文件卡片样式正确应用
+        // 匹配所有带有下载属性或文件扩展名的链接
+        parsedContent = parsedContent.replace(/<a([^>]*)(href="([^"]*)")([^>]*)>([^<]*)<\/a>/g, (match, attr1, hrefAttr, href, attr2, text) => {
+            // 检查是否为文件链接（包含文件扩展名或下载属性）
+            const hasDownloadAttr = match.includes('download');
+            const isHttpLink = /^https?:\/\//i.test(href);
+            const isImageLink = /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(href);
+            
+            // 定义常见的文件扩展名
+            const fileExtensions = /\.(pdf|doc|docx|txt|rtf|xls|xlsx|csv|zip|rar|7z|tar|gz|mp3|wav|ogg|flac|mp4|avi|mov|wmv|flv|exe|dll|bat|sh|ppt|pptx|js|ts|html|css|php|py|java|c|cpp|cs|go|rb|swift|kt|svg)$/i;
+            const hasFileExtension = fileExtensions.test(href);
+            
+            // 如果是图片链接，保持图片链接样式
+            if (isImageLink) {
+                return match;
+            }
+            
+            // 如果是文件链接，添加文件容器和图标
+            if (hasDownloadAttr || (!isHttpLink && hasFileExtension)) {
+                // 提取文件扩展名
+                const fileExtension = href.split('.').pop().toLowerCase();
+                
+                // 根据文件类型选择图标
+                let fileIcon = '📄'; // 默认文件图标
+                if (/^(pdf|doc|docx|txt|rtf)$/i.test(fileExtension)) {
+                    fileIcon = '📝';
+                } else if (/^(xls|xlsx|csv)$/i.test(fileExtension)) {
+                    fileIcon = '📊';
+                } else if (/^(zip|rar|7z|tar|gz)$/i.test(fileExtension)) {
+                    fileIcon = '🗜️';
+                } else if (/^(jpg|jpeg|png|gif|bmp|webp)$/i.test(fileExtension)) {
+                    fileIcon = '🖼️';
+                } else if (/^(mp3|wav|ogg|flac)$/i.test(fileExtension)) {
+                    fileIcon = '🎵';
+                } else if (/^(mp4|avi|mov|wmv|flv)$/i.test(fileExtension)) {
+                    fileIcon = '🎬';
+                } else if (/^(exe|dll|bat|sh)$/i.test(fileExtension)) {
+                    fileIcon = '⚙️';
+                } else if (/^(ppt|pptx)$/i.test(fileExtension)) {
+                    fileIcon = '📋';
+                } else if (/^(js|ts|html|css|php|py|java|c|cpp|cs|go|rb|swift|kt)$/i.test(fileExtension)) {
+                    fileIcon = '💻';
+                }
+                
+                // 确保链接可以点击，使用正确的分组引用
+                return `<div class="file-link-container"><a${attr1} ${hrefAttr}${attr2} class="file-link" target="_blank"><span class="file-icon">${fileIcon}</span><span>${text}</span></a></div>`;
+            }
+            
+            // 普通链接，保持原样式
+            return match;
+        });
         
         // 移除文件卡片外面的文件名显示，因为文件名已经在文件卡片内部显示
         // 只有当消息不是直接包含文件URL时，才可能需要显示文件名
@@ -1950,6 +2120,51 @@ document.addEventListener('DOMContentLoaded', function() {
             `<img src="${fullAvatarUrl}" alt="${senderNickname}" class="user-avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 10px;">` : 
             `<div class="user-avatar default-avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 10px; background-color: #e0e0e0; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #666;">${senderNickname.charAt(0).toUpperCase()}</div>`;
         
+        // 直接渲染图片和文件，不通过Markdown转换
+        let messageContent = '';
+        
+        // 渲染图片
+        if (message.imageUrl && message.imageUrl !== null && message.imageUrl !== '') {
+            const imgSrc = message.imageUrl.startsWith('http') ? message.imageUrl : `${SERVER_URL}${message.imageUrl}`;
+            messageContent += `<img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(message.filename || '图片')}" class="message-image" style="max-width: 100%; height: auto; cursor: pointer;">`;
+        }
+        
+        // 渲染文件
+        if (message.fileUrl && message.fileUrl !== null && message.fileUrl !== '') {
+            const fileUrl = message.fileUrl.startsWith('http') ? message.fileUrl : `${SERVER_URL}${message.fileUrl}`;
+            const filename = message.filename || '文件';
+            const fileExtension = filename.split('.').pop().toLowerCase();
+            
+            // 根据文件类型选择图标
+            let fileIcon = '📄';
+            if (/^(pdf|doc|docx|txt|rtf)$/i.test(fileExtension)) {
+                fileIcon = '📝';
+            } else if (/^(xls|xlsx|csv)$/i.test(fileExtension)) {
+                fileIcon = '📊';
+            } else if (/^(zip|rar|7z|tar|gz)$/i.test(fileExtension)) {
+                fileIcon = '🗜️';
+            } else if (/^(jpg|jpeg|png|gif|bmp|webp)$/i.test(fileExtension)) {
+                fileIcon = '🖼️';
+            } else if (/^(mp3|wav|ogg|flac)$/i.test(fileExtension)) {
+                fileIcon = '🎵';
+            } else if (/^(mp4|avi|mov|wmv|flv)$/i.test(fileExtension)) {
+                fileIcon = '🎬';
+            } else if (/^(exe|dll|bat|sh)$/i.test(fileExtension)) {
+                fileIcon = '⚙️';
+            } else if (/^(ppt|pptx)$/i.test(fileExtension)) {
+                fileIcon = '📋';
+            } else if (/^(js|ts|html|css|php|py|java|c|cpp|cs|go|rb|swift|kt)$/i.test(fileExtension)) {
+                fileIcon = '💻';
+            }
+            
+            messageContent += `<div class="file-link-container"><a href="${escapeHtml(fileUrl)}" class="file-link" target="_blank" style="color: #3498db; text-decoration: none;"><span class="file-icon">${fileIcon}</span><span>${escapeHtml(filename)}</span></a></div>`;
+        }
+        
+        // 渲染文本内容（如果有），但如果是纯文件或图片消息，则不渲染
+        if ((parsedContent && parsedContent.trim() !== '') && !(message.fileUrl || message.imageUrl)) {
+            messageContent += parsedContent;
+        }
+        
         messageElement.innerHTML = `
             <div class="message-header" style="display: flex; align-items: center; margin-bottom: 5px;">
                 ${avatarHtml}
@@ -1959,7 +2174,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 ${isOwn ? `<button class="delete-button" data-id="${message.id}" title="撤回消息" style="background: none; border: none; color: #999; font-size: 16px; cursor: pointer; margin-left: 10px;">×</button>` : ''}
             </div>
-            <div class="message-content">${parsedContent}</div>
+            <div class="message-content">${messageContent}</div>
         `;
         
         if (returnElement) {
@@ -1974,7 +2189,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         groupMessageContainer.appendChild(messageElement);
-        groupMessageContainer.scrollTop = groupMessageContainer.scrollHeight;
+        
+        // 改进滚动逻辑：只有当用户已经在聊天底部，或者是用户自己发送的消息时才滚动到底部
+        const isAtBottom = groupMessageContainer.scrollTop + groupMessageContainer.clientHeight >= groupMessageContainer.scrollHeight - 100;
+        if (isAtBottom || isOwn) {
+            // 使用setTimeout确保DOM更新完成后再滚动
+            setTimeout(() => {
+                groupMessageContainer.scrollTop = groupMessageContainer.scrollHeight;
+            }, 0);
+        }
         
         // 渲染数学公式
         if (typeof renderMathInElement !== 'undefined') {
@@ -2047,6 +2270,28 @@ document.addEventListener('DOMContentLoaded', function() {
                 sendMessage();
             });
             
+            // 添加黏贴事件处理，支持黏贴图片和文件
+            messageInput.addEventListener('paste', function(e) {
+                const items = e.clipboardData.items;
+                for (const item of items) {
+                    if (item.type.startsWith('image/')) {
+                        e.preventDefault();
+                        const file = item.getAsFile();
+                        if (file) {
+                            uploadImage(file);
+                        }
+                        break;
+                    } else if (item.type === 'application/octet-stream') {
+                        e.preventDefault();
+                        const file = item.getAsFile();
+                        if (file) {
+                            uploadFile(file);
+                        }
+                        break;
+                    }
+                }
+            });
+            
             messageInput.addEventListener('keydown', function(e) {
                 // 按Enter发送消息
                 if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
@@ -2059,18 +2304,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Ctrl+Enter插入换行（原UI逻辑）
                 else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
                     e.preventDefault();
-                    // 使用selection API处理div输入框的光标位置和文本插入
+                    // 使用Selection API处理div输入框的文本插入和光标定位
                     const selection = window.getSelection();
                     const range = selection.getRangeAt(0);
                     
-                    // 插入换行符
+                    // 创建包含换行符的文档片段
                     const br = document.createElement('br');
+                    
+                    // 删除当前选区
                     range.deleteContents();
+                    
+                    // 插入换行符
                     range.insertNode(br);
                     
                     // 将光标移动到换行符后面
                     range.setStartAfter(br);
                     range.setEndAfter(br);
+                    
+                    // 更新选区
                     selection.removeAllRanges();
                     selection.addRange(range);
                 }
@@ -2250,103 +2501,126 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         
-        // 上传图片
-        function uploadImage(file) {
-            const formData = new FormData();
-            formData.append('image', file); // 保持与原UI一致，使用'image'字段名
-            formData.append('userId', currentUser.id);
-            
-            if (currentGroupId) {
-                formData.append('groupId', currentGroupId);
-            }
-            
-            // 显示上传进度
-            const uploadProgress = document.getElementById('uploadProgress');
-            const uploadProgressBar = document.getElementById('uploadProgressBar');
-            if (uploadProgress && uploadProgressBar) {
-                uploadProgress.style.display = 'block';
-                uploadProgressBar.style.width = '0%';
-            }
-            
-            // 发送图片上传请求
-            fetch(`${SERVER_URL}/upload`, {
-                method: 'POST',
-                headers: {
-                    'user-id': currentUser.id,
-                    'session-token': currentSessionToken
-                },
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    // 上传成功，只依赖服务器的Socket.IO广播，避免显示重复消息
-                    console.log('图片上传成功', data);
-                } else {
-                    showError(data.message || '图片上传失败');
-                }
-            })
-            .catch(error => {
-                showError('图片上传失败，请稍后重试');
-            })
-            .finally(() => {
-                // 隐藏上传进度
-                if (uploadProgress) {
-                    uploadProgress.style.display = 'none';
-                }
-                // 重置文件输入
-                imageInput.value = '';
-            });
-        }
+    }
+    
+    // 上传图片 - 全局函数，供所有聊天模式使用
+function uploadImage(file) {
+    const formData = new FormData();
+    formData.append('image', file); // 保持与原UI一致，使用'image'字段名
+    formData.append('userId', currentUser.id);
+    
+    // 只有在群组聊天时才添加groupId字段
+    if (currentGroupId) {
+        formData.append('groupId', currentGroupId);
+    }
+    
+    // 根据当前是否在群组聊天中使用正确的上传进度条
+    const uploadProgress = currentGroupId ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
+    const uploadProgressBar = currentGroupId ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
+    if (uploadProgress && uploadProgressBar) {
+        uploadProgress.style.display = 'block';
+        uploadProgressBar.style.width = '0%';
+    }
         
-        // 上传文件
-        function uploadFile(file) {
-            const formData = new FormData();
-            formData.append('image', file); // 保持与原UI一致，使用'image'字段名
-            formData.append('userId', currentUser.id);
-            
+        // 发送图片上传请求
+        fetch(`${SERVER_URL}/upload`, {
+            method: 'POST',
+            headers: {
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 上传成功，只依赖服务器的Socket.IO广播，避免显示重复消息
+
+            } else {
+                showError(data.message || '图片上传失败');
+            }
+        })
+        .catch(error => {
+            showError('图片上传失败，请稍后重试');
+        })
+        .finally(() => {
+            // 隐藏上传进度
+            if (uploadProgress) {
+                uploadProgress.style.display = 'none';
+            }
+            // 根据当前是否在群组聊天中使用正确的文件输入元素
             if (currentGroupId) {
-                formData.append('groupId', currentGroupId);
-            }
-            
-            // 显示上传进度
-            const uploadProgress = document.getElementById('uploadProgress');
-            const uploadProgressBar = document.getElementById('uploadProgressBar');
-            if (uploadProgress && uploadProgressBar) {
-                uploadProgress.style.display = 'block';
-                uploadProgressBar.style.width = '0%';
-            }
-            
-            // 发送文件上传请求
-            fetch(`${SERVER_URL}/upload`, {
-                method: 'POST',
-                headers: {
-                    'user-id': currentUser.id,
-                    'session-token': currentSessionToken
-                },
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    // 上传成功，只依赖服务器的Socket.IO广播，避免显示重复消息
-                    console.log('文件上传成功', data);
-                } else {
-                    showError(data.message || '文件上传失败');
+                const groupImageInput = document.getElementById('groupImageInput');
+                if (groupImageInput) {
+                    groupImageInput.value = '';
                 }
-            })
-            .catch(error => {
-                showError('文件上传失败，请稍后重试');
-            })
-            .finally(() => {
-                // 隐藏上传进度
-                if (uploadProgress) {
-                    uploadProgress.style.display = 'none';
+            } else {
+                const imageInput = document.getElementById('imageInput');
+                if (imageInput) {
+                    imageInput.value = '';
                 }
-                // 重置文件输入
-                fileInput.value = '';
-            });
-        }
+            }
+        });
+    }
+    
+    // 上传文件 - 全局函数，供所有聊天模式使用
+function uploadFile(file) {
+    const formData = new FormData();
+    formData.append('image', file); // 保持与原UI一致，使用'image'字段名
+    formData.append('userId', currentUser.id);
+    
+    // 只有在群组聊天时才添加groupId字段
+    if (currentGroupId) {
+        formData.append('groupId', currentGroupId);
+    }
+    
+    // 根据当前是否在群组聊天中使用正确的上传进度条
+    const uploadProgress = currentGroupId ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
+    const uploadProgressBar = currentGroupId ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
+    if (uploadProgress && uploadProgressBar) {
+        uploadProgress.style.display = 'block';
+        uploadProgressBar.style.width = '0%';
+    }
+        
+        // 发送文件上传请求
+        fetch(`${SERVER_URL}/upload`, {
+            method: 'POST',
+            headers: {
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 上传成功，只依赖服务器的Socket.IO广播，避免显示重复消息
+
+            } else {
+                showError(data.message || '文件上传失败');
+            }
+        })
+        .catch(error => {
+            showError('文件上传失败，请稍后重试');
+        })
+        .finally(() => {
+            // 隐藏上传进度
+            if (uploadProgress) {
+                uploadProgress.style.display = 'none';
+            }
+            // 根据当前是否在群组聊天中使用正确的文件输入元素
+            if (currentGroupId) {
+                const groupFileInput = document.getElementById('groupFileInput');
+                if (groupFileInput) {
+                    groupFileInput.value = '';
+                }
+            } else {
+                const fileInput = document.getElementById('fileInput');
+                if (fileInput) {
+                    fileInput.value = '';
+                }
+            }
+        });
     }
     
     // 初始化群组功能
@@ -2357,37 +2631,65 @@ document.addEventListener('DOMContentLoaded', function() {
         const groupMessageInput = document.getElementById('groupMessageInput');
         const sendGroupMessageBtn = document.getElementById('sendGroupMessage');
         
+        // 初始化群组图片和文件上传
+        const groupImageUploadButton = document.getElementById('groupImageUploadButton');
+        const groupFileUploadButton = document.getElementById('groupFileUploadButton');
+        const groupImageInput = document.getElementById('groupImageInput');
+        const groupFileInput = document.getElementById('groupFileInput');
+        
         if (groupMessageInput && sendGroupMessageBtn) {
             sendGroupMessageBtn.addEventListener('click', function() {
+                // console.log(`📤 群组消息发送按钮点击 - 群组ID: ${currentGroupId}, 群组名称: ${currentGroupName}`);
                 sendGroupMessage();
+            });
+            
+            // 添加黏贴事件处理，支持黏贴图片和文件
+            groupMessageInput.addEventListener('paste', function(e) {
+                const items = e.clipboardData.items;
+                for (const item of items) {
+                    if (item.type.startsWith('image/')) {
+                        e.preventDefault();
+                        const file = item.getAsFile();
+                        if (file) {
+                            uploadImage(file);
+                        }
+                        break;
+                    } else if (item.type === 'application/octet-stream') {
+                        e.preventDefault();
+                        const file = item.getAsFile();
+                        if (file) {
+                            uploadFile(file);
+                        }
+                        break;
+                    }
+                }
             });
             
             groupMessageInput.addEventListener('keydown', function(e) {
                 // 按Enter发送消息
                 if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
-                    // 确保输入框已启用
-                    if (groupMessageInput.contentEditable === 'true') {
-                        e.preventDefault(); // 阻止默认换行
-                        sendGroupMessage();
-                    }
+                    e.preventDefault(); // 阻止默认换行
+                    sendGroupMessage();
                 } 
-                // Ctrl+Enter插入换行（原UI逻辑）
+                // Ctrl+Enter插入换行（textarea版本）
                 else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
                     e.preventDefault();
-                    // 使用selection API处理div输入框的光标位置和文本插入
-                    const selection = window.getSelection();
-                    const range = selection.getRangeAt(0);
                     
-                    // 插入换行符
-                    const br = document.createElement('br');
-                    range.deleteContents();
-                    range.insertNode(br);
+                    // 对于textarea元素，使用更简单的方式处理换行
+                    const textarea = groupMessageInput;
+                    const start = textarea.selectionStart;
+                    const end = textarea.selectionEnd;
+                    
+                    // 在当前光标位置插入换行符
+                    const value = textarea.value;
+                    textarea.value = value.substring(0, start) + '\n' + value.substring(end);
                     
                     // 将光标移动到换行符后面
-                    range.setStartAfter(br);
-                    range.setEndAfter(br);
-                    selection.removeAllRanges();
-                    selection.addRange(range);
+                    const newPosition = start + 1;
+                    textarea.setSelectionRange(newPosition, newPosition);
+                    
+                    // 确保输入框保持焦点
+                    textarea.focus();
                 }
                 // Shift+Enter也允许换行
                 else if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey) {
@@ -2396,16 +2698,70 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
         
+        // 初始化群组图片上传功能
+        if (groupImageUploadButton && groupImageInput) {
+            groupImageUploadButton.addEventListener('click', function() {
+                // console.log(`🖼️  群组图片上传按钮点击 - 群组ID: ${currentGroupId}, 群组名称: ${currentGroupName}`);
+                groupImageInput.click();
+            });
+            
+            groupImageInput.addEventListener('change', function() {
+                if (this.files && this.files[0]) {
+                    // console.log(`📤 群组图片选择完成 - 文件名: ${this.files[0].name}, 大小: ${this.files[0].size} bytes, 群组ID: ${currentGroupId}`);
+                    uploadImage(this.files[0]);
+                }
+            });
+        }
+        
+        // 初始化群组文件上传功能
+        if (groupFileUploadButton && groupFileInput) {
+            groupFileUploadButton.addEventListener('click', function() {
+                // console.log(`📁 群组文件上传按钮点击 - 群组ID: ${currentGroupId}, 群组名称: ${currentGroupName}`);
+                groupFileInput.click();
+            });
+            
+            groupFileInput.addEventListener('change', function() {
+                if (this.files && this.files[0]) {
+                    // console.log(`📤 群组文件选择完成 - 文件名: ${this.files[0].name}, 大小: ${this.files[0].size} bytes, 群组ID: ${currentGroupId}`);
+                    uploadFile(this.files[0]);
+                }
+            });
+        }
+        
         function sendGroupMessage() {
             if (!currentGroupId) {
+                console.warn('⚠️  无法发送群组消息 - 未选择群组');
                 return;
             }
             
             const groupMessageInput = document.getElementById('groupMessageInput');
-            // 移除可能的空标签，获取纯文本内容
-            const content = groupMessageInput.textContent.trim() || groupMessageInput.innerHTML.trim();
+            if (!groupMessageInput) {
+                console.error('❌ 无法获取群组消息输入框 - 元素不存在');
+                return;
+            }
+            
+            // 修复：正确获取输入框内容，处理可编辑div的内容获取
+            let content = '';
+            if (groupMessageInput.tagName === 'DIV' && groupMessageInput.isContentEditable) {
+                // 对于可编辑div，获取文本内容并处理空标签
+                content = groupMessageInput.textContent.trim();
+                // 如果文本内容为空，尝试获取innerHTML并清理空标签
+                if (!content) {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = groupMessageInput.innerHTML;
+                    content = tempDiv.textContent.trim();
+                }
+            } else {
+                // 对于普通input或textarea
+                content = groupMessageInput.value || groupMessageInput.innerHTML || '';
+                content = content.trim();
+            }
+            
+
             
             if (content && isConnected && window.chatSocket) {
+                // console.log(`📤 准备发送群组消息 - 内容长度: ${content.length} 字符, 群组ID: ${currentGroupId}, 发送者ID: ${currentUser.id}`);
+                
                 // 使用Socket.io发送群组消息，与原UI保持一致，使用send-message事件并包含groupId参数
                 const messageData = {
                     groupId: currentGroupId,
@@ -2413,10 +2769,21 @@ document.addEventListener('DOMContentLoaded', function() {
                     sessionToken: currentSessionToken,
                     userId: currentUser.id
                 };
+                
+                // console.log(`📡 发送群组消息到服务器 - 事件: send-message, 消息数据:`, messageData);
                 window.chatSocket.emit('send-message', messageData);
                 
                 // 清空输入框
-                groupMessageInput.innerHTML = '';
+                groupMessageInput.value = '';
+                // console.log(`✅ 群组消息发送完成 - 输入框已清空`);
+            } else {
+                if (!content) {
+                    console.warn('⚠️  无法发送群组消息 - 消息内容为空');
+                } else if (!isConnected) {
+                    console.warn('⚠️  无法发送群组消息 - 未连接到服务器');
+                } else if (!window.chatSocket) {
+                    console.warn('⚠️  无法发送群组消息 - WebSocket实例不存在');
+                }
             }
         }
     }
@@ -2747,8 +3114,8 @@ document.addEventListener('DOMContentLoaded', function() {
         modalGroupName.textContent = `${originalGroupName} - 群组信息`;
         modalGroupNameValue.textContent = originalGroupName;
         modalGroupIdValue.textContent = groupData.id;
-        modalGroupMemberCount.textContent = Array.isArray(groupData.members) ? groupData.members.length : groupData.memberCount || groupData.count || groupData.userCount || groupData.groupCount || 0;
-        
+        modalGroupMemberCount.textContent = '加载中';
+        console.log(groupData);
         // 显示群主信息（使用与原UI一致的creator_id）
         const ownerId = groupData.creator_id || groupData.ownerId || groupData.creatorId || groupData.adminId;
         const isOwner = currentUser.id === String(ownerId);
@@ -3028,6 +3395,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // console.log(`📋 [群组成员] 开始加载群组成员列表，群组ID: ${groupId}，是否为群主: ${isOwner}`);
         
         const groupMembersContainer = document.getElementById('groupMembersContainer');
+        const modalGroupMemberCount = document.getElementById('modalGroupMemberCount');
         if (!groupMembersContainer) {
             // console.error('❌ [群组成员] 未找到群组成员容器');
             return;
@@ -3049,6 +3417,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.status === 'success') {
                 // console.log(`📊 [群组成员] 成功获取群组成员列表，共 ${data.members.length} 个成员`);
                 updateGroupMembersList(data.members, isOwner, groupId);
+                // 更新群组成员数量
+                modalGroupMemberCount.textContent = data.members.length;
             } else {
                 const errorMsg = data.message || '未知错误';
                 // console.error(`❌ [群组成员] 加载群组成员列表失败: ${errorMsg}`);
@@ -3146,7 +3516,7 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            console.log('踢出成员响应:', data);
+
             // 检查服务器返回的状态，有些服务器可能返回不同的状态值
             if (data.status === 'success' || (data.message && data.message.includes('成功'))) {
                 alert(`已成功踢出成员 ${memberName}`);
@@ -3164,9 +3534,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 显示添加群组成员模态框
     function showAddGroupMemberModal(groupId) {
-        console.log(`📋 [添加成员] 显示添加群组成员模态框，群组ID: ${groupId}`);
+
         if (!groupId || !currentUser || !currentSessionToken) {
-            console.error('❌ [添加成员] 参数错误或用户未登录');
             return;
         }
         
@@ -3188,7 +3557,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 隐藏添加群组成员模态框
     function hideAddGroupMemberModal() {
-        console.log('📋 [添加成员] 隐藏添加群组成员模态框');
+
         const modal = document.getElementById('addGroupMemberModal');
         if (modal) {
             modal.style.display = 'none';
@@ -3216,15 +3585,13 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 加载可添加到群组的成员
     function loadAvailableMembersForGroup(groupId) {
-        console.log(`📦 [添加成员] 加载可添加到群组 ${groupId} 的成员`);
+
         if (!groupId || !currentUser || !currentSessionToken) {
-            console.error('❌ [添加成员] 参数错误或用户未登录');
             return;
         }
         
         const availableMembersList = document.getElementById('availableMembersList');
         if (!availableMembersList) {
-            console.error('❌ [添加成员] 找不到可用成员列表容器');
             return;
         }
         
@@ -3241,7 +3608,7 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            console.log(`📦 [添加成员] 成功获取可添加到群组 ${groupId} 的成员数据:`, data);
+
             
             if (data.status === 'success') {
                 if (!data.members || data.members.length === 0) {
@@ -3268,10 +3635,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 确认添加群组成员
     function confirmAddGroupMembers() {
-        console.log('📋 [添加成员] 确认添加群组成员');
+
         const groupId = window.currentAddingGroupId;
         if (!groupId || !currentUser || !currentSessionToken) {
-            console.error('❌ [添加成员] 参数错误或用户未登录');
             return;
         }
         
@@ -3297,7 +3663,7 @@ document.addEventListener('DOMContentLoaded', function() {
         addMembersMessage.textContent = '';
         addMembersMessage.className = 'create-group-message';
         
-        console.log(`📋 [添加成员] 准备添加 ${selectedMemberIds.length} 名成员到群组 ${groupId}:`, selectedMemberIds);
+
         
         // 发送添加成员请求
         fetch(`${SERVER_URL}/add-group-members`, {
@@ -3314,7 +3680,7 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            console.log(`📋 [添加成员] 添加成员到群组 ${groupId} 的响应:`, data);
+
             
             if (data.status === 'success' || (data.message && data.message.includes('成功'))) {
                 addMembersMessage.textContent = '成员添加成功';
@@ -3673,10 +4039,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // 更新页面标题，格式：（X条未读）简易聊天室
         if (totalUnread > 0) {
             document.title = `（${totalUnread}条未读）${originalTitle}`;
-            console.log(`📌 更新标题为: （${totalUnread}条未读）${originalTitle}`);
+
         } else {
             document.title = originalTitle;
-            console.log(`📌 更新标题为: ${originalTitle}`);
         }
         
         // 更新未读计数显示
@@ -3743,7 +4108,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 // 清除当前群组未读计数
                 if (unreadMessages.groups[currentActiveChat] > 0) {
-                    console.log(`🔔 群组 ${currentActiveChat} 获得焦点，清除未读消息计数: ${unreadMessages.groups[currentActiveChat]}`);
+
                     unreadMessages.groups[currentActiveChat] = 0;
                     updateTitleWithUnreadCount();
                 }
@@ -3818,22 +4183,148 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (shouldAddUnread) {
             if (isGroup && groupId) {
-                // 更新群组未读消息计数
-                unreadMessages.groups[groupId] = (unreadMessages.groups[groupId] || 0) + 1;
-                // console.log(`🔔 收到群组 ${groupId} 新消息，未读计数: ${unreadMessages.groups[groupId]}`);
+                // 检查群组是否被免打扰
+                if (!isGroupMuted(groupId)) {
+                    // 更新群组未读消息计数
+                    unreadMessages.groups[groupId] = (unreadMessages.groups[groupId] || 0) + 1;
+                    console.log(`🔔 收到群组 ${groupId} 新消息，未读计数: ${unreadMessages.groups[groupId]}`);
+                } else {
+                    console.log(`🔕 收到群组 ${groupId} 新消息，已免打扰，不增加未读计数`);
+                }
             } else {
                 // 更新全局未读消息计数
                 unreadMessages.global++;
-                // console.log(`🔔 收到主聊天室新消息，未读计数: ${unreadMessages.global}`);
+                console.log(`🔔 收到主聊天室新消息，未读计数: ${unreadMessages.global}`);
             }
             // 更新标题
             updateTitleWithUnreadCount();
         } else {
-            // console.log(`✅ 收到新消息，用户当前在活动聊天室，不添加未读计数`);
+            console.log(`✅ 收到新消息，用户当前在活动聊天室，不添加未读计数`);
         }
     }
     
     // 更新群组列表
+    // 免打扰功能相关函数
+    function getMutedGroups() {
+        const mutedGroups = localStorage.getItem('mutedGroups');
+        return mutedGroups ? JSON.parse(mutedGroups) : [];
+    }
+    
+    function isGroupMuted(groupId) {
+        const mutedGroups = getMutedGroups();
+        return mutedGroups.includes(groupId.toString());
+    }
+    
+    function toggleGroupMute(groupId) {
+        const mutedGroups = getMutedGroups();
+        const groupIdStr = groupId.toString();
+        let updatedGroups;
+        
+        if (mutedGroups.includes(groupIdStr)) {
+            // 取消免打扰
+            updatedGroups = mutedGroups.filter(id => id !== groupIdStr);
+            console.log(`🔔 取消群组免打扰 - 群组ID: ${groupId}`);
+        } else {
+            // 设置免打扰
+            updatedGroups = [...mutedGroups, groupIdStr];
+            console.log(`🔕 设置群组免打扰 - 群组ID: ${groupId}`);
+        }
+        
+        localStorage.setItem('mutedGroups', JSON.stringify(updatedGroups));
+        // 更新群组列表显示
+        updateGroupListDisplay();
+        // 更新未读计数
+        updateUnreadCountsDisplay();
+        return !mutedGroups.includes(groupIdStr); // 返回新的免打扰状态
+    }
+    
+    // 更新群组列表显示（重新渲染或更新免打扰图标）
+    function updateGroupListDisplay() {
+        const groupList = document.getElementById('groupList');
+        if (!groupList) return;
+        
+        // 更新每个群组项的免打扰图标
+        const groupItems = groupList.querySelectorAll('li');
+        groupItems.forEach(item => {
+            const groupId = item.getAttribute('data-group-id');
+            updateGroupMuteIcon(item, groupId);
+        });
+    }
+    
+    // 更新群组项的免打扰图标
+    function updateGroupMuteIcon(groupItem, groupId) {
+        // 移除现有的免打扰图标
+        let muteIcon = groupItem.querySelector('.mute-icon');
+        if (muteIcon) {
+            muteIcon.remove();
+        }
+        
+        // 如果群组被静音，添加免打扰图标
+        if (isGroupMuted(groupId)) {
+            muteIcon = document.createElement('span');
+            muteIcon.className = 'mute-icon';
+            muteIcon.textContent = '🔕';
+            muteIcon.style.marginLeft = '5px';
+            muteIcon.style.fontSize = '12px';
+            muteIcon.title = '已免打扰';
+            groupItem.appendChild(muteIcon);
+        }
+    }
+    
+    // 显示右键菜单
+    function showContextMenu(e, groupId, groupName) {
+        // 先隐藏现有的右键菜单
+        hideContextMenu();
+        
+        // 创建右键菜单元素
+        const contextMenu = document.createElement('div');
+        contextMenu.className = 'context-menu';
+        contextMenu.style.position = 'fixed';
+        contextMenu.style.left = e.clientX + 'px';
+        contextMenu.style.top = e.clientY + 'px';
+        contextMenu.style.backgroundColor = 'white';
+        contextMenu.style.border = '1px solid #ddd';
+        contextMenu.style.borderRadius = '4px';
+        contextMenu.style.boxShadow = '0 2px 10px rgba(0,0,0,0.1)';
+        contextMenu.style.zIndex = '1000';
+        contextMenu.style.padding = '5px 0';
+        
+        // 添加菜单项
+        const isMuted = isGroupMuted(groupId);
+        const menuItem = document.createElement('div');
+        menuItem.className = 'context-menu-item';
+        menuItem.textContent = isMuted ? '取消免打扰' : '免打扰';
+        menuItem.style.padding = '8px 15px';
+        menuItem.style.cursor = 'pointer';
+        menuItem.style.fontSize = '14px';
+        menuItem.style.whiteSpace = 'nowrap';
+        
+        menuItem.addEventListener('click', () => {
+            toggleGroupMute(groupId);
+            hideContextMenu();
+        });
+        
+        contextMenu.appendChild(menuItem);
+        document.body.appendChild(contextMenu);
+        
+        // 保存当前菜单引用
+        window.currentContextMenu = contextMenu;
+        
+        // 添加全局点击事件监听，点击其他地方关闭菜单
+        setTimeout(() => {
+            document.addEventListener('click', hideContextMenu);
+        }, 0);
+    }
+    
+    // 隐藏右键菜单
+    function hideContextMenu() {
+        if (window.currentContextMenu) {
+            document.body.removeChild(window.currentContextMenu);
+            window.currentContextMenu = null;
+        }
+        document.removeEventListener('click', hideContextMenu);
+    }
+    
     function updateGroupList(groups) {
         const groupList = document.getElementById('groupList');
         if (!groupList) return;
@@ -3894,6 +4385,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 立即加载群组聊天记录
                 loadGroupMessages(groupId);
             });
+            
+            // 添加右键菜单事件
+            li.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                const groupId = this.getAttribute('data-group-id');
+                const groupName = this.getAttribute('data-group-name');
+                showContextMenu(e, groupId, groupName);
+            });
+            
+            // 更新免打扰图标
+            updateGroupMuteIcon(li, group.id);
             
             groupList.appendChild(li);
         });
