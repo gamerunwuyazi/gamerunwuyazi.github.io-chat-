@@ -4537,6 +4537,9 @@ function uploadFile(file) {
                         // 当切换到主聊天室时，更新当前活动聊天室并清除未读计数
                         if (targetSection === 'public-chat') {
                             setActiveChat('main');
+                            // 重置当前群组信息，确保公共聊天的上传不会发送到群组
+                            currentGroupId = null;
+                            currentGroupName = '';
                         }
                     }
                 });
