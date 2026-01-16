@@ -160,62 +160,374 @@
                         <li class="settings-item" data-setting-id="help-center">帮助中心</li>
                     </ul>
                 </div>
-        </div>
-        
-        <!-- 群组信息模态框 -->
-        <div id="groupInfoModal" class="modal" style="display: none;">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 id="modalGroupName">群组信息</h2>
-                    <span class="close" id="closeGroupInfoModal">&times;</span>
-                </div>
-                <div class="modal-body">
-                    <div class="group-info-item">
-                        <label>群组名称:</label>
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span id="modalGroupNameValue"></span>
-                            <button id="editGroupNameBtn" class="edit-group-name-btn" style="padding: 4px 8px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                                编辑
-                            </button>
-                        </div>
-                    </div>
-                    <div class="group-info-item">
-                        <label>群组ID:</label>
-                        <span id="modalGroupIdValue"></span>
-                    </div>
-                    <div class="group-info-item">
-                        <label>成员数量:</label>
-                        <span id="modalGroupMemberCount"></span>
-                    </div>
-                    <div class="group-info-item">
-                        <label>群主:</label>
-                        <span id="modalGroupOwner">加载中...</span>
-                    </div>
-                    
-                    <!-- 群组成员列表 -->
-                    <div class="group-members-section">
-                        <h3>群组成员</h3>
-                        <div id="groupMembersContainer" class="group-members-container">
-                            <div class="loading-members">正在加载成员列表...</div>
-                        </div>
-                    </div>
-                    
-                    <!-- 群主管理区域 -->
-                    <div id="groupManageSection" class="group-manage-section" style="display: none;">
-                        <h3>群组管理</h3>
-                        <div class="group-manage-buttons">
-                            <button id="addMemberToGroup" class="save-btn">添加成员</button>
-                            <button id="refreshGroupMembers" class="save-btn">刷新成员列表</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button id="modalCloseButton" class="cancel-btn">关闭</button>
-                </div>
             </div>
         </div>
         
-        <!-- 创建群组模态框 -->
+        <!-- 聊天主界面容器 -->
+        <div id="chat-main">
+            <!-- Markdown工具栏 -->
+            <div class="markdown-toolbar" id="markdownToolbar">
+                <button class="markdown-btn" data-prefix="**" data-suffix="**" data-sample="粗体文本">粗体</button>
+                <button class="markdown-btn" data-prefix="_" data-suffix="_" data-sample="斜体文本">斜体</button>
+                <button class="markdown-btn" data-prefix="`" data-suffix="`" data-sample="代码">代码</button>
+                <button class="markdown-btn" data-prefix="```\n" data-suffix="\n```" data-sample="代码块">代码块</button>
+                <button class="markdown-btn" data-prefix="# " data-sample="标题">标题</button>
+                <button class="markdown-btn" data-prefix="- " data-sample="列表项">列表</button>
+                <button class="markdown-btn" data-prefix="> " data-sample="引用文本">引用</button>
+                <button class="markdown-btn" data-prefix="[链接描述](" data-suffix=")" data-sample="链接文本">链接</button>
+                <button class="markdown-btn" data-prefix="![图片无法显示时的文字](" data-suffix=")" data-sample="图片URL">图片</button>
+            </div>
+            
+            <!-- 公共聊天界面 -->
+            <div class="chat-content active" data-content="public-chat">
+                <!-- 消息列表 -->
+                <div id="messageContainer">
+                    <div class="empty-state" id="emptyState">
+                        <h3>暂无消息</h3>
+                        <p>发送第一条消息开始聊天吧!</p>
+                    </div>
+                </div>
+                
+                <!-- 输入区域 -->
+                <div class="input-area">
+                    <div class="input-container" id="mainInputContainer">
+                        <div id="messageInput" class="editable-div" placeholder="发送消息（Ctrl+Enter或Shift+Enter换行  支持Markdown语法）" contenteditable="true"></div>
+                    </div>
+                    <div class="input-buttons" id="mainInputButtons">
+                        <button id="sendButton">发送</button>
+                        <button id="moreButton" class="more-button" title="更多功能">
+                            ⋯ <span class="button-text">更多</span>
+                        </button>
+                        <button id="toggleMarkdownToolbar" class="toggle-btn" style="background: #f1f1f1; border: 1px solid #ddd; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: #666; transition: all 0.2s; margin-left: 5px;">
+                            <i class="fas fa-chevron-down"></i> MD
+                        </button>
+                    </div>
+                    <!-- 将more-functions移到input-buttons外面 -->
+                    <div class="more-functions" id="mainMoreFunctions" style="display: none;">
+                        <button id="imageUploadButton" title="上传图片">
+                            📷 <span class="button-text">发送图片</span>
+                        </button>
+                        <button id="fileUploadButton" title="上传文件">
+                            📤 <span class="button-text">发送文件</span>
+                        </button>
+                        <button id="sendGroupCardButton" title="发送群名片">
+                            📱 <span class="button-text">发送群名片</span>
+                        </button>
+                    </div>
+                    <input type="file" id="imageInput" style="display: none;" accept="image/*">
+                    <input type="file" id="fileInput" style="display: none;">
+                </div>
+                
+                <!-- 上传进度条 -->
+                <div class="upload-progress" id="uploadProgress">
+                    <div class="upload-progress-bar" id="uploadProgressBar"></div>
+                </div>
+            </div>
+            
+            <!-- 群组聊天界面 -->
+            <div class="chat-content" data-content="group-chat">
+                <!-- 空白状态 -->
+                <div class="empty-chat-state active" id="groupEmptyState">
+                    <div class="empty-icon">👥</div>
+                    <h3>选择一个群组开始聊天</h3>
+                    <p>请从左侧群组列表中选择一个群组，开始群聊会话</p>
+                </div>
+                
+                <!-- 具体群组聊天界面 -->
+                    <div class="group-chat-interface" id="groupChatInterface" style="display: none;">
+                        <!-- 群组头部 -->
+                        <div class="group-header">
+                            <h2 id="currentGroupName">群组名称</h2>
+                            <div class="group-actions">
+                                <button id="groupInfoButton">群组信息</button>
+                                <button id="leaveGroupButton">退出群组</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 群组Markdown工具栏 -->
+                        <div class="markdown-toolbar group-markdown-toolbar" id="groupMarkdownToolbar" style="display: none;">
+                            <button class="markdown-btn" data-prefix="**" data-suffix="**" data-sample="粗体文本">粗体</button>
+                            <button class="markdown-btn" data-prefix="_" data-suffix="_" data-sample="斜体文本">斜体</button>
+                            <button class="markdown-btn" data-prefix="`" data-suffix="`" data-sample="代码">代码</button>
+                            <button class="markdown-btn" data-prefix="```\n" data-suffix="\n```" data-sample="代码块">代码块</button>
+                            <button class="markdown-btn" data-prefix="# " data-sample="标题">标题</button>
+                            <button class="markdown-btn" data-prefix="- " data-sample="列表项">列表</button>
+                            <button class="markdown-btn" data-prefix="> " data-sample="引用文本">引用</button>
+                            <button class="markdown-btn" data-prefix="[链接描述](" data-suffix=")" data-sample="链接文本">链接</button>
+                            <button class="markdown-btn" data-prefix="![图片无法显示时的文字](" data-suffix=")" data-sample="图片URL">图片</button>
+                        </div>
+                    
+                    <!-- 群组消息列表 -->
+                    <div id="groupMessageContainer">
+                        <div class="empty-state">
+                            <h3>暂无群消息</h3>
+                            <p>发送第一条消息开始群聊吧!</p>
+                        </div>
+                    </div>
+                    
+                    <!-- 群组输入区域 -->
+                    <div class="input-area">
+                        <div class="input-container" id="groupInputContainer">
+                            <textarea id="groupMessageInput" placeholder="输入群组消息..."></textarea>
+                        </div>
+                        <div class="input-buttons" id="groupInputButtons">
+                            <button id="sendGroupMessage">发送</button>
+                            <button id="groupMoreButton" class="more-button" title="更多功能">
+                                ⋯ <span class="button-text">更多</span>
+                            </button>
+                            <button id="toggleGroupMarkdownToolbar" class="toggle-btn" style="background: #f1f1f1; border: 1px solid #ddd; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: #666; transition: all 0.2s; margin-left: 5px;">
+                                <i class="fas fa-chevron-down"></i> MD
+                            </button>
+                        </div>
+                        <!-- 将more-functions移到input-buttons外面 -->
+                        <div class="more-functions" id="groupMoreFunctions" style="display: none;">
+                            <button id="groupImageUploadButton" title="上传图片">
+                                📷 <span class="button-text">发送图片</span>
+                            </button>
+                            <button id="groupFileUploadButton" title="上传文件">
+                                📤 <span class="button-text">发送文件</span>
+                            </button>
+                            <button id="sendGroupCardButtonGroup" title="发送群名片">
+                                📱 <span class="button-text">发送群名片</span>
+                            </button>
+                        </div>
+                        <input type="file" id="groupImageInput" style="display: none;" accept="image/*">
+                        <input type="file" id="groupFileInput" style="display: none;">
+                    </div>
+                    
+                    <!-- 上传进度条 -->
+                    <div class="upload-progress" id="groupUploadProgress">
+                        <div class="upload-progress-bar" id="groupUploadProgressBar"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 用户设置界面 -->
+            <div class="chat-content" data-content="user-settings">
+                <!-- 空白状态 -->
+                <div class="empty-chat-state active" id="settingsEmptyState">
+                    <div class="empty-icon">⚙️</div>
+                    <h3>选择一个设置项进行配置</h3>
+                    <p>请从左侧设置列表中选择一个选项，进行个性化配置</p>
+                </div>
+                
+                <!-- 设置详情容器 -->
+                <div class="settings-container" id="settingsContainer" style="display: none;">
+                    <!-- 修改密码 -->
+                    <div class="settings-detail" data-setting="change-password" style="display: none;">
+                        <h2>修改密码</h2>
+                        <form class="settings-form">
+                            <div class="form-group">
+                                <label for="oldPassword">原密码</label>
+                                <input type="password" id="oldPassword" placeholder="请输入原密码" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="newPassword">新密码</label>
+                                <input type="password" id="newPassword" placeholder="请输入新密码" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="confirmPassword">确认新密码</label>
+                                <input type="password" id="confirmPassword" placeholder="请再次输入新密码" required>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="save-btn">保存</button>
+                                <button type="button" class="cancel-btn">取消</button>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <!-- 修改昵称 -->
+                    <div class="settings-detail" data-setting="change-nickname" style="display: none;">
+                        <h2>修改昵称</h2>
+                        <form class="settings-form">
+                            <div class="form-group">
+                                <label for="newNickname">新昵称</label>
+                                <input type="text" id="newNickname" name="newNickname" placeholder="请输入新昵称" maxlength="40" required>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="save-btn">保存</button>
+                                <button type="button" class="cancel-btn">取消</button>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <!-- 上传头像 -->
+                    <div class="settings-detail" data-setting="upload-avatar" style="display: none;">
+                        <h2>上传头像</h2>
+                        <div class="avatar-upload-section">
+                            <div class="avatar-preview" id="avatarPreview">
+                                <!-- 头像预览将通过JavaScript动态添加 -->
+                            </div>
+                            <div class="avatar-upload-buttons">
+                                <input type="file" id="avatarFileInput" style="display: none;" accept="image/*">
+                                <button id="selectAvatarButton" class="save-btn">选择图片</button>
+                                <button id="uploadAvatarButton" class="save-btn" disabled>上传头像</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 快捷键设置 -->
+                    <div class="settings-detail" data-setting="shortcut-settings" style="display: none;">
+                        <h2>快捷键设置</h2>
+                        <div class="shortcuts-list">
+                            <div class="shortcut-item">
+                                <div class="shortcut-name">发送消息</div>
+                                <div class="shortcut-keys">Enter</div>
+                            </div>
+                            <div class="shortcut-item">
+                                <div class="shortcut-name">换行</div>
+                                <div class="shortcut-keys">Shift + Enter</div>
+                            </div>
+                            <div class="shortcut-item">
+                                <div class="shortcut-name">切换Markdown工具栏</div>
+                                <div class="shortcut-keys">Ctrl + M</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 版本信息 -->
+                    <div class="settings-detail" data-setting="version-info" style="display: none;">
+                        <h2>版本信息</h2>
+                        <div class="version-info">
+                            <div class="version-item">
+                                <div class="version-label">当前版本</div>
+                                <div class="version-value">1.0.0</div>
+                            </div>
+                            <div class="version-item">
+                                <div class="version-label">最后更新</div>
+                                <div class="version-value">2023-07-15</div>
+                            </div>
+                            <div class="version-item">
+                                <div class="version-label">开发者</div>
+                                <div class="version-value">chat.gamerunwuyazi.dpdns.org</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 帮助中心 -->
+                    <div class="settings-detail" data-setting="help-center" style="display: none;">
+                        <h2>帮助中心</h2>
+                        <div class="help-content">
+                            <h3>如何发送消息？</h3>
+                            <p>在输入框中输入内容，按下Enter键即可发送消息。</p>
+                            
+                            <h3>如何使用Markdown？</h3>
+                            <p>点击工具栏上的按钮，或手动输入Markdown语法，支持粗体、斜体、代码、链接等。</p>
+                            
+                            <h3>如何创建群组？</h3>
+                            <p>在群组聊天界面，点击左侧群组列表上方的"+"按钮即可创建新群组。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 群组信息模态框 -->
+    <div id="groupInfoModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalGroupName">群组信息</h2>
+                <span class="close" id="closeGroupInfoModal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="group-info-item">
+                    <label>群组名称:</label>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span id="modalGroupNameValue"></span>
+                        <button id="editGroupNameBtn" class="edit-group-name-btn" style="padding: 4px 8px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                            编辑
+                        </button>
+                    </div>
+                </div>
+                <div class="group-info-item">
+                    <label>群组ID:</label>
+                    <span id="modalGroupIdValue"></span>
+                </div>
+                <div class="group-info-item">
+                    <label>成员数量:</label>
+                    <span id="modalGroupMemberCount"></span>
+                </div>
+                <div class="group-info-item">
+                    <label>群主:</label>
+                    <span id="modalGroupOwner">加载中...</span>
+                </div>
+                
+                <!-- 群组成员列表 -->
+                <div class="group-members-section">
+                    <h3>群组成员</h3>
+                    <div id="groupMembersContainer" class="group-members-container">
+                        <div class="loading-members">正在加载成员列表...</div>
+                    </div>
+                </div>
+                
+                <!-- 群主管理区域 -->
+                <div id="groupManageSection" class="group-manage-section" style="display: none;">
+                    <h3>群组管理</h3>
+                    <div class="group-manage-buttons">
+                        <button id="addMemberToGroup" class="save-btn">添加成员</button>
+                        <button id="refreshGroupMembers" class="save-btn">刷新成员列表</button>
+                    </div>
+                </div>
+                
+
+            </div>
+            <div class="modal-footer">
+                <button id="modalCloseButton" class="cancel-btn">关闭</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 分享群名片模态框 -->
+    <div id="shareGroupCardModal" class="modal" style="display: none;">
+        <div class="modal-content" style="width: 500px;">
+            <div class="modal-header">
+                <h2>分享群名片</h2>
+                <span class="close" id="closeShareGroupCardModal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p>选择要分享的群组或主聊天室：</p>
+                <div class="share-targets-container" style="max-height: 300px; overflow-y: auto; margin: 15px 0;">
+                    <!-- 主聊天室选项 -->
+                    <div class="share-target-item" style="display: flex; align-items: center; margin: 10px 0;">
+                        <input type="checkbox" id="target-main-chat" value="main" class="share-target-checkbox">
+                        <label for="target-main-chat" style="margin-left: 10px; cursor: pointer;">主聊天室</label>
+                    </div>
+                    <!-- 群组列表 -->
+                    <div id="shareGroupList" style="margin-top: 15px;">
+                        <!-- 群组选项将动态添加 -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelShareGroupCard" class="cancel-btn">取消</button>
+                <button id="confirmShareGroupCard" class="save-btn">发送</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 发送群名片模态框（单选） -->
+    <div id="sendGroupCardModal" class="modal" style="display: none;">
+        <div class="modal-content" style="width: 400px;">
+            <div class="modal-header">
+                <h2>选择群名片</h2>
+                <span class="close" id="closeSendGroupCardModal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p>选择要发送的群名片：</p>
+                <div class="send-group-card-container" style="max-height: 300px; overflow-y: auto; margin: 15px 0;">
+                    <!-- 群组列表将动态添加 -->
+                    <div id="sendGroupCardList"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelSendGroupCard" class="cancel-btn">取消</button>
+                <button id="confirmSendGroupCard" class="save-btn" disabled>发送</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 创建群组模态框 -->
     <div id="createGroupModal" class="modal" style="display: none;">
         <div class="modal-content">
             <div class="modal-header">
@@ -272,289 +584,46 @@
             </div>
         </div>
     </div>
-    </div>
-        
-        <!-- 聊天主界面容器 -->
-        <div id="chat-main">
-            <!-- 公共聊天界面 -->
-            <div class="chat-content active" data-content="public-chat">
-                <!-- Markdown工具栏 -->
-                <div class="markdown-toolbar" id="markdownToolbar">
-                    <button class="markdown-btn" data-prefix="**" data-suffix="**" data-sample="粗体文本">粗体</button>
-                    <button class="markdown-btn" data-prefix="_" data-suffix="_" data-sample="斜体文本">斜体</button>
-                    <button class="markdown-btn" data-prefix="`" data-suffix="`" data-sample="代码">代码</button>
-                    <button class="markdown-btn" data-prefix="```\n" data-suffix="\n```" data-sample="代码块">代码块</button>
-                    <button class="markdown-btn" data-prefix="# " data-sample="标题">标题</button>
-                    <button class="markdown-btn" data-prefix="- " data-sample="列表项">列表</button>
-                    <button class="markdown-btn" data-prefix="> " data-sample="引用文本">引用</button>
-                    <button class="markdown-btn" data-prefix="[链接描述](" data-suffix=")" data-sample="链接文本">链接</button>
-                    <button class="markdown-btn" data-prefix="![图片无法显示时的文字](" data-suffix=")" data-sample="图片URL">图片</button>
-                </div>
-                
-                <!-- 消息列表 -->
-                <div id="messageContainer">
-                    <div class="empty-state" id="emptyState">
-                        <h3>暂无消息</h3>
-                        <p>发送第一条消息开始聊天吧!</p>
-                    </div>
-                </div>
-                
-                <!-- 输入区域 -->
-                <div class="input-area">
-                    <div class="input-container">
-                        <div id="messageInput" class="editable-div" placeholder="发送消息（Ctrl+Enter或Shift+Enter换行  支持Markdown语法）" contenteditable="true"></div>
-                    </div>
-                    <div class="input-buttons">
-                        <button id="sendButton">发送</button>
-                        <button id="imageUploadButton" title="上传图片">
-                            📷 <span class="button-text">发送图片</span>
-                        </button>
-                        <button id="fileUploadButton" title="上传文件">
-                            📤 <span class="button-text">发送文件</span>
-                        </button>
-                        <button id="toggleMarkdownToolbar" class="toggle-btn" style="background: #f1f1f1; border: 1px solid #ddd; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: #666; transition: all 0.2s; margin-left: 5px;">
-                            <i class="fas fa-chevron-down"></i> MD
-                        </button>
-                    </div>
-                    <input type="file" id="imageInput" style="display: none;" accept="image/*">
-                    <input type="file" id="fileInput" style="display: none;">
-                </div>
-                
-                <!-- 上传进度条 -->
-                <div class="upload-progress" id="uploadProgress">
-                    <div class="upload-progress-bar" id="uploadProgressBar"></div>
-                </div>
-            </div>
-            
-            <!-- 群组聊天界面 -->
-            <div class="chat-content" data-content="group-chat">
-                <!-- 空白状态 -->
-                <div class="empty-chat-state active" id="groupEmptyState">
-                    <div class="empty-icon">👥</div>
-                    <h3>选择一个群组开始聊天</h3>
-                    <p>请从左侧群组列表中选择一个群组，开始群聊会话</p>
-                </div>
-                
-                <!-- 具体群组聊天界面 -->
-                <div class="group-chat-interface" id="groupChatInterface" style="display: none;">
-                    <!-- 群组头部 -->
-                    <div class="group-header">
-                        <h2 id="currentGroupName">群组名称</h2>
-                        <div class="group-actions">
-                            <button id="groupInfoButton">群组信息</button>
-                            <button id="leaveGroupButton">退出群组</button>
-                        </div>
-                    </div>
-                    
-                    <!-- Markdown工具栏 -->
-                    <div class="markdown-toolbar" id="groupMarkdownToolbar">
-                        <button class="markdown-btn" data-prefix="**" data-suffix="**" data-sample="粗体文本">粗体</button>
-                        <button class="markdown-btn" data-prefix="_" data-suffix="_" data-sample="斜体文本">斜体</button>
-                        <button class="markdown-btn" data-prefix="`" data-suffix="`" data-sample="代码">代码</button>
-                        <button class="markdown-btn" data-prefix="```\n" data-suffix="\n```" data-sample="代码块">代码块</button>
-                        <button class="markdown-btn" data-prefix="# " data-sample="标题">标题</button>
-                        <button class="markdown-btn" data-prefix="- " data-sample="列表项">列表</button>
-                        <button class="markdown-btn" data-prefix="> " data-sample="引用文本">引用</button>
-                        <button class="markdown-btn" data-prefix="[链接描述](" data-suffix=")" data-sample="链接文本">链接</button>
-                        <button class="markdown-btn" data-prefix="![图片无法显示时的文字](" data-suffix=")" data-sample="图片URL">图片</button>
-                    </div>
-                    
-                    <!-- 群组消息列表 -->
-                    <div id="groupMessageContainer">
-                        <div class="empty-state">
-                            <h3>暂无群消息</h3>
-                            <p>发送第一条消息开始群聊吧!</p>
-                        </div>
-                    </div>
-                    
-                    <!-- 群组输入区域 -->
-                    <div class="input-area">
-                        <div class="input-container">
-                            <textarea id="groupMessageInput" placeholder="输入群组消息..."></textarea>
-                        </div>
-                        <div class="input-buttons">
-                            <button id="sendGroupMessage">发送</button>
-                            <button id="groupImageUploadButton" title="上传图片">
-                                📷 <span class="button-text">发送图片</span>
-                            </button>
-                            <button id="groupFileUploadButton" title="上传文件">
-                                📤 <span class="button-text">发送文件</span>
-                            </button>
-                            <button id="toggleGroupMarkdownToolbar" class="toggle-btn" style="background: #f1f1f1; border: 1px solid #ddd; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: #666; transition: all 0.2s; margin-left: 5px;">
-                                <i class="fas fa-chevron-down"></i> MD
-                            </button>
-                        </div>
-                        <input type="file" id="groupImageInput" style="display: none;" accept="image/*">
-                        <input type="file" id="groupFileInput" style="display: none;">
-                    </div>
-                    
-                    <!-- 上传进度条 -->
-                    <div class="upload-progress" id="groupUploadProgress">
-                        <div class="upload-progress-bar" id="groupUploadProgressBar"></div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- 用户设置界面 -->
-            <div class="chat-content" data-content="user-settings">
-                <!-- 空白状态 -->
-                <div class="empty-chat-state active" id="settingsEmptyState">
-                    <div class="empty-icon">⚙️</div>
-                    <h3>选择一个设置项进行配置</h3>
-                    <p>请从左侧设置列表中选择一个选项，进行个性化配置</p>
-                </div>
-                
-                <!-- 设置详情容器 -->
-                <div class="settings-container" id="settingsContainer" style="display: none;">
-                    <!-- 修改密码 -->
-                    <div class="settings-detail" data-setting="change-password" style="display: none;">
-                        <h2>修改密码</h2>
-                        <form class="settings-form">
-                            <div class="form-group">
-                                <label for="oldPassword">原密码</label>
-                                <input type="password" id="oldPassword" placeholder="请输入原密码" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="newPassword">新密码</label>
-                                <input type="password" id="newPassword" placeholder="请输入新密码" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="confirmPassword">确认新密码</label>
-                                <input type="password" id="confirmPassword" placeholder="请再次输入新密码" required>
-                            </div>
-                            <div class="form-actions">
-                                <button type="submit" class="save-btn">保存</button>
-                                <button type="button" class="cancel-btn">取消</button>
-                            </div>
-                        </form>
-                    </div>
-                    
-                    <!-- 修改昵称 -->
-                    <div class="settings-detail" data-setting="change-nickname" style="display: none;">
-                        <h2>修改昵称</h2>
-                        <form class="settings-form">
-                            <div class="form-group">
-                                <label for="newNickname">新昵称</label>
-                                <input type="text" id="newNickname" name="newNickname" placeholder="请输入新昵称" maxlength="50" required>
-                            </div>
-                            <div class="form-actions">
-                                <button type="submit" class="save-btn">保存</button>
-                                <button type="button" class="cancel-btn">取消</button>
-                            </div>
-                        </form>
-                    </div>
-                    
-                    <!-- 上传头像 -->
-                    <div class="settings-detail" data-setting="upload-avatar" style="display: none;">
-                        <h2>上传头像</h2>
-                        <div class="avatar-upload-container">
-                            <div class="avatar-preview" id="avatarPreview">
-                                <img src="" alt="当前头像" id="currentAvatarImg" style="display: none;">
-                                <div class="no-avatar" id="noAvatar">暂无头像</div>
-                            </div>
-                            <div class="avatar-upload-actions">
-                                <input type="file" id="avatarFileInput" accept="image/*" style="display: none;">
-                                <button id="chooseAvatarButton" class="save-btn">选择头像</button>
-                                <button id="uploadAvatarButton" class="save-btn" disabled>上传头像</button>
-                                <button id="cancelAvatarButton" class="cancel-btn">取消</button>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- 主题设置 -->
-                    <div class="settings-detail" data-setting="theme-settings" style="display: none;">
-                        <h2>主题设置</h2>
-                        <form class="settings-form">
-                            <div class="form-group">
-                                <label>选择主题</label>
-                                <div class="theme-options">
-                                    <label class="theme-option">
-                                        <input type="radio" name="theme" value="light" checked> 浅色主题
-                                    </label>
-                                    <label class="theme-option">
-                                        <input type="radio" name="theme" value="dark"> 深色主题
-                                    </label>
-                                    <label class="theme-option">
-                                        <input type="radio" name="theme" value="auto"> 跟随系统
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="form-actions">
-                                <button type="submit" class="save-btn">保存</button>
-                                <button type="button" class="cancel-btn">取消</button>
-                            </div>
-                        </form>
-                    </div>
-                    
-                    <!-- 快捷键 -->
-                    <div class="settings-detail" data-setting="shortcut-settings" style="display: none;">
-                        <h2>快捷键</h2>
-                        <div class="shortcuts-list">
-                            <div class="shortcut-item">
-                                <span class="shortcut-action">发送消息</span>
-                                <span class="shortcut-key">Enter</span>
-                            </div>
-                            <div class="shortcut-item">
-                                <span class="shortcut-action">换行</span>
-                                <span class="shortcut-key">Ctrl + Enter或Shift + Enter</span>
-                            </div>
-                            <div class="shortcut-item">
-                                <span class="shortcut-action">打开表情</span>
-                                <span class="shortcut-key">Ctrl + E</span>
-                            </div>
-                            <div class="shortcut-item">
-                                <span class="shortcut-action">搜索</span>
-                                <span class="shortcut-key">Ctrl + F</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- 版本信息 -->
-                    <div class="settings-detail" data-setting="version-info" style="display: none;">
-                        <h2>版本信息</h2>
-                        <div class="version-info">
-                            <p><strong>当前版本:</strong> v2.0.0</p>
-                            <p><strong>更新时间:</strong> 2026-01-01</p>
-                            <p><strong>开发者:</strong> 无崖子&Trae AI</p>
-                            <p><strong>版权所有:</strong> © 2026 简易版聊天室</p>
-                        </div>
-                    </div>
-                    
-                    <!-- 帮助中心 -->
-                    <div class="settings-detail" data-setting="help-center" style="display: none;">
-                        <h2>帮助中心</h2>
-                        <div class="help-content">
-                            <h3>常见问题</h3>
-                            <ul class="help-list">
-                                <li><a onclick="alert('你已经注册了才能看到这个帮助')">如何注册账号?</a></li>
-                                <li><a onclick="alert('群组界面搜索框右边加号')">如何创建群组?</a></li>
-                                <li><a onclick="alert('黏贴或选择')">如何发送图片和文件?</a></li>
-                                <li><a onclick="alert('未实现')">如何修改密码?</a></li>
-                            </ul>
-                            <h3>联系我们</h3>
-                            <p>如有其他问题，请联系管理员:</p>
-                            <p>Email: wuyazi2025@outlook.com</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+
+    <!-- 添加一个全局的模态框点击事件监听器 -->
+    <script>
+        // 全局处理模态框外部点击关闭
+        window.addEventListener('click', function(event) {
+            // 检查是否点击了模态框外部
+            if (event.target.classList.contains('modal')) {
+                // 关闭所有模态框
+                const modals = document.querySelectorAll('.modal');
+                modals.forEach(modal => {
+                    modal.style.display = 'none';
+                });
+            }
+        });
+    </script>
     
     <!-- 图片预览模态框 -->
-    <div id="imagePreviewModal" class="image-preview-modal" style="display: none;">
-        <div class="close-preview">&times;</div>
-        <div class="image-preview-content">
-            <img id="previewImgElement" class="preview-img" src="" alt="预览图片">
+    <div id="imagePreviewModal" class="modal" style="display: none; position: fixed; z-index: 10001; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.9); justify-content: center; align-items: center;">
+        <div style="position: relative; max-width: 90%; max-height: 90%;">
+            <img id="previewImgElement" src="" alt="图片预览" style="width: 100%; height: auto; max-width: 90vw; max-height: 90vh;">
+            <span class="close" id="closeImagePreviewModal" style="position: absolute; top: -30px; right: -30px; color: #f1f1f1; font-size: 40px; font-weight: bold; cursor: pointer;">&times;</span>
         </div>
     </div>
     
+    <!-- 头像预览模态框 -->
+    <div id="avatarPreviewModal" class="modal" style="display: none; position: fixed; z-index: 10001; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.9); justify-content: center; align-items: center;">
+        <div style="position: relative; max-width: 300px; max-height: 300px;">
+            <img id="previewAvatarElement" src="" alt="头像预览" style="width: 300px; height: 300px; border-radius: 50%; object-fit: cover;">
+            <span class="close" id="closeAvatarPreviewModal" style="position: absolute; top: -30px; right: -30px; color: #f1f1f1; font-size: 40px; font-weight: bold; cursor: pointer;">&times;</span>
+        </div>
+    </div>
 
-    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
-    <script src="js/libraries/marked.min.js"></script>
-    <link rel="stylesheet" href="js/libraries/katex.min.css">
-    <script src="js/libraries/katex.min.js"></script>
-    <script src="js/libraries/auto-render.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.1/markdown-it.min.js"></script>
+    <script src="js/markdown-it-emoji/index.min.js"></script>
+    <script src="js/markdown-it-sub/index.min.js"></script>
+    <script src="js/markdown-it-sup/index.min.js"></script>
+    <script src="js/markdown-it-ins/index.min.js"></script>
+    <script src="js/markdown-it-mark/index.min.js"></script>
+    <!-- Socket.IO库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.0/socket.io.min.js"></script>
     <script src="js/index.js"></script>
 </body>
 </html>
