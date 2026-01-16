@@ -719,14 +719,14 @@ document.addEventListener('DOMContentLoaded', function() {
         socket.on('message', (data) => {
             // 检查是否是会话过期消息
             if (Array.isArray(data) && data[0] === 'session-expired') {
-                alert('会话已过期，请重新登录');
+                alert('会话已过期或在其他设备登录，请重新登录');
                 logout();
             }
         });
         
         // 会话过期事件
         socket.on('session-expired', () => {
-            alert('会话已过期，请重新登录');
+            alert('会话已过期或在其他设备登录，请重新登录');
             logout();
         });
         
@@ -1899,8 +1899,9 @@ document.addEventListener('DOMContentLoaded', function() {
         
         messageContainer.appendChild(messageElement);
         
-        // 改进滚动逻辑：只有当用户已经在聊天底部，或者是用户自己发送的消息时才滚动到底部
-        const isAtBottom = messageContainer.scrollTop + messageContainer.clientHeight >= messageContainer.scrollHeight - 1;
+        // 改进滚动逻辑：只有当用户已经在聊天底部附近（距离底部不超过150px），或者是用户自己发送的消息时才滚动到底部
+        const distanceToBottom = messageContainer.scrollHeight - messageContainer.scrollTop - messageContainer.clientHeight;
+        const isAtBottom = distanceToBottom <= 150;
         if (isAtBottom || isOwn) {
             // 使用setTimeout确保DOM更新完成后再滚动
             setTimeout(() => {
@@ -2363,8 +2364,9 @@ document.addEventListener('DOMContentLoaded', function() {
         
         groupMessageContainer.appendChild(messageElement);
         
-        // 改进滚动逻辑：只有当用户已经在聊天底部，或者是用户自己发送的消息时才滚动到底部
-        const isAtBottom = groupMessageContainer.scrollTop + groupMessageContainer.clientHeight >= groupMessageContainer.scrollHeight - 1;
+        // 改进滚动逻辑：只有当用户已经在聊天底部附近（距离底部不超过150px），或者是用户自己发送的消息时才滚动到底部
+        const distanceToBottom = groupMessageContainer.scrollHeight - groupMessageContainer.scrollTop - groupMessageContainer.clientHeight;
+        const isAtBottom = distanceToBottom <= 150;
         if (isAtBottom || isOwn) {
             // 使用setTimeout确保DOM更新完成后再滚动
             setTimeout(() => {
