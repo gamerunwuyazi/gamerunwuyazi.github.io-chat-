@@ -1578,24 +1578,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (SERVER_URL) {
                     // 处理图片URL
                     contentToParse = contentToParse.replace(/!\[([^\]]+)\]\(([^)]+)\)/g, (match, alt, url) => {
+                        // 清除URL前后的空格
+                        const trimmedUrl = url.trim();
                         // 如果URL是相对路径，添加服务器前缀
-                        if (url && !url.startsWith('http') && !url.startsWith('//')) {
-                            return `![${alt}](${SERVER_URL}${url})`;
+                        if (trimmedUrl && !trimmedUrl.startsWith('http') && !trimmedUrl.startsWith('//')) {
+                            return `![${alt}](${SERVER_URL}${trimmedUrl})`;
                         }
                         return match;
                     });
                     
-                    // 处理普通链接
+                    // 处理普通链接，改进正则表达式以支持更复杂的URL
                     contentToParse = contentToParse.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
-                        // 如果URL是相对路径，添加服务器前缀
-                        if (url && !url.startsWith('http') && !url.startsWith('//')) {
-                            return `[${text}](${SERVER_URL}${url})`;
+                        // 清除URL前后的空格
+                        const trimmedUrl = url.trim();
+                        // 如果URL是相对路径或缺少协议的绝对URL
+                        if (trimmedUrl && !trimmedUrl.startsWith('http') && !trimmedUrl.startsWith('//')) {
+                            // 检查是否是缺少协议的绝对URL（包含域名格式）
+                            if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})?(:\d+)?/.test(trimmedUrl)) {
+                                // 缺少协议的绝对URL，添加https://前缀
+                                return `[${text}](https://${trimmedUrl})`;
+                            } else {
+                                // 真正的相对路径，添加服务器前缀
+                                return `[${text}](${SERVER_URL}${trimmedUrl})`;
+                            }
                         }
                         return match;
                     });
                     
-                    // 处理直接的URL链接（没有Markdown格式），只处理纯URL，不处理已经是Markdown格式的链接
-                    const urlRegex = /(?<!\]\()(https?:\/\/[^\s]+)/g;
+                    // 处理直接的URL链接（没有Markdown格式），改进正则表达式以支持更复杂的URL
+                    // 支持包含括号、查询参数和特殊字符的复杂URL
+                    // 确保不会匹配到已经是Markdown格式的链接中的URL，也不会匹配URL参数中的URL
+                    const urlRegex = /(?<!\]\()(?<!\[)(?<!https?:\/\/[^?&"'<>\s]+\?.*)(?<!https?:\/\/[^?&"'<>\s]+&.*)(https?:\/\/(?:[^\s"'<>]+))/g;
                     // 使用实际URL作为链接文本，而不是固定的"链接"文字
                     contentToParse = contentToParse.replace(urlRegex, '[$1]($1)');
                 }
@@ -1887,7 +1900,7 @@ document.addEventListener('DOMContentLoaded', function() {
         messageContainer.appendChild(messageElement);
         
         // 改进滚动逻辑：只有当用户已经在聊天底部，或者是用户自己发送的消息时才滚动到底部
-        const isAtBottom = messageContainer.scrollTop + messageContainer.clientHeight >= messageContainer.scrollHeight - 100;
+        const isAtBottom = messageContainer.scrollTop + messageContainer.clientHeight >= messageContainer.scrollHeight - 1;
         if (isAtBottom || isOwn) {
             // 使用setTimeout确保DOM更新完成后再滚动
             setTimeout(() => {
@@ -2082,24 +2095,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (SERVER_URL) {
                     // 处理图片URL
                     contentToParse = contentToParse.replace(/!\[([^\]]+)\]\(([^)]+)\)/g, (match, alt, url) => {
+                        // 清除URL前后的空格
+                        const trimmedUrl = url.trim();
                         // 如果URL是相对路径，添加服务器前缀
-                        if (url && !url.startsWith('http') && !url.startsWith('//')) {
-                            return `![${alt}](${SERVER_URL}${url})`;
+                        if (trimmedUrl && !trimmedUrl.startsWith('http') && !trimmedUrl.startsWith('//')) {
+                            return `![${alt}](${SERVER_URL}${trimmedUrl})`;
                         }
                         return match;
                     });
                     
-                    // 处理普通链接
+                    // 处理普通链接，改进正则表达式以支持更复杂的URL
                     contentToParse = contentToParse.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
-                        // 如果URL是相对路径，添加服务器前缀
-                        if (url && !url.startsWith('http') && !url.startsWith('//')) {
-                            return `[${text}](${SERVER_URL}${url})`;
+                        // 清除URL前后的空格
+                        const trimmedUrl = url.trim();
+                        // 如果URL是相对路径或缺少协议的绝对URL
+                        if (trimmedUrl && !trimmedUrl.startsWith('http') && !trimmedUrl.startsWith('//')) {
+                            // 检查是否是缺少协议的绝对URL（包含域名格式）
+                            if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})?(:\d+)?/.test(trimmedUrl)) {
+                                // 缺少协议的绝对URL，添加https://前缀
+                                return `[${text}](https://${trimmedUrl})`;
+                            } else {
+                                // 真正的相对路径，添加服务器前缀
+                                return `[${text}](${SERVER_URL}${trimmedUrl})`;
+                            }
                         }
                         return match;
                     });
                     
-                    // 处理直接的URL链接（没有Markdown格式），只处理纯URL，不处理已经是Markdown格式的链接
-                    const urlRegex = /(?<!\]\()(https?:\/\/[^\s]+)/g;
+                    // 处理直接的URL链接（没有Markdown格式），改进正则表达式以支持更复杂的URL
+                    // 支持包含括号、查询参数和特殊字符的复杂URL
+                    // 确保不会匹配到已经是Markdown格式的链接中的URL，也不会匹配URL参数中的URL
+                    const urlRegex = /(?<!\]\()(?<!\[)(?<!https?:\/\/[^?&"'<>\s]+\?.*)(?<!https?:\/\/[^?&"'<>\s]+&.*)(https?:\/\/(?:[^\s"'<>]+))/g;
                     // 使用实际URL作为链接文本，而不是固定的"链接"文字
                     contentToParse = contentToParse.replace(urlRegex, '[$1]($1)');
                 }
@@ -2338,7 +2364,7 @@ document.addEventListener('DOMContentLoaded', function() {
         groupMessageContainer.appendChild(messageElement);
         
         // 改进滚动逻辑：只有当用户已经在聊天底部，或者是用户自己发送的消息时才滚动到底部
-        const isAtBottom = groupMessageContainer.scrollTop + groupMessageContainer.clientHeight >= groupMessageContainer.scrollHeight - 100;
+        const isAtBottom = groupMessageContainer.scrollTop + groupMessageContainer.clientHeight >= groupMessageContainer.scrollHeight - 1;
         if (isAtBottom || isOwn) {
             // 使用setTimeout确保DOM更新完成后再滚动
             setTimeout(() => {
