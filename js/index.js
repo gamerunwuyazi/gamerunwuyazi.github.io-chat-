@@ -1886,39 +1886,6 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="message-content">${messageContent}</div>
         `;
         
-        if (returnElement) {
-            // 只返回消息元素，不添加到容器
-            return messageElement;
-        }
-        
-        // 检查并移除空状态
-        const emptyState = messageContainer.querySelector('.empty-state');
-        if (emptyState) {
-            emptyState.style.display = 'none';
-        }
-        
-        messageContainer.appendChild(messageElement);
-        
-        // 改进滚动逻辑：只有当用户已经在聊天底部附近（距离底部不超过150px），或者是用户自己发送的消息时才滚动到底部
-        const distanceToBottom = messageContainer.scrollHeight - messageContainer.scrollTop - messageContainer.clientHeight;
-        const isAtBottom = distanceToBottom <= 150;
-        if (isAtBottom || isOwn) {
-            // 使用setTimeout确保DOM更新完成后再滚动
-            setTimeout(() => {
-                messageContainer.scrollTop = messageContainer.scrollHeight;
-            }, 0);
-        }
-        
-        // 渲染数学公式
-        if (typeof renderMathInElement !== 'undefined') {
-            renderMathInElement(messageElement, {
-                delimiters: [
-                    {left: "$$", right: "$$", display: true},
-                    {left: "$" , right: "$" , display: false}
-                ]
-            });
-        }
-        
         // 添加撤回按钮事件监听
         if (isOwn) {
             const deleteButton = messageElement.querySelector('.delete-button');
@@ -1948,6 +1915,39 @@ document.addEventListener('DOMContentLoaded', function() {
                     showGroupCardPopup(e, groupCardData);
                 });
             }
+        }
+        
+        if (returnElement) {
+            // 只返回消息元素，不添加到容器
+            return messageElement;
+        }
+        
+        // 渲染数学公式
+        if (typeof renderMathInElement !== 'undefined') {
+            renderMathInElement(messageElement, {
+                delimiters: [
+                    {left: "$$", right: "$$", display: true},
+                    {left: "$" , right: "$" , display: false}
+                ]
+            });
+        }
+        
+        // 检查并移除空状态
+        const emptyState = messageContainer.querySelector('.empty-state');
+        if (emptyState) {
+            emptyState.style.display = 'none';
+        }
+        
+        messageContainer.appendChild(messageElement);
+        
+        // 改进滚动逻辑：只有当用户已经在聊天底部附近（距离底部不超过150px），或者是用户自己发送的消息时才滚动到底部
+        const distanceToBottom = messageContainer.scrollHeight - messageContainer.scrollTop - messageContainer.clientHeight;
+        const isAtBottom = distanceToBottom <= 150;
+        if (isAtBottom || isOwn) {
+            // 使用setTimeout确保DOM更新完成后再滚动
+            setTimeout(() => {
+                messageContainer.scrollTop = messageContainer.scrollHeight;
+            }, 0);
         }
     }
     
@@ -2351,39 +2351,6 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="message-content">${messageContent}</div>
         `;
         
-        if (returnElement) {
-            // 只返回消息元素，不添加到容器
-            return messageElement;
-        }
-        
-        // 检查并移除空状态
-        const groupEmptyState = groupMessageContainer.querySelector('.empty-state');
-        if (groupEmptyState) {
-            groupEmptyState.style.display = 'none';
-        }
-        
-        groupMessageContainer.appendChild(messageElement);
-        
-        // 改进滚动逻辑：只有当用户已经在聊天底部附近（距离底部不超过150px），或者是用户自己发送的消息时才滚动到底部
-        const distanceToBottom = groupMessageContainer.scrollHeight - groupMessageContainer.scrollTop - groupMessageContainer.clientHeight;
-        const isAtBottom = distanceToBottom <= 150;
-        if (isAtBottom || isOwn) {
-            // 使用setTimeout确保DOM更新完成后再滚动
-            setTimeout(() => {
-                groupMessageContainer.scrollTop = groupMessageContainer.scrollHeight;
-            }, 0);
-        }
-        
-        // 渲染数学公式
-        if (typeof renderMathInElement !== 'undefined') {
-            renderMathInElement(messageElement, {
-                delimiters: [
-                    {left: "$$", right: "$$", display: true},
-                    {left: "$" , right: "$" , display: false}
-                ]
-            });
-        }
-        
         // 添加撤回按钮事件监听
         if (isOwn) {
             const deleteButton = messageElement.querySelector('.delete-button');
@@ -2413,6 +2380,39 @@ document.addEventListener('DOMContentLoaded', function() {
                     showGroupCardPopup(e, groupCardData);
                 });
             }
+        }
+        
+        if (returnElement) {
+            // 只返回消息元素，不添加到容器
+            return messageElement;
+        }
+        
+        // 渲染数学公式
+        if (typeof renderMathInElement !== 'undefined') {
+            renderMathInElement(messageElement, {
+                delimiters: [
+                    {left: "$$", right: "$$", display: true},
+                    {left: "$" , right: "$" , display: false}
+                ]
+            });
+        }
+        
+        // 检查并移除空状态
+        const groupEmptyState = groupMessageContainer.querySelector('.empty-state');
+        if (groupEmptyState) {
+            groupEmptyState.style.display = 'none';
+        }
+        
+        groupMessageContainer.appendChild(messageElement);
+        
+        // 改进滚动逻辑：只有当用户已经在聊天底部附近（距离底部不超过150px），或者是用户自己发送的消息时才滚动到底部
+        const distanceToBottom = groupMessageContainer.scrollHeight - groupMessageContainer.scrollTop - groupMessageContainer.clientHeight;
+        const isAtBottom = distanceToBottom <= 150;
+        if (isAtBottom || isOwn) {
+            // 使用setTimeout确保DOM更新完成后再滚动
+            setTimeout(() => {
+                groupMessageContainer.scrollTop = groupMessageContainer.scrollHeight;
+            }, 0);
         }
     }
     
