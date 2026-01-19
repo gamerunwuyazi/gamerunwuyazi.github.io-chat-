@@ -2,23 +2,24 @@
 <html lang="zh-cn">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=1200, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <meta name="description" content="简易版聊天室，支持实时聊天、群组聊天、图片和文件发送">
+    <meta name="keywords" content="聊天室,实时聊天,群组聊天,WebSocket">
+    <meta name="author" content="gamerunwuyazi">
     <title>简易版聊天室</title>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://back.hs.airoe.cn" crossorigin>
+    <link rel="preconnect" href="https://hm.baidu.com">
+    <!-- 预加载关键CSS -->
+    <link rel="preload" href="css/index.css" as="style">
+    <link rel="preload" href="css/code-highlight.css" as="style">
+    <!-- 加载CSS -->
     <link rel="stylesheet" href="css/index.css">
     <link rel="stylesheet" href="css/code-highlight.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="icon" href="chat.png">
-    <script>
-        if (window.location.protocol === 'http:') {
-            if (confirm('感谢愛瑩的服务器，本页面支持HTTPS协议访问，点击确定将自动跳转至HTTPS版本')) {
-                alert('糟糕，跳转不了，你可以直接在地址栏输入https://chat.gamerunwuyazi.dpdns.org/访问')
-            } else {
-                alert('继续可以聊天，刷新重选')
-            }
-        }
-    </script>
-    
-    <script>
+    <!-- 移除不必要的HTTP跳转脚本 -->
+    <script defer>
         var _hmt = _hmt || [];
         (function() {
           var hm = document.createElement("script");
@@ -35,7 +36,7 @@
             <div class="sidebar-header">
                 <div id="userProfile" class="user-profile">
                     <div id="userAvatar" class="user-avatar">
-                        <img id="currentUserAvatar" src="" alt="用户头像" class="user-avatar-img">
+                        <img id="currentUserAvatar" src="" alt="用户头像" class="user-avatar-img" loading="lazy" width="60" height="60" style="aspect-ratio: 1/1; object-fit: cover;">
                         <span id="userInitials" class="user-initials"></span>
                     </div>
                 </div>
@@ -603,7 +604,7 @@
     <!-- 图片预览模态框 -->
     <div id="imagePreviewModal" class="modal" style="display: none; position: fixed; z-index: 10001; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.9); justify-content: center; align-items: center;">
         <div style="position: relative; max-width: 90%; max-height: 90%;">
-            <img id="previewImgElement" src="" alt="图片预览" style="width: 100%; height: auto; max-width: 90vw; max-height: 90vh;">
+            <img id="previewImgElement" src="" alt="图片预览" style="width: 100%; height: auto; max-width: 90vw; max-height: 90vh; aspect-ratio: 16/9; object-fit: contain;" loading="lazy">
             <span class="close" id="closeImagePreviewModal" style="position: absolute; top: -30px; right: -30px; color: #f1f1f1; font-size: 40px; font-weight: bold; cursor: pointer;">&times;</span>
         </div>
     </div>
@@ -617,9 +618,15 @@
     </div>
 
     <!-- 使用本地的marked库 -->
-    <script src="js/libraries/marked.min.js"></script>
+    <script defer src="js/libraries/marked.min.js"></script>
     <!-- Socket.IO库 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.0/socket.io.min.js"></script>
-    <script src="js/index.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.0/socket.io.min.js"></script>
+    <!-- 延迟加载主JavaScript文件，优化LCP -->
+    <script defer src="js/index.js"></script>
+    <!-- 异步加载katex相关资源，仅在需要时使用 -->
+    <link rel="preload" href="js/libraries/katex.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="js/libraries/katex.min.css"></noscript>
+    <script defer src="js/libraries/katex.min.js"></script>
+    <script defer src="js/libraries/auto-render.min.js"></script>
 </body>
 </html>
