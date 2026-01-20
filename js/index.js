@@ -380,6 +380,8 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // 检查消息是否包含群组ID
             if (message.groupId) {
+                // 标记为实时消息
+                message.isHistory = false;
                 // 如果包含群组ID，调用群组消息显示函数
                 handleNewMessage(message, true, message.groupId);
                 displayGroupMessage(message);
@@ -390,7 +392,26 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         
-        // 接收群组消息事件
+        // 接收消息发送确认事件
+        socket.on('message-sent', (data) => {
+            // 检查是否包含完整的消息数据
+            if (data.message) {
+                const message = data.message;
+                // 标记为实时消息
+                message.isHistory = false;
+                
+                // 检查消息是否包含群组ID
+                if (message.groupId) {
+                    // 如果是群组消息，直接显示，不更新未读计数（自己发送的消息）
+                    displayGroupMessage(message);
+                } else {
+                    // 否则显示普通消息
+                    displayMessage(message);
+                }
+            }
+        });
+        
+        // 接收群组消息事件 - 保留用于兼容性，但不重复处理未读计数
         socket.on('group-message-received', (message) => {
             // 检查消息中是否包含新的会话令牌
             if (message.sessionToken) {
@@ -399,8 +420,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 localStorage.setItem('currentSessionToken', currentSessionToken);
             }
             
-            // 更新未读消息计数
-            handleNewMessage(message, true, message.groupId || currentGroupId);
+            // 标记为实时消息
+            message.isHistory = false;
+            // 只显示消息，不重复更新未读计数（已在message-received事件中处理）
             displayGroupMessage(message);
         });
         
@@ -426,6 +448,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 更新会话令牌
                 currentSessionToken = data.sessionToken;
                 localStorage.setItem('currentSessionToken', currentSessionToken);
+            }
+            
+            // 处理未读消息信息
+            if (data.unreadMessages) {
+                // 检查数据格式：如果是直接的群组键值对，则转换为期望的格式
+                let processedUnreadMessages = data.unreadMessages;
+                if (processedUnreadMessages && typeof processedUnreadMessages === 'object' && !processedUnreadMessages.hasOwnProperty('global')) {
+                    // 格式转换：将直接的群组键值对转换为包含global和groups的对象
+                    processedUnreadMessages = {
+                        global: 0,
+                        groups: processedUnreadMessages
+                    };
+                }
+                // 更新未读消息计数，确保包含groups属性
+                unreadMessages = {
+                    global: processedUnreadMessages.global || 0,
+                    groups: processedUnreadMessages.groups || {}
+                };
+                // 更新未读计数显示
+                updateTitleWithUnreadCount();
             }
             
             const messageContainer = document.getElementById('messageContainer');
@@ -540,6 +582,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 localStorage.setItem('currentSessionToken', currentSessionToken);
             }
             
+            // 处理未读消息信息
+            if (data.unreadMessages) {
+                // 检查数据格式：如果是直接的群组键值对，则转换为期望的格式
+                let processedUnreadMessages = data.unreadMessages;
+                if (processedUnreadMessages && typeof processedUnreadMessages === 'object' && !processedUnreadMessages.hasOwnProperty('global')) {
+                    // 格式转换：将直接的群组键值对转换为包含global和groups的对象
+                    processedUnreadMessages = {
+                        global: 0,
+                        groups: processedUnreadMessages
+                    };
+                }
+                // 更新未读消息计数，确保包含groups属性
+                unreadMessages = {
+                    global: processedUnreadMessages.global || 0,
+                    groups: processedUnreadMessages.groups || {}
+                };
+                // 更新未读计数显示
+                updateTitleWithUnreadCount();
+            }
+            
             const groupMessageContainer = document.getElementById('groupMessageContainer');
             if (!groupMessageContainer) {
                 // console.error('❌ 群组消息容器不存在 - 无法显示历史消息');
@@ -634,6 +696,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         // 标记为已处理
                         processedMessageIds.add(String(message.id));
                         
+                        // 标记为历史消息
+                        message.isHistory = true;
                         const messageElement = displayGroupMessage(message, true);
                         if (messageElement) {
                             groupMessageContainer.insertBefore(messageElement, groupMessageContainer.firstChild);
@@ -656,6 +720,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         // 标记为已处理
                         processedMessageIds.add(String(message.id));
                         
+                        // 标记为历史消息
+                        message.isHistory = true;
                         // 正常加载，直接添加到容器
                         displayGroupMessage(message);
                     });
@@ -688,6 +754,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 更新会话令牌
                 currentSessionToken = data.sessionToken;
                 localStorage.setItem('currentSessionToken', currentSessionToken);
+            }
+            
+            // 处理未读消息信息
+            if (data.unreadMessages) {
+                // 检查数据格式：如果是直接的群组键值对，则转换为期望的格式
+                let processedUnreadMessages = data.unreadMessages;
+                if (processedUnreadMessages && typeof processedUnreadMessages === 'object' && !processedUnreadMessages.hasOwnProperty('global')) {
+                    // 格式转换：将直接的群组键值对转换为包含global和groups的对象
+                    processedUnreadMessages = {
+                        global: 0,
+                        groups: processedUnreadMessages
+                    };
+                }
+                // 更新未读消息计数，确保包含groups属性
+                unreadMessages = {
+                    global: processedUnreadMessages.global || 0,
+                    groups: processedUnreadMessages.groups || {}
+                };
+                // 更新未读计数显示
+                updateTitleWithUnreadCount();
             }
         });
         
@@ -1958,6 +2044,16 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // 检查消息对象是否有效
         if (!message) {
+            return;
+        }
+        
+        // 检查消息的群组ID是否与当前活跃群组ID匹配
+        // 只有匹配时才显示消息，避免消息串群
+        // 但如果是历史消息（没有message.id或通过历史消息加载调用），则允许显示
+        const messageGroupId = message.groupId;
+        // 检查是否是通过历史消息加载调用的（通过returnElement参数或调用上下文判断）
+        const isHistoryMessage = returnElement || message.isHistory || false;
+        if (messageGroupId && currentActiveChat && messageGroupId !== currentActiveChat && !isHistoryMessage) {
             return;
         }
         
@@ -4833,7 +4929,8 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         
         // 累加所有群组的未读消息数
         for (const groupId in unreadMessages.groups) {
-            totalUnread += unreadMessages.groups[groupId] || 0;
+            const groupUnread = unreadMessages.groups[groupId] || 0;
+            totalUnread += groupUnread;
         }
         
         // 更新页面标题，格式：（X条未读）简易聊天室
@@ -4866,7 +4963,8 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             // 计算所有群组的未读消息总数
             let totalGroupUnread = 0;
             for (const groupId in unreadMessages.groups) {
-                totalGroupUnread += unreadMessages.groups[groupId] || 0;
+                const groupUnread = unreadMessages.groups[groupId] || 0;
+                totalGroupUnread += groupUnread;
             }
             if (totalGroupUnread > 0) {
                 groupChatUnreadEl.textContent = totalGroupUnread;
@@ -4908,7 +5006,6 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             } else {
                 // 清除当前群组未读计数
                 if (unreadMessages.groups[currentActiveChat] > 0) {
-
                     unreadMessages.groups[currentActiveChat] = 0;
                     updateTitleWithUnreadCount();
                 }
@@ -4933,7 +5030,6 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             } else {
                 // 清除当前群组未读计数
                 if (unreadMessages.groups[currentActiveChat] > 0) {
-                    // console.log(`🔔 群组 ${currentActiveChat} 获得焦点，清除未读消息计数: ${unreadMessages.groups[currentActiveChat]}`);
                     unreadMessages.groups[currentActiveChat] = 0;
                     updateTitleWithUnreadCount();
                 }
@@ -4955,7 +5051,6 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             currentActiveChat = groupId;
             // 清除该群组未读消息计数
             if (unreadMessages.groups[groupId] > 0) {
-                // console.log(`🔔 切换到群组 ${groupId}，清除未读消息计数: ${unreadMessages.groups[groupId]}`);
                 unreadMessages.groups[groupId] = 0;
                 updateTitleWithUnreadCount();
             }
@@ -4987,9 +5082,8 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                 if (!isGroupMuted(groupId)) {
                     // 更新群组未读消息计数
                     unreadMessages.groups[groupId] = (unreadMessages.groups[groupId] || 0) + 1;
-                    console.log(`🔔 收到群组 ${groupId} 新消息，未读计数: ${unreadMessages.groups[groupId]}`);
                 } else {
-                    console.log(`🔕 收到群组 ${groupId} 新消息，已免打扰，不增加未读计数`);
+
                 }
             } else {
                 // 更新全局未读消息计数
@@ -5268,9 +5362,11 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                     if (groupMessageContainer) {
                         groupMessageContainer.innerHTML = '';
                         // 显示历史消息
-                        data.messages.forEach(message => {
-                            displayGroupMessage(message);
-                        });
+            data.messages.forEach(message => {
+                // 标记为历史消息
+                message.isHistory = true;
+                displayGroupMessage(message);
+            });
                     }
                 }
             })
