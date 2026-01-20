@@ -466,6 +466,28 @@ document.addEventListener('DOMContentLoaded', function() {
                     global: processedUnreadMessages.global || 0,
                     groups: processedUnreadMessages.groups || {}
                 };
+                
+                // 检查并处理免打扰群组的未读消息
+                const mutedGroups = getMutedGroups();
+                for (const groupId in unreadMessages.groups) {
+                    if (unreadMessages.groups.hasOwnProperty(groupId)) {
+                        // 检查群组是否被免打扰
+                        if (mutedGroups.includes(groupId)) {
+                            // 清除免打扰群组的未读消息计数
+                            unreadMessages.groups[groupId] = 0;
+                            
+                            // 发送WebSocket消息，通知服务器已读该群组消息
+                            if (window.chatSocket) {
+                                window.chatSocket.emit('join-group', {
+                                    groupId: groupId,
+                                    sessionToken: currentSessionToken,
+                                    userId: currentUser.id
+                                });
+                            }
+                        }
+                    }
+                }
+                
                 // 更新未读计数显示
                 updateTitleWithUnreadCount();
             }
@@ -598,6 +620,28 @@ document.addEventListener('DOMContentLoaded', function() {
                     global: processedUnreadMessages.global || 0,
                     groups: processedUnreadMessages.groups || {}
                 };
+                
+                // 检查并处理免打扰群组的未读消息
+                const mutedGroups = getMutedGroups();
+                for (const groupId in unreadMessages.groups) {
+                    if (unreadMessages.groups.hasOwnProperty(groupId)) {
+                        // 检查群组是否被免打扰
+                        if (mutedGroups.includes(groupId)) {
+                            // 清除免打扰群组的未读消息计数
+                            unreadMessages.groups[groupId] = 0;
+                            
+                            // 发送WebSocket消息，通知服务器已读该群组消息
+                            if (window.chatSocket) {
+                                window.chatSocket.emit('join-group', {
+                                    groupId: groupId,
+                                    sessionToken: currentSessionToken,
+                                    userId: currentUser.id
+                                });
+                            }
+                        }
+                    }
+                }
+                
                 // 更新未读计数显示
                 updateTitleWithUnreadCount();
             }
@@ -772,6 +816,28 @@ document.addEventListener('DOMContentLoaded', function() {
                     global: processedUnreadMessages.global || 0,
                     groups: processedUnreadMessages.groups || {}
                 };
+                
+                // 检查并处理免打扰群组的未读消息
+                const mutedGroups = getMutedGroups();
+                for (const groupId in unreadMessages.groups) {
+                    if (unreadMessages.groups.hasOwnProperty(groupId)) {
+                        // 检查群组是否被免打扰
+                        if (mutedGroups.includes(groupId)) {
+                            // 清除免打扰群组的未读消息计数
+                            unreadMessages.groups[groupId] = 0;
+                            
+                            // 发送WebSocket消息，通知服务器已读该群组消息
+                            if (window.chatSocket) {
+                                window.chatSocket.emit('join-group', {
+                                    groupId: groupId,
+                                    sessionToken: currentSessionToken,
+                                    userId: currentUser.id
+                                });
+                            }
+                        }
+                    }
+                }
+                
                 // 更新未读计数显示
                 updateTitleWithUnreadCount();
             }
@@ -2053,7 +2119,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const messageGroupId = message.groupId;
         // 检查是否是通过历史消息加载调用的（通过returnElement参数或调用上下文判断）
         const isHistoryMessage = returnElement || message.isHistory || false;
-        if (messageGroupId && currentActiveChat && messageGroupId !== currentActiveChat && !isHistoryMessage) {
+        // 类型转换：确保比较时类型一致
+        const currentChatId = String(currentActiveChat);
+        const msgGroupId = String(messageGroupId);
+        if (messageGroupId && currentActiveChat && msgGroupId !== currentChatId && !isHistoryMessage) {
             return;
         }
         
