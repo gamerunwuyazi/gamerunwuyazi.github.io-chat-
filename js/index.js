@@ -10,13 +10,17 @@ document.addEventListener('DOMContentLoaded', function() {
         let isConnected = false;
         let currentGroupId = null;
         let currentGroupName = '';
+        let currentPrivateChatUserId = null; // 当前私信聊天的用户ID
+        let currentPrivateChatUsername = ''; // 当前私信聊天的用户名
         let onlineUsersList = [];
+        let friendsList = []; // 好友列表
         let hasReceivedHistory = false; // 用于跟踪是否已经接收过普通聊天历史记录
         let hasReceivedGroupHistory = false; // 用于跟踪是否已经接收过群组聊天历史记录
+        let hasReceivedPrivateHistory = false; // 用于跟踪是否已经接收过私信聊天历史记录
         let originalTitle = document.title; // 保存原始标题
-        let unreadMessages = { global: 0, groups: {} }; // 未读消息计数
+        let unreadMessages = { global: 0, groups: {}, private: {} }; // 未读消息计数
         let isPageVisible = true; // 页面可见性状态
-        let currentActiveChat = 'main'; // 当前活动聊天室：'main'或群组ID
+        let currentActiveChat = 'main'; // 当前活动聊天室：'main'、群组ID或用户ID
         let lastNotificationTime = 0; // 最后通知时间，用于控制通知频率
     
     // 更新用户头像显示
@@ -49,6 +53,1469 @@ document.addEventListener('DOMContentLoaded', function() {
             userInitials.textContent = initials;
             userInitials.style.display = 'block';
             currentUserAvatar.style.display = 'none';
+        }
+    }
+    
+    // 初始化私信聊天功能
+    function initializePrivateChatFunctions() {
+        // 初始化好友列表事件监听
+        initializeFriendsListListeners();
+        
+        // 初始化用户资料模态框
+        initializeUserProfileModal();
+        
+        // 初始化用户搜索功能
+        initializeUserSearch();
+        
+        // 初始化私信消息发送功能
+        initializePrivateMessageSending();
+        
+        // 初始化私信聊天界面事件
+        initializePrivateChatInterface();
+    }
+    
+    // 加载好友列表
+    function loadFriendsList() {
+        if (!currentUser || !currentSessionToken) return;
+        
+        // 使用fetch API加载好友列表
+        fetch(`${SERVER_URL}/user/friends`, {
+            headers: {
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                updateFriendsList(data.friends);
+            } else {
+                const friendsList = document.getElementById('friendsList');
+                if (friendsList) {
+                    friendsList.innerHTML = '<li>加载好友列表失败: ' + data.message + '</li>';
+                }
+            }
+        })
+        .catch(error => {
+            const friendsList = document.getElementById('friendsList');
+            if (friendsList) {
+                friendsList.innerHTML = '<li>加载好友列表失败: 网络错误</li>';
+            }
+        });
+    }
+    
+    // 更新好友列表
+    function updateFriendsList(friends) {
+        const friendsListElement = document.getElementById('friendsList');
+        if (!friendsListElement) return;
+        
+        friendsListElement.innerHTML = '';
+        
+        // 更新好友列表全局变量
+        friendsList = friends;
+        
+        if (friends.length === 0) {
+            friendsListElement.innerHTML = '<li class="empty-friends">暂无好友，请先添加好友</li>';
+            return;
+        }
+        
+        friends.forEach(friend => {
+            const li = document.createElement('li');
+            li.className = 'friend-item';
+            li.dataset.userId = friend.id;
+            li.dataset.userNickname = friend.nickname;
+            
+            // 安全获取用户头像URL
+            let avatarUrl = '';
+            if (friend.avatarUrl && typeof friend.avatarUrl === 'string') {
+                avatarUrl = friend.avatarUrl.trim();
+            } else if (friend.avatar_url && typeof friend.avatar_url === 'string') {
+                avatarUrl = friend.avatar_url.trim();
+            }
+            
+            // 显示用户头像或默认头像
+            let avatarHtml = '';
+            if (avatarUrl) {
+                // 检查头像URL是否为SVG格式，防止XSS攻击
+                const isSvgAvatar = /\.svg$/i.test(avatarUrl);
+                if (isSvgAvatar) {
+                    // SVG文件特殊处理：使用默认头像
+                    const initials = friend.nickname ? friend.nickname.charAt(0).toUpperCase() : 'U';
+                    avatarHtml = `<span class="user-avatar">${initials}</span>`;
+                } else {
+                    const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
+                    avatarHtml = `<span class="user-avatar"><img src="${fullAvatarUrl}" alt="${friend.nickname}"></span>`;
+                }
+            } else {
+                const initials = friend.nickname ? friend.nickname.charAt(0).toUpperCase() : 'U';
+                avatarHtml = `<span class="user-avatar">${initials}</span>`;
+            }
+            
+            // 检查好友是否在线
+            const isOnline = onlineUsersList.some(onlineUser => String(onlineUser.id) === String(friend.id));
+            
+            // 构建好友列表项HTML
+            li.innerHTML = `
+                ${avatarHtml}
+                <span class="friend-name">${friend.nickname}</span>
+                <span class="friend-status ${isOnline ? 'online' : 'offline'}"></span>
+                <div class="unread-count private-unread-count" id="privateUnreadCount_${friend.id}"></div>
+            `;
+            
+            // 添加点击事件，切换到与该好友的私信聊天
+            li.addEventListener('click', () => {
+                switchToPrivateChat(friend.id, friend.nickname, avatarUrl);
+            });
+            
+            friendsListElement.appendChild(li);
+        });
+        
+        // 更新未读消息计数显示
+        updateUnreadCountsDisplay();
+        
+        // 为好友头像添加点击事件监听器
+        addAvatarClickListeners();
+    }
+    
+    // 切换到私信聊天
+    function switchToPrivateChat(userId, nickname, avatarUrl) {
+        currentPrivateChatUserId = userId;
+        currentPrivateChatUsername = nickname;
+        
+        // 更新私信聊天界面
+        const privateChatInterface = document.getElementById('privateChatInterface');
+        const privateEmptyState = document.getElementById('privateEmptyState');
+        const privateUserName = document.getElementById('privateUserName');
+        const privateUserAvatar = document.getElementById('privateUserAvatar');
+        const privateUserInitials = document.getElementById('privateUserInitials');
+        const privateUserStatus = document.getElementById('privateUserStatus');
+        
+        if (privateChatInterface && privateEmptyState && privateUserName && privateUserAvatar && privateUserInitials) {
+            // 显示私信聊天界面，隐藏空白状态
+            privateChatInterface.style.display = 'flex';
+            privateChatInterface.style.flexDirection = 'column';
+            privateEmptyState.style.display = 'none';
+            
+            // 更新用户名
+            privateUserName.textContent = nickname;
+            
+            // 更新用户头像
+        if (avatarUrl) {
+            const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
+            privateUserAvatar.src = fullAvatarUrl;
+            privateUserAvatar.style.display = 'block';
+            privateUserAvatar.style.visibility = 'visible'; // 确保头像可见
+            privateUserInitials.style.display = 'none';
+            privateUserInitials.style.visibility = 'hidden'; // 确保初始头像不可见
+        } else {
+            const initials = nickname ? nickname.charAt(0).toUpperCase() : 'U';
+            privateUserInitials.textContent = initials;
+            privateUserInitials.style.display = 'flex';
+            privateUserInitials.style.visibility = 'visible'; // 确保初始头像可见
+            privateUserAvatar.style.display = 'none';
+            privateUserAvatar.style.visibility = 'hidden'; // 确保头像不可见
+            privateUserAvatar.src = ''; // 清空头像src，防止显示旧头像
+        }
+        
+        // 更新用户在线状态
+        if (privateUserStatus) {
+            const isOnline = onlineUsersList.some(onlineUser => String(onlineUser.id) === String(userId));
+            privateUserStatus.textContent = isOnline ? '在线' : '离线';
+            privateUserStatus.className = `user-status ${isOnline ? 'online' : 'offline'}`;
+        }
+        }
+        
+        // 加载私信聊天历史
+        loadPrivateChatHistory(userId);
+        
+        // 清除该用户的未读消息计数
+        if (unreadMessages.private && unreadMessages.private[userId]) {
+            unreadMessages.private[userId] = 0;
+            updateUnreadCountsDisplay();
+        }
+        
+        // 重新初始化私信聊天界面事件，确保按钮功能更新
+        initializePrivateChatInterface();
+    }
+    
+    // 加载私信聊天历史
+    function loadPrivateChatHistory(userId) {
+        if (!currentUser || !currentSessionToken) return;
+        
+        const privateMessageContainer = document.getElementById('privateMessageContainer');
+        if (privateMessageContainer) {
+            // 显示友好的加载状态
+            privateMessageContainer.innerHTML = `
+                <div class="loading-messages">
+                    <div class="loading-spinner"></div>
+                    <div class="loading-text">正在加载聊天记录...</div>
+                </div>
+            `;
+            
+            // 发送加入私信会话事件，获取聊天历史
+            if (window.chatSocket) {
+                window.chatSocket.emit('join-private-chat', {
+                    userId: currentUser.id,
+                    friendId: userId,
+                    sessionToken: currentSessionToken
+                });
+            } else {
+                // WebSocket未连接，显示错误信息
+                privateMessageContainer.innerHTML = `
+                    <div class="empty-state error-state">
+                        <div class="error-icon">❌</div>
+                        <h3>连接失败</h3>
+                        <p>无法连接到聊天服务器，请检查网络连接后重试</p>
+                        <button class="retry-button" onclick="loadPrivateChatHistory(${userId})">重试</button>
+                    </div>
+                `;
+            }
+        }
+    }
+    
+    // 渲染私信消息
+    function renderPrivateMessage(message, returnElement = false) {
+        const privateMessageContainer = document.getElementById('privateMessageContainer');
+        if (!privateMessageContainer) return;
+        
+        // 检查消息对象是否有效
+        if (!message) {
+            return;
+        }
+        
+        // 检查是否是当前聊天对象的消息，使用字符串比较确保类型一致
+        const msgSenderId = String(message.senderId);
+        const msgReceiverId = String(message.receiverId);
+        const currentChatId = String(currentPrivateChatUserId);
+        if (msgSenderId !== currentChatId && msgReceiverId !== currentChatId) {
+            return;
+        }
+        
+        // 检查消息ID是否已经存在，避免重复渲染
+        if (document.querySelector(`#privateMessageContainer [data-id="${message.id}"]`)) {
+            return;
+        }
+        
+        // 移除加载状态
+        const loadingElement = privateMessageContainer.querySelector('.loading-messages');
+        if (loadingElement) {
+            loadingElement.remove();
+        }
+        
+        // 移除空状态
+        const emptyElement = privateMessageContainer.querySelector('.empty-state');
+        if (emptyElement) {
+            emptyElement.remove();
+        }
+        
+        // 允许content为null或空字符串，支持纯图片或文件消息
+        if (!message.messageType && !message.content && !message.imageUrl && !message.fileUrl && !message.text) {
+            return;
+        }
+        
+        // 适配不同消息格式，支持直接包含userId、nickname等字段的消息
+        const messageUser = {
+            id: message.senderId,
+            nickname: message.senderNickname || message.sender || '未知用户',
+            avatarUrl: message.senderAvatarUrl || message.avatarUrl
+        };
+        
+        // 安全获取发送者信息
+        const senderId = messageUser.id;
+        const senderNickname = messageUser.nickname;
+        const senderAvatarUrl = messageUser.avatarUrl;
+        const isOwn = currentUser && String(currentUser.id) === String(senderId);
+        
+        // 创建消息元素
+        const messageElement = document.createElement('div');
+        // 设置消息样式：别人的消息靠左白色，自己的消息靠右绿色
+        messageElement.className = `message ${isOwn ? 'own-message' : 'other-message'}`;
+        messageElement.setAttribute('data-id', message.id);
+        messageElement.setAttribute('data-user-id', senderId);
+        
+        // 保存sequence值，用于滚动加载
+        if (message.sequence !== undefined) {
+            messageElement.setAttribute('data-sequence', message.sequence);
+        }
+        
+        // 添加内联样式，确保样式正确应用
+        if (isOwn) {
+            messageElement.style.marginLeft = '20%';
+            messageElement.style.marginRight = '10px';
+            messageElement.style.backgroundColor = '#E8F5E8';
+            messageElement.style.borderRadius = '18px';
+            messageElement.style.padding = '10px 15px';
+            messageElement.style.maxWidth = '80%';
+            messageElement.style.minWidth = '70px'; // 确保能容纳时间显示
+            messageElement.style.alignSelf = 'flex-end';
+            messageElement.style.position = 'relative'; // 为撤回按钮添加定位上下文
+            messageElement.style.transition = 'all 0.2s';
+        } else {
+            messageElement.style.marginLeft = '10px';
+            messageElement.style.marginRight = '20%';
+            messageElement.style.backgroundColor = '#FFFFFF';
+            messageElement.style.borderRadius = '18px';
+            messageElement.style.padding = '10px 15px';
+            messageElement.style.maxWidth = '80%';
+            messageElement.style.minWidth = '70px'; // 确保能容纳时间显示
+            messageElement.style.alignSelf = 'flex-start';
+            messageElement.style.border = '1px solid #E0E0E0';
+            messageElement.style.position = 'relative'; // 为可能的未来功能添加定位上下文
+        }
+        messageElement.style.display = 'flex';
+        messageElement.style.flexDirection = 'column';
+        messageElement.style.marginBottom = '10px';
+        
+
+        
+        // HTML字符转义函数，防止XSS攻击
+        function escapeHtml(text) {
+            if (typeof text !== 'string') return text;
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // 构建消息HTML
+        let messageHtml = '';
+        
+        // 使用时间格式显示时间，不带年月日
+        const timeString = new Date(message.timestampISO || message.created_at || message.timestamp).toLocaleTimeString();
+        
+        // 消息头部：只显示时间，不显示昵称
+        if (!isOwn) {
+            // 对方消息：时间显示在消息左侧
+            messageHtml += `<div class="message-header" style="display: flex; justify-content: flex-start; margin-bottom: 5px;">`;
+            messageHtml += `<span class="message-time" style="color: #999; font-size: 12px;">${timeString}</span>`;
+            messageHtml += `</div>`;
+        } else {
+            // 自己的消息：时间显示在消息右侧
+            messageHtml += `<div class="message-header" style="display: flex; justify-content: flex-end; margin-bottom: 5px;">`;
+            messageHtml += `<span class="message-time" style="color: #999; font-size: 12px;">${timeString}</span>`;
+            messageHtml += `</div>`;
+        }
+        
+        // 设置消息最小宽度，确保能容纳时间显示
+        messageElement.style.minWidth = "70px";
+        
+        // 消息内容
+        messageHtml += `<div class="message-content">`;
+        
+        // 处理不同类型的消息
+        switch (message.messageType) {
+            case 1: // 图片消息
+                if (message.imageUrl) {
+                    // 直接使用imageUrl字段
+                    const fullImageUrl = message.imageUrl.startsWith('http') ? message.imageUrl : `${SERVER_URL}${message.imageUrl}`;
+                    messageHtml += `<img src="${fullImageUrl}" alt="图片" class="message-image" onclick="openImagePreview('${fullImageUrl}')" style="max-width: 100%; border-radius: 10px; cursor: pointer;">`;
+                } else {
+                    try {
+                        // 尝试从content字段解析
+                        const imageData = JSON.parse(message.content);
+                        if (imageData && imageData.url) {
+                            const fullImageUrl = imageData.url.startsWith('http') ? imageData.url : `${SERVER_URL}${imageData.url}`;
+                            messageHtml += `<img src="${fullImageUrl}" alt="图片" class="message-image" onclick="openImagePreview('${fullImageUrl}')" style="max-width: 100%; border-radius: 10px; cursor: pointer;">`;
+                        }
+                    } catch (error) {
+                        // 如果解析失败，作为普通文本消息处理
+                        messageHtml += `<div class="message-text">${escapeHtml(message.content)}</div>`;
+                    }
+                }
+                break;
+                
+            case 2: // 文件消息
+                if (message.fileUrl) {
+                    // 直接使用fileUrl字段
+                    const fullFileUrl = message.fileUrl.startsWith('http') ? message.fileUrl : `${SERVER_URL}${message.fileUrl}`;
+                    messageHtml += `<div class="file-link-container" style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #f5f5f5; border-radius: 8px;">`;
+                    messageHtml += `<span class="file-icon" style="font-size: 20px;">📁</span>`;
+                    messageHtml += `<a href="${fullFileUrl}" target="_blank" class="message-link" style="text-decoration: none; color: #0d6efd; word-break: break-all;">${message.fileName || '文件'}</a>`;
+                    if (message.fileSize) {
+                        messageHtml += `<span class="file-size" style="color: #666; font-size: 12px;">(${formatFileSize(message.fileSize)})</span>`;
+                    }
+                    messageHtml += `</div>`;
+                } else {
+                    try {
+                        // 尝试从content字段解析
+                        const fileData = JSON.parse(message.content);
+                        if (fileData && fileData.url && fileData.name) {
+                            const fullFileUrl = fileData.url.startsWith('http') ? fileData.url : `${SERVER_URL}${fileData.url}`;
+                            messageHtml += `<div class="file-link-container" style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #f5f5f5; border-radius: 8px;">`;
+                            messageHtml += `<span class="file-icon" style="font-size: 20px;">📁</span>`;
+                            messageHtml += `<a href="${fullFileUrl}" target="_blank" class="message-link" style="text-decoration: none; color: #0d6efd; word-break: break-all;">${fileData.name}</a>`;
+                            if (fileData.size) {
+                                messageHtml += `<span class="file-size" style="color: #666; font-size: 12px;">(${formatFileSize(fileData.size)})</span>`;
+                            }
+                            messageHtml += `</div>`;
+                        }
+                    } catch (error) {
+                        // 如果解析失败，作为普通文本消息处理
+                        messageHtml += `<div class="message-text">${escapeHtml(message.content)}</div>`;
+                    }
+                }
+                break;
+                
+            case 3: // 群名片消息
+                try {
+                    // 解析群名片数据
+                    const groupCardData = JSON.parse(message.content);
+                    messageHtml += `
+                        <div class="group-card-container" style="background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 8px; padding: 10px; cursor: pointer; margin-top: 5px;">
+                            <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px;">
+                                📱 ${groupCardData.group_name}
+                            </div>
+                            <div class="group-card-description" style="color: #666; font-size: 14px; margin-bottom: 5px;">
+                                ${groupCardData.group_description || '暂无描述'}
+                            </div>
+                            <div class="group-card-footer" style="font-size: 12px; color: #999;">
+                                点击查看群组详情
+                            </div>
+                        </div>
+                    `;
+                } catch (error) {
+                    // 如果解析失败，作为普通文本消息处理
+                    messageHtml += `<div class="message-text">${escapeHtml(message.content)}</div>`;
+                }
+                break;
+                
+            default: // 文本消息
+                // 使用Markdown渲染文本消息
+                let content = message.content || message.text || '';
+                if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                    try {
+                        // 配置marked，确保安全渲染
+                        marked.setOptions({
+                            sanitize: true,
+                            breaks: true,
+                            gfm: true
+                        });
+                        content = marked.parse(content);
+                    } catch (e) {
+                        // 如果解析失败，使用原始内容
+                        content = escapeHtml(content);
+                    }
+                } else {
+                    // 没有marked库，使用原始内容
+                    content = escapeHtml(content);
+                }
+                messageHtml += `<div class="message-text" style="word-break: break-word;">${content}</div>`;
+                break;
+        }
+        
+        messageHtml += `</div>`;
+        
+        // 为自己发送的消息添加撤回按钮
+        if (isOwn) {
+            messageHtml += `<button class="message-action-button withdraw-button" onclick="withdrawPrivateMessage(${message.id})" style="position: absolute; top: 8px; right: 8px; background: transparent; border: none; color: #666; font-size: 16px; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border-radius: 50%; opacity: 1;">×</button>`;
+        }
+        
+        messageElement.innerHTML = messageHtml;
+        
+        // 为群名片添加点击事件
+        if (message.messageType === 3) {
+            const groupCardElement = messageElement.querySelector('.group-card-container');
+            if (groupCardElement) {
+                try {
+                    const groupCardData = JSON.parse(message.content);
+                    groupCardElement.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        // 使用群组聊天界面的群名片弹窗
+                        showGroupCardPopup(e, groupCardData);
+                    });
+                } catch (error) {
+                    console.error('解析群名片数据失败:', error);
+                }
+            }
+        }
+        
+        if (returnElement) {
+            // 如果需要返回元素（用于历史消息加载），不直接添加到容器
+            return messageElement;
+        } else {
+            // 添加到消息容器
+            privateMessageContainer.appendChild(messageElement);
+            
+            // 滚动到底部
+            privateMessageContainer.scrollTop = privateMessageContainer.scrollHeight;
+        }
+    }
+    
+    // 格式化文件大小
+    function formatFileSize(bytes) {
+        if (bytes < 1024) {
+            return bytes + ' B';
+        } else if (bytes < 1048576) {
+            return (bytes / 1024).toFixed(2) + ' KB';
+        } else if (bytes < 1073741824) {
+            return (bytes / 1048576).toFixed(2) + ' MB';
+        } else {
+            return (bytes / 1073741824).toFixed(2) + ' GB';
+        }
+    }
+    
+    // 撤回私信消息 - 定义为全局函数，以便HTML可以直接调用
+    window.withdrawPrivateMessage = function(messageId) {
+        if (!currentUser || !currentSessionToken) return;
+        
+        // 发送撤回请求到服务器
+        if (window.chatSocket) {
+            window.chatSocket.emit('withdraw-private-message', {
+                userId: currentUser.id,
+                messageId: messageId,
+                sessionToken: currentSessionToken
+            });
+        }
+    }
+    
+    // 上传私信图片
+    function uploadPrivateImage(file) {
+        if (!currentUser || !currentSessionToken || !currentPrivateChatUserId) return;
+        
+        // 检查当前聊天对象是否是好友
+        const isFriend = friendsList.some(friend => String(friend.id) === String(currentPrivateChatUserId));
+        if (!isFriend) {
+            alert('您与该用户不是好友，无法发送私信');
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('image', file);
+        formData.append('userId', currentUser.id);
+        formData.append('privateChat', true); // 标记为私信聊天，只返回文件URL，不创建消息
+        
+        // 使用私信聊天的上传进度条
+        const uploadProgress = document.getElementById('privateUploadProgress');
+        const uploadProgressBar = document.getElementById('privateUploadProgressBar');
+        if (uploadProgress && uploadProgressBar) {
+            uploadProgress.style.display = 'block';
+            uploadProgressBar.style.width = '0%';
+        }
+        
+        // 发送图片上传请求
+        fetch(`${SERVER_URL}/upload`, {
+            method: 'POST',
+            headers: {
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 上传成功，构建消息数据并发送私信
+                const messageData = {
+                    userId: currentUser.id,
+                    content: JSON.stringify({ url: data.url, name: file.name }),
+                    receiverId: currentPrivateChatUserId,
+                    sessionToken: currentSessionToken,
+                    messageType: 1 // 1代表图片消息
+                };
+                
+                // 发送私信
+                if (window.chatSocket) {
+                    window.chatSocket.emit('private-message', messageData);
+                }
+            } else {
+                showError(data.message || '图片上传失败');
+            }
+        })
+        .catch(error => {
+            showError('图片上传失败，请稍后重试');
+        })
+        .finally(() => {
+            // 隐藏上传进度
+            if (uploadProgress) {
+                uploadProgress.style.display = 'none';
+            }
+            // 清空文件输入
+            const privateImageInput = document.getElementById('privateImageInput');
+            if (privateImageInput) {
+                privateImageInput.value = '';
+            }
+        });
+    }
+    
+    // 上传私信文件
+    function uploadPrivateFile(file) {
+        if (!currentUser || !currentSessionToken || !currentPrivateChatUserId) return;
+        
+        // 检查当前聊天对象是否是好友
+        const isFriend = friendsList.some(friend => String(friend.id) === String(currentPrivateChatUserId));
+        if (!isFriend) {
+            alert('您与该用户不是好友，无法发送私信');
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('image', file); // 使用与图片上传相同的字段名，保持后端一致
+        formData.append('userId', currentUser.id);
+        formData.append('privateChat', true); // 标记为私信聊天，只返回文件URL，不创建消息
+        
+        // 使用私信聊天的上传进度条
+        const uploadProgress = document.getElementById('privateUploadProgress');
+        const uploadProgressBar = document.getElementById('privateUploadProgressBar');
+        if (uploadProgress && uploadProgressBar) {
+            uploadProgress.style.display = 'block';
+            uploadProgressBar.style.width = '0%';
+        }
+        
+        // 发送文件上传请求
+        fetch(`${SERVER_URL}/upload`, {
+            method: 'POST',
+            headers: {
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 上传成功，构建消息数据并发送私信
+                const messageData = {
+                    userId: currentUser.id,
+                    content: JSON.stringify({ url: data.url, name: file.name, size: file.size }),
+                    receiverId: currentPrivateChatUserId,
+                    sessionToken: currentSessionToken,
+                    messageType: 2 // 2代表文件消息
+                };
+                
+                // 发送私信
+                if (window.chatSocket) {
+                    window.chatSocket.emit('private-message', messageData);
+                }
+            } else {
+                showError(data.message || '文件上传失败');
+            }
+        })
+        .catch(error => {
+            showError('文件上传失败，请稍后重试');
+        })
+        .finally(() => {
+            // 隐藏上传进度
+            if (uploadProgress) {
+                uploadProgress.style.display = 'none';
+            }
+            // 清空文件输入
+            const privateFileInput = document.getElementById('privateFileInput');
+            if (privateFileInput) {
+                privateFileInput.value = '';
+            }
+        });
+    }
+    
+    // 初始化好友列表事件监听
+    function initializeFriendsListListeners() {
+        // 好友列表搜索功能
+        const privateChatSearchInput = document.getElementById('privateChatSearchInput');
+        const clearPrivateChatSearch = document.getElementById('clearPrivateChatSearch');
+        
+        if (privateChatSearchInput && clearPrivateChatSearch) {
+            privateChatSearchInput.addEventListener('input', () => {
+                const keyword = privateChatSearchInput.value.toLowerCase();
+                const friendItems = document.querySelectorAll('.friend-item');
+                
+                friendItems.forEach(item => {
+                    const friendName = item.dataset.userNickname.toLowerCase();
+                    if (friendName.includes(keyword)) {
+                        item.style.display = 'flex';
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+                
+                // 显示或隐藏清除搜索按钮
+                if (keyword) {
+                    clearPrivateChatSearch.style.display = 'inline';
+                } else {
+                    clearPrivateChatSearch.style.display = 'none';
+                }
+            });
+            
+            clearPrivateChatSearch.addEventListener('click', () => {
+                privateChatSearchInput.value = '';
+                clearPrivateChatSearch.style.display = 'none';
+                const friendItems = document.querySelectorAll('.friend-item');
+                friendItems.forEach(item => {
+                    item.style.display = 'flex';
+                });
+            });
+        }
+        
+        // 搜索用户按钮
+        const searchUserButton = document.getElementById('searchUserButton');
+        if (searchUserButton) {
+            searchUserButton.addEventListener('click', () => {
+                document.getElementById('userSearchModal').style.display = 'flex';
+            });
+        }
+    }
+    
+    // 初始化用户资料模态框
+    function initializeUserProfileModal() {
+        // 关闭用户资料模态框
+        const closeUserProfileModal = document.getElementById('closeUserProfileModal');
+        const closeUserProfileButton = document.getElementById('closeUserProfileButton');
+        
+        if (closeUserProfileModal) {
+            closeUserProfileModal.addEventListener('click', () => {
+                document.getElementById('userProfileModal').style.display = 'none';
+            });
+        }
+        
+        if (closeUserProfileButton) {
+            closeUserProfileButton.addEventListener('click', () => {
+                document.getElementById('userProfileModal').style.display = 'none';
+            });
+        }
+        
+        // 添加好友按钮
+        const modalAddFriendButton = document.getElementById('modalAddFriendButton');
+        if (modalAddFriendButton) {
+            modalAddFriendButton.addEventListener('click', () => {
+                // 获取当前模态框中的用户ID
+                const userId = document.getElementById('modalUserId').textContent;
+                addFriend(userId);
+            });
+        }
+        
+        // 发送私信按钮
+        const modalSendPrivateMessageButton = document.getElementById('modalSendPrivateMessageButton');
+        if (modalSendPrivateMessageButton) {
+            modalSendPrivateMessageButton.addEventListener('click', () => {
+                // 获取当前模态框中的用户ID和昵称
+                const userId = document.getElementById('modalUserId').textContent;
+                const nickname = document.getElementById('modalUserNickname').textContent;
+                const avatarUrl = document.getElementById('modalUserAvatar').src;
+                
+                // 关闭模态框
+                document.getElementById('userProfileModal').style.display = 'none';
+                
+                // 切换到私信聊天
+                switchToPrivateChat(userId, nickname, avatarUrl);
+            });
+        }
+    }
+    
+    // 初始化用户搜索功能
+    function initializeUserSearch() {
+        // 关闭用户搜索模态框
+        const closeUserSearchModal = document.getElementById('closeUserSearchModal');
+        const cancelUserSearch = document.getElementById('cancelUserSearch');
+        
+        if (closeUserSearchModal) {
+            closeUserSearchModal.addEventListener('click', () => {
+                document.getElementById('userSearchModal').style.display = 'none';
+            });
+        }
+        
+        if (cancelUserSearch) {
+            cancelUserSearch.addEventListener('click', () => {
+                document.getElementById('userSearchModal').style.display = 'none';
+            });
+        }
+        
+        // 搜索用户按钮
+        const confirmUserSearch = document.getElementById('confirmUserSearch');
+        if (confirmUserSearch) {
+            confirmUserSearch.addEventListener('click', () => {
+                const searchKeyword = document.getElementById('searchKeyword').value;
+                if (searchKeyword.trim()) {
+                    searchUsers(searchKeyword.trim());
+                }
+            });
+        }
+    }
+    
+    // 搜索用户
+    function searchUsers(keyword) {
+        if (!currentUser || !currentSessionToken) return;
+        
+        // 使用fetch API搜索用户
+        fetch(`${SERVER_URL}/user/search?keyword=${encodeURIComponent(keyword)}`, {
+            headers: {
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                displaySearchResults(data.users);
+            } else {
+                const searchResults = document.getElementById('searchResults');
+                if (searchResults) {
+                    searchResults.innerHTML = '<div class="search-result-item">搜索失败: ' + data.message + '</div>';
+                }
+            }
+        })
+        .catch(error => {
+            const searchResults = document.getElementById('searchResults');
+            if (searchResults) {
+                searchResults.innerHTML = '<div class="search-result-item">搜索失败: 网络错误</div>';
+            }
+        });
+    }
+    
+    // 显示搜索结果
+    function displaySearchResults(users) {
+        const searchResults = document.getElementById('searchResults');
+        if (!searchResults) return;
+        
+        searchResults.innerHTML = '';
+        
+        if (users.length === 0) {
+            searchResults.innerHTML = '<div class="search-result-item">未找到匹配的用户</div>';
+            return;
+        }
+        
+        users.forEach(user => {
+            const resultItem = document.createElement('div');
+            resultItem.className = 'search-result-item';
+            
+            // 安全获取用户头像URL，复制其他地方的头像插入逻辑
+        let avatarUrl = '';
+        if (user.avatarUrl && typeof user.avatarUrl === 'string') {
+            avatarUrl = user.avatarUrl.trim();
+        } else if (user.avatar_url && typeof user.avatar_url === 'string') {
+            avatarUrl = user.avatar_url.trim();
+        } else if (user.avatar && typeof user.avatar === 'string') {
+            avatarUrl = user.avatar.trim();
+        }
+        
+        // 检查avatarUrl是否为有效的图片URL，避免显示无效链接
+        if (avatarUrl) {
+            const imageExtensions = /\.(jpg|jpeg|png|gif|webp|bmp)$/i;
+            if (!avatarUrl.match(imageExtensions) && !avatarUrl.includes('/avatar/') && !avatarUrl.includes('/upload/')) {
+                // 无效的头像URL，清空以便显示默认头像
+                avatarUrl = '';
+            }
+        }
+        
+        // 检查avatarUrl是否为有效的图片URL，避免显示无效链接
+        if (avatarUrl) {
+            const imageExtensions = /\.(jpg|jpeg|png|gif|webp|bmp)$/i;
+            if (!avatarUrl.match(imageExtensions) && !avatarUrl.includes('/avatar/') && !avatarUrl.includes('/upload/')) {
+                // 无效的头像URL，清空以便显示默认头像
+                avatarUrl = '';
+            }
+        }
+        
+        // 检查头像URL是否为SVG格式，防止XSS攻击
+        const isSvgAvatar = /\.svg$/i.test(avatarUrl);
+            
+            // 显示用户头像或默认头像
+            let avatarHtml = '';
+            if (avatarUrl) {
+                const isSvgAvatar = /\.svg$/i.test(avatarUrl);
+                if (isSvgAvatar) {
+                    const initials = user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
+                    avatarHtml = `<span class="user-avatar">${initials}</span>`;
+                } else {
+                    const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
+                    avatarHtml = `<span class="user-avatar"><img src="${fullAvatarUrl}" alt="${user.nickname}"></span>`;
+                }
+            } else {
+                const initials = user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
+                avatarHtml = `<span class="user-avatar">${initials}</span>`;
+            }
+            
+            // 构建搜索结果项HTML
+            resultItem.innerHTML = `
+                ${avatarHtml}
+                <div class="search-result-info">
+                    <div class="search-result-nickname">${user.nickname}</div>
+                    <div class="search-result-username">@${user.username}</div>
+                </div>
+                <button class="add-friend-btn" data-user-id="${user.id}" data-user-nickname="${user.nickname}" data-user-avatar="${avatarUrl}">+</button>
+            `;
+            
+            // 添加添加好友按钮事件
+            const addFriendBtn = resultItem.querySelector('.add-friend-btn');
+            addFriendBtn.addEventListener('click', () => {
+                addFriend(user.id);
+            });
+            
+            // 为搜索结果中的用户头像添加点击事件
+            const resultAvatar = resultItem.querySelector('.user-avatar');
+            resultAvatar.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showUserAvatarPopup(e, user);
+            });
+            
+            // 添加点击事件，显示用户资料
+            resultItem.addEventListener('click', (e) => {
+                if (!e.target.classList.contains('add-friend-btn') && !e.target.closest('.user-avatar')) {
+                    showUserProfile(user);
+                }
+            });
+            
+            searchResults.appendChild(resultItem);
+        });
+    }
+    
+    // 显示用户资料
+    function showUserProfile(user) {
+        const userProfileModal = document.getElementById('userProfileModal');
+        const modalUserAvatar = document.getElementById('modalUserAvatar');
+        const modalUserInitials = document.getElementById('modalUserInitials');
+        const modalUserNickname = document.getElementById('modalUserNickname');
+        const modalUsername = document.getElementById('modalUsername');
+        const modalUserId = document.getElementById('modalUserId');
+        const modalUserStatus = document.getElementById('modalUserStatus');
+        
+        if (!userProfileModal || !modalUserAvatar || !modalUserInitials || !modalUserNickname || !modalUsername || !modalUserId || !modalUserStatus) return;
+        
+        // 安全获取用户头像URL，复制其他地方的头像插入逻辑
+        let avatarUrl = '';
+        if (user.avatarUrl && typeof user.avatarUrl === 'string') {
+            avatarUrl = user.avatarUrl.trim();
+        } else if (user.avatar_url && typeof user.avatar_url === 'string') {
+            avatarUrl = user.avatar_url.trim();
+        } else if (user.avatar && typeof user.avatar === 'string') {
+            avatarUrl = user.avatar.trim();
+        }
+        
+        // 检查avatarUrl是否为有效的图片URL，避免显示无效链接
+        if (avatarUrl) {
+            const imageExtensions = /\.(jpg|jpeg|png|gif|webp|bmp)$/i;
+            if (!avatarUrl.match(imageExtensions) && !avatarUrl.includes('/avatar/') && !avatarUrl.includes('/upload/')) {
+                // 无效的头像URL，清空以便显示默认头像
+                avatarUrl = '';
+            }
+        }
+        
+        // 检查头像URL是否为SVG格式，防止XSS攻击
+        const isSvgAvatar = /\.svg$/i.test(avatarUrl);
+        
+        // 更新用户头像
+        if (avatarUrl && !isSvgAvatar) {
+            let fullAvatarUrl = '';
+            // 如果已经是完整URL，直接使用，否则拼接SERVER_URL
+            if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) {
+                fullAvatarUrl = avatarUrl;
+            } else {
+                fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
+            }
+            modalUserAvatar.src = fullAvatarUrl;
+            modalUserAvatar.style.display = 'block';
+            modalUserAvatar.style.width = '120px'; // 确保头像大小一致
+            modalUserAvatar.style.height = '120px'; // 确保头像大小一致
+            modalUserAvatar.style.visibility = 'visible'; // 确保头像可见
+            modalUserInitials.style.display = 'none';
+            modalUserInitials.style.visibility = 'hidden'; // 确保初始头像不可见
+        } else {
+            // 没有头像时显示默认头像（首字母）
+            const initials = user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
+            modalUserInitials.textContent = initials;
+            modalUserInitials.style.display = 'flex';
+            modalUserInitials.style.alignItems = 'center';
+            modalUserInitials.style.justifyContent = 'center';
+            modalUserInitials.style.width = '80px'; // 调整初始头像大小为更小的值
+            modalUserInitials.style.height = '80px'; // 调整初始头像大小为更小的值
+            modalUserInitials.style.fontSize = '32px'; // 调整初始头像字体大小为更小的值
+            modalUserInitials.style.borderRadius = '50%'; // 圆形初始头像
+            modalUserInitials.style.backgroundColor = '#f0f0f0'; // 初始头像背景色
+            modalUserInitials.style.color = '#333'; // 初始头像文字颜色
+            modalUserInitials.style.border = '2px solid #e0e0e0'; // 添加边框
+            modalUserInitials.style.visibility = 'visible'; // 确保初始头像可见
+            modalUserInitials.style.position = 'relative'; // 确保初始头像在正确的层级
+            modalUserInitials.style.zIndex = '1'; // 确保初始头像不会覆盖其他内容
+            
+            // 确保没有头像时，图片元素完全不可见
+            modalUserAvatar.style.display = 'none';
+            modalUserAvatar.style.visibility = 'hidden'; // 确保图片不可见
+            modalUserAvatar.src = ''; // 清空图片src，防止alt文本显示
+        }
+        
+        // 更新用户资料
+        modalUserNickname.textContent = user.nickname;
+        modalUsername.textContent = user.username;
+        modalUserId.textContent = user.id;
+        modalUserStatus.textContent = '在线';
+        
+        // 显示用户资料模态框
+        userProfileModal.style.display = 'flex';
+        
+        // 添加事件监听器，防止模态框内容点击事件冒泡导致关闭
+        const modalContent = userProfileModal.querySelector('.modal-content');
+        if (modalContent) {
+            modalContent.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        }
+        
+        // 为模态框背景添加点击事件，点击背景关闭模态框
+        userProfileModal.addEventListener('click', () => {
+            userProfileModal.style.display = 'none';
+        });
+    }
+    
+    // 显示用户头像小弹窗
+    function showUserAvatarPopup(event, user) {
+        event.stopPropagation();
+        
+        const popup = document.getElementById('userAvatarPopup');
+        const popupAvatarImg = document.getElementById('popupAvatarImg');
+        const popupInitials = document.getElementById('popupInitials');
+        const popupNickname = document.getElementById('popupNickname');
+        const popupUsername = document.getElementById('popupUsername');
+        const popupAddFriend = document.getElementById('popupAddFriend');
+        
+        if (!popup || !popupAvatarImg || !popupInitials || !popupNickname || !popupUsername || !popupAddFriend) return;
+        
+        // 安全获取用户头像URL
+        let avatarUrl = '';
+        if (user.avatarUrl && typeof user.avatarUrl === 'string') {
+            avatarUrl = user.avatarUrl.trim();
+        } else if (user.avatar_url && typeof user.avatar_url === 'string') {
+            avatarUrl = user.avatar_url.trim();
+        } else if (user.avatar && typeof user.avatar === 'string') {
+            avatarUrl = user.avatar.trim();
+        }
+        
+        // 更新用户头像
+        if (avatarUrl) {
+            const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
+            popupAvatarImg.src = fullAvatarUrl;
+            popupAvatarImg.style.display = 'block';
+            popupInitials.style.display = 'none';
+        } else {
+            const initials = user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
+            popupInitials.textContent = initials;
+            popupInitials.style.display = 'block';
+            popupAvatarImg.style.display = 'none';
+        }
+        
+        // 更新用户资料
+        popupNickname.textContent = user.nickname;
+        popupUsername.textContent = user.username;
+        
+        // 设置小弹窗位置 - 以鼠标位置为左上角
+        popup.style.left = `${event.clientX + window.scrollX}px`;
+        popup.style.top = `${event.clientY + window.scrollY}px`;
+        
+        // 显示小弹窗
+        popup.style.display = 'block';
+        
+        // 保存当前用户ID，用于添加好友
+        popup.dataset.userId = user.id;
+        
+        // 检查是否已经是好友
+        const isFriend = friendsList.some(friend => String(friend.id) === String(user.id));
+        const isCurrentUser = currentUser && String(currentUser.id) === String(user.id);
+        
+        // 更新添加好友按钮状态
+        if (isFriend || isCurrentUser) {
+            popupAddFriend.textContent = '已添加';
+            popupAddFriend.style.backgroundColor = '#ccc';
+            popupAddFriend.style.cursor = 'not-allowed';
+            popupAddFriend.disabled = true;
+            popupAddFriend.onclick = null;
+        } else {
+            popupAddFriend.textContent = '添加好友';
+            popupAddFriend.style.backgroundColor = '#3498db';
+            popupAddFriend.style.cursor = 'pointer';
+            popupAddFriend.disabled = false;
+            popupAddFriend.onclick = function() {
+                addFriend(user.id);
+                hideUserAvatarPopup();
+            };
+        }
+        
+        // 添加全局点击事件，点击其他地方隐藏小弹窗
+        setTimeout(() => {
+            document.addEventListener('click', hideUserAvatarPopup);
+        }, 0);
+    }
+    
+    // 隐藏用户头像小弹窗
+    function hideUserAvatarPopup() {
+        const popup = document.getElementById('userAvatarPopup');
+        if (popup) {
+            popup.style.display = 'none';
+        }
+        
+        // 移除全局点击事件
+        document.removeEventListener('click', hideUserAvatarPopup);
+    }
+    
+    // 为用户头像添加点击事件监听器
+    function addAvatarClickListeners() {
+        
+        // 为好友列表中的用户头像添加点击事件
+        const friendAvatars = document.querySelectorAll('.friend-item .user-avatar');
+        friendAvatars.forEach((avatar, index) => {
+            avatar.addEventListener('click', (event) => {
+                const friend = friendsList[index];
+                if (friend) {
+                    showUserAvatarPopup(event, friend);
+                }
+            });
+        });
+        
+        // 为在线用户列表中的用户头像添加点击事件
+        const onlineUserAvatars = document.querySelectorAll('#userList .user-avatar');
+        onlineUserAvatars.forEach((avatar, index) => {
+            avatar.addEventListener('click', (event) => {
+                const user = onlineUsersList[index];
+                if (user) {
+                    showUserAvatarPopup(event, user);
+                }
+            });
+        });
+        
+        // 为离线用户列表中的用户头像添加点击事件
+        const offlineUserAvatars = document.querySelectorAll('#offlineUserList .user-avatar');
+        offlineUserAvatars.forEach((avatar, index) => {
+            // 从离线用户列表中获取对应的用户数据
+            const offlineUserList = document.querySelectorAll('#offlineUserList .user-item');
+            const userNickname = offlineUserList[index].querySelector('.user-name').textContent;
+            
+            // 创建用户对象
+            const user = {
+                id: offlineUserList[index].dataset.userId || '',
+                nickname: userNickname,
+                avatarUrl: ''
+            };
+            
+            avatar.addEventListener('click', (event) => {
+                showUserAvatarPopup(event, user);
+            });
+        });
+    }
+    
+    // 添加好友
+    function addFriend(userId) {
+        if (!currentUser || !currentSessionToken) return;
+        
+        // 使用fetch API添加好友
+        fetch(`${SERVER_URL}/user/add-friend`, {
+            method: 'POST',
+            headers: {
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ friendId: userId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 重新加载好友列表
+                loadFriendsList();
+                alert('添加好友成功');
+            } else {
+                alert('添加好友失败: ' + data.message);
+            }
+        })
+        .catch(error => {
+            alert('添加好友失败: 网络错误');
+        });
+    }
+    
+    // 初始化私信消息发送功能
+    function initializePrivateMessageSending() {
+        // 发送私信按钮事件
+        const sendPrivateMessageButton = document.getElementById('sendPrivateMessage');
+        if (sendPrivateMessageButton) {
+            sendPrivateMessageButton.addEventListener('click', () => {
+                sendPrivateMessage();
+            });
+        }
+        
+        // 私信消息输入框回车发送
+        const privateMessageInput = document.getElementById('privateMessageInput');
+        if (privateMessageInput) {
+            privateMessageInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+                    e.preventDefault();
+                    sendPrivateMessage();
+                }
+            });
+        }
+        
+        // 初始化Markdown工具栏
+        const markdownToolbar = document.getElementById('privateMarkdownToolbar');
+        if (markdownToolbar) {
+            const markdownButtons = markdownToolbar.querySelectorAll('.markdown-btn');
+            markdownButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const prefix = button.getAttribute('data-prefix') || '';
+                    const suffix = button.getAttribute('data-suffix') || '';
+                    const sample = button.getAttribute('data-sample') || '';
+                    
+                    // 插入Markdown格式到输入框
+                    insertMarkdownFormat(prefix, suffix, sample);
+                });
+            });
+        }
+        
+        // 初始化图片上传功能
+        const privateImageUploadButton = document.getElementById('privateImageUploadButton');
+        const privateImageInput = document.getElementById('privateImageInput');
+        if (privateImageUploadButton && privateImageInput) {
+            // 移除可能存在的旧事件监听器
+            privateImageUploadButton.onclick = null;
+            privateImageInput.onchange = null;
+            
+            privateImageUploadButton.onclick = () => {
+                privateImageInput.click();
+            };
+            
+            privateImageInput.onchange = function() {
+                if (this.files && this.files[0]) {
+                    uploadPrivateImage(this.files[0]);
+                }
+            };
+        }
+        
+        // 初始化文件上传功能
+        const privateFileUploadButton = document.getElementById('privateFileUploadButton');
+        const privateFileInput = document.getElementById('privateFileInput');
+        if (privateFileUploadButton && privateFileInput) {
+            // 移除可能存在的旧事件监听器
+            privateFileUploadButton.onclick = null;
+            privateFileInput.onchange = null;
+            
+            privateFileUploadButton.onclick = () => {
+                privateFileInput.click();
+            };
+            
+            privateFileInput.onchange = function() {
+                if (this.files && this.files[0]) {
+                    uploadPrivateFile(this.files[0]);
+                }
+            };
+        }
+    }
+    
+    // 插入Markdown格式到输入框
+    function insertMarkdownFormat(prefix, suffix, sample) {
+        // 确定当前活动的输入框
+        let activeInput = null;
+        
+        // 根据当前聊天类型选择对应的输入框
+        const activeChatContent = document.querySelector('.chat-content.active');
+        if (activeChatContent) {
+            const contentType = activeChatContent.getAttribute('data-content');
+            switch (contentType) {
+                case 'public-chat':
+                    activeInput = document.getElementById('messageInput');
+                    break;
+                case 'group-chat':
+                    activeInput = document.getElementById('groupMessageInput');
+                    break;
+                case 'private-chat':
+                    activeInput = document.getElementById('privateMessageInput');
+                    break;
+                default:
+                    // 默认尝试获取当前聚焦的输入框
+                    activeInput = document.activeElement;
+            }
+        } else {
+            // 尝试获取当前聚焦的输入框
+            activeInput = document.activeElement;
+        }
+        
+        // 如果没有找到有效的输入框，返回
+        if (!activeInput || !activeInput.isContentEditable) {
+            // 如果当前聚焦的不是可编辑元素，尝试获取可见的可编辑输入框
+            const editableInputs = document.querySelectorAll('.editable-div, [contenteditable="true"]');
+            for (let i = 0; i < editableInputs.length; i++) {
+                if (editableInputs[i].offsetParent !== null) { // 检查元素是否可见
+                    activeInput = editableInputs[i];
+                    break;
+                }
+            }
+            
+            if (!activeInput || !activeInput.isContentEditable) {
+                return;
+            }
+        }
+        
+        // 获取当前选中的文本
+        let selectedText = '';
+        if (window.getSelection) {
+            const selection = window.getSelection();
+            selectedText = selection.toString();
+        } else if (document.selection && document.selection.type !== 'Control') {
+            selectedText = document.selection.createRange().text;
+        }
+        
+        // 如果没有选中文本，使用示例文本
+        if (!selectedText) {
+            selectedText = sample;
+        }
+        
+        // 聚焦到输入框
+        activeInput.focus();
+        
+        // 插入Markdown格式
+        const newText = prefix + selectedText + suffix;
+        
+        // 替换选中的文本
+        document.execCommand('insertText', false, newText);
+    }
+    
+    // 发送私信
+    function sendPrivateMessage() {
+        if (!currentUser || !currentSessionToken || !currentPrivateChatUserId) return;
+        
+        const privateMessageInput = document.getElementById('privateMessageInput');
+        if (!privateMessageInput) return;
+        
+        // 获取可编辑div的内容
+        const content = privateMessageInput.innerText.trim();
+        if (!content) return;
+        
+        // 检查当前聊天对象是否是好友
+        const isFriend = friendsList.some(friend => String(friend.id) === String(currentPrivateChatUserId));
+        if (!isFriend) {
+            alert('您与该用户不是好友，无法发送私信');
+            return;
+        }
+        
+        // 构建私信消息数据
+        const messageData = {
+            userId: currentUser.id,
+            content: content,
+            receiverId: currentPrivateChatUserId,
+            sessionToken: currentSessionToken
+        };
+        
+        // 发送私信
+        if (window.chatSocket) {
+            window.chatSocket.emit('private-message', messageData);
+        }
+        
+        // 清空输入框
+        privateMessageInput.innerHTML = '';
+    }
+    
+    // 初始化私信聊天界面事件
+    function initializePrivateChatInterface() {
+        // 删除好友按钮
+        const deleteFriendButton = document.getElementById('deleteFriendButton');
+        if (deleteFriendButton) {
+            // 移除旧的事件监听器，避免重复绑定
+            deleteFriendButton.onclick = null;
+            deleteFriendButton.onclick = () => {
+                if (currentPrivateChatUserId) {
+                    deleteFriend(currentPrivateChatUserId);
+                }
+            };
+        }
+        
+        // 查看用户资料按钮
+        const privateUserInfoButton = document.getElementById('privateUserInfoButton');
+        if (privateUserInfoButton) {
+            // 移除旧的事件监听器，避免重复绑定
+            privateUserInfoButton.onclick = null;
+            privateUserInfoButton.onclick = () => {
+                // 显示用户资料模态框
+                if (currentPrivateChatUserId && currentPrivateChatUsername) {
+                    // 获取当前聊天对象的头像URL
+                    const privateUserAvatar = document.getElementById('privateUserAvatar');
+                    let avatarUrl = '';
+                    if (privateUserAvatar && privateUserAvatar.src && privateUserAvatar.src !== '') {
+                        // 确保只有当src包含SERVER_URL时才进行替换，避免重复拼接
+                        if (privateUserAvatar.src.startsWith(SERVER_URL)) {
+                            avatarUrl = privateUserAvatar.src.replace(SERVER_URL, '');
+                        } else if (privateUserAvatar.src.startsWith('http')) {
+                            // 如果是完整URL，直接使用
+                            avatarUrl = privateUserAvatar.src;
+                        }
+                    }
+                    
+                    // 直接使用当前聊天对象的信息创建用户对象
+                    const user = {
+                        id: currentPrivateChatUserId,
+                        nickname: currentPrivateChatUsername,
+                        avatarUrl: avatarUrl,
+                        username: currentPrivateChatUsername // 使用昵称作为用户名，因为私信中没有用户名信息
+                    };
+                    showUserProfile(user);
+                }
+            };
+        }
+        
+        // 私信更多按钮
+        const privateMoreButton = document.getElementById('privateMoreButton');
+        if (privateMoreButton) {
+            // 移除旧的事件监听器，避免重复绑定
+            privateMoreButton.onclick = null;
+            privateMoreButton.onclick = (e) => {
+                e.stopPropagation();
+                const privateMoreFunctions = document.getElementById('privateMoreFunctions');
+                if (privateMoreFunctions) {
+                    privateMoreFunctions.classList.toggle('show');
+                }
+            };
+        }
+        
+        // 私信Markdown工具栏切换按钮
+        const togglePrivateMarkdownToolbar = document.getElementById('togglePrivateMarkdownToolbar');
+        if (togglePrivateMarkdownToolbar) {
+            togglePrivateMarkdownToolbar.addEventListener('click', () => {
+                const privateMarkdownToolbar = document.getElementById('privateMarkdownToolbar');
+                if (privateMarkdownToolbar) {
+                    privateMarkdownToolbar.style.display = privateMarkdownToolbar.style.display === 'flex' ? 'none' : 'flex';
+                    
+                    // 切换图标方向
+                    const icon = togglePrivateMarkdownToolbar.querySelector('i');
+                    if (icon) {
+                        icon.style.transform = privateMarkdownToolbar.style.display === 'flex' ? 'rotate(180deg)' : 'rotate(0deg)';
+                    }
+                }
+            });
+        }
+        
+        // 私信聊天界面初始化完成 - 已在initializePrivateMessageSending中添加了上传按钮事件监听器
+    }
+    
+    // 删除好友
+    function deleteFriend(userId) {
+        if (!currentUser || !currentSessionToken) return;
+        
+        if (confirm('确定要删除这个好友吗？')) {
+            // 使用fetch API删除好友
+            fetch(`${SERVER_URL}/user/remove-friend`, {
+                method: 'POST',
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ friendId: userId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // 重新加载好友列表
+                    loadFriendsList();
+                    
+                    // 如果当前正在与该好友聊天，切换到空白状态
+                    if (currentPrivateChatUserId === userId) {
+                        const privateChatInterface = document.getElementById('privateChatInterface');
+                        const privateEmptyState = document.getElementById('privateEmptyState');
+                        if (privateChatInterface && privateEmptyState) {
+                            privateChatInterface.style.display = 'none';
+                            privateEmptyState.style.display = 'flex';
+                            currentPrivateChatUserId = null;
+                            currentPrivateChatUsername = '';
+                        }
+                    }
+                    
+                    alert('删除好友成功');
+                } else {
+                    alert('删除好友失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('删除好友失败: 网络错误');
+            });
         }
     }
     
@@ -133,6 +1600,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // 初始化群组功能
         initializeGroupFunctions();
         
+        // 初始化私信聊天功能
+        initializePrivateChatFunctions();
+        
         // 初始化设置功能
         initializeSettingsFunctions();
         
@@ -150,6 +1620,9 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // 加载群组列表
         loadGroupList();
+        
+        // 加载好友列表
+        loadFriendsList();
         
         // 立即启用消息发送功能，因为用户已经登录
         enableMessageSending();
@@ -439,6 +1912,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // 群组列表更新事件
         socket.on('group-list', (groups) => {
             updateGroupList(groups);
+        });
+        
+        // 好友删除事件
+        socket.on('friend-removed', () => {
+            // 刷新好友列表
+            loadFriendsList();
         });
         
         // 聊天历史记录事件
@@ -915,6 +2394,207 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         
+        // 私信消息接收事件
+        socket.on('private-message-sent', (data) => {
+            // 检查是否包含完整的消息数据
+            if (data.message) {
+                const message = data.message;
+                // 标记为实时消息
+                message.isHistory = false;
+                // 显示私信消息
+                renderPrivateMessage(message);
+            }
+        });
+        
+        // 私信消息接收事件
+        socket.on('private-message-received', (message) => {
+            // 检查消息中是否包含新的会话令牌
+            if (message.sessionToken) {
+                // 更新会话令牌
+                currentSessionToken = message.sessionToken;
+                localStorage.setItem('currentSessionToken', currentSessionToken);
+            }
+            
+            // 标记为实时消息
+            message.isHistory = false;
+            // 显示私信消息
+            renderPrivateMessage(message);
+        });
+        
+        // 好友列表更新事件
+        socket.on('friend-list-updated', (data) => {
+            // 更新好友列表
+            loadFriendsList();
+        });
+        
+        // 私信消息撤回事件
+        socket.on('private-message-withdrawn', (data) => {
+            if (!data || !data.messageId) return;
+            
+            // 移除被撤回的消息
+            const messageElement = document.querySelector(`#privateMessageContainer [data-id="${data.messageId}"]`);
+            if (messageElement) {
+                messageElement.remove();
+            }
+        });
+        
+        // 私信聊天历史记录事件
+        socket.on('private-chat-history', (data) => {
+            // 检查历史记录响应中是否包含新的会话令牌
+            if (data.sessionToken) {
+                // 更新会话令牌
+                currentSessionToken = data.sessionToken;
+                localStorage.setItem('currentSessionToken', currentSessionToken);
+            }
+            
+            const privateMessageContainer = document.getElementById('privateMessageContainer');
+            if (!privateMessageContainer) {
+                // 重置加载状态
+                if (window.resetLoadingState) {
+                    window.resetLoadingState();
+                }
+                return;
+            }
+            
+            // 只有登录状态才加载和显示聊天历史
+            if (currentUser && currentSessionToken) {
+                // 如果是首次加载，清空容器
+                if (!hasReceivedPrivateHistory || !data.loadMore) {
+                    privateMessageContainer.innerHTML = '';
+                    hasReceivedPrivateHistory = true;
+                }
+                
+                // 处理加载更多返回0条消息的情况
+                if (data.loadMore && (!data.messages || !Array.isArray(data.messages) || data.messages.length === 0)) {
+                    // 重置加载状态
+                    if (window.resetLoadingState) {
+                        window.resetLoadingState();
+                    }
+                    return;
+                }
+                
+                // 处理私信聊天历史记录
+                if (data.messages && Array.isArray(data.messages)) {
+                    if (data.messages.length === 0) {
+                        // 没有消息时显示友好的空状态
+                        privateMessageContainer.innerHTML = `
+                            <div class="empty-state">
+                                <div class="empty-icon">💬</div>
+                                <h3>暂无消息</h3>
+                                <p>发送第一条消息开始你们的对话吧!</p>
+                            </div>
+                        `;
+                    } else {
+                        // 移除空状态
+                        const emptyElement = privateMessageContainer.querySelector('.empty-state');
+                        if (emptyElement) {
+                            emptyElement.remove();
+                        }
+                        
+                        // 对消息进行排序，优先使用sequence字段
+                        const sortedMessages = [...data.messages].sort((a, b) => {
+                            if (a.sequence !== undefined && b.sequence !== undefined) {
+                                return b.sequence - a.sequence; // 降序排列（新消息在前）
+                            }
+                            return new Date(b.timestampISO || b.created_at || b.timestamp) - new Date(a.timestampISO || a.created_at || a.timestamp);
+                        });
+                        
+                        // 对于首次加载的消息，我们需要反转顺序，确保最早的消息在顶部
+                        // 对于加载更多的消息，保持原始顺序
+                        const messagesToRender = data.loadMore ? sortedMessages : sortedMessages.reverse();
+                        
+                        // 创建已处理消息ID集合，避免同一批加载中重复处理
+                        const processedMessageIds = new Set();
+                        
+                        // 先收集当前已存在的消息ID
+                        const existingMessages = privateMessageContainer.querySelectorAll('[data-id]');
+                        existingMessages.forEach(msg => {
+                            processedMessageIds.add(msg.getAttribute('data-id'));
+                        });
+                        
+                        // 保存当前滚动位置和高度，用于恢复（仅在加载更多时）
+                        let prevScrollHeight, prevScrollTop;
+                        if (data.loadMore) {
+                            prevScrollHeight = privateMessageContainer.scrollHeight;
+                            prevScrollTop = privateMessageContainer.scrollTop;
+                        }
+                        
+                        // 一次性渲染所有消息
+                        if (data.loadMore) {
+                            // 对于加载更多的消息，从旧到新顺序，插入到顶部
+                            messagesToRender.forEach(message => {
+                                // 确保消息有必要的属性
+                                if (!message || !message.id) {
+                                    return;
+                                }
+                                
+                                // 检查消息ID是否已经处理过，避免重复
+                                if (processedMessageIds.has(String(message.id))) {
+                                    return;
+                                }
+                                
+                                // 标记为已处理
+                                processedMessageIds.add(String(message.id));
+                                
+                                // 标记为历史消息
+                                message.isHistory = true;
+                                const messageElement = renderPrivateMessage(message, true);
+                                if (messageElement) {
+                                    privateMessageContainer.insertBefore(messageElement, privateMessageContainer.firstChild);
+                                }
+                            });
+                        } else {
+                            // 对于首次加载的消息，从旧到新顺序，添加到末尾
+                            messagesToRender.forEach(message => {
+                                // 确保消息有必要的属性
+                                if (!message || !message.id) {
+                                    return;
+                                }
+                                
+                                // 检查消息ID是否已经处理过，避免重复
+                                if (processedMessageIds.has(String(message.id))) {
+                                    return;
+                                }
+                                
+                                // 标记为已处理
+                                processedMessageIds.add(String(message.id));
+                                
+                                // 标记为历史消息
+                                message.isHistory = true;
+                                // 正常加载，直接添加到容器
+                                renderPrivateMessage(message);
+                            });
+                        }
+                        
+                        // 恢复滚动位置，确保用户体验流畅
+                        if (data.loadMore && prevScrollHeight !== undefined && prevScrollTop !== undefined) {
+                            // 加载更多后，保持用户原来的相对位置
+                            const newScrollHeight = privateMessageContainer.scrollHeight;
+                            const heightDifference = newScrollHeight - prevScrollHeight;
+                            privateMessageContainer.scrollTop = prevScrollTop + heightDifference;
+                        } else if (!data.loadMore) {
+                            // 首次加载时滚动到底部
+                            privateMessageContainer.scrollTop = privateMessageContainer.scrollHeight;
+                        }
+                    }
+                } else {
+                    // 没有消息数据时显示友好的空状态
+                    privateMessageContainer.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">💬</div>
+                            <h3>暂无消息</h3>
+                            <p>发送第一条消息开始你们的对话吧!</p>
+                        </div>
+                    `;
+                }
+            }
+            
+            // 重置加载状态
+            if (window.resetLoadingState) {
+                window.resetLoadingState();
+            }
+        });
+        
         // 保存socket实例
         window.chatSocket = socket;
         
@@ -1105,13 +2785,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             },
             
-            // 加载可用成员列表
+            // 加载可用成员列表（只显示好友）
             loadAvailableMembers: function() {
                 const groupMembersList = document.getElementById('groupMembersList');
                 if (!groupMembersList) return;
                 
                 // 显示加载状态
-                groupMembersList.innerHTML = '<div class="loading-members">正在加载成员列表...</div>';
+                groupMembersList.innerHTML = '<div class="loading-members">正在加载好友列表...</div>';
                 
                 // 检查用户是否已登录
                 if (!currentUser || !currentSessionToken) {
@@ -1119,48 +2799,40 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
                 
-
-                
-                // 获取离线用户列表
-                fetch(`${SERVER_URL}/offline-users`, {
+                // 获取好友列表
+                fetch(`${SERVER_URL}/user/friends`, {
                     headers: {
                         'user-id': currentUser.id,
                         'session-token': currentSessionToken
                     }
                 })
-                .then(response => {
-
-                    return response.json();
-                })
+                .then(response => response.json())
                 .then(data => {
-
-                    let allUsers = [];
-                    if (data.status === 'success' && data.users) {
-                        allUsers = data.users;
+                    let friends = [];
+                    if (data.status === 'success' && data.friends) {
+                        friends = data.friends;
                     } else {
-                        console.error('Failed to get offline users:', data.message || 'Unknown error');
+                        console.error('Failed to get friends:', data.message || 'Unknown error');
                     }
                     
-                    // 过滤掉当前用户，只显示其他用户
-                    const availableMembers = allUsers.filter(user => user.id !== currentUser.id);
-                    
-
+                    // 过滤掉当前用户，只显示其他好友
+                    const availableMembers = friends.filter(friend => friend.id !== currentUser.id);
                     
                     // 显示成员列表
                     if (availableMembers.length === 0) {
-                        groupMembersList.innerHTML = '<div class="loading-members">没有可用的成员</div>';
+                        groupMembersList.innerHTML = '<div class="loading-members">没有可用的好友</div>';
                     } else {
-                        groupMembersList.innerHTML = availableMembers.map(user => `
+                        groupMembersList.innerHTML = availableMembers.map(friend => `
                             <div class="member-item">
-                                <input type="checkbox" class="member-checkbox" id="member-${user.id}" value="${user.id}">
-                                <label for="member-${user.id}" class="member-nickname">${user.nickname || user.username}</label>
+                                <input type="checkbox" class="member-checkbox" id="member-${friend.id}" value="${friend.id}">
+                                <label for="member-${friend.id}" class="member-nickname">${friend.nickname || friend.username}</label>
                             </div>
                         `).join('');
                     }
                 })
                 .catch(error => {
-                    console.error('Error loading offline users:', error);
-                    groupMembersList.innerHTML = '<div class="loading-members">加载成员列表失败</div>';
+                    console.error('Error loading friends:', error);
+                    groupMembersList.innerHTML = '<div class="loading-members">加载好友列表失败</div>';
                 });
             },
             
@@ -1196,9 +2868,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
                 
-                if (selectedMemberIds.length < 2) {
+                // 取消最小成员限制，允许1人创建群组
+                if (selectedMemberIds.length < 0) {
                     if (createGroupMessage) {
-                        createGroupMessage.textContent = '请选择至少2名成员';
+                        createGroupMessage.textContent = '请选择成员';
                         createGroupMessage.className = 'create-group-message error';
                     }
                     return;
@@ -1567,6 +3240,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 avatarHtml = `<span class="user-avatar">${initials}</span>`;
             }
             
+            // 为离线用户列表项添加data-user-id属性
+            li.setAttribute('data-user-id', user.id);
+            
             li.innerHTML = `
                 ${avatarHtml}
                 <span class="user-name">${user.nickname}</span>
@@ -1582,6 +3258,9 @@ document.addEventListener('DOMContentLoaded', function() {
             
             offlineUserList.appendChild(li);
         });
+        
+        // 为新渲染的离线用户头像添加点击事件
+        addAvatarClickListeners();
     }
     
     // 移除handleReceivedMessage函数，改为使用特定的Socket.io事件处理不同类型的消息
@@ -1638,6 +3317,7 @@ document.addEventListener('DOMContentLoaded', function() {
             messageElement.style.borderRadius = '18px';
             messageElement.style.padding = '10px 15px';
             messageElement.style.maxWidth = '80%';
+            messageElement.style.minWidth = '70px'; // 确保能容纳时间显示
             messageElement.style.alignSelf = 'flex-end';
         } else {
             messageElement.style.marginLeft = '10px';
@@ -1646,6 +3326,7 @@ document.addEventListener('DOMContentLoaded', function() {
             messageElement.style.borderRadius = '18px';
             messageElement.style.padding = '10px 15px';
             messageElement.style.maxWidth = '80%';
+            messageElement.style.minWidth = '70px'; // 确保能容纳时间显示
             messageElement.style.alignSelf = 'flex-start';
             messageElement.style.border = '1px solid #E0E0E0';
         }
@@ -2067,6 +3748,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     showGroupCardPopup(e, groupCardData);
                 });
             }
+        }
+        
+        // 为用户头像添加点击事件
+        const messageAvatar = messageElement.querySelector('.user-avatar');
+        if (messageAvatar) {
+            messageAvatar.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showUserAvatarPopup(e, messageUser);
+            });
         }
         
         if (returnElement) {
@@ -2547,6 +4237,15 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         
+        // 为用户头像添加点击事件
+        const groupMessageAvatar = messageElement.querySelector('.user-avatar');
+        if (groupMessageAvatar) {
+            groupMessageAvatar.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showUserAvatarPopup(e, messageUser);
+            });
+        }
+        
         if (returnElement) {
             // 只返回消息元素，不添加到容器
             return messageElement;
@@ -2620,8 +4319,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // 发送群名片按钮事件
         const sendGroupCardButton = document.getElementById('sendGroupCardButton');
         const sendGroupCardButtonGroup = document.getElementById('sendGroupCardButtonGroup');
+        const privateSendGroupCardButton = document.getElementById('privateSendGroupCardButton');
         
-        // console.log('🔍 发送群名片按钮元素:', { sendGroupCardButton, sendGroupCardButtonGroup });
+        // console.log('🔍 发送群名片按钮元素:', { sendGroupCardButton, sendGroupCardButtonGroup, privateSendGroupCardButton });
         
         if (sendGroupCardButton) {
             sendGroupCardButton.addEventListener('click', function() {
@@ -2634,6 +4334,13 @@ document.addEventListener('DOMContentLoaded', function() {
             sendGroupCardButtonGroup.addEventListener('click', function() {
                 // console.log('🖱️  群组发送群名片按钮被点击');
                 showSendGroupCardModal('group');
+            });
+        }
+        
+        if (privateSendGroupCardButton) {
+            privateSendGroupCardButton.addEventListener('click', function() {
+                // console.log('🖱️  私信发送群名片按钮被点击');
+                showSendGroupCardModal('private');
             });
         }
         
@@ -2666,10 +4373,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 当前要发送的聊天类型（main或group）
-    let currentSendChatType = 'main';
+    currentSendChatType = 'main';
     
     // 当前选中的要发送的群组ID
-    let selectedGroupIdForCard = null;
+    selectedGroupIdForCard = null;
     
     // 显示发送群名片模态框
     function showSendGroupCardModal(chatType) {
@@ -2815,24 +4522,33 @@ document.addEventListener('DOMContentLoaded', function() {
                         });
                         
                         // 发送群名片消息
-                        if (currentSendChatType === 'main') {
-                            // 发送到主聊天室
-                            window.chatSocket.emit('send-message', {
-                                content: groupCardContent,
-                                messageType: 3, // 群名片消息类型
-                                sessionToken: currentSessionToken,
-                                userId: currentUser.id
-                            });
-                        } else {
-                            // 发送到当前群组
-                            window.chatSocket.emit('send-message', {
-                                content: groupCardContent,
-                                messageType: 3, // 群名片消息类型
-                                groupId: currentGroupId,
-                                sessionToken: currentSessionToken,
-                                userId: currentUser.id
-                            });
-                        }
+                if (currentSendChatType === 'main') {
+                    // 发送到主聊天室
+                    window.chatSocket.emit('send-message', {
+                        content: groupCardContent,
+                        messageType: 3, // 群名片消息类型
+                        sessionToken: currentSessionToken,
+                        userId: currentUser.id
+                    });
+                } else if (currentSendChatType === 'group') {
+                    // 发送到当前群组
+                    window.chatSocket.emit('send-message', {
+                        content: groupCardContent,
+                        messageType: 3, // 群名片消息类型
+                        groupId: currentGroupId,
+                        sessionToken: currentSessionToken,
+                        userId: currentUser.id
+                    });
+                } else if (currentSendChatType === 'private') {
+                    // 发送到当前私信聊天
+                    window.chatSocket.emit('private-message', {
+                        content: groupCardContent,
+                        messageType: 3, // 群名片消息类型
+                        receiverId: currentPrivateChatUserId,
+                        sessionToken: currentSessionToken,
+                        userId: currentUser.id
+                    });
+                }
                         
                         // 关闭模态框
                         const modal = document.getElementById('sendGroupCardModal');
@@ -3111,7 +4827,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 使用Socket.io发送消息，确保格式正确
                 const messageData = {
                     content: content,
-                    groupId: null, // 公共聊天时groupId为null
+                    groupId: currentActiveChat === 'main' ? null : currentActiveChat, // 根据当前活动聊天室设置groupId
                     sessionToken: currentSessionToken,
                     userId: currentUser.id
                 };
@@ -3447,7 +5163,7 @@ function uploadFile(file) {
     }
     
     // 当前要分享的群组信息
-    let currentSharedGroup = null;
+    currentSharedGroup = null;
     
     // 显示分享群名片模态框
     function displayShareGroupCardModal() {
@@ -4540,7 +6256,7 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         delete window.currentAddingGroupId;
     }
     
-    // 加载可添加到群组的成员
+    // 加载可添加到群组的成员（只显示好友）
     function loadAvailableMembersForGroup(groupId) {
 
         if (!groupId || !currentUser || !currentSessionToken) {
@@ -4553,10 +6269,10 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         }
         
         // 显示加载状态
-        availableMembersList.innerHTML = '<div class="loading-members">正在加载可用成员...</div>';
+        availableMembersList.innerHTML = '<div class="loading-members">正在加载好友列表...</div>';
         
-        // 获取可添加成员
-        fetch(`${SERVER_URL}/available-group-members/${groupId}`, {
+        // 先获取好友列表
+        fetch(`${SERVER_URL}/user/friends`, {
             method: 'GET',
             headers: {
                 'user-id': currentUser.id,
@@ -4564,29 +6280,58 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             }
         })
         .then(response => response.json())
-        .then(data => {
-
-            
-            if (data.status === 'success') {
-                if (!data.members || data.members.length === 0) {
-                    availableMembersList.innerHTML = '<div class="loading-members">没有可添加的成员</div>';
-                    return;
-                }
-                
-                // 渲染可添加成员列表
-                availableMembersList.innerHTML = data.members.map(user => `
-                    <div class="member-item">
-                        <input type="checkbox" class="available-member-checkbox" id="available-member-${user.id}" value="${user.id}">
-                        <label for="available-member-${user.id}" class="member-nickname">${user.nickname || user.username}</label>
-                    </div>
-                `).join('');
+        .then(friendsData => {
+            if (friendsData.status === 'success' && friendsData.friends && Array.isArray(friendsData.friends)) {
+                // 然后获取已在群组中的成员列表
+                return fetch(`${SERVER_URL}/group-members/${groupId}`, {
+                    method: 'GET',
+                    headers: {
+                        'user-id': currentUser.id,
+                        'session-token': currentSessionToken
+                    }
+                })
+                .then(response => response.json())
+                .then(membersData => {
+                    let groupMembers = [];
+                    if (membersData.status === 'success' && membersData.members && Array.isArray(membersData.members)) {
+                        groupMembers = membersData.members;
+                    }
+                    
+                    // 提取已在群组中的成员ID
+                    const groupMemberIds = new Set(groupMembers.map(member => {
+                        return String(member.id);
+                    }));
+                    
+                    // 过滤出不在群组中的好友
+                    const availableFriends = friendsData.friends.filter(friend => {
+                        const friendId = String(friend.id);
+                        const isNotCurrentUser = friendId !== String(currentUser.id);
+                        const isNotInGroup = !groupMemberIds.has(friendId);
+                        return isNotCurrentUser && isNotInGroup;
+                    });
+                    
+                    return availableFriends;
+                });
             } else {
-                availableMembersList.innerHTML = `<div class="loading-members">加载失败: ${data.message || '未知错误'}</div>`;
+                return [];
             }
         })
+        .then(availableFriends => {
+            if (availableFriends.length === 0) {
+                availableMembersList.innerHTML = '<div class="loading-members">没有可添加的好友</div>';
+                return;
+            }
+            
+            // 渲染可添加好友列表
+            availableMembersList.innerHTML = availableFriends.map(friend => `
+                <div class="member-item">
+                    <input type="checkbox" class="available-member-checkbox" id="available-member-${friend.id}" value="${friend.id}">
+                    <label for="available-member-${friend.id}" class="member-nickname">${friend.nickname || friend.username || '未知用户'}</label>
+                </div>
+            `).join('');
+        })
         .catch(error => {
-            console.error(`❌ [添加成员] 加载可添加到群组 ${groupId} 的成员失败:`, error);
-            availableMembersList.innerHTML = '<div class="loading-members">加载可用成员失败</div>';
+            availableMembersList.innerHTML = '<div class="loading-members">加载好友列表失败</div>';
         });
     }
     
@@ -4862,6 +6607,12 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             users = [];
         }
         
+        // 添加详细日志，记录在线用户列表更新情况
+        // console.log('📱 在线用户列表更新：');
+        // console.log('   原始数据：', users);
+        // console.log('   用户数量：', users.length);
+        // console.log('   用户IDs：', users.map(user => user.id).join(', '));
+        
         // 更新在线用户列表全局变量
         onlineUsersList = users;
         
@@ -4869,6 +6620,9 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         if (onlineCount) {
             onlineCount.textContent = `(${users.length})`;
         }
+        
+        // 当在线用户列表更新时，重新检查并更新所有好友的在线状态
+        updateFriendsList(friendsList);
         
         userList.innerHTML = '';
         
@@ -4919,6 +6673,9 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             const isCurrentUser = currentUser && String(currentUser.id) === String(user.id);
             const displayName = isCurrentUser ? `${user.nickname} (我)` : user.nickname;
             
+            // 为在线用户列表项添加data-user-id属性
+            li.setAttribute('data-user-id', user.id);
+            
             // 构建与离线用户列表一致的HTML结构
             li.innerHTML = `
                 ${avatarHtml}
@@ -4945,6 +6702,20 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         
         // 更新离线用户列表，过滤掉在线用户
         loadOfflineUsers();
+        
+        // 更新好友列表的在线状态
+        const friendItems = document.querySelectorAll('.friend-item');
+        friendItems.forEach(item => {
+            const friendId = item.dataset.userId;
+            const isOnline = onlineUsersList.some(user => String(user.id) === String(friendId));
+            const statusElement = item.querySelector('.friend-status');
+            if (statusElement) {
+                statusElement.className = `friend-status ${isOnline ? 'online' : 'offline'}`;
+            }
+        });
+        
+        // 为新渲染的用户头像添加点击事件
+        addAvatarClickListeners();
     }
     
     // 加载群组列表
@@ -5557,12 +7328,16 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                     // 当切换到主聊天室时，更新当前活动聊天室并清除未读计数
                     if (targetSection === 'public-chat') {
                         setActiveChat('main');
-                        // 重置当前群组信息，确保公共聊天的上传不会发送到群组
-                        currentGroupId = null;
-                        currentGroupName = '';
+                        // 不再重置当前群组信息，以便切换回群组聊天时能恢复
                     } else if (targetSection === 'group-chat') {
                         // 切换到群组聊天页面时，刷新群组列表
                         loadGroupList();
+                        
+                        // 如果当前有选中的群组，立即更新currentActiveChat
+                        // 这样在loadGroupList异步完成之前，新消息就能正常显示
+                        if (currentGroupId) {
+                            setActiveChat('group', currentGroupId);
+                        }
                         
                         // 立即恢复当前群组选择状态，因为loadGroupList是异步的，需要在回调中处理
                         const originalLoadGroupList = window.loadGroupList;
@@ -5581,6 +7356,9 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                                     
                                     // 恢复之前选择的群组状态
                                     if (currentGroupId) {
+                                        // 确保currentActiveChat正确设置
+                                        setActiveChat('group', currentGroupId);
+                                        
                                         // 高亮显示当前选择的群组项
                                         const groupItems = document.querySelectorAll('#groupList li[data-group-id]');
                                         groupItems.forEach(item => {
@@ -5731,8 +7509,7 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
     function initializeScrollLoading() {
         const messageContainer = document.getElementById('messageContainer');
         const groupMessageContainer = document.getElementById('groupMessageContainer');
-        
-        if (!messageContainer || !groupMessageContainer) return;
+        const privateMessageContainer = document.getElementById('privateMessageContainer');
         
         // 初始化加载状态标志
         window.isLoadingMoreMessages = false;
@@ -5744,18 +7521,8 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             return distanceToBottom < 10; // 10px的阈值
         }
         
-        // 为全局消息容器添加滚动事件监听
-        messageContainer.addEventListener('scroll', function(e) {
-            handleScroll(e, this, false);
-        });
-        
-        // 为群组消息容器添加滚动事件监听
-        groupMessageContainer.addEventListener('scroll', function(e) {
-            handleScroll(e, this, true);
-        });
-        
         // 滚动事件处理函数
-        function handleScroll(e, container, isGroup) {
+        function handleScroll(e, container, isGroup, isPrivate = false) {
             // 向上滚动到顶部附近时加载新消息
             if (container.scrollTop < 50) { // 使用50px的阈值，避免必须滚动到绝对顶部
                 // 避免频繁触发
@@ -5801,6 +7568,17 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                                 olderThan: olderThan
                             };
                             window.chatSocket.emit('get-group-chat-history', joinGroupData);
+                        } else if (isPrivate && currentPrivateChatUserId) {
+                            // 加载私信消息
+                            const historyOptions = {
+                                userId: currentUser.id,
+                                friendId: currentPrivateChatUserId,
+                                sessionToken: currentSessionToken,
+                                limit: 20,
+                                loadMore: true,
+                                olderThan: olderThan
+                            };
+                            window.chatSocket.emit('get-private-chat-history', historyOptions);
                         } else {
                             // 加载全局消息，使用新的WebSocket事件
                             window.chatSocket.emit('get-chat-history', {
@@ -5831,6 +7609,27 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                     }
                 }
             }
+        }
+        
+        // 为全局消息容器添加滚动事件监听
+        if (messageContainer) {
+            messageContainer.addEventListener('scroll', function(e) {
+                handleScroll(e, this, false);
+            });
+        }
+        
+        // 为群组消息容器添加滚动事件监听
+        if (groupMessageContainer) {
+            groupMessageContainer.addEventListener('scroll', function(e) {
+                handleScroll(e, this, true);
+            });
+        }
+        
+        // 为私信消息容器添加滚动事件监听
+        if (privateMessageContainer) {
+            privateMessageContainer.addEventListener('scroll', function(e) {
+                handleScroll(e, this, false, true);
+            });
         }
         
         // 提供给外部调用的函数，用于重置加载状态
@@ -5914,16 +7713,98 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
     
     // 为所有用户头像添加点击事件
     function addAvatarClickEvents() {
+        // 为所有带有user-avatar类的元素添加点击事件
         const avatars = document.querySelectorAll('.user-avatar');
         avatars.forEach(avatar => {
-            if (!avatar.hasAttribute('data-click-added') && avatar.tagName === 'IMG') {
-                avatar.addEventListener('click', function() {
-                    const src = this.getAttribute('src');
-                    if (src) {
-                        openAvatarPreview(src);
+            if (!avatar.hasAttribute('data-click-added')) {
+                avatar.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // 查找对应的用户ID
+                    let userId;
+                    
+                    // 检查父元素是否有data-user-id属性
+                    if (this.closest('[data-user-id]')) {
+                        userId = this.closest('[data-user-id]').getAttribute('data-user-id');
+                    }
+                    // 检查是否是在线用户列表中的头像
+                    else if (this.closest('.user-item')) {
+                        userId = this.closest('.user-item').getAttribute('data-user-id');
+                    }
+                    // 检查是否是消息中的头像
+                    else if (this.closest('.message-item')) {
+                        userId = this.closest('.message-item').getAttribute('data-user-id');
+                    }
+                    // 检查是否是搜索结果中的头像
+                    else if (this.closest('.search-result-item')) {
+                        userId = this.closest('.search-result-item').querySelector('.add-friend-btn')?.getAttribute('data-user-id');
+                    }
+                    
+                    if (userId) {
+                        // 发送请求获取用户资料
+                        fetch(`${SERVER_URL}/user/search?keyword=${encodeURIComponent(userId)}`, {
+                            headers: {
+                                'user-id': currentUser.id,
+                                'session-token': currentSessionToken
+                            }
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success' && data.users && data.users.length > 0) {
+                                showUserProfile(data.users[0]);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('获取用户资料失败:', error);
+                        });
                     }
                 });
                 avatar.setAttribute('data-click-added', 'true');
+            }
+        });
+        
+        // 为所有用户头像图片添加点击事件
+        const avatarImages = document.querySelectorAll('.user-avatar-img');
+        avatarImages.forEach(img => {
+            if (!img.hasAttribute('data-click-added')) {
+                img.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // 查找对应的用户ID
+                    let userId;
+                    
+                    // 检查父元素是否有data-user-id属性
+                    if (this.closest('[data-user-id]')) {
+                        userId = this.closest('[data-user-id]').getAttribute('data-user-id');
+                    }
+                    // 检查是否是当前用户头像
+                    else if (this.id === 'currentUserAvatar') {
+                        // 不处理当前用户头像点击
+                        return;
+                    }
+                    
+                    if (userId) {
+                        // 发送请求获取用户资料
+                        fetch(`${SERVER_URL}/user/search?keyword=${encodeURIComponent(userId)}`, {
+                            headers: {
+                                'user-id': currentUser.id,
+                                'session-token': currentSessionToken
+                            }
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success' && data.users && data.users.length > 0) {
+                                showUserProfile(data.users[0]);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('获取用户资料失败:', error);
+                        });
+                    }
+                });
+                img.setAttribute('data-click-added', 'true');
             }
         });
     }
@@ -5933,6 +7814,41 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         // 为消息容器添加事件委托，处理图片点击
         const messageContainer = document.getElementById('messageContainer');
         const groupMessageContainer = document.getElementById('groupMessageContainer');
+        const privateMessageContainer = document.getElementById('privateMessageContainer');
+        
+        // 处理头像点击的通用函数
+        function handleAvatarClick(e) {
+            // 查找对应的用户ID
+            let userId;
+            const messageElement = e.target.closest('.message-item');
+            if (messageElement) {
+                userId = messageElement.getAttribute('data-user-id');
+            } else {
+                const userElement = e.target.closest('[data-user-id]');
+                if (userElement) {
+                    userId = userElement.getAttribute('data-user-id');
+                }
+            }
+            
+            if (userId) {
+                // 发送请求获取用户资料
+                fetch(`${SERVER_URL}/user/search?keyword=${encodeURIComponent(userId)}`, {
+                    headers: {
+                        'user-id': currentUser.id,
+                        'session-token': currentSessionToken
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success' && data.users && data.users.length > 0) {
+                        showUserProfile(data.users[0]);
+                    }
+                })
+                .catch(error => {
+                    console.error('获取用户资料失败:', error);
+                });
+            }
+        }
         
         // 公共聊天消息容器
         if (messageContainer) {
@@ -5945,11 +7861,8 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                     }
                 }
                 // 头像点击
-                if (e.target.classList.contains('user-avatar') && e.target.tagName === 'IMG') {
-                    const src = e.target.getAttribute('src');
-                    if (src) {
-                        openAvatarPreview(src);
-                    }
+                else if (e.target.classList.contains('user-avatar') || (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar'))) {
+                    handleAvatarClick(e);
                 }
             });
         }
@@ -5965,11 +7878,25 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                     }
                 }
                 // 头像点击
-                if (e.target.classList.contains('user-avatar') && e.target.tagName === 'IMG') {
+                else if (e.target.classList.contains('user-avatar') || (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar'))) {
+                    handleAvatarClick(e);
+                }
+            });
+        }
+        
+        // 私信聊天消息容器
+        if (privateMessageContainer) {
+            privateMessageContainer.addEventListener('click', function(e) {
+                // 图片点击
+                if (e.target.classList.contains('message-image')) {
                     const src = e.target.getAttribute('src');
                     if (src) {
-                        openAvatarPreview(src);
+                        openImagePreview(src);
                     }
+                }
+                // 头像点击
+                else if (e.target.classList.contains('user-avatar') || (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar'))) {
+                    handleAvatarClick(e);
                 }
             });
         }
@@ -5979,18 +7906,8 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         if (userList) {
             userList.addEventListener('click', function(e) {
                 // 头像点击 - 检查点击的是否是头像图片或包含头像图片的元素
-                let avatarImg;
-                if (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar')) {
-                    avatarImg = e.target;
-                } else {
-                    avatarImg = e.target.querySelector('.user-avatar img');
-                }
-                
-                if (avatarImg) {
-                    const src = avatarImg.getAttribute('src');
-                    if (src) {
-                        openAvatarPreview(src);
-                    }
+                if (e.target.classList.contains('user-avatar') || (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar'))) {
+                    handleAvatarClick(e);
                 }
             });
         }
@@ -6000,18 +7917,19 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         if (offlineUserList) {
             offlineUserList.addEventListener('click', function(e) {
                 // 头像点击 - 检查点击的是否是头像图片或包含头像图片的元素
-                let avatarImg;
-                if (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar')) {
-                    avatarImg = e.target;
-                } else {
-                    avatarImg = e.target.querySelector('.user-avatar img');
+                if (e.target.classList.contains('user-avatar') || (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar'))) {
+                    handleAvatarClick(e);
                 }
-                
-                if (avatarImg) {
-                    const src = avatarImg.getAttribute('src');
-                    if (src) {
-                        openAvatarPreview(src);
-                    }
+            });
+        }
+        
+        // 好友列表容器
+        const friendsList = document.getElementById('friendsList');
+        if (friendsList) {
+            friendsList.addEventListener('click', function(e) {
+                // 头像点击 - 检查点击的是否是头像图片或包含头像图片的元素
+                if ((e.target.classList.contains('user-avatar') || (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar'))) && !e.target.closest('.friend-item')) {
+                    handleAvatarClick(e);
                 }
             });
         }
