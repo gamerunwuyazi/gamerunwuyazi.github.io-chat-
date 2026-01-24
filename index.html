@@ -157,7 +157,7 @@
                 <div class="sidebar-section">
                     <h3>账户设置</h3>
                     <ul class="settings-list">
-                        <li class="settings-item" data-setting-id="change-password" style="color: #999;">修改密码 <span style="color: #ff6b6b;">(未实现)</span></li>
+                        <li class="settings-item" data-setting-id="change-password">修改密码</li>
                         <li class="settings-item" data-setting-id="change-nickname">修改昵称</li>
                         <li class="settings-item" data-setting-id="upload-avatar">上传头像</li>
                     </ul>
@@ -373,7 +373,7 @@
                     <!-- 私信输入区域 -->
                     <div class="input-area">
                         <div class="input-container" id="privateInputContainer">
-                            <div id="privateMessageInput" class="editable-div" placeholder="输入私信消息（Ctrl+Enter或Shift+Enter换行  支持Markdown语法）" contenteditable="true"></div>
+                            <div id="privateMessageInput" class="editable-div" placeholder="发送消息（Ctrl+Enter或Shift+Enter换行  支持Markdown语法）" contenteditable="true"></div>
                         </div>
                         <div class="input-buttons" id="privateInputButtons">
                             <button id="sendPrivateMessage">发送</button>
@@ -433,6 +433,16 @@
                             <div class="form-group">
                                 <label for="confirmPassword">确认新密码</label>
                                 <input type="password" id="confirmPassword" placeholder="请再次输入新密码" required>
+                            </div>
+                            <div class="form-group captcha-group">
+                                <label for="passwordCaptchaCode">验证码</label>
+                                <div class="captcha-row" style="display: flex; gap: 10px; align-items: center;">
+                                    <input type="text" id="passwordCaptchaCode" placeholder="请输入验证码" required style="flex: 1;">
+                                    <div id="passwordCaptchaContainer" style="display: flex; align-items: center;">
+                                        <img id="passwordCaptchaImage" alt="验证码" style="border: 1px solid #ddd; cursor: pointer; border-radius: 4px;">
+                                    </div>
+                                </div>
+                                <input type="hidden" id="passwordCaptchaId">
                             </div>
                             <div class="form-actions">
                                 <button type="submit" class="save-btn">保存</button>
@@ -721,10 +731,7 @@
                             <span id="modalUserStatus" class="user-status"></span>
                         </div>
                     </div>
-                    <div class="user-profile-actions">
-                        <button id="modalAddFriendButton" class="save-btn">添加好友</button>
-                        <button id="modalSendPrivateMessageButton" class="save-btn" style="background-color: #3498db;">发送私信</button>
-                    </div>
+
                 </div>
             </div>
             <div class="modal-footer">

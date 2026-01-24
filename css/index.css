@@ -785,6 +785,19 @@ body {
     gap: 10px;
 }
 
+/* 好友名称样式 */
+.friend-name {
+    font-size: 14px;
+    color: #ecf0f1;
+    flex: 1;
+    text-align: left;
+}
+
+/* 好友状态样式 */
+.friend-status {
+    margin-left: auto;
+}
+
 .user-avatar {
     display: flex;
     justify-content: center;
@@ -846,9 +859,6 @@ body {
 
 /* 未读计数样式 */
 .unread-count {
-    position: absolute;
-    top: 10px;
-    right: 10px;
     background-color: #e74c3c;
     color: white;
     font-size: 12px;
@@ -865,6 +875,13 @@ body {
     z-index: 10;
 }
 
+/* 菜单未读计数使用绝对定位 */
+.menu-item .unread-count {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+}
+
 /* 公共聊天和群组聊天按钮的未读计数位置 */
 .menu-item[data-section="public-chat"] .unread-count,
 .menu-item[data-section="group-chat"] .unread-count {
@@ -872,12 +889,24 @@ body {
     right: 20px;
 }
 
-/* 群组列表项的未读计数位置 */
-.user-list li[data-group-id] {
+/* 群组列表项和好友列表项的未读计数位置 */
+.user-list li[data-group-id],
+.user-list li.friend-item {
     position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
+}
+
+/* 好友列表未读计数样式 */
+.private-unread-count {
+    position: static;
+    margin-left: auto;
+    margin-right: 10px;
+    font-size: 11px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
 }
 
 .group-unread-count {
@@ -1798,7 +1827,7 @@ body {
     box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
 }
 
-#messageInput, #groupMessageInput, .editable-div {
+#messageInput, #groupMessageInput, #privateMessageInput, .editable-div {
     width: 100%;
     min-height: 60px;
     max-height: 200px;
@@ -1819,7 +1848,8 @@ body {
 
 /* 可编辑div的placeholder样式 - 使用更高优先级的选择器 */
 #messageInput[placeholder]:empty:before, 
-#groupMessageInput[placeholder]:empty:before {
+#groupMessageInput[placeholder]:empty:before,
+#privateMessageInput[placeholder]:empty:before {
     content: attr(placeholder);
     color: #95a5a6 !important;
     pointer-events: none !important;
@@ -1832,7 +1862,8 @@ body {
 
 /* 确保placeholder在聚焦时也能显示 */
 #messageInput[placeholder]:empty:focus:before, 
-#groupMessageInput[placeholder]:empty:focus:before {
+#groupMessageInput[placeholder]:empty:focus:before,
+#privateMessageInput[placeholder]:empty:focus:before {
     content: attr(placeholder);
     color: #95a5a6 !important;
     pointer-events: none !important;
@@ -1840,7 +1871,7 @@ body {
 }
 
 /* 重置可能影响空元素判断的样式 */
-#messageInput, #groupMessageInput {
+#messageInput, #groupMessageInput, #privateMessageInput {
     min-height: 60px;
     padding: 0;
     margin: 0;
@@ -1853,7 +1884,7 @@ body {
 }
 
 /* 确保输入框真正为空，移除所有空白字符 */
-#messageInput:empty, #groupMessageInput:empty {
+#messageInput:empty, #groupMessageInput:empty, #privateMessageInput:empty {
     content: '';
 }
 

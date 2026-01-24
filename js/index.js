@@ -228,11 +228,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // 加载私信聊天历史
         loadPrivateChatHistory(userId);
         
-        // 清除该用户的未读消息计数
-        if (unreadMessages.private && unreadMessages.private[userId]) {
-            unreadMessages.private[userId] = 0;
-            updateUnreadCountsDisplay();
-        }
+        // 设置当前活动聊天室为私信
+        setActiveChat('private', userId);
         
         // 重新初始化私信聊天界面事件，确保按钮功能更新
         initializePrivateChatInterface();
@@ -462,10 +459,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     messageHtml += `
                         <div class="group-card-container" style="background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 8px; padding: 10px; cursor: pointer; margin-top: 5px;">
                             <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px;">
-                                📱 ${groupCardData.group_name}
+                                📱 ${escapeHtml(groupCardData.group_name)}
                             </div>
                             <div class="group-card-description" style="color: #666; font-size: 14px; margin-bottom: 5px;">
-                                ${groupCardData.group_description || '暂无描述'}
+                                ${escapeHtml(groupCardData.group_description || '暂无描述')}
                             </div>
                             <div class="group-card-footer" style="font-size: 12px; color: #999;">
                                 点击查看群组详情
@@ -481,21 +478,22 @@ document.addEventListener('DOMContentLoaded', function() {
             default: // 文本消息
                 // 使用Markdown渲染文本消息
                 let content = message.content || message.text || '';
+                // 先转义内容，确保安全
+                content = escapeHtml(content);
                 if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
                     try {
                         // 配置marked，确保安全渲染
                         marked.setOptions({
-                            sanitize: true,
                             breaks: true,
                             gfm: true
                         });
                         content = marked.parse(content);
                     } catch (e) {
-                        // 如果解析失败，使用原始内容
+                        // 如果解析失败，使用已经转义的内容
                         content = escapeHtml(content);
                     }
                 } else {
-                    // 没有marked库，使用原始内容
+                    // 没有marked库，使用已经转义的内容
                     content = escapeHtml(content);
                 }
                 messageHtml += `<div class="message-text" style="word-break: break-word;">${content}</div>`;
@@ -770,32 +768,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
         
-        // 添加好友按钮
-        const modalAddFriendButton = document.getElementById('modalAddFriendButton');
-        if (modalAddFriendButton) {
-            modalAddFriendButton.addEventListener('click', () => {
-                // 获取当前模态框中的用户ID
-                const userId = document.getElementById('modalUserId').textContent;
-                addFriend(userId);
-            });
-        }
-        
-        // 发送私信按钮
-        const modalSendPrivateMessageButton = document.getElementById('modalSendPrivateMessageButton');
-        if (modalSendPrivateMessageButton) {
-            modalSendPrivateMessageButton.addEventListener('click', () => {
-                // 获取当前模态框中的用户ID和昵称
-                const userId = document.getElementById('modalUserId').textContent;
-                const nickname = document.getElementById('modalUserNickname').textContent;
-                const avatarUrl = document.getElementById('modalUserAvatar').src;
-                
-                // 关闭模态框
-                document.getElementById('userProfileModal').style.display = 'none';
-                
-                // 切换到私信聊天
-                switchToPrivateChat(userId, nickname, avatarUrl);
-            });
-        }
+
     }
     
     // 初始化用户搜索功能
@@ -1030,8 +1003,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // 更新用户资料
-        modalUserNickname.textContent = user.nickname;
-        modalUsername.textContent = user.username;
+        modalUserNickname.textContent = user.nickname || '未知昵称';
+        // 确保modalUsername显示的是用户名，而不是昵称
+        modalUsername.textContent = user.username || user.name || '未知用户名';
         modalUserId.textContent = user.id;
         modalUserStatus.textContent = '在线';
         
@@ -1930,46 +1904,55 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // 处理未读消息信息
+            let processedUnreadMessages = {
+                global: 0,
+                groups: {},
+                private: {}
+            };
+            
+            // 处理群组未读消息
             if (data.unreadMessages) {
-                // 检查数据格式：如果是直接的群组键值对，则转换为期望的格式
-                let processedUnreadMessages = data.unreadMessages;
-                if (processedUnreadMessages && typeof processedUnreadMessages === 'object' && !processedUnreadMessages.hasOwnProperty('global')) {
+                if (data.unreadMessages && typeof data.unreadMessages === 'object' && !data.unreadMessages.hasOwnProperty('global')) {
                     // 格式转换：将直接的群组键值对转换为包含global和groups的对象
-                    processedUnreadMessages = {
-                        global: 0,
-                        groups: processedUnreadMessages
-                    };
+                    processedUnreadMessages.groups = data.unreadMessages;
+                } else {
+                    processedUnreadMessages.groups = data.unreadMessages.groups || {};
+                    processedUnreadMessages.global = data.unreadMessages.global || 0;
                 }
-                // 更新未读消息计数，确保包含groups属性
-                unreadMessages = {
-                    global: processedUnreadMessages.global || 0,
-                    groups: processedUnreadMessages.groups || {}
-                };
-                
-                // 检查并处理免打扰群组的未读消息
-                const mutedGroups = getMutedGroups();
-                for (const groupId in unreadMessages.groups) {
-                    if (unreadMessages.groups.hasOwnProperty(groupId)) {
-                        // 检查群组是否被免打扰
-                        if (mutedGroups.includes(groupId)) {
-                            // 清除免打扰群组的未读消息计数
-                            unreadMessages.groups[groupId] = 0;
-                            
-                            // 发送WebSocket消息，通知服务器已读该群组消息
-                            if (window.chatSocket) {
-                                window.chatSocket.emit('join-group', {
-                                    groupId: groupId,
-                                    sessionToken: currentSessionToken,
-                                    userId: currentUser.id
-                                });
-                            }
+            }
+            
+            // 处理私信未读消息
+            if (data.unreadPrivateMessages) {
+                processedUnreadMessages.private = data.unreadPrivateMessages;
+            }
+            
+            // 更新未读消息计数
+            unreadMessages = processedUnreadMessages;
+            
+            // 检查并处理免打扰群组的未读消息
+            const mutedGroups = getMutedGroups();
+            for (const groupId in unreadMessages.groups) {
+                if (unreadMessages.groups.hasOwnProperty(groupId)) {
+                    // 检查群组是否被免打扰
+                    if (mutedGroups.includes(groupId)) {
+                        // 清除免打扰群组的未读消息计数
+                        unreadMessages.groups[groupId] = 0;
+                        
+                        // 发送WebSocket消息，通知服务器已读该群组消息
+                        if (window.chatSocket) {
+                            window.chatSocket.emit('join-group', {
+                                groupId: groupId,
+                                sessionToken: currentSessionToken,
+                                userId: currentUser.id
+                            });
                         }
                     }
                 }
-                
-                // 更新未读计数显示
-                updateTitleWithUnreadCount();
             }
+            
+            // 更新未读计数显示
+            updateUnreadCountsDisplay();
+            updateTitleWithUnreadCount();
             
             const messageContainer = document.getElementById('messageContainer');
             if (!messageContainer) return;
@@ -2094,10 +2077,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         groups: processedUnreadMessages
                     };
                 }
-                // 更新未读消息计数，确保包含groups属性
+                // 更新未读消息计数，确保包含groups和private属性
                 unreadMessages = {
                     global: processedUnreadMessages.global || 0,
-                    groups: processedUnreadMessages.groups || {}
+                    groups: processedUnreadMessages.groups || {},
+                    private: processedUnreadMessages.private || {}
                 };
                 
                 // 检查并处理免打扰群组的未读消息
@@ -2290,10 +2274,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         groups: processedUnreadMessages
                     };
                 }
-                // 更新未读消息计数，确保包含groups属性
+                // 更新未读消息计数，确保包含groups和private属性
                 unreadMessages = {
                     global: processedUnreadMessages.global || 0,
-                    groups: processedUnreadMessages.groups || {}
+                    groups: processedUnreadMessages.groups || {},
+                    private: processedUnreadMessages.private || {}
                 };
                 
                 // 检查并处理免打扰群组的未读消息
@@ -2417,8 +2402,26 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // 标记为实时消息
             message.isHistory = false;
+            
+            // 检查消息是否是当前聊天对象的消息，使用字符串比较确保类型一致
+            const msgSenderId = String(message.senderId);
+            const msgReceiverId = String(message.receiverId);
+            const currentChatId = String(currentPrivateChatUserId);
+            
             // 显示私信消息
             renderPrivateMessage(message);
+            
+            // 更新未读计数
+            // 如果不是当前聊天对象，或者页面不可见，添加未读计数
+            if (currentChatId !== msgSenderId || !isPageVisible) {
+                // 确定消息对应的用户ID（如果是收到的消息，显示发送者的未读计数）
+                const targetUserId = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
+                
+                // 更新未读消息计数
+                unreadMessages.private[targetUserId] = (unreadMessages.private[targetUserId] || 0) + 1;
+                updateUnreadCountsDisplay();
+                updateTitleWithUnreadCount();
+            }
         });
         
         // 好友列表更新事件
@@ -5452,6 +5455,35 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
     });
 }
     
+    // 获取验证码
+    function getPasswordCaptcha() {
+        fetch(`${SERVER_URL}/captcha`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const captchaContainer = document.getElementById('passwordCaptchaContainer');
+                    const captchaIdInput = document.getElementById('passwordCaptchaId');
+                    
+                    if (captchaContainer && captchaIdInput) {
+                        // 直接嵌入SVG内容，替换整个验证码容器的内容
+                        captchaContainer.innerHTML = data.captchaSvg;
+                        // 为直接嵌入的SVG添加点击事件
+                        const svgElement = captchaContainer.querySelector('svg');
+                        if (svgElement) {
+                            svgElement.style.border = '1px solid #ddd';
+                            svgElement.style.cursor = 'pointer';
+                            svgElement.style.borderRadius = '4px';
+                            svgElement.addEventListener('click', getPasswordCaptcha);
+                        }
+                        captchaIdInput.value = data.captchaId;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('获取验证码失败:', error);
+            });
+    }
+    
     // 初始化设置功能
     function initializeSettingsFunctions() {
         // 初始化各种设置表单的提交处理，只选择设置容器内的settings-form
@@ -5466,6 +5498,9 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                 });
             });
         }
+        
+        // 初始获取验证码
+        getPasswordCaptcha();
         
         // 初始化头像上传功能
         const selectAvatarButton = document.getElementById('selectAvatarButton');
@@ -5619,13 +5654,69 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                 // 显示成功消息
                 showSuccess('昵称修改成功');
             }
+        } else if (settingId === 'change-password') {
+            // 获取密码输入值
+            const oldPassword = document.getElementById('oldPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            const captchaId = document.getElementById('passwordCaptchaId').value;
+            const captchaCode = document.getElementById('passwordCaptchaCode').value;
+            
+            // 验证密码
+            if (!oldPassword || !newPassword || !confirmPassword) {
+                showError('所有密码字段都不能为空');
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                showError('新密码和确认密码不一致');
+                return;
+            }
+            
+            if (newPassword.length < 6) {
+                showError('新密码长度不能少于6个字符');
+                return;
+            }
+            
+            // 验证验证码
+            if (!captchaId || !captchaCode) {
+                showError('验证码不能为空');
+                return;
+            }
+            
+            // 使用WebSocket发送密码修改请求
+            if (window.chatSocket) {
+                // 发送密码修改请求
+                window.chatSocket.emit('change-password', {
+                    userId: currentUser.id,
+                    oldPassword: oldPassword,
+                    newPassword: newPassword,
+                    captchaId: captchaId,
+                    captchaCode: captchaCode,
+                    sessionToken: currentSessionToken
+                });
+                
+                // 监听密码修改结果
+                window.chatSocket.once('password-change-result', (result) => {
+                    if (result.success) {
+                        showSuccess('密码修改成功');
+                        // 清空表单
+                        form.reset();
+                        // 刷新验证码
+                        getPasswordCaptcha();
+                    } else {
+                        showError(result.message || '密码修改失败');
+                        // 刷新验证码
+                        getPasswordCaptcha();
+                    }
+                });
+            } else {
+                showError('WebSocket连接未建立，无法修改密码');
+            }
         } else {
             // 其他设置类型仍然使用HTTP请求
             let endpoint = '';
             switch (settingId) {
-                case 'change-password':
-                    endpoint = '/change-password';
-                    break;
                 case 'shortcut-settings':
                     endpoint = '/shortcut-settings';
                     break;
@@ -6813,12 +6904,43 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             }
         }
         
+        // 更新私信聊天按钮的未读计数
+        const privateChatUnreadEl = document.getElementById('privateChatUnreadCount');
+        if (privateChatUnreadEl) {
+            // 计算所有私信的未读消息总数
+            let totalPrivateUnread = 0;
+            for (const userId in unreadMessages.private) {
+                const privateUnread = unreadMessages.private[userId] || 0;
+                totalPrivateUnread += privateUnread;
+            }
+            if (totalPrivateUnread > 0) {
+                privateChatUnreadEl.textContent = totalPrivateUnread;
+            } else {
+                privateChatUnreadEl.textContent = '';
+            }
+        }
+        
         // 更新群组列表中每个群组的未读计数
         const groupListItems = document.querySelectorAll('#groupList li[data-group-id]');
         groupListItems.forEach(item => {
             const groupId = item.getAttribute('data-group-id');
             const unreadCount = unreadMessages.groups[groupId] || 0;
             const unreadEl = item.querySelector('.group-unread-count');
+            if (unreadEl) {
+                if (unreadCount > 0) {
+                    unreadEl.textContent = unreadCount;
+                } else {
+                    unreadEl.textContent = '';
+                }
+            }
+        });
+        
+        // 更新好友列表中每个好友的未读计数
+        const friendListItems = document.querySelectorAll('#friendsList li.friend-item');
+        friendListItems.forEach(item => {
+            const userId = item.getAttribute('data-user-id');
+            const unreadCount = unreadMessages.private[userId] || 0;
+            const unreadEl = item.querySelector('.private-unread-count');
             if (unreadEl) {
                 if (unreadCount > 0) {
                     unreadEl.textContent = unreadCount;
@@ -6841,6 +6963,13 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                 if (unreadMessages.global > 0) {
                     // console.log(`🔔 主聊天室获得焦点，清除未读消息计数: ${unreadMessages.global}`);
                     unreadMessages.global = 0;
+                    updateTitleWithUnreadCount();
+                }
+            } else if (currentActiveChat.startsWith('private_')) {
+                // 清除当前私信聊天未读计数
+                const userId = currentActiveChat.replace('private_', '');
+                if (unreadMessages.private[userId] > 0) {
+                    unreadMessages.private[userId] = 0;
                     updateTitleWithUnreadCount();
                 }
             } else {
@@ -6867,6 +6996,13 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                     unreadMessages.global = 0;
                     updateTitleWithUnreadCount();
                 }
+            } else if (currentActiveChat.startsWith('private_')) {
+                // 清除当前私信聊天未读计数
+                const userId = currentActiveChat.replace('private_', '');
+                if (unreadMessages.private[userId] > 0) {
+                    unreadMessages.private[userId] = 0;
+                    updateTitleWithUnreadCount();
+                }
             } else {
                 // 清除当前群组未读计数
                 if (unreadMessages.groups[currentActiveChat] > 0) {
@@ -6878,7 +7014,7 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
     }
     
     // 设置当前活动聊天室
-    function setActiveChat(chatType, groupId = null) {
+    function setActiveChat(chatType, id = null) {
         if (chatType === 'main') {
             currentActiveChat = 'main';
             // 清除全局未读消息计数
@@ -6887,11 +7023,18 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                 unreadMessages.global = 0;
                 updateTitleWithUnreadCount();
             }
-        } else if (chatType === 'group' && groupId) {
-            currentActiveChat = groupId;
+        } else if (chatType === 'group' && id) {
+            currentActiveChat = id;
             // 清除该群组未读消息计数
-            if (unreadMessages.groups[groupId] > 0) {
-                unreadMessages.groups[groupId] = 0;
+            if (unreadMessages.groups[id] > 0) {
+                unreadMessages.groups[id] = 0;
+                updateTitleWithUnreadCount();
+            }
+        } else if (chatType === 'private' && id) {
+            currentActiveChat = `private_${id}`;
+            // 清除该好友未读消息计数
+            if (unreadMessages.private[id] > 0) {
+                unreadMessages.private[id] = 0;
                 updateTitleWithUnreadCount();
             }
         }
@@ -6928,12 +7071,12 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             } else {
                 // 更新全局未读消息计数
                 unreadMessages.global++;
-                console.log(`🔔 收到主聊天室新消息，未读计数: ${unreadMessages.global}`);
+                // console.log(`🔔 收到主聊天室新消息，未读计数: ${unreadMessages.global}`);
             }
             // 更新标题
             updateTitleWithUnreadCount();
         } else {
-            console.log(`✅ 收到新消息，用户当前在活动聊天室，不添加未读计数`);
+            // console.log(`✅ 收到新消息，用户当前在活动聊天室，不添加未读计数`);
         }
     }
     
