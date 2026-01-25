@@ -164,7 +164,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // 添加点击事件，切换到与该好友的私信聊天
             li.addEventListener('click', () => {
-                switchToPrivateChat(friend.id, friend.nickname, avatarUrl);
+                switchToPrivateChat(friend.id, friend.nickname, friend.username, avatarUrl);
             });
             
             friendsListElement.appendChild(li);
@@ -178,9 +178,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 切换到私信聊天
-    function switchToPrivateChat(userId, nickname, avatarUrl) {
+    function switchToPrivateChat(userId, nickname, username, avatarUrl) {
         currentPrivateChatUserId = userId;
-        currentPrivateChatUsername = nickname;
+        currentPrivateChatUsername = username;
+        currentPrivateChatNickname = nickname;
         
         // 更新私信聊天界面
         const privateChatInterface = document.getElementById('privateChatInterface');
@@ -197,7 +198,7 @@ document.addEventListener('DOMContentLoaded', function() {
             privateEmptyState.style.display = 'none';
             
             // 更新用户名
-            privateUserName.textContent = nickname;
+            privateUserName.textContent = nickname ? unescapeHtml(nickname) : '';
             
             // 更新用户头像
         if (avatarUrl) {
@@ -1003,9 +1004,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // 更新用户资料
-        modalUserNickname.textContent = user.nickname || '未知昵称';
+        modalUserNickname.textContent = user.nickname ? unescapeHtml(user.nickname) : '未知昵称';
         // 确保modalUsername显示的是用户名，而不是昵称
-        modalUsername.textContent = user.username || user.name || '未知用户名';
+        const username = user.username || user.name || '未知用户名';
+        modalUsername.textContent = typeof username === 'string' ? unescapeHtml(username) : username;
         modalUserId.textContent = user.id;
         modalUserStatus.textContent = '在线';
         
@@ -1406,7 +1408,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // 直接使用当前聊天对象的信息创建用户对象
                     const user = {
                         id: currentPrivateChatUserId,
-                        nickname: currentPrivateChatUsername,
+                        nickname: currentPrivateChatNickname,
                         avatarUrl: avatarUrl,
                         username: currentPrivateChatUsername // 使用昵称作为用户名，因为私信中没有用户名信息
                     };
@@ -1881,6 +1883,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // 用户列表更新事件（兼容旧事件名）
         socket.on('users-updated', (users) => {
             updateUserList(users);
+            // 刷新好友列表，确保昵称已更新
+            loadFriendsList();
         });
         
         // 群组列表更新事件
@@ -2379,6 +2383,23 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         
+        // 监听群组公告更新事件
+        socket.on('group-description-updated', (data) => {
+            // 只有登录状态才刷新群组列表
+            if (currentUser && currentSessionToken) {
+                loadGroupList();
+                
+                // 如果当前正在查看该群组的信息模态框，更新公告显示
+                const modal = document.getElementById('groupInfoModal');
+                if (modal && modal.style.display === 'flex') {
+                    const modalGroupNoticeValue = document.getElementById('modalGroupNoticeValue');
+                    if (modalGroupNoticeValue) {
+                        modalGroupNoticeValue.textContent = data.newDescription ? unescapeHtml(data.newDescription) : '暂无群组公告';
+                    }
+                }
+            }
+        });
+        
         // 私信消息接收事件
         socket.on('private-message-sent', (data) => {
             // 检查是否包含完整的消息数据
@@ -2406,14 +2427,14 @@ document.addEventListener('DOMContentLoaded', function() {
             // 检查消息是否是当前聊天对象的消息，使用字符串比较确保类型一致
             const msgSenderId = String(message.senderId);
             const msgReceiverId = String(message.receiverId);
-            const currentChatId = String(currentPrivateChatUserId);
             
             // 显示私信消息
             renderPrivateMessage(message);
             
             // 更新未读计数
-            // 如果不是当前聊天对象，或者页面不可见，添加未读计数
-            if (currentChatId !== msgSenderId || !isPageVisible) {
+            // 如果页面不可见，或者用户不在当前私信聊天中，添加未读计数
+            const isInCurrentPrivateChat = currentActiveChat === `private_${msgSenderId}`;
+            if (!isPageVisible || !isInCurrentPrivateChat) {
                 // 确定消息对应的用户ID（如果是收到的消息，显示发送者的未读计数）
                 const targetUserId = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
                 
@@ -5877,10 +5898,19 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         modalGroupNameValue.textContent = originalGroupName;
         modalGroupIdValue.textContent = groupData.id;
         modalGroupMemberCount.textContent = '加载中';
-        console.log(groupData);
+        
         // 显示群主信息（使用与原UI一致的creator_id）
         const ownerId = groupData.creator_id || groupData.ownerId || groupData.creatorId || groupData.adminId;
         const isOwner = currentUser.id === String(ownerId);
+        
+        // 显示群组公告
+        const modalGroupNoticeValue = document.getElementById('modalGroupNoticeValue');
+        if (modalGroupNoticeValue) {
+            modalGroupNoticeValue.textContent = groupData.description ? unescapeHtml(groupData.description) : '暂无群组公告';
+        }
+        
+        // 设置群组公告编辑按钮
+        setupEditGroupNoticeButton(isOwner, groupData.description || '', groupId);
         
         if (modalGroupOwner) {
             modalGroupOwner.textContent = `群主ID: ${ownerId}`;
@@ -5917,6 +5947,109 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                 // 打开添加成员模态框
                 showAddGroupMemberModal(groupId);
             };
+        }
+    }
+    
+    // 设置群组公告编辑按钮
+    function setupEditGroupNoticeButton(isOwner, currentNotice, groupId) {
+        const editGroupNoticeBtn = document.getElementById('editGroupNoticeBtn');
+        if (!editGroupNoticeBtn) return;
+        
+        if (isOwner) {
+            editGroupNoticeBtn.style.display = 'inline-block';
+            
+            // 为编辑按钮添加点击事件
+            editGroupNoticeBtn.onclick = function() {
+                const modalGroupNoticeValue = document.getElementById('modalGroupNoticeValue');
+                
+                // 创建编辑输入框
+                const editTextarea = document.createElement('textarea');
+                editTextarea.value = currentNotice;
+                editTextarea.className = 'edit-group-notice-textarea';
+                editTextarea.style.padding = '6px';
+                editTextarea.style.border = '1px solid #dee2e6';
+                editTextarea.style.borderRadius = '4px';
+                editTextarea.style.fontSize = '14px';
+                editTextarea.style.flex = '1';
+                editTextarea.style.minHeight = '80px';
+                editTextarea.style.resize = 'vertical';
+                
+                // 创建保存和取消按钮
+                const saveBtn = document.createElement('button');
+                saveBtn.textContent = '保存';
+                saveBtn.className = 'save-group-notice-btn';
+                saveBtn.style.marginLeft = '5px';
+                saveBtn.style.padding = '6px 12px';
+                saveBtn.style.background = '#27ae60';
+                saveBtn.style.color = 'white';
+                saveBtn.style.border = 'none';
+                saveBtn.style.borderRadius = '4px';
+                saveBtn.style.cursor = 'pointer';
+                saveBtn.style.fontSize = '12px';
+                saveBtn.style.alignSelf = 'flex-start';
+                
+                const cancelBtn = document.createElement('button');
+                cancelBtn.textContent = '取消';
+                cancelBtn.className = 'cancel-group-notice-btn';
+                cancelBtn.style.marginLeft = '5px';
+                cancelBtn.style.padding = '6px 12px';
+                cancelBtn.style.background = '#6c757d';
+                cancelBtn.style.color = 'white';
+                cancelBtn.style.border = 'none';
+                cancelBtn.style.borderRadius = '4px';
+                cancelBtn.style.cursor = 'pointer';
+                cancelBtn.style.fontSize = '12px';
+                cancelBtn.style.alignSelf = 'flex-start';
+                
+                // 替换显示为编辑界面
+                const groupNoticeContainer = modalGroupNoticeValue.parentElement;
+                groupNoticeContainer.innerHTML = '';
+                groupNoticeContainer.appendChild(editTextarea);
+                groupNoticeContainer.appendChild(saveBtn);
+                groupNoticeContainer.appendChild(cancelBtn);
+                
+                // 聚焦到输入框
+                editTextarea.focus();
+                
+                // 保存按钮点击事件
+                saveBtn.onclick = function() {
+                    const newNotice = editTextarea.value.trim();
+                    // 更新群组公告
+                    updateGroupNotice(groupId, newNotice);
+                };
+                
+                // 取消按钮点击事件
+                cancelBtn.onclick = function() {
+                    // 创建元素，使用textContent设置内容，防止XSS攻击
+                    const span = document.createElement('span');
+                    span.id = 'modalGroupNoticeValue';
+                    span.style.flex = '1';
+                    span.style.wordBreak = 'break-word';
+                    span.textContent = currentNotice || '暂无群组公告';
+                    
+                    const button = document.createElement('button');
+                    button.id = 'editGroupNoticeBtn';
+                    button.className = 'edit-group-notice-btn';
+                    button.style.padding = '4px 8px';
+                    button.style.backgroundColor = '#3498db';
+                    button.style.color = 'white';
+                    button.style.border = 'none';
+                    button.style.borderRadius = '4px';
+                    button.style.cursor = 'pointer';
+                    button.style.fontSize = '12px';
+                    button.textContent = '编辑';
+                    
+                    // 清空容器并添加元素
+                    groupNoticeContainer.innerHTML = '';
+                    groupNoticeContainer.appendChild(span);
+                    groupNoticeContainer.appendChild(button);
+                    
+                    // 重新绑定编辑按钮事件
+                    button.onclick = editGroupNoticeBtn.onclick;
+                };
+            };
+        } else {
+            editGroupNoticeBtn.style.display = 'none';
         }
     }
     
@@ -5988,18 +6121,30 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                 
                 // 取消按钮点击事件
                 cancelBtn.onclick = function() {
-                    // 恢复显示
-                    groupNameContainer.innerHTML = `
-                        <span id="modalGroupNameValue">${currentName}</span>
-                        <button id="editGroupNameBtn" class="edit-group-name-btn" style="padding: 4px 8px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                            编辑
-                        </button>
-                    `;
+                    // 创建元素，使用textContent设置内容，防止XSS攻击
+                    const span = document.createElement('span');
+                    span.id = 'modalGroupNameValue';
+                    span.textContent = currentName;
+                    
+                    const button = document.createElement('button');
+                    button.id = 'editGroupNameBtn';
+                    button.className = 'edit-group-name-btn';
+                    button.style.padding = '4px 8px';
+                    button.style.backgroundColor = '#3498db';
+                    button.style.color = 'white';
+                    button.style.border = 'none';
+                    button.style.borderRadius = '4px';
+                    button.style.cursor = 'pointer';
+                    button.style.fontSize = '12px';
+                    button.textContent = '编辑';
+                    
+                    // 清空容器并添加元素
+                    groupNameContainer.innerHTML = '';
+                    groupNameContainer.appendChild(span);
+                    groupNameContainer.appendChild(button);
+                    
                     // 重新绑定编辑按钮事件
-                    const newEditBtn = groupNameContainer.querySelector('#editGroupNameBtn');
-                    if (newEditBtn) {
-                        newEditBtn.onclick = editGroupNameBtn.onclick;
-                    }
+                    button.onclick = editGroupNameBtn.onclick;
                 };
             };
         } else {
@@ -6534,11 +6679,30 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                 // 更新群组列表中的名称
                 updateGroupNameInList(groupId, unescapedGroupName);
                 
+                // 恢复群组信息模态框中群组名称的显示状态
+                const groupNameContainer = document.querySelector('.group-info-item:nth-of-type(1) > div');
+                if (groupNameContainer) {
+                    groupNameContainer.innerHTML = `
+                        <span id="modalGroupNameValue">${unescapedGroupName}</span>
+                        <button id="editGroupNameBtn" class="edit-group-name-btn" style="padding: 4px 8px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                            编辑
+                        </button>
+                    `;
+                    // 重新设置编辑按钮功能
+                    setupEditGroupNameButton(true, unescapedGroupName, groupId);
+                }
+                
+                // 更新模态框标题
+                const modalGroupName = document.getElementById('modalGroupName');
+                if (modalGroupName) {
+                    modalGroupName.textContent = `${unescapedGroupName} - 群组信息`;
+                }
+                
                 alert('群组名称已成功更新');
                 
-                // 关闭管理模态框
+                // 关闭管理模态框（如果打开的话）
                 const manageGroupModal = document.getElementById('manageGroupModal');
-                if (manageGroupModal) {
+                if (manageGroupModal && manageGroupModal.style.display !== 'none') {
                     manageGroupModal.style.display = 'none';
                 }
             } else {
@@ -6548,6 +6712,67 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         .catch(error => {
             alert('修改群组名称失败，网络错误');
         });
+    }
+    
+    // 更新群组公告
+    function updateGroupNotice(groupId, newNotice) {
+        if (!currentUser || !currentSessionToken) {
+            alert('请先登录');
+            return;
+        }
+        
+        fetch(`${SERVER_URL}/update-group-description`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'user-id': currentUser.id,
+                'session-token': currentSessionToken
+            },
+            body: JSON.stringify({
+                groupId: groupId,
+                newDescription: newNotice
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP错误! 状态码: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                // 更新群组列表中的公告（如果有显示的话）
+                updateGroupNoticeInList(groupId, newNotice);
+                
+                // 直接获取群组公告容器，而不依赖于 modalGroupNoticeValue
+                const groupNoticeContainer = document.querySelector('.group-info-item:nth-of-type(3) > div');
+                if (groupNoticeContainer) {
+                    // 恢复显示状态
+                    groupNoticeContainer.innerHTML = `
+                        <span id="modalGroupNoticeValue" style="flex: 1; word-break: break-word;">${newNotice || '暂无群组公告'}</span>
+                        <button id="editGroupNoticeBtn" class="edit-group-notice-btn" style="padding: 4px 8px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                            编辑
+                        </button>
+                    `;
+                    // 重新设置编辑按钮功能
+                    setupEditGroupNoticeButton(true, newNotice, groupId);
+                }
+                
+                alert('群组公告已成功更新');
+            } else {
+                alert('修改群组公告失败: ' + (data.message || '未知错误'));
+            }
+        })
+        .catch(error => {
+            console.error('修改群组公告失败:', error);
+            alert('修改群组公告失败，网络错误: ' + error.message);
+        });
+    }
+    
+    // 更新群组列表中的群组公告
+    function updateGroupNoticeInList(groupId, newNotice) {
+        // 这里可以根据需要更新群组列表中的公告显示
+        // 如果群组列表中没有显示公告，则不需要实现
     }
     
     // 更新群组列表中的群组名称
@@ -6862,6 +7087,12 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         for (const groupId in unreadMessages.groups) {
             const groupUnread = unreadMessages.groups[groupId] || 0;
             totalUnread += groupUnread;
+        }
+        
+        // 累加所有私信的未读消息数
+        for (const userId in unreadMessages.private) {
+            const privateUnread = unreadMessages.private[userId] || 0;
+            totalUnread += privateUnread;
         }
         
         // 更新页面标题，格式：（X条未读）简易聊天室
