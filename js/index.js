@@ -1009,7 +1009,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const username = user.username || user.name || '未知用户名';
         modalUsername.textContent = typeof username === 'string' ? unescapeHtml(username) : username;
         modalUserId.textContent = user.id;
-        modalUserStatus.textContent = '在线';
+        
+        // 检查用户是否在线
+        const isOnline = onlineUsersList.some(onlineUser => String(onlineUser.id) === String(user.id));
+        modalUserStatus.textContent = isOnline ? '在线' : '离线';
         
         // 显示用户资料模态框
         userProfileModal.style.display = 'flex';
@@ -1041,39 +1044,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (!popup || !popupAvatarImg || !popupInitials || !popupNickname || !popupUsername || !popupAddFriend) return;
         
-        // 安全获取用户头像URL
-        let avatarUrl = '';
-        if (user.avatarUrl && typeof user.avatarUrl === 'string') {
-            avatarUrl = user.avatarUrl.trim();
-        } else if (user.avatar_url && typeof user.avatar_url === 'string') {
-            avatarUrl = user.avatar_url.trim();
-        } else if (user.avatar && typeof user.avatar === 'string') {
-            avatarUrl = user.avatar.trim();
-        }
-        
-        // 更新用户头像
-        if (avatarUrl) {
-            const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
-            popupAvatarImg.src = fullAvatarUrl;
-            popupAvatarImg.style.display = 'block';
-            popupInitials.style.display = 'none';
-        } else {
-            const initials = user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
-            popupInitials.textContent = initials;
-            popupInitials.style.display = 'block';
-            popupAvatarImg.style.display = 'none';
-        }
-        
-        // 更新用户资料
-        popupNickname.textContent = user.nickname;
-        popupUsername.textContent = user.username;
-        
-        // 设置小弹窗位置 - 以鼠标位置为左上角
-        popup.style.left = `${event.clientX + window.scrollX}px`;
-        popup.style.top = `${event.clientY + window.scrollY}px`;
-        
-        // 显示小弹窗
-        popup.style.display = 'block';
+        // 先隐藏弹窗，等获取到完整用户信息后再显示
+        popup.style.display = 'none';
         
         // 保存当前用户ID，用于添加好友
         popup.dataset.userId = user.id;
@@ -1100,10 +1072,120 @@ document.addEventListener('DOMContentLoaded', function() {
             };
         }
         
-        // 添加全局点击事件，点击其他地方隐藏小弹窗
-        setTimeout(() => {
-            document.addEventListener('click', hideUserAvatarPopup);
-        }, 0);
+        // 请求完整的用户信息，然后再显示弹窗
+        const fetchUserInfo = () => {
+            return fetch(`${SERVER_URL}/user/${user.id}`, {
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    return data.user;
+                }
+                throw new Error('获取用户信息失败');
+            })
+            .catch(error => {
+                console.error('获取用户信息失败:', error);
+                return null;
+            });
+        };
+        
+        // 如果已经有完整用户信息，直接显示；否则先请求
+        if (user.id && user.username) {
+            // 已有完整信息，直接显示
+            displayPopup(user);
+        } else {
+            // 请求完整用户信息
+            fetchUserInfo().then(fullUser => {
+                if (fullUser) {
+                    displayPopup(fullUser);
+                } else {
+                    // 如果请求失败，使用传入的基本信息显示
+                    displayPopup(user);
+                }
+            });
+        }
+        
+        // 显示弹窗的函数
+        function displayPopup(displayUser) {
+            // 更新用户信息
+            popupNickname.textContent = displayUser.nickname || '未知昵称';
+            
+            if (displayUser.username) {
+                popupUsername.textContent = displayUser.username;
+                popupUsername.style.display = 'block';
+            } else {
+                popupUsername.textContent = '';
+                popupUsername.style.display = 'none';
+            }
+            
+            // 安全获取用户头像URL
+            let avatarUrl = '';
+            if (displayUser.avatarUrl && typeof displayUser.avatarUrl === 'string') {
+                avatarUrl = displayUser.avatarUrl.trim();
+            } else if (displayUser.avatar_url && typeof displayUser.avatar_url === 'string') {
+                avatarUrl = displayUser.avatar_url.trim();
+            } else if (displayUser.avatar && typeof displayUser.avatar === 'string') {
+                avatarUrl = displayUser.avatar.trim();
+            }
+            
+            // 更新用户头像
+            if (avatarUrl) {
+                const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
+                popupAvatarImg.src = fullAvatarUrl;
+                popupAvatarImg.style.display = 'block';
+                popupInitials.style.display = 'none';
+            } else {
+                const initials = displayUser.nickname ? displayUser.nickname.charAt(0).toUpperCase() : 'U';
+                popupInitials.textContent = initials;
+                popupInitials.style.display = 'block';
+                popupAvatarImg.style.display = 'none';
+            }
+            
+            // 显示小弹窗以便获取实际尺寸
+            popup.style.display = 'block';
+            
+            // 获取弹窗的实际尺寸
+            const popupRect = popup.getBoundingClientRect();
+            const popupWidth = popupRect.width;
+            const popupHeight = popupRect.height;
+            
+            // 计算初始位置（以鼠标位置为左上角）
+            let left = event.clientX + window.scrollX;
+            let top = event.clientY + window.scrollY;
+            
+            // 确保弹窗不会超出屏幕右边缘
+            if (left + popupWidth > window.innerWidth + window.scrollX) {
+                left = window.innerWidth + window.scrollX - popupWidth - 10;
+            }
+            
+            // 确保弹窗不会超出屏幕下边缘
+            if (top + popupHeight > window.innerHeight + window.scrollY) {
+                top = window.innerHeight + window.scrollY - popupHeight - 10;
+            }
+            
+            // 确保弹窗不会超出屏幕左边缘
+            if (left < window.scrollX) {
+                left = window.scrollX + 10;
+            }
+            
+            // 确保弹窗不会超出屏幕上边缘
+            if (top < window.scrollY) {
+                top = window.scrollY + 10;
+            }
+            
+            // 设置最终位置
+            popup.style.left = `${left}px`;
+            popup.style.top = `${top}px`;
+            
+            // 添加全局点击事件，点击其他地方隐藏小弹窗
+            setTimeout(() => {
+                document.addEventListener('click', hideUserAvatarPopup);
+            }, 0);
+        }
     }
     
     // 隐藏用户头像小弹窗
@@ -5347,8 +5429,6 @@ function uploadFile(file) {
         const popup = document.createElement('div');
         popup.id = 'groupCardPopup';
         popup.style.position = 'fixed';
-        popup.style.left = `${event.clientX}px`;
-        popup.style.top = `${event.clientY}px`;
         popup.style.width = '300px';
         popup.style.backgroundColor = 'white';
         popup.style.border = '1px solid #3498db';
@@ -5443,6 +5523,39 @@ function uploadFile(file) {
                 popup.remove();
             }
         });
+        
+        // 计算并调整弹窗位置，确保不会超出屏幕边缘
+        const popupRect = popup.getBoundingClientRect();
+        const popupWidth = popupRect.width;
+        const popupHeight = popupRect.height;
+        
+        // 计算初始位置（以鼠标位置为左上角）
+        let left = event.clientX;
+        let top = event.clientY;
+        
+        // 确保弹窗不会超出屏幕右边缘
+        if (left + popupWidth > window.innerWidth) {
+            left = window.innerWidth - popupWidth - 10;
+        }
+        
+        // 确保弹窗不会超出屏幕下边缘
+        if (top + popupHeight > window.innerHeight) {
+            top = window.innerHeight - popupHeight - 10;
+        }
+        
+        // 确保弹窗不会超出屏幕左边缘
+        if (left < 0) {
+            left = 10;
+        }
+        
+        // 确保弹窗不会超出屏幕上边缘
+        if (top < 0) {
+            top = 10;
+        }
+        
+        // 设置最终位置
+        popup.style.left = `${left}px`;
+        popup.style.top = `${top}px`;
     }
     
     // 使用Token加入群组
@@ -8116,22 +8229,36 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                     }
                     
                     if (userId) {
-                        // 发送请求获取用户资料
-                        fetch(`${SERVER_URL}/user/search?keyword=${encodeURIComponent(userId)}`, {
-                            headers: {
-                                'user-id': currentUser.id,
-                                'session-token': currentSessionToken
+                        // 查找对应的用户昵称
+                        let nickname = '';
+                        
+                        // 检查父元素是否有data-user-nickname属性
+                        const parentWithId = this.closest('[data-user-id]');
+                        if (parentWithId) {
+                            if (parentWithId.hasAttribute('data-user-nickname')) {
+                                nickname = parentWithId.getAttribute('data-user-nickname');
+                            } else {
+                                const nameElement = parentWithId.querySelector('.friend-name, .user-name, .message-nickname');
+                                if (nameElement) {
+                                    nickname = nameElement.textContent;
+                                }
                             }
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.status === 'success' && data.users && data.users.length > 0) {
-                                showUserProfile(data.users[0]);
+                        } else if (this.closest('.user-item')) {
+                            const userItem = this.closest('.user-item');
+                            const nameElement = userItem.querySelector('.user-name');
+                            if (nameElement) {
+                                nickname = nameElement.textContent;
                             }
-                        })
-                        .catch(error => {
-                            console.error('获取用户资料失败:', error);
-                        });
+                        } else if (this.closest('.message-item')) {
+                            const messageItem = this.closest('.message-item');
+                            const nameElement = messageItem.querySelector('.message-nickname');
+                            if (nameElement) {
+                                nickname = nameElement.textContent;
+                            }
+                        }
+                        
+                        // 显示用户头像小弹窗
+                        showUserAvatarPopup(e, { id: userId, nickname: nickname });
                     }
                 });
                 avatar.setAttribute('data-click-added', 'true');
@@ -8160,22 +8287,24 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                     }
                     
                     if (userId) {
-                        // 发送请求获取用户资料
-                        fetch(`${SERVER_URL}/user/search?keyword=${encodeURIComponent(userId)}`, {
-                            headers: {
-                                'user-id': currentUser.id,
-                                'session-token': currentSessionToken
+                        // 查找对应的用户昵称
+                        let nickname = '';
+                        
+                        // 检查父元素是否有data-user-nickname属性
+                        const parentWithId = this.closest('[data-user-id]');
+                        if (parentWithId) {
+                            if (parentWithId.hasAttribute('data-user-nickname')) {
+                                nickname = parentWithId.getAttribute('data-user-nickname');
+                            } else {
+                                const nameElement = parentWithId.querySelector('.friend-name, .user-name, .message-nickname');
+                                if (nameElement) {
+                                    nickname = nameElement.textContent;
+                                }
                             }
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.status === 'success' && data.users && data.users.length > 0) {
-                                showUserProfile(data.users[0]);
-                            }
-                        })
-                        .catch(error => {
-                            console.error('获取用户资料失败:', error);
-                        });
+                        }
+                        
+                        // 显示用户头像小弹窗
+                        showUserAvatarPopup(e, { id: userId, nickname: nickname });
                     }
                 });
                 img.setAttribute('data-click-added', 'true');
@@ -8194,33 +8323,35 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         function handleAvatarClick(e) {
             // 查找对应的用户ID
             let userId;
+            let nickname = '';
             const messageElement = e.target.closest('.message-item');
+            
             if (messageElement) {
                 userId = messageElement.getAttribute('data-user-id');
+                // 查找消息中的用户昵称
+                const nameElement = messageElement.querySelector('.message-nickname');
+                if (nameElement) {
+                    nickname = nameElement.textContent;
+                }
             } else {
                 const userElement = e.target.closest('[data-user-id]');
                 if (userElement) {
                     userId = userElement.getAttribute('data-user-id');
+                    // 查找用户元素中的昵称
+                    if (userElement.hasAttribute('data-user-nickname')) {
+                        nickname = userElement.getAttribute('data-user-nickname');
+                    } else {
+                        const nameElement = userElement.querySelector('.friend-name, .user-name, .message-nickname');
+                        if (nameElement) {
+                            nickname = nameElement.textContent;
+                        }
+                    }
                 }
             }
             
             if (userId) {
-                // 发送请求获取用户资料
-                fetch(`${SERVER_URL}/user/search?keyword=${encodeURIComponent(userId)}`, {
-                    headers: {
-                        'user-id': currentUser.id,
-                        'session-token': currentSessionToken
-                    }
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success' && data.users && data.users.length > 0) {
-                        showUserProfile(data.users[0]);
-                    }
-                })
-                .catch(error => {
-                    console.error('获取用户资料失败:', error);
-                });
+                // 显示用户头像小弹窗
+                showUserAvatarPopup(e, { id: userId, nickname: nickname });
             }
         }
         
