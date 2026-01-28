@@ -1304,7 +1304,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (markdownToolbar) {
             const markdownButtons = markdownToolbar.querySelectorAll('.markdown-btn');
             markdownButtons.forEach(button => {
-                button.addEventListener('click', () => {
+                button.addEventListener('click', function(e) {
+                    // 阻止事件冒泡，避免触发其他点击事件
+                    e.stopPropagation();
+                    
                     const prefix = button.getAttribute('data-prefix') || '';
                     const suffix = button.getAttribute('data-suffix') || '';
                     const sample = button.getAttribute('data-sample') || '';
@@ -4792,7 +4795,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     // 隐藏工具栏
                     markdownToolbar.style.display = 'none';
-                    this.innerHTML = '<i class="fas fa-chevron-down"></i> 显示Markdown工具栏';
+                    this.innerHTML = '<i class="fas fa-chevron-down"></i> MD';
                 }
                 
                 // 切换后调整布局
@@ -4807,39 +4810,69 @@ document.addEventListener('DOMContentLoaded', function() {
         if (markdownToolbar) {
             const markdownButtons = markdownToolbar.querySelectorAll('.markdown-btn');
             markdownButtons.forEach(button => {
-                button.addEventListener('click', function() {
+                button.addEventListener('click', function(e) {
+                    // 阻止事件冒泡，避免触发其他点击事件
+                    e.stopPropagation();
+                    
                     const prefix = this.getAttribute('data-prefix') || '';
                     const suffix = this.getAttribute('data-suffix') || '';
                     const sample = this.getAttribute('data-sample') || '示例文本';
                     
-                    // 使用Selection API处理div输入框的文本插入和光标定位
-                    const selection = window.getSelection();
-                    const range = selection.getRangeAt(0);
-                    
-                    // 获取当前选中文本
-                    const selectedText = range.toString();
-                    
-                    // 创建包含新文本的文档片段
-                    const newText = prefix + (selectedText || sample) + suffix;
-                    const textNode = document.createTextNode(newText);
-                    
-                    // 删除当前选区并插入新文本
-                    range.deleteContents();
-                    range.insertNode(textNode);
-                    
-                    // 设置新的光标位置
-                    const newCursorStart = prefix.length;
-                    const newCursorEnd = (selectedText ? prefix.length + selectedText.length : prefix.length + sample.length);
-                    
-                    range.setStart(textNode, newCursorStart);
-                    range.setEnd(textNode, newCursorEnd);
-                    
-                    // 更新选区
-                    selection.removeAllRanges();
-                    selection.addRange(range);
-                    
-                    // 确保输入框获得焦点
-                    messageInput.focus();
+                    try {
+                        // 确保输入框获得焦点
+                        messageInput.focus();
+                        
+                        // 使用Selection API处理div输入框的文本插入和光标定位
+                        const selection = window.getSelection();
+                        const range = selection.getRangeAt(0);
+                        
+                        // 检查选区是否在输入框内
+                        if (messageInput.contains(range.commonAncestorContainer)) {
+                            // 获取当前选中文本
+                            const selectedText = range.toString();
+                            
+                            // 创建包含新文本的文档片段
+                            const newText = prefix + (selectedText || sample) + suffix;
+                            const textNode = document.createTextNode(newText);
+                            
+                            // 删除当前选区并插入新文本
+                            range.deleteContents();
+                            range.insertNode(textNode);
+                            
+                            // 设置新的光标位置
+                            const newCursorStart = prefix.length;
+                            const newCursorEnd = (selectedText ? prefix.length + selectedText.length : prefix.length + sample.length);
+                            
+                            range.setStart(textNode, newCursorStart);
+                            range.setEnd(textNode, newCursorEnd);
+                            
+                            // 更新选区
+                            selection.removeAllRanges();
+                            selection.addRange(range);
+                        } else {
+                            // 如果选区不在输入框内，直接在输入框末尾插入文本
+                            messageInput.innerHTML += prefix + sample + suffix;
+                            // 设置光标位置到文本末尾
+                            messageInput.focus();
+                            const selection = window.getSelection();
+                            const range = document.createRange();
+                            range.selectNodeContents(messageInput);
+                            range.collapse(false);
+                            selection.removeAllRanges();
+                            selection.addRange(range);
+                        }
+                    } catch (error) {
+                        // 如果没有选区，直接在输入框末尾插入文本
+                        messageInput.innerHTML += prefix + sample + suffix;
+                        // 设置光标位置到文本末尾
+                        messageInput.focus();
+                        const selection = window.getSelection();
+                        const range = document.createRange();
+                        range.selectNodeContents(messageInput);
+                        range.collapse(false);
+                        selection.removeAllRanges();
+                        selection.addRange(range);
+                    }
                 });
             });
         }
@@ -8033,9 +8066,21 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                         }
                     }
                     
-                    // 显示/隐藏相应的切换按钮
+                    // 显示/隐藏相应的切换按钮，并更新按钮文本
                     if (toggleMarkdownToolbarBtn) {
-                        toggleMarkdownToolbarBtn.style.display = targetSection === 'public-chat' ? 'inline-block' : 'none';
+                        if (targetSection === 'public-chat') {
+                            toggleMarkdownToolbarBtn.style.display = 'inline-block';
+                            // 根据工具栏的显示状态更新按钮文本
+                            if (markdownToolbar) {
+                                if (markdownToolbar.style.display === 'none') {
+                                    toggleMarkdownToolbarBtn.innerHTML = '<i class="fas fa-chevron-down"></i> MD';
+                                } else {
+                                    toggleMarkdownToolbarBtn.innerHTML = '<i class="fas fa-chevron-up"></i> 隐藏Markdown工具栏';
+                                }
+                            }
+                        } else {
+                            toggleMarkdownToolbarBtn.style.display = 'none';
+                        }
                     }
                     
                     if (toggleGroupMarkdownToolbarBtn) {
