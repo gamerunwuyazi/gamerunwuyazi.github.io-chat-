@@ -459,11 +459,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     const groupCardData = JSON.parse(message.content);
                     messageHtml += `
                         <div class="group-card-container" style="background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 8px; padding: 10px; cursor: pointer; margin-top: 5px;">
-                            <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px;">
-                                📱 ${escapeHtml(groupCardData.group_name)}
+                            <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px; display: flex; align-items: center; gap: 8px;">
+                                ${groupCardData.avatar_url ? `<img src="${SERVER_URL}${groupCardData.avatar_url}" alt="${groupCardData.group_name}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover; cursor: pointer;" onclick="openImagePreview('${SERVER_URL}${groupCardData.avatar_url}')">` : `<div style="width: 20px; height: 20px; border-radius: 50%; background-color: #3498db; color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">${groupCardData.group_name.charAt(0).toUpperCase()}</div>`}
+                                ${escapeHtml(groupCardData.group_name)}
                             </div>
                             <div class="group-card-description" style="color: #666; font-size: 14px; margin-bottom: 5px;">
-                                ${escapeHtml(groupCardData.group_description || '暂无描述')}
+                                ${groupCardData.group_description || '暂无描述'}
                             </div>
                             <div class="group-card-footer" style="font-size: 12px; color: #999;">
                                 点击查看群组详情
@@ -1133,17 +1134,21 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // 更新用户头像
-            if (avatarUrl) {
-                const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
-                popupAvatarImg.src = fullAvatarUrl;
-                popupAvatarImg.style.display = 'block';
-                popupInitials.style.display = 'none';
-            } else {
-                const initials = displayUser.nickname ? displayUser.nickname.charAt(0).toUpperCase() : 'U';
-                popupInitials.textContent = initials;
-                popupInitials.style.display = 'block';
-                popupAvatarImg.style.display = 'none';
-            }
+        if (avatarUrl) {
+            const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
+            popupAvatarImg.src = fullAvatarUrl;
+            popupAvatarImg.style.display = 'block';
+            popupAvatarImg.style.cursor = 'pointer';
+            popupAvatarImg.addEventListener('click', function() {
+                openImagePreview(popupAvatarImg.src);
+            });
+            popupInitials.style.display = 'none';
+        } else {
+            const initials = displayUser.nickname ? displayUser.nickname.charAt(0).toUpperCase() : 'U';
+            popupInitials.textContent = initials;
+            popupInitials.style.display = 'block';
+            popupAvatarImg.style.display = 'none';
+        }
             
             // 显示小弹窗以便获取实际尺寸
             popup.style.display = 'block';
@@ -3795,8 +3800,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (groupCardData) {
             messageContent += `
                 <div class="group-card-container" style="background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 8px; padding: 10px; cursor: pointer; margin-top: 5px;">
-                    <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px;">
-                        📱 ${groupCardData.group_name}
+                    <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px; display: flex; align-items: center; gap: 8px;">
+                        ${groupCardData.avatar_url ? `<img src="${SERVER_URL}${groupCardData.avatar_url}" alt="${groupCardData.group_name}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover; cursor: pointer;" onclick="openImagePreview('${SERVER_URL}${groupCardData.avatar_url}')">` : `<div style="width: 20px; height: 20px; border-radius: 50%; background-color: #3498db; color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">${groupCardData.group_name.charAt(0).toUpperCase()}</div>`}
+                        ${groupCardData.group_name}
                     </div>
                     <div class="group-card-description" style="color: #666; font-size: 14px; margin-bottom: 5px;">
                         ${groupCardData.group_description || '暂无描述'}
@@ -4282,8 +4288,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (groupCardData) {
             messageContent += `
                 <div class="group-card-container" style="background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 8px; padding: 10px; cursor: pointer; margin-top: 5px;">
-                    <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px;">
-                        📱 ${groupCardData.group_name}
+                    <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px; display: flex; align-items: center; gap: 8px;">
+                        ${groupCardData.avatar_url ? `<img src="${SERVER_URL}${groupCardData.avatar_url}" alt="${groupCardData.group_name}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover; cursor: pointer;" onclick="openImagePreview('${SERVER_URL}${groupCardData.avatar_url}')">` : `<div style="width: 20px; height: 20px; border-radius: 50%; background-color: #3498db; color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">${groupCardData.group_name.charAt(0).toUpperCase()}</div>`}
+                        ${groupCardData.group_name}
                     </div>
                     <div class="group-card-description" style="color: #666; font-size: 14px; margin-bottom: 5px;">
                         ${groupCardData.group_description || '暂无描述'}
@@ -4624,7 +4631,8 @@ document.addEventListener('DOMContentLoaded', function() {
                             group_id: group.id,
                             group_name: group.name,
                             group_description: group.description || '',
-                            invite_token: token
+                            invite_token: token,
+                            avatar_url: group.avatar_url || group.avatarUrl || ''
                         });
                         
                         // 发送群名片消息
@@ -5376,7 +5384,8 @@ function uploadFile(file) {
                     group_id: currentSharedGroup.id,
                     group_name: currentSharedGroup.name,
                     group_description: currentSharedGroup.description || '',
-                    invite_token: token
+                    invite_token: token,
+                    avatar_url: currentSharedGroup.avatar_url || currentSharedGroup.avatarUrl || ''
                 });
                 
                 // 发送群名片消息到选中的目标
@@ -5448,10 +5457,63 @@ function uploadFile(file) {
         header.style.alignItems = 'center';
         header.style.marginBottom = '10px';
         
+        // 创建标题和头像容器
+        const titleContainer = document.createElement('div');
+        titleContainer.style.display = 'flex';
+        titleContainer.style.alignItems = 'center';
+        titleContainer.style.gap = '10px';
+        
+        // 添加群头像
+        if (groupCardData.avatar_url) {
+            const avatarImg = document.createElement('img');
+            avatarImg.src = `${SERVER_URL}${groupCardData.avatar_url}`;
+            avatarImg.alt = groupCardData.group_name;
+            avatarImg.style.width = '40px';
+            avatarImg.style.height = '40px';
+            avatarImg.style.borderRadius = '50%';
+            avatarImg.style.objectFit = 'cover';
+            avatarImg.style.cursor = 'pointer';
+            avatarImg.addEventListener('click', function() {
+                openImagePreview(avatarImg.src);
+            });
+            titleContainer.appendChild(avatarImg);
+        } else if (groupCardData.avatarUrl) {
+            // 尝试使用avatarUrl字段
+            const avatarImg = document.createElement('img');
+            avatarImg.src = `${SERVER_URL}${groupCardData.avatarUrl}`;
+            avatarImg.alt = groupCardData.group_name;
+            avatarImg.style.width = '40px';
+            avatarImg.style.height = '40px';
+            avatarImg.style.borderRadius = '50%';
+            avatarImg.style.objectFit = 'cover';
+            avatarImg.style.cursor = 'pointer';
+            avatarImg.addEventListener('click', function() {
+                openImagePreview(avatarImg.src);
+            });
+            titleContainer.appendChild(avatarImg);
+        } else {
+            // 显示默认头像
+            const initials = groupCardData.group_name.charAt(0).toUpperCase();
+            const defaultAvatar = document.createElement('div');
+            defaultAvatar.style.width = '40px';
+            defaultAvatar.style.height = '40px';
+            defaultAvatar.style.borderRadius = '50%';
+            defaultAvatar.style.backgroundColor = '#3498db';
+            defaultAvatar.style.color = 'white';
+            defaultAvatar.style.display = 'flex';
+            defaultAvatar.style.alignItems = 'center';
+            defaultAvatar.style.justifyContent = 'center';
+            defaultAvatar.style.fontSize = '18px';
+            defaultAvatar.style.fontWeight = 'bold';
+            defaultAvatar.textContent = initials;
+            titleContainer.appendChild(defaultAvatar);
+        }
+        
         const title = document.createElement('h3');
         title.style.margin = '0';
         title.style.color = '#3498db';
         title.textContent = unescapeHtml(groupCardData.group_name);
+        titleContainer.appendChild(title);
         
         const closeBtn = document.createElement('button');
         closeBtn.id = 'closeGroupCardPopup';
@@ -5462,7 +5524,7 @@ function uploadFile(file) {
         closeBtn.style.color = '#999';
         closeBtn.textContent = '×';
         
-        header.appendChild(title);
+        header.appendChild(titleContainer);
         header.appendChild(closeBtn);
         
         // 创建内容区
@@ -5479,9 +5541,9 @@ function uploadFile(file) {
         descP.style.color = '#666';
         
         const descStrong = document.createElement('strong');
-        descStrong.textContent = '描述:';
+        descStrong.textContent = '公告:';
         descP.appendChild(descStrong);
-        descP.appendChild(document.createTextNode(` ${groupCardData.group_description || '暂无描述'}`));
+        descP.appendChild(document.createTextNode(` ${unescapeHtml(groupCardData.group_description) || '暂无描述'}`));
         
         content.appendChild(groupIdP);
         content.appendChild(descP);
@@ -6022,6 +6084,94 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             modalGroupNoticeValue.textContent = groupData.description ? unescapeHtml(groupData.description) : '暂无群组公告';
         }
         
+        // 先移除已存在的头像元素，防止残留
+        const existingAvatarElement = document.getElementById('modalGroupAvatarValue');
+        if (existingAvatarElement) {
+            existingAvatarElement.remove();
+        }
+        
+        // 显示群头像
+        const modalGroupAvatarValue = document.createElement('div');
+        modalGroupAvatarValue.id = 'modalGroupAvatarValue';
+        modalGroupAvatarValue.style.marginBottom = '15px';
+        
+        // 创建头像容器
+        const avatarContainer = document.createElement('div');
+        avatarContainer.style.display = 'flex';
+        avatarContainer.style.alignItems = 'center';
+        avatarContainer.style.gap = '10px';
+        
+        // 显示群头像或默认头像
+        const groupAvatarUrl = groupData.avatar_url || groupData.avatarUrl || '';
+        let avatarHtml = '';
+        if (groupAvatarUrl) {
+            // 检查头像URL是否为SVG格式，防止XSS攻击
+            const isSvgAvatar = /\.svg$/i.test(groupAvatarUrl);
+            if (isSvgAvatar) {
+                // SVG文件特殊处理：使用默认头像
+                const initials = originalGroupName.charAt(0).toUpperCase();
+                avatarHtml = `<div class="group-avatar-large" style="width: 80px; height: 80px; border-radius: 50%; background-color: #3498db; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 32px; color: white; cursor: pointer;">${initials}</div>`;
+            } else {
+                const fullAvatarUrl = `${SERVER_URL}${groupAvatarUrl}`;
+                avatarHtml = `<img src="${fullAvatarUrl}" alt="${originalGroupName}" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; cursor: pointer;">`;
+            }
+        } else {
+            // 没有头像时显示默认头像（群组名称首字母）
+            const initials = originalGroupName.charAt(0).toUpperCase();
+            avatarHtml = `<div class="group-avatar-large" style="width: 80px; height: 80px; border-radius: 50%; background-color: #3498db; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 32px; color: white; cursor: pointer;">${initials}</div>`;
+        }
+        
+        avatarContainer.innerHTML = avatarHtml;
+        
+        // 如果是群主，添加上传头像按钮
+        if (isOwner) {
+            const uploadAvatarBtn = document.createElement('button');
+            uploadAvatarBtn.id = 'uploadGroupAvatarBtn';
+            uploadAvatarBtn.className = 'edit-group-avatar-btn';
+            uploadAvatarBtn.style.padding = '6px 12px';
+            uploadAvatarBtn.style.backgroundColor = '#3498db';
+            uploadAvatarBtn.style.color = 'white';
+            uploadAvatarBtn.style.border = 'none';
+            uploadAvatarBtn.style.borderRadius = '4px';
+            uploadAvatarBtn.style.cursor = 'pointer';
+            uploadAvatarBtn.style.fontSize = '12px';
+            uploadAvatarBtn.textContent = '上传群头像';
+            
+            // 添加点击事件
+            uploadAvatarBtn.addEventListener('click', function(e) {
+                // 阻止事件冒泡，避免触发头像放大查看
+                e.stopPropagation();
+                
+                // 创建文件输入元素
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.accept = 'image/*';
+                fileInput.style.display = 'none';
+                document.body.appendChild(fileInput);
+                
+                // 触发文件选择
+                fileInput.click();
+                
+                // 处理文件选择
+                fileInput.addEventListener('change', function() {
+                    if (this.files && this.files[0]) {
+                        uploadGroupAvatar(groupId, this.files[0]);
+                    }
+                    document.body.removeChild(fileInput);
+                });
+            });
+            
+            avatarContainer.appendChild(uploadAvatarBtn);
+        }
+        
+        modalGroupAvatarValue.appendChild(avatarContainer);
+        
+        // 插入到模态框头部
+        const modalBody = modal.querySelector('.modal-body');
+        if (modalBody && modalBody.firstChild) {
+            modalBody.insertBefore(modalGroupAvatarValue, modalBody.firstChild);
+        }
+        
         // 设置群组公告编辑按钮
         setupEditGroupNoticeButton(isOwner, groupData.description || '', groupId);
         
@@ -6051,8 +6201,6 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             };
         }
         
-
-        
         // 添加添加成员按钮事件
         const addMemberToGroupBtn = document.getElementById('addMemberToGroup');
         if (addMemberToGroupBtn) {
@@ -6061,6 +6209,67 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                 showAddGroupMemberModal(groupId);
             };
         }
+    }
+    
+    // 上传群头像
+    function uploadGroupAvatar(groupId, file) {
+        if (!currentUser || !currentSessionToken) {
+            alert('请先登录');
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('avatar', file);
+        formData.append('groupId', groupId);
+        formData.append('userId', currentUser.id);
+        
+        // 显示上传提示
+        alert('正在上传群头像，请稍候...');
+        
+        fetch(`${SERVER_URL}/upload-group-avatar/${groupId}`, {
+            method: 'POST',
+            headers: {
+                'session-token': currentSessionToken,
+                'user-id': currentUser.id
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert('群头像上传成功');
+                // 重新加载群组信息
+                fetch(`${SERVER_URL}/group-info/${groupId}`, {
+                    headers: {
+                        'user-id': currentUser.id,
+                        'session-token': currentSessionToken
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // 先关闭模态框，然后重新打开
+                        const modal = document.getElementById('groupInfoModal');
+                        if (modal) {
+                            modal.style.display = 'none';
+                        }
+                        
+                        // 延迟一下再重新显示，确保DOM更新完成
+                        setTimeout(() => {
+                            // 重新显示群组信息模态框
+                            displayGroupInfoModal(data.group, groupId);
+                            // 刷新群组列表
+                            loadGroupList();
+                        }, 100);
+                    }
+                });
+            } else {
+                alert('上传群头像失败: ' + (data.message || '未知错误'));
+            }
+        })
+        .catch(error => {
+            alert('上传群头像失败，网络错误');
+        });
     }
     
     // 设置群组公告编辑按钮
@@ -7565,16 +7774,37 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
                 li.classList.add('active');
             }
             
+            // 显示群头像或默认头像
+            let avatarHtml = '';
+            const groupAvatarUrl = group.avatar_url || group.avatarUrl || '';
+            if (groupAvatarUrl) {
+                // 检查头像URL是否为SVG格式，防止XSS攻击
+                const isSvgAvatar = /\.svg$/i.test(groupAvatarUrl);
+                if (isSvgAvatar) {
+                    // SVG文件特殊处理：使用默认头像
+                    const initials = originalGroupName.charAt(0).toUpperCase();
+                    avatarHtml = `<span class="group-avatar">${initials}</span>`;
+                } else {
+                    const fullAvatarUrl = `${SERVER_URL}${groupAvatarUrl}`;
+                    avatarHtml = `<span class="group-avatar"><img src="${fullAvatarUrl}" alt="${originalGroupName}"></span>`;
+                }
+            } else {
+                // 没有头像时显示默认头像（群组名称首字母）
+                const initials = originalGroupName.charAt(0).toUpperCase();
+                avatarHtml = `<span class="group-avatar">${initials}</span>`;
+            }
+            
             // 创建群组名称元素，使用textContent避免HTML转义
             const groupNameSpan = document.createElement('span');
             groupNameSpan.className = 'group-name';
             groupNameSpan.textContent = originalGroupName;
-            li.appendChild(groupNameSpan);
             
-            // 创建未读计数元素
-            const unreadCountEl = document.createElement('div');
-            unreadCountEl.className = 'unread-count group-unread-count';
-            li.appendChild(unreadCountEl);
+            // 创建群组项内容
+            li.innerHTML = `
+                ${avatarHtml}
+                ${groupNameSpan.outerHTML}
+                <div class="unread-count group-unread-count"></div>
+            `;
             
             // 添加点击事件
             li.addEventListener('click', function() {
@@ -8440,6 +8670,37 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         }
     }
     
+    // 为群组头像添加点击事件
+    function addGroupAvatarClickEvents() {
+        // 为群组列表中的头像添加点击事件
+        const groupList = document.getElementById('groupList');
+        if (groupList) {
+            groupList.addEventListener('click', function(e) {
+                if (e.target.closest('.group-avatar')) {
+                    const groupAvatar = e.target.closest('.group-avatar');
+                    const img = groupAvatar.querySelector('img');
+                    if (img && img.src) {
+                        openImagePreview(img.src);
+                    }
+                }
+            });
+        }
+        
+        // 为模态框中的群组头像添加点击事件
+        const modal = document.getElementById('groupInfoModal');
+        if (modal) {
+            modal.addEventListener('click', function(e) {
+                if (e.target.closest('#modalGroupAvatarValue')) {
+                    const avatarContainer = e.target.closest('#modalGroupAvatarValue');
+                    const img = avatarContainer.querySelector('img');
+                    if (img && img.src) {
+                        openImagePreview(img.src);
+                    }
+                }
+            });
+        }
+    }
+
     // 页面加载完成后执行的初始化
     window.addEventListener('load', function() {
         // 设置事件委托
@@ -8448,5 +8709,6 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
         // 为已存在的图片和头像添加事件
         addImageClickEvents();
         addAvatarClickEvents();
+        addGroupAvatarClickEvents();
     });
 });
