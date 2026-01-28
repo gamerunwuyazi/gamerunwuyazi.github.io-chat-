@@ -1351,9 +1351,39 @@ document.addEventListener('DOMContentLoaded', function() {
             
             privateFileInput.onchange = function() {
                 if (this.files && this.files[0]) {
-                    uploadPrivateFile(this.files[0]);
+                    // 如果文件是图片类型，则自动转换为发送图片
+                    if (this.files[0].type.startsWith('image/')) {
+                        uploadPrivateImage(this.files[0]);
+                    } else {
+                        uploadPrivateFile(this.files[0]);
+                    }
                 }
             };
+        }
+        
+        // 为私信输入框添加黏贴事件处理，支持黏贴图片和文件
+        // const privateMessageInput = document.getElementById('privateMessageInput');
+        if (privateMessageInput) {
+            privateMessageInput.addEventListener('paste', function(e) {
+                const items = e.clipboardData.items;
+                for (const item of items) {
+                    if (item.type.startsWith('image/')) {
+                        e.preventDefault();
+                        const file = item.getAsFile();
+                        if (file) {
+                            uploadPrivateImage(file);
+                        }
+                        break;
+                    } else if (item.type === 'application/octet-stream') {
+                        e.preventDefault();
+                        const file = item.getAsFile();
+                        if (file) {
+                            uploadPrivateFile(file);
+                        }
+                        break;
+                    }
+                }
+            });
         }
     }
     
@@ -1539,6 +1569,29 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // 私信聊天界面初始化完成 - 已在initializePrivateMessageSending中添加了上传按钮事件监听器
+        
+        // 为私信聊天界面添加点击事件监听器，清除未读计数并发送加入事件
+        const privateChatInterface = document.getElementById('privateChatInterface');
+        if (privateChatInterface) {
+            privateChatInterface.addEventListener('click', function() {
+                if (currentPrivateChatUserId) {
+                    // 清除私信未读计数
+                    delete unreadMessages.private[currentPrivateChatUserId];
+                    updateUnreadCountsDisplay();
+                    updateTitleWithUnreadCount();
+                    
+                    // 发送加入私信聊天事件，只清除未读计数，不返回消息历史
+                    if (window.chatSocket) {
+                        window.chatSocket.emit('join-private-chat', {
+                            userId: currentUser.id,
+                            friendId: currentPrivateChatUserId,
+                            sessionToken: currentSessionToken,
+                            onlyClearUnread: true
+                        });
+                    }
+                }
+            });
+        }
     }
     
     // 删除好友
@@ -1986,6 +2039,25 @@ document.addEventListener('DOMContentLoaded', function() {
         socket.on('friend-removed', () => {
             // 刷新好友列表
             loadFriendsList();
+        });
+        
+        // 头像更新事件
+        socket.on('avatar-updated', (data) => {
+            // 刷新所有相关的头像显示
+            if (data.userId && data.avatarUrl) {
+                // 刷新好友列表中的头像
+                loadFriendsList();
+                // 刷新群组列表中的头像
+                loadGroupList();
+                // 刷新当前聊天界面中的头像
+                if (currentPrivateChatUserId) {
+                    // 如果当前在私信聊天，刷新私信界面的头像
+                    const privateUserAvatar = document.querySelector('#privateChatInterface .chat-avatar img');
+                    if (privateUserAvatar && currentPrivateChatUserId === data.userId) {
+                        privateUserAvatar.src = `${SERVER_URL}${data.avatarUrl}`;
+                    }
+                }
+            }
         });
         
         // 聊天历史记录事件
@@ -2509,6 +2581,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 更新会话令牌
                 currentSessionToken = message.sessionToken;
                 localStorage.setItem('currentSessionToken', currentSessionToken);
+            }
+            
+            // 检查消息发送者是否是自己，如果是则不添加未读计数
+            if (message.senderId === currentUser.id || message.userId === currentUser.id) {
+                return;
             }
             
             // 标记为实时消息
@@ -5031,13 +5108,13 @@ function uploadImage(file) {
     formData.append('userId', currentUser.id);
     
     // 只有在群组聊天时才添加groupId字段
-    if (currentGroupId) {
-        formData.append('groupId', currentGroupId);
+    if (currentActiveChat.type === 'group' && currentActiveChat.groupId) {
+        formData.append('groupId', currentActiveChat.groupId);
     }
     
     // 根据当前是否在群组聊天中使用正确的上传进度条
-    const uploadProgress = currentGroupId ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
-    const uploadProgressBar = currentGroupId ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
+    const uploadProgress = currentActiveChat.type === 'group' ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
+    const uploadProgressBar = currentActiveChat.type === 'group' ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
     if (uploadProgress && uploadProgressBar) {
         uploadProgress.style.display = 'block';
         uploadProgressBar.style.width = '0%';
@@ -5070,7 +5147,7 @@ function uploadImage(file) {
                 uploadProgress.style.display = 'none';
             }
             // 根据当前是否在群组聊天中使用正确的文件输入元素
-            if (currentGroupId) {
+            if (currentActiveChat.type === 'group') {
                 const groupImageInput = document.getElementById('groupImageInput');
                 if (groupImageInput) {
                     groupImageInput.value = '';
@@ -5091,13 +5168,13 @@ function uploadFile(file) {
     formData.append('userId', currentUser.id);
     
     // 只有在群组聊天时才添加groupId字段
-    if (currentGroupId) {
-        formData.append('groupId', currentGroupId);
+    if (currentActiveChat.type === 'group' && currentActiveChat.groupId) {
+        formData.append('groupId', currentActiveChat.groupId);
     }
     
     // 根据当前是否在群组聊天中使用正确的上传进度条
-    const uploadProgress = currentGroupId ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
-    const uploadProgressBar = currentGroupId ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
+    const uploadProgress = currentActiveChat.type === 'group' ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
+    const uploadProgressBar = currentActiveChat.type === 'group' ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
     if (uploadProgress && uploadProgressBar) {
         uploadProgress.style.display = 'block';
         uploadProgressBar.style.width = '0%';
@@ -5130,7 +5207,7 @@ function uploadFile(file) {
                 uploadProgress.style.display = 'none';
             }
             // 根据当前是否在群组聊天中使用正确的文件输入元素
-            if (currentGroupId) {
+            if (currentActiveChat.type === 'group') {
                 const groupFileInput = document.getElementById('groupFileInput');
                 if (groupFileInput) {
                     groupFileInput.value = '';
@@ -5157,6 +5234,29 @@ function uploadFile(file) {
         const groupFileUploadButton = document.getElementById('groupFileUploadButton');
         const groupImageInput = document.getElementById('groupImageInput');
         const groupFileInput = document.getElementById('groupFileInput');
+        
+        // 为群组聊天界面添加点击事件监听器，清除未读计数并发送加入事件
+        const groupChatInterface = document.getElementById('groupChatInterface');
+        if (groupChatInterface) {
+            groupChatInterface.addEventListener('click', function() {
+                if (currentGroupId) {
+                    // 清除群组未读计数
+                    delete unreadMessages.groups[currentGroupId];
+                    updateUnreadCountsDisplay();
+                    updateTitleWithUnreadCount();
+                    
+                    // 发送加入群组事件，只清除未读计数，不返回消息历史
+                    if (window.chatSocket) {
+                        window.chatSocket.emit('join-group', {
+                            groupId: parseInt(currentGroupId),
+                            sessionToken: currentSessionToken,
+                            userId: currentUser.id,
+                            onlyClearUnread: true
+                        });
+                    }
+                }
+            });
+        }
         
         if (groupMessageInput && sendGroupMessageBtn) {
             sendGroupMessageBtn.addEventListener('click', function() {
@@ -7631,6 +7731,11 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
     function handleNewMessage(message, isGroup = false, groupId = null) {
         // 检查消息是否有效
         if (!message) return;
+        
+        // 检查消息发送者是否是自己，如果是则不添加未读计数
+        if (message.senderId === currentUser.id || message.userId === currentUser.id) {
+            return;
+        }
         
         // 使用浏览器API判断页面是否获得焦点
         // 如果页面可见且用户在当前聊天室，不添加未读计数
