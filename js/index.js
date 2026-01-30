@@ -5122,14 +5122,13 @@ formData.append('userId', currentUser.id);
 
 // 只有在群组聊天时才添加groupId字段
 const isGroupChat = currentActiveChat !== 'main' && !currentActiveChat.startsWith('private_');
-if (isGroupChat || currentGroupId) {
-    const groupId = isGroupChat ? currentActiveChat : currentGroupId;
-    formData.append('groupId', groupId);
+if (isGroupChat) {
+    formData.append('groupId', currentActiveChat);
 }
 
 // 根据当前是否在群组聊天中使用正确的上传进度条
-const uploadProgress = (isGroupChat || currentGroupId) ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
-const uploadProgressBar = (isGroupChat || currentGroupId) ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
+const uploadProgress = isGroupChat ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
+const uploadProgressBar = isGroupChat ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
 if (uploadProgress && uploadProgressBar) {
     uploadProgress.style.display = 'block';
     uploadProgressBar.style.width = '0%';
@@ -5144,7 +5143,12 @@ if (uploadProgress && uploadProgressBar) {
         },
         body: formData
     })
-    .then(response => response.json())
+    .then(response => {
+        if (response.status === 413) {
+            throw new Error('文件过大');
+        }
+        return response.json();
+    })
     .then(data => {
         if (data.status === 'success') {
             // 上传成功，只依赖服务器的Socket.IO广播，避免显示重复消息
@@ -5154,7 +5158,12 @@ if (uploadProgress && uploadProgressBar) {
         }
     })
     .catch(error => {
-        showError('图片上传失败，请稍后重试');
+        // 检查错误消息是否包含"Failed to fetch"，如果是，可能是413错误
+        if (error.message && error.message.includes('Failed to fetch')) {
+            showError('文件过大');
+        } else {
+            showError(error.message || '图片上传失败，请稍后重试');
+        }
     })
     .finally(() => {
         // 隐藏上传进度
@@ -5162,7 +5171,7 @@ if (uploadProgress && uploadProgressBar) {
             uploadProgress.style.display = 'none';
         }
         // 根据当前是否在群组聊天中使用正确的文件输入元素
-        if (isGroupChat || currentGroupId) {
+        if (isGroupChat) {
             const groupImageInput = document.getElementById('groupImageInput');
             if (groupImageInput) {
                 groupImageInput.value = '';
@@ -5184,14 +5193,13 @@ formData.append('userId', currentUser.id);
 
 // 只有在群组聊天时才添加groupId字段
 const isGroupChat = currentActiveChat !== 'main' && !currentActiveChat.startsWith('private_');
-if (isGroupChat || currentGroupId) {
-    const groupId = isGroupChat ? currentActiveChat : currentGroupId;
-    formData.append('groupId', groupId);
+if (isGroupChat) {
+    formData.append('groupId', currentActiveChat);
 }
 
 // 根据当前是否在群组聊天中使用正确的上传进度条
-const uploadProgress = (isGroupChat || currentGroupId) ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
-const uploadProgressBar = (isGroupChat || currentGroupId) ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
+const uploadProgress = isGroupChat ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
+const uploadProgressBar = isGroupChat ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
 if (uploadProgress && uploadProgressBar) {
     uploadProgress.style.display = 'block';
     uploadProgressBar.style.width = '0%';
@@ -5206,7 +5214,12 @@ if (uploadProgress && uploadProgressBar) {
         },
         body: formData
     })
-    .then(response => response.json())
+    .then(response => {
+        if (response.status === 413) {
+            throw new Error('文件过大');
+        }
+        return response.json();
+    })
     .then(data => {
         if (data.status === 'success') {
             // 上传成功，只依赖服务器的Socket.IO广播，避免显示重复消息
@@ -5216,7 +5229,12 @@ if (uploadProgress && uploadProgressBar) {
         }
     })
     .catch(error => {
-        showError('文件上传失败，请稍后重试');
+        // 检查错误消息是否包含"Failed to fetch"，如果是，可能是413错误
+        if (error.message && error.message.includes('Failed to fetch')) {
+            showError('文件过大');
+        } else {
+            showError(error.message || '文件上传失败，请稍后重试');
+        }
     })
     .finally(() => {
         // 隐藏上传进度
@@ -5224,7 +5242,7 @@ if (uploadProgress && uploadProgressBar) {
             uploadProgress.style.display = 'none';
         }
         // 根据当前是否在群组聊天中使用正确的文件输入元素
-        if (isGroupChat || currentGroupId) {
+        if (isGroupChat) {
             const groupFileInput = document.getElementById('groupFileInput');
             if (groupFileInput) {
                 groupFileInput.value = '';
@@ -8035,15 +8053,8 @@ function updateGroupList(groups) {
 
 // 加载群组聊天记录
 function loadGroupMessages(groupId) {
-    // 清空现有消息，显示加载状态
     const groupMessageContainer = document.getElementById('groupMessageContainer');
     if (groupMessageContainer) {
-        groupMessageContainer.innerHTML = `
-            <div class="empty-state">
-                <h3>加载中...</h3>
-                <p>正在加载群组聊天记录...</p>
-            </div>
-        `;
         // 确保消息容器样式正确
         groupMessageContainer.style.flex = '1';
         groupMessageContainer.style.overflowY = 'auto';
@@ -8070,15 +8081,13 @@ function loadGroupMessages(groupId) {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success' && data.messages) {
-                // 清空现有消息
+                // 显示历史消息
                 if (groupMessageContainer) {
-                    groupMessageContainer.innerHTML = '';
-                    // 显示历史消息
-        data.messages.forEach(message => {
-            // 标记为历史消息
-            message.isHistory = true;
-            displayGroupMessage(message);
-        });
+                    data.messages.forEach(message => {
+                        // 标记为历史消息
+                        message.isHistory = true;
+                        displayGroupMessage(message);
+                    });
                     // 历史消息加载完成后，强制滚动到底部
                     setTimeout(() => {
                         groupMessageContainer.scrollTop = groupMessageContainer.scrollHeight;
@@ -8106,8 +8115,12 @@ function loadGroupMessages(groupId) {
                 });
                 // 清空缓存
                 groupMessageCache[groupIdStr] = [];
+                // 滚动到底部
+                setTimeout(() => {
+                    container.scrollTop = container.scrollHeight;
+                }, 0);
             }
-        }, 500);
+        }, 100);
     }
 }
 
