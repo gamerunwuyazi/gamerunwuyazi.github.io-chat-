@@ -1974,8 +1974,8 @@ function initializeWebSocket() {
         
         // 检查消息是否包含群组ID
         if (message.groupId) {
-            // 标记为实时消息
-            message.isHistory = false;
+            // 标记为实时消息，除非是历史消息
+            message.isHistory = message.isHistory || false;
             // 如果包含群组ID，调用群组消息显示函数
             handleNewMessage(message, true, message.groupId);
             displayGroupMessage(message);
@@ -8012,7 +8012,7 @@ function updateGroupList(groups) {
             setActiveChat('group', groupId);
             
             // 立即加载群组聊天记录
-            loadGroupMessages(groupId);
+            loadGroupMessages(groupId, true);
         });
         
         // 添加右键菜单事件
@@ -8052,13 +8052,18 @@ function updateGroupList(groups) {
 }
 
 // 加载群组聊天记录
-function loadGroupMessages(groupId) {
+function loadGroupMessages(groupId, forceReload = false) {
     const groupMessageContainer = document.getElementById('groupMessageContainer');
     if (groupMessageContainer) {
         // 确保消息容器样式正确
         groupMessageContainer.style.flex = '1';
         groupMessageContainer.style.overflowY = 'auto';
         groupMessageContainer.style.padding = '10px';
+        
+        // 如果forceReload为真，则清空消息列表容器
+        if (forceReload) {
+            groupMessageContainer.innerHTML = '';
+        }
     }
     
     // 使用Socket.io获取群组聊天历史
@@ -8070,6 +8075,15 @@ function loadGroupMessages(groupId) {
             userId: currentUser.id
         };
         window.chatSocket.emit('join-group', joinGroupData);
+        
+        // 发送join-group事件后，等待一段时间，然后强制滚动到底部
+        // 这样可以确保所有历史消息都已经显示完成
+        setTimeout(() => {
+            const container = document.getElementById('groupMessageContainer');
+            if (container) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }, 1000);
     } else {
         // 如果WebSocket未连接，尝试使用HTTP请求获取历史记录
         fetch(`${SERVER_URL}/group-chat-history/${groupId}`, {
@@ -8308,7 +8322,7 @@ function logout() {
                                     }
                                     
                                     // 加载群组聊天记录
-                                    loadGroupMessages(currentGroupId);
+                                    loadGroupMessages(currentGroupId, true);
                                 }
                             }
                         })
