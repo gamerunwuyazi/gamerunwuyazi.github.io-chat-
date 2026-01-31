@@ -407,14 +407,28 @@ function renderPrivateMessage(message, returnElement = false) {
             if (message.imageUrl) {
                 // 直接使用imageUrl字段
                 const fullImageUrl = message.imageUrl.startsWith('http') ? message.imageUrl : `${SERVER_URL}${message.imageUrl}`;
-                messageHtml += `<img src="${fullImageUrl}" alt="图片" class="message-image" onclick="openImagePreview('${fullImageUrl}')" style="max-width: 100%; border-radius: 10px; cursor: pointer;">`;
+                // 检查是否有图片宽度和高度信息，如果有则为图片预留位置
+                let widthAttr = '';
+                let heightAttr = '';
+                if (message.width && message.height) {
+                    widthAttr = `width="${message.width}"`;
+                    heightAttr = `height="${message.height}"`;
+                }
+                messageHtml += `<img src="${fullImageUrl}" alt="图片" ${widthAttr} ${heightAttr} class="message-image" onclick="openImagePreview('${fullImageUrl}')" style="max-width: 100%; height: auto; border-radius: 10px; cursor: pointer;">`;
             } else {
                 try {
                     // 尝试从content字段解析
                     const imageData = JSON.parse(message.content);
                     if (imageData && imageData.url) {
                         const fullImageUrl = imageData.url.startsWith('http') ? imageData.url : `${SERVER_URL}${imageData.url}`;
-                        messageHtml += `<img src="${fullImageUrl}" alt="图片" class="message-image" onclick="openImagePreview('${fullImageUrl}')" style="max-width: 100%; border-radius: 10px; cursor: pointer;">`;
+                        // 检查是否有图片宽度和高度信息，如果有则为图片预留位置
+                        let widthAttr = '';
+                        let heightAttr = '';
+                        if (imageData.width && imageData.height) {
+                            widthAttr = `width="${imageData.width}"`;
+                            heightAttr = `height="${imageData.height}"`;
+                        }
+                        messageHtml += `<img src="${fullImageUrl}" alt="图片" ${widthAttr} ${heightAttr} class="message-image" onclick="openImagePreview('${fullImageUrl}')" style="max-width: 100%; height: auto; border-radius: 10px; cursor: pointer;">`;
                     }
                 } catch (error) {
                     // 如果解析失败，作为普通文本消息处理
@@ -2014,8 +2028,9 @@ function initializeWebSocket() {
             localStorage.setItem('currentSessionToken', currentSessionToken);
         }
         
-        // 标记为实时消息
-        message.isHistory = false;
+        // 保留历史消息标志，不强制标记为实时消息
+        // 这样可以确保服务器返回的历史消息被正确识别
+        message.isHistory = message.isHistory || false;
         // 只显示消息，不重复更新未读计数（已在message-received事件中处理）
         displayGroupMessage(message);
     });
@@ -3131,16 +3146,31 @@ function initializeWebSocket() {
     window.openImagePreview = function(imageUrl) {
         const modal = document.getElementById('imagePreviewModal');
         const imgElement = document.getElementById('previewImgElement');
+        const closeBtn = document.getElementById('closeImagePreviewModal');
         
         if (modal && imgElement) {
             imgElement.src = imageUrl;
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
         }
+        
+        // 关闭按钮事件
+        if (closeBtn) {
+            // 先移除可能存在的事件监听器，避免重复绑定
+            closeBtn.removeEventListener('click', closeImagePreviewModal);
+            closeBtn.addEventListener('click', closeImagePreviewModal);
+        }
+        
+        // 点击模态框背景关闭
+        if (modal) {
+            // 先移除可能存在的事件监听器，避免重复绑定
+            modal.removeEventListener('click', handleModalBackgroundClick);
+            modal.addEventListener('click', handleModalBackgroundClick);
+        }
     };
     
-    // 关闭图片预览
-    function closeImagePreview() {
+    // 关闭图片预览模态框
+    function closeImagePreviewModal() {
         const modal = document.getElementById('imagePreviewModal');
         if (modal) {
             modal.style.display = 'none';
@@ -3148,20 +3178,24 @@ function initializeWebSocket() {
         }
     }
     
-    // 关闭按钮事件
-    const closePreviewBtn = document.querySelector('.close-preview');
-    if (closePreviewBtn) {
-        closePreviewBtn.addEventListener('click', closeImagePreview);
+    // 处理模态框背景点击
+    function handleModalBackgroundClick(e) {
+        const modal = document.getElementById('imagePreviewModal');
+        if (e.target === modal) {
+            closeImagePreviewModal();
+        }
     }
     
-    // 点击模态框背景关闭
+    // 直接为关闭按钮添加事件监听器，确保即使不通过openImagePreview打开也能工作
+    const closeBtn = document.getElementById('closeImagePreviewModal');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeImagePreviewModal);
+    }
+    
+    // 直接为模态框添加背景点击事件监听器
     const imagePreviewModal = document.getElementById('imagePreviewModal');
     if (imagePreviewModal) {
-        imagePreviewModal.addEventListener('click', (e) => {
-            if (e.target === imagePreviewModal) {
-                closeImagePreview();
-            }
-        });
+        imagePreviewModal.addEventListener('click', handleModalBackgroundClick);
     }
     
     // 为所有已存在的图片添加点击事件
@@ -3808,8 +3842,14 @@ function updateOfflineUserList(users) {
                     const imageData = JSON.parse(message.content);
                     imageUrl = imageData.url;
                     filename = imageData.filename;
+                    // 解析图片宽度和高度信息，如果存在
+                    if (imageData.width && imageData.height) {
+                        message.width = imageData.width;
+                        message.height = imageData.height;
+                    }
                 } catch (error) {
                     console.error('解析图片消息JSON失败:', error);
+                    // 如果解析失败，忽略宽度和高度信息，使用默认大小
                 }
                 break;
             case 2: // 文件消息
@@ -3844,7 +3884,18 @@ function updateOfflineUserList(users) {
     // 渲染图片
     if (imageUrl && imageUrl !== null && imageUrl !== '') {
         const imgSrc = imageUrl.startsWith('http') ? imageUrl : `${SERVER_URL}${imageUrl}`;
-        messageContent += `<img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(filename || '图片')}" class="message-image" style="max-width: 100%; height: auto; cursor: pointer;">`;
+        
+        // 检查是否有图片宽度和高度信息，如果有则为图片预留位置
+        // 这样可以防止图片加载后布局变化导致滚动问题
+        let widthAttr = '';
+        let heightAttr = '';
+        if (message.width && message.height) {
+            // 为图片添加宽度和高度属性，同时保持响应式
+            widthAttr = `width="${message.width}"`;
+            heightAttr = `height="${message.height}"`;
+        }
+        
+        messageContent += `<img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(filename || '图片')}" ${widthAttr} ${heightAttr} class="message-image" style="max-width: 100%; height: auto; cursor: pointer;">`;
     }
     
     // 渲染文件
@@ -4021,8 +4072,27 @@ function displayGroupMessage(message, returnElement = false) {
         return;
     }
     
-    // 检查消息ID是否已经存在，避免重复渲染
-    if (document.querySelector(`#groupMessageContainer [data-id="${message.id}"]`)) {
+    // 检查消息是否已经存在，避免重复渲染
+    // 优先使用message.identifier，如果不存在则生成一个
+    // 使用哈希函数生成标识符，确保它是有效的CSS选择器值
+    function generateMessageHash(message) {
+        const content = message.content || message.text || 'empty';
+        const sender = message.userId || message.senderId || 'unknown';
+        const time = message.timestamp || message.createdAt || 'unknown';
+        const data = `${sender}-${time}-${JSON.stringify(content)}`;
+        
+        // 生成简单的哈希值
+        let hash = 0;
+        for (let i = 0; i < data.length; i++) {
+            const char = data.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // 转换为32位整数
+        }
+        return Math.abs(hash).toString(16);
+    }
+    
+    const messageIdentifier = message.identifier || generateMessageHash(message);
+    if (document.querySelector(`#groupMessageContainer [data-identifier="${messageIdentifier}"]`)) {
         return;
     }
     
@@ -4049,7 +4119,11 @@ function displayGroupMessage(message, returnElement = false) {
     const messageElement = document.createElement('div');
     // 设置消息样式：别人的消息靠左白色，自己的消息靠右绿色
     messageElement.className = `message ${isOwn ? 'own-message' : 'other-message'}`;
-    messageElement.setAttribute('data-id', message.id);
+    if (message.id) {
+        messageElement.setAttribute('data-id', message.id);
+    }
+    // 设置唯一标识符，用于重复检查
+    messageElement.setAttribute('data-identifier', messageIdentifier);
     
     // 保存sequence值，用于滚动加载
     if (message.sequence !== undefined) {
@@ -5116,73 +5190,126 @@ if (chatContent) {
 
 // 上传图片 - 全局函数，供所有聊天模式使用
 function uploadImage(file) {
-const formData = new FormData();
-formData.append('image', file); // 保持与原UI一致，使用'image'字段名
-formData.append('userId', currentUser.id);
-
-// 只有在群组聊天时才添加groupId字段
-const isGroupChat = currentActiveChat !== 'main' && !currentActiveChat.startsWith('private_');
-if (isGroupChat) {
-    formData.append('groupId', currentActiveChat);
-}
-
-// 根据当前是否在群组聊天中使用正确的上传进度条
-const uploadProgress = isGroupChat ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
-const uploadProgressBar = isGroupChat ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
-if (uploadProgress && uploadProgressBar) {
-    uploadProgress.style.display = 'block';
-    uploadProgressBar.style.width = '0%';
-}
+    // 创建一个Image对象来读取图片的宽度和高度
+    const img = new Image();
     
-    // 发送图片上传请求
-    fetch(`${SERVER_URL}/upload`, {
-        method: 'POST',
-        headers: {
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: formData
-    })
-    .then(response => {
-        if (response.status === 413) {
-            throw new Error('文件过大');
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (data.status === 'success') {
-            // 上传成功，只依赖服务器的Socket.IO广播，避免显示重复消息
+    // 使用FileReader读取文件
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        img.onload = function() {
+            // 图片加载完成，获取宽度和高度
+            const width = img.width;
+            const height = img.height;
+            
+            // 创建FormData并添加图片和宽度高度信息
+            const formData = new FormData();
+            formData.append('image', file); // 保持与原UI一致，使用'image'字段名
+            formData.append('userId', currentUser.id);
+            formData.append('width', width); // 添加图片宽度
+            formData.append('height', height); // 添加图片高度
+            
+            // 只有在群组聊天时才添加groupId字段
+            const isGroupChat = currentActiveChat !== 'main' && !currentActiveChat.startsWith('private_');
+            if (isGroupChat) {
+                formData.append('groupId', currentActiveChat);
+            }
+            
+            // 根据当前是否在群组聊天中使用正确的上传进度条
+            const uploadProgress = isGroupChat ? document.getElementById('groupUploadProgress') : document.getElementById('uploadProgress');
+            const uploadProgressBar = isGroupChat ? document.getElementById('groupUploadProgressBar') : document.getElementById('uploadProgressBar');
+            if (uploadProgress && uploadProgressBar) {
+                uploadProgress.style.display = 'block';
+                uploadProgressBar.style.width = '0%';
+            }
+                
+                // 发送图片上传请求
+                fetch(`${SERVER_URL}/upload`, {
+                    method: 'POST',
+                    headers: {
+                        'user-id': currentUser.id,
+                        'session-token': currentSessionToken
+                    },
+                    body: formData
+                })
+                .then(response => {
+                    if (response.status === 413) {
+                        throw new Error('文件过大');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        // 上传成功，只依赖服务器的Socket.IO广播，避免显示重复消息
 
-        } else {
-            showError(data.message || '图片上传失败');
-        }
-    })
-    .catch(error => {
-        // 检查错误消息是否包含"Failed to fetch"，如果是，可能是413错误
-        if (error.message && error.message.includes('Failed to fetch')) {
-            showError('文件过大');
-        } else {
-            showError(error.message || '图片上传失败，请稍后重试');
-        }
-    })
-    .finally(() => {
-        // 隐藏上传进度
-        if (uploadProgress) {
-            uploadProgress.style.display = 'none';
-        }
-        // 根据当前是否在群组聊天中使用正确的文件输入元素
-        if (isGroupChat) {
-            const groupImageInput = document.getElementById('groupImageInput');
-            if (groupImageInput) {
-                groupImageInput.value = '';
+                    } else {
+                        showError(data.message || '图片上传失败');
+                    }
+                })
+                .catch(error => {
+                    // 检查错误消息是否包含"Failed to fetch"，如果是，可能是413错误
+                    if (error.message && error.message.includes('Failed to fetch')) {
+                        showError('文件过大');
+                    } else {
+                        showError(error.message || '图片上传失败，请稍后重试');
+                    }
+                })
+                .finally(() => {
+                    // 隐藏上传进度
+                    if (uploadProgress) {
+                        uploadProgress.style.display = 'none';
+                    }
+                    // 根据当前是否在群组聊天中使用正确的文件输入元素
+                    if (isGroupChat) {
+                        const groupImageInput = document.getElementById('groupImageInput');
+                        if (groupImageInput) {
+                            groupImageInput.value = '';
+                        }
+                    } else {
+                        const imageInput = document.getElementById('imageInput');
+                        if (imageInput) {
+                            imageInput.value = '';
+                        }
+                    }
+                });
+        };
+        
+        // 处理图片加载失败的情况
+        img.onerror = function() {
+            // 图片加载失败，仍然上传，但不包含宽度和高度信息
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('userId', currentUser.id);
+            
+            const isGroupChat = currentActiveChat !== 'main' && !currentActiveChat.startsWith('private_');
+            if (isGroupChat) {
+                formData.append('groupId', currentActiveChat);
             }
-        } else {
-            const imageInput = document.getElementById('imageInput');
-            if (imageInput) {
-                imageInput.value = '';
-            }
-        }
-    });
+            
+            fetch(`${SERVER_URL}/upload`, {
+                method: 'POST',
+                headers: {
+                    'user-id': currentUser.id,
+                    'session-token': currentSessionToken
+                },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    showError(data.message || '图片上传失败');
+                }
+            })
+            .catch(error => {
+                showError('图片上传失败，请稍后重试');
+            });
+        };
+        
+        // 设置图片源为FileReader的结果
+        img.src = e.target.result;
+    };
+    
+    // 开始读取文件
+    reader.readAsDataURL(file);
 }
 
 // 上传文件 - 全局函数，供所有聊天模式使用
@@ -8053,6 +8180,8 @@ function updateGroupList(groups) {
 
 // 加载群组聊天记录
 function loadGroupMessages(groupId, forceReload = false) {
+
+    
     const groupMessageContainer = document.getElementById('groupMessageContainer');
     if (groupMessageContainer) {
         // 确保消息容器样式正确
@@ -8060,30 +8189,35 @@ function loadGroupMessages(groupId, forceReload = false) {
         groupMessageContainer.style.overflowY = 'auto';
         groupMessageContainer.style.padding = '10px';
         
-        // 如果forceReload为真，则清空消息列表容器
+
+        
+        // 当切换群组时，需要清空消息容器，否则会导致不同群组的消息混合显示
+        // 但是要以一种平滑的方式，避免闪烁
         if (forceReload) {
+            // 清空消息容器，确保只显示当前群组的消息
             groupMessageContainer.innerHTML = '';
         }
     }
     
+
+    
+    // 记录当前加载时间，用于去重
+    const loadTime = Date.now();
+    
+
+    
     // 使用Socket.io获取群组聊天历史
     if (isConnected && window.chatSocket) {
+
+        
         // 发送加入群组事件，根据原UI要求，只需要发送join-group事件，服务器会自动返回群组聊天历史
         const joinGroupData = {
             groupId: parseInt(groupId), // 确保是数字格式
             sessionToken: currentSessionToken,
-            userId: currentUser.id
+            userId: currentUser.id,
+            loadTime: loadTime // 传递加载时间戳
         };
         window.chatSocket.emit('join-group', joinGroupData);
-        
-        // 发送join-group事件后，等待一段时间，然后强制滚动到底部
-        // 这样可以确保所有历史消息都已经显示完成
-        setTimeout(() => {
-            const container = document.getElementById('groupMessageContainer');
-            if (container) {
-                container.scrollTop = container.scrollHeight;
-            }
-        }, 1000);
     } else {
         // 如果WebSocket未连接，尝试使用HTTP请求获取历史记录
         fetch(`${SERVER_URL}/group-chat-history/${groupId}`, {
@@ -8097,21 +8231,43 @@ function loadGroupMessages(groupId, forceReload = false) {
             if (data.status === 'success' && data.messages) {
                 // 显示历史消息
                 if (groupMessageContainer) {
+                    // 遍历消息，只显示新消息
                     data.messages.forEach(message => {
                         // 标记为历史消息
                         message.isHistory = true;
-                        displayGroupMessage(message);
+                        // 检查消息是否已经存在，避免重复渲染
+                        // 使用哈希函数生成标识符，确保它是有效的CSS选择器值
+                        function generateMessageHash(message) {
+                            const content = message.content || message.text || 'empty';
+                            const sender = message.userId || message.senderId || 'unknown';
+                            const time = message.timestamp || message.createdAt || 'unknown';
+                            const data = `${sender}-${time}-${JSON.stringify(content)}`;
+                            
+                            // 生成简单的哈希值
+                            let hash = 0;
+                            for (let i = 0; i < data.length; i++) {
+                                const char = data.charCodeAt(i);
+                                hash = ((hash << 5) - hash) + char;
+                                hash = hash & hash; // 转换为32位整数
+                            }
+                            return Math.abs(hash).toString(16);
+                        }
+                        
+                        const messageIdentifier = generateMessageHash(message);
+                        if (!document.querySelector(`#groupMessageContainer [data-identifier="${messageIdentifier}"]`)) {
+                            // 添加唯一标识
+                            message.identifier = messageIdentifier;
+                            displayGroupMessage(message);
+                        }
                     });
-                    // 历史消息加载完成后，强制滚动到底部
-                    setTimeout(() => {
-                        groupMessageContainer.scrollTop = groupMessageContainer.scrollHeight;
-                    }, 0);
                 }
             }
         })
         .catch(error => {
         });
     }
+    
+
     
     // 显示缓存的消息并清空缓存
     const groupIdStr = String(groupId);
@@ -8123,19 +8279,68 @@ function loadGroupMessages(groupId, forceReload = false) {
                 // 显示缓存的消息
                 groupMessageCache[groupIdStr].forEach(message => {
                     // 检查消息是否已经存在，避免重复渲染
-                    if (!document.querySelector(`#groupMessageContainer [data-id="${message.id}"]`)) {
+                    // 使用哈希函数生成标识符，确保它是有效的CSS选择器值
+                    function generateMessageHash(message) {
+                        const content = message.content || message.text || 'empty';
+                        const sender = message.userId || message.senderId || 'unknown';
+                        const time = message.timestamp || message.createdAt || 'unknown';
+                        const data = `${sender}-${time}-${JSON.stringify(content)}`;
+                        
+                        // 生成简单的哈希值
+                        let hash = 0;
+                        for (let i = 0; i < data.length; i++) {
+                            const char = data.charCodeAt(i);
+                            hash = ((hash << 5) - hash) + char;
+                            hash = hash & hash; // 转换为32位整数
+                        }
+                        return Math.abs(hash).toString(16);
+                    }
+                    
+                    const messageIdentifier = generateMessageHash(message);
+                    if (!document.querySelector(`#groupMessageContainer [data-identifier="${messageIdentifier}"]`)) {
+                        // 添加唯一标识
+                        message.identifier = messageIdentifier;
                         displayGroupMessage(message);
                     }
                 });
                 // 清空缓存
                 groupMessageCache[groupIdStr] = [];
-                // 滚动到底部
-                setTimeout(() => {
-                    container.scrollTop = container.scrollHeight;
-                }, 0);
             }
         }, 100);
     }
+    
+
+    
+    // 智能滚动逻辑：使用更可靠的方式确保所有消息都加载完成后再滚动
+    // 避免依赖固定延迟时间导致的不稳定行为
+    function ensureScrollToBottom() {
+        const container = document.getElementById('groupMessageContainer');
+        if (container) {
+            // 记录当前滚动高度
+            const currentHeight = container.scrollHeight;
+            
+            // 第一次滚动
+            container.scrollTop = currentHeight;
+            
+            // 等待一小段时间，检查是否有新消息添加
+            setTimeout(() => {
+                // 如果滚动高度发生变化，说明有新消息添加
+                if (container.scrollHeight > currentHeight) {
+                    // 再次滚动到底部
+                    container.scrollTop = container.scrollHeight;
+                    
+                    // 再等待一小段时间，确保所有消息都已加载
+                    setTimeout(() => {
+                        // 最终滚动，确保完全到底部
+                        container.scrollTop = container.scrollHeight;
+                    }, 200);
+                }
+            }, 300);
+        }
+    }
+    
+    // 初始延迟，确保基本的消息加载已经开始
+    setTimeout(ensureScrollToBottom, 800);
 }
 
 // 显示错误消息
@@ -8322,7 +8527,8 @@ function logout() {
                                     }
                                     
                                     // 加载群组聊天记录
-                                    loadGroupMessages(currentGroupId, true);
+                                    // 从其他页面切换到群组页面时，不清空消息列表，只添加新消息
+                                    loadGroupMessages(currentGroupId, false);
                                 }
                             }
                         })
@@ -8585,28 +8791,7 @@ function initializeScrollLoading() {
 // 启动初始化
 initAllFunctions();
 
-// 图片预览功能
-function openImagePreview(imageUrl) {
-    const modal = document.getElementById('imagePreviewModal');
-    const imgElement = document.getElementById('previewImgElement');
-    const closeBtn = document.getElementById('closeImagePreviewModal');
-    
-    if (modal && imgElement) {
-        imgElement.src = imageUrl;
-        modal.style.display = 'flex';
-        document.body.style.overflow = 'hidden';
-    }
-    
-    // 关闭按钮事件
-    if (closeBtn) {
-        closeBtn.addEventListener('click', function() {
-            if (modal) {
-                modal.style.display = 'none';
-                document.body.style.overflow = '';
-            }
-        });
-    }
-}
+// 图片预览功能已移至顶部，此处保留注释
 
 // 头像预览功能
 function openAvatarPreview(avatarUrl) {
@@ -8622,13 +8807,46 @@ function openAvatarPreview(avatarUrl) {
     
     // 关闭按钮事件
     if (closeBtn) {
-        closeBtn.addEventListener('click', function() {
-            if (modal) {
-                modal.style.display = 'none';
-                document.body.style.overflow = '';
-            }
-        });
+        // 先移除可能存在的事件监听器，避免重复绑定
+        closeBtn.removeEventListener('click', closeAvatarPreviewModal);
+        closeBtn.addEventListener('click', closeAvatarPreviewModal);
     }
+    
+    // 点击模态框背景关闭
+    if (modal) {
+        // 先移除可能存在的事件监听器，避免重复绑定
+        modal.removeEventListener('click', handleAvatarModalBackgroundClick);
+        modal.addEventListener('click', handleAvatarModalBackgroundClick);
+    }
+}
+
+// 关闭头像预览模态框
+function closeAvatarPreviewModal() {
+    const modal = document.getElementById('avatarPreviewModal');
+    if (modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = '';
+    }
+}
+
+// 处理头像模态框背景点击
+function handleAvatarModalBackgroundClick(e) {
+    const modal = document.getElementById('avatarPreviewModal');
+    if (e.target === modal) {
+        closeAvatarPreviewModal();
+    }
+}
+
+// 直接为头像预览关闭按钮添加事件监听器
+const closeAvatarBtn = document.getElementById('closeAvatarPreviewModal');
+if (closeAvatarBtn) {
+    closeAvatarBtn.addEventListener('click', closeAvatarPreviewModal);
+}
+
+// 直接为头像模态框添加背景点击事件监听器
+const avatarPreviewModal = document.getElementById('avatarPreviewModal');
+if (avatarPreviewModal) {
+    avatarPreviewModal.addEventListener('click', handleAvatarModalBackgroundClick);
 }
 
 // 为所有图片添加点击事件
