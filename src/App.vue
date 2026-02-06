@@ -7,8 +7,10 @@
     <div id="chat-main">
       <router-view></router-view>
     </div>
+    <div id="modal">
+      <ChatModal/>
+    </div>
   </div>
-  <ChatModal v-if="isUserLoggedIn && shouldShowSidebar"/>
   <router-view v-else></router-view>
 </template>
 
@@ -49,35 +51,14 @@ function checkLoginStatus() {
 // 计算属性
 const isUserLoggedIn = computed(() => userLoggedIn.value)
 
+// 计算属性：当前路由路径
+const currentRoutePath = computed(() => route.path)
+
 // 计算属性：判断是否应该显示侧边栏
 const shouldShowSidebar = computed(() => {
-  // 获取当前路由路径
-  const path = route.path
   // 只在聊天相关页面显示侧边栏
-  return ['/chat', '/chat/group', '/chat/private', '/settings'].includes(path)
+  return ['/chat', '/chat/group', '/chat/private', '/settings'].includes(currentRoutePath.value)
 })
-
-/* 检查登录状态
-// const checkLoginStatus = () => {
-//   const userId = localStorage.getItem('userId')
-//   const sessionToken = localStorage.getItem('sessionToken')
-//   const nickname = localStorage.getItem('nickname')
-//   const avatarUrl = localStorage.getItem('avatarUrl')
-//
-//   if (userId && sessionToken) {
-//     // 更新当前用户状态
-//     setCurrentUser({
-//       id: userId,
-//       nickname: nickname,
-//       avatarUrl: avatarUrl
-//     })
-//     setCurrentSessionToken(sessionToken)
-//
-//     // 初始化聊天
-//     initializeChat()
-//   }
-// }
- */
 
 // 监听路由变化
 const handleRouteChange = () => {
@@ -94,8 +75,7 @@ const handleRouteChange = () => {
   
   // 如果用户已登录，确保在聊天相关页面显示侧边栏
   if (isLoggedIn) {
-    const path = route.path
-    if (['/chat', '/chat/group', '/chat/private', '/settings'].includes(path)) {
+    if (['/chat', '/chat/group', '/chat/private', '/settings'].includes(currentRoutePath.value)) {
       // 确保侧边栏显示
       // 这里不需要额外操作，shouldShowSidebar计算属性会处理
     }

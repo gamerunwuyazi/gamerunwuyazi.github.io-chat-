@@ -4,7 +4,6 @@
  * 参考原UI的JS代码实现核心功能
  * @copyright Copyright (c) 2026 gamerunwuyazi. All rights reserved.
  */
-import {onMounted} from "vue";
 const marked = require('marked');
 const io = require('socket.io-client');
 import toast from "./toast.js";
@@ -38,7 +37,7 @@ let currentGroupName = sessionStore.currentGroupName;
 let currentPrivateChatUserId = sessionStore.currentPrivateChatUserId; // 当前私信聊天的用户ID
 let currentPrivateChatUsername = sessionStore.currentPrivateChatUsername; // 当前私信聊天的用户名
 let currentPrivateChatNickname = sessionStore.currentPrivateChatNickname; // 当前私信聊天的昵称
-let onlineUsersList = [];
+export let onlineUsersList = [];
 let friendsList = []; // 好友列表
 let hasReceivedHistory = false; // 用于跟踪是否已经接收过普通聊天历史记录
 let hasReceivedGroupHistory = false; // 用于跟踪是否已经接收过群组聊天历史记录
@@ -72,6 +71,170 @@ export function setCurrentSessionToken(token) {
     if (token) {
         localStorage.setItem('sessionToken', token);
     }
+}
+
+// 添加撤回按钮事件监听器函数
+export function addWithdrawButtonListener(messageElement) {
+    const deleteButton = messageElement.querySelector('.delete-button');
+    if (deleteButton) {
+        deleteButton.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const messageId = this.getAttribute('data-id');
+
+            // 确保消息ID有效，使用正确的事件名和参数格式
+            if (messageId) {
+                window.chatSocket.emit('delete-message', {
+                    messageId: messageId, // 使用正确的参数名messageId
+                    sessionToken: currentSessionToken,
+                    userId: currentUser.id
+                });
+            }
+        });
+    }
+}
+
+// 为所有消息的用户头像添加点击事件
+export function addAvatarClickListenersToAllMessages() {
+    const messageElements = document.querySelectorAll('#messageContainer .message');
+    messageElements.forEach(messageElement => {
+        const messageAvatar = messageElement.querySelector('.user-avatar');
+        if (messageAvatar) {
+            // 移除现有的点击事件监听器，避免重复添加
+            const newMessageAvatar = messageAvatar.cloneNode(true);
+            messageAvatar.parentNode.replaceChild(newMessageAvatar, messageAvatar);
+            
+            // 获取消息用户信息
+            const messageUserId = messageElement.getAttribute('data-user-id');
+            const messageSender = messageElement.querySelector('.message-sender');
+            const senderNickname = messageSender ? messageSender.textContent : '未知用户';
+            
+            const messageUser = {
+                id: messageUserId,
+                nickname: senderNickname,
+                avatarUrl: ''
+            };
+            
+            // 添加点击事件监听器
+            newMessageAvatar.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showUserAvatarPopup(e, messageUser);
+            });
+        }
+    });
+}
+
+// 为所有群名片添加点击事件
+export function addGroupCardClickListeners() {
+    // 同时检查主聊天室、群组聊天和私信聊天的消息容器
+    const messageContainers = ['#messageContainer', '#groupMessageContainer', '#privateMessageContainer'];
+    
+    messageContainers.forEach(containerSelector => {
+        const groupCardElements = document.querySelectorAll(`${containerSelector} .group-card-container`);
+        groupCardElements.forEach(groupCardElement => {
+            // 移除现有的点击事件监听器，避免重复添加
+            const newGroupCardElement = groupCardElement.cloneNode(true);
+            groupCardElement.parentNode.replaceChild(newGroupCardElement, groupCardElement);
+            
+            // 获取群组ID
+            let groupId = newGroupCardElement.getAttribute('data-group-id');
+            
+            // 尝试从群名片元素中提取群组信息
+            const groupNameElement = newGroupCardElement.querySelector('.group-card-header');
+            const groupDescriptionElement = newGroupCardElement.querySelector('.group-card-description');
+            const groupAvatarElement = newGroupCardElement.querySelector('img');
+            const groupName = groupNameElement ? groupNameElement.textContent.trim() : '未知群组';
+            const groupDescription = groupDescriptionElement ? groupDescriptionElement.textContent.trim() : '暂无公告';
+            let groupAvatarUrl = '';
+            
+            // 尝试从群名片元素中提取头像URL
+            if (groupAvatarElement) {
+                const avatarSrc = groupAvatarElement.src;
+                if (avatarSrc) {
+                    // 检查头像URL是否已经包含完整的服务器地址
+                    if (avatarSrc.includes(SERVER_URL)) {
+                        // 如果已经包含完整地址，提取相对路径
+                        groupAvatarUrl = avatarSrc.replace(SERVER_URL, '');
+                    } else {
+                        // 否则保留原始URL
+                        groupAvatarUrl = avatarSrc;
+                    }
+                }
+            }
+            
+            // 如果没有从data属性获取到群组ID，尝试从群名片内容中解析
+            if (!groupId) {
+                try {
+                    // 尝试从群名片的内容中解析群组ID
+                    // 这里假设群名片的HTML结构中包含群组ID信息
+                    // 或者尝试从头像URL中提取群组ID
+                    if (groupAvatarUrl.includes('/group-avatars/')) {
+                        const matches = groupAvatarUrl.match(/group-avatars\/(\d+)\./);
+                        if (matches && matches[1]) {
+                            groupId = matches[1];
+                        }
+                    }
+                } catch (error) {
+                    console.error('解析群组ID失败:', error);
+                }
+            }
+            
+            // 创建群名片数据
+            const groupCardData = {
+                group_id: groupId,
+                group_name: groupName,
+                group_description: groupDescription,
+                avatar_url: groupAvatarUrl
+            };
+            
+            // 添加点击事件监听器
+            newGroupCardElement.addEventListener('click', function(e) {
+                e.stopPropagation();
+                showGroupCardPopup(e, groupCardData);
+            });
+        });
+    });
+}
+
+// 初始化所有图片的点击事件，用于放大预览
+export function initializeImageClickEvents() {
+    // 为所有消息中的图片添加点击事件
+    const messageImages = document.querySelectorAll('.message-image');
+    messageImages.forEach(img => {
+        img.addEventListener('click', function() {
+            const src = this.src;
+            openImagePreview(src);
+        });
+    });
+    
+    // 为所有群名片中的头像添加点击事件
+    const groupCardAvatars = document.querySelectorAll('.group-card-container img');
+    groupCardAvatars.forEach(img => {
+        img.addEventListener('click', function(e) {
+            e.stopPropagation(); // 阻止事件冒泡到群名片
+            const src = this.src;
+            openImagePreview(src);
+        });
+    });
+    
+    // 为所有用户头像添加点击事件
+    const userAvatars = document.querySelectorAll('.user-avatar img, .user-avatar-img');
+    userAvatars.forEach(img => {
+        img.addEventListener('click', function(e) {
+            e.stopPropagation(); // 阻止事件冒泡
+            const src = this.src;
+            openImagePreview(src);
+        });
+    });
+    
+    // 为私信聊天中的用户头像添加点击事件
+    const privateUserAvatars = document.querySelectorAll('#privateUserAvatar');
+    privateUserAvatars.forEach(img => {
+        img.addEventListener('click', function(e) {
+            e.stopPropagation(); // 阻止事件冒泡
+            const src = this.src;
+            openImagePreview(src);
+        });
+    });
 }
 
 // 初始化聊天
@@ -1360,7 +1523,7 @@ function hideUserAvatarPopup() {
 }
 
 // 为用户头像添加点击事件监听器
-function addAvatarClickListeners() {
+export function addAvatarClickListeners() {
 
     // 为好友列表中的用户头像添加点击事件
     const friendAvatars = document.querySelectorAll('.friend-item .user-avatar');
@@ -3809,8 +3972,6 @@ function updateOfflineUserList(users) {
     addAvatarClickListeners();
 }
 
-// 移除handleReceivedMessage函数，改为使用特定的Socket.io事件处理不同类型的消息
-
 // 显示消息
 function displayMessage(message, returnElement = false) {
     const messageContainer = document.getElementById('messageContainer');
@@ -3853,6 +4014,7 @@ function displayMessage(message, returnElement = false) {
     // 设置消息样式：别人的消息靠左白色，自己的消息靠右绿色
     messageElement.className = `message ${isOwn ? 'own-message' : 'other-message'}`;
     messageElement.setAttribute('data-id', message.id);
+    messageElement.setAttribute('data-user-id', senderId);
 
     // 保存sequence值，用于滚动加载
     if (message.sequence !== undefined) {
@@ -4256,7 +4418,7 @@ function displayMessage(message, returnElement = false) {
     // 渲染群名片
     if (groupCardData) {
         messageContent += `
-            <div class="group-card-container" style="background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 8px; padding: 10px; cursor: pointer; margin-top: 5px;">
+            <div class="group-card-container" data-group-id="${groupCardData.group_id}" style="background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 8px; padding: 10px; cursor: pointer; margin-top: 5px;">
                 <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px; display: flex; align-items: center; gap: 8px;">
                     ${groupCardData.avatar_url ? `<img src="${SERVER_URL}${groupCardData.avatar_url}" alt="${groupCardData.group_name}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover; cursor: pointer;" onclick="openImagePreview('${SERVER_URL}${groupCardData.avatar_url}')">` : `<div style="width: 20px; height: 20px; border-radius: 50%; background-color: #3498db; color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">${groupCardData.group_name.charAt(0).toUpperCase()}</div>`}
                     ${groupCardData.group_name}
@@ -4290,22 +4452,7 @@ function displayMessage(message, returnElement = false) {
 
     // 添加撤回按钮事件监听
     if (isOwn) {
-        const deleteButton = messageElement.querySelector('.delete-button');
-        if (deleteButton) {
-            deleteButton.addEventListener('click', function(e) {
-                e.stopPropagation();
-                const messageId = this.getAttribute('data-id');
-
-                // 确保消息ID有效，使用正确的事件名和参数格式
-                if (messageId) {
-                    window.chatSocket.emit('delete-message', {
-                        messageId: messageId, // 使用正确的参数名messageId
-                        sessionToken: currentSessionToken,
-                        userId: currentUser.id
-                    });
-                }
-            });
-        }
+        addWithdrawButtonListener(messageElement);
     }
 
     // 添加群名片点击事件监听
@@ -6204,7 +6351,12 @@ function shareGroupCard() {
 }
 
 // 显示群名片弹出窗口
-function showGroupCardPopup(event, groupCardData) {
+export function showGroupCardPopup(event, groupCardData) {
+    // 检查groupCardData是否存在
+    if (!groupCardData) {
+        return;
+    }
+
     // 移除已存在的弹出窗口
     const existingPopup = document.getElementById('groupCardPopup');
     if (existingPopup) {
@@ -6270,7 +6422,7 @@ function showGroupCardPopup(event, groupCardData) {
         titleContainer.appendChild(avatarImg);
     } else {
         // 显示默认头像
-        const initials = groupCardData.group_name.charAt(0).toUpperCase();
+        const initials = groupCardData.group_name ? groupCardData.group_name.charAt(0).toUpperCase() : 'G';
         const defaultAvatar = document.createElement('div');
         defaultAvatar.style.width = '40px';
         defaultAvatar.style.height = '40px';
@@ -6289,7 +6441,7 @@ function showGroupCardPopup(event, groupCardData) {
     const title = document.createElement('h3');
     title.style.margin = '0';
     title.style.color = '#3498db';
-    title.textContent = unescapeHtml(groupCardData.group_name);
+    title.textContent = unescapeHtml(groupCardData.group_name || '未知群组');
     titleContainer.appendChild(title);
 
     const closeBtn = document.createElement('button');
@@ -6311,7 +6463,7 @@ function showGroupCardPopup(event, groupCardData) {
     const groupIdP = document.createElement('p');
     groupIdP.style.margin = '8px 0';
     groupIdP.style.color = '#666';
-    groupIdP.innerHTML = `<strong>群组ID:</strong> ${groupCardData.group_id}`;
+    groupIdP.innerHTML = `<strong>群组ID:</strong> ${groupCardData.group_id || '未知'}`;
 
     const descP = document.createElement('p');
     descP.style.margin = '8px 0';
@@ -6353,7 +6505,12 @@ function showGroupCardPopup(event, groupCardData) {
 
     // 绑定加入群组按钮事件
     joinBtn.addEventListener('click', function() {
-        joinGroupWithToken(groupCardData.invite_token, groupCardData.group_id, groupCardData.group_name, popup);
+        if (groupCardData.invite_token && groupCardData.group_id) {
+            joinGroupWithToken(groupCardData.invite_token, groupCardData.group_id, groupCardData.group_name, popup);
+        } else {
+            console.warn('加入群组失败: 缺少必要的群组信息');
+            toast.error('加入群组失败: 缺少必要的群组信息');
+        }
     });
 
     // 点击外部关闭
@@ -8018,7 +8175,6 @@ function loadUserList() {
 // 更新用户列表（将在线用户列表样式改回与离线用户列表一致）
 function updateUserList(users) {
     const userList = document.getElementById('userList');
-    const onlineCount = document.getElementById('onlineCount');
     if (!userList) {
         console.error('User list element not found');
         return;
@@ -9473,7 +9629,7 @@ function addAvatarClickEvents() {
 }
 
 // 添加事件委托，为动态生成的图片和头像添加事件
-function setupEventDelegation() {
+export function setupEventDelegation() {
     // 为消息容器添加事件委托，处理图片点击
     const messageContainer = document.getElementById('messageContainer');
     const groupMessageContainer = document.getElementById('groupMessageContainer');

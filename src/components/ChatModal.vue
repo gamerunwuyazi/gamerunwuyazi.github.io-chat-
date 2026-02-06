@@ -266,7 +266,7 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 全局处理模态框外部点击关闭
 window.addEventListener('click', function(event) {
   // 检查是否点击了模态框外部

@@ -82,7 +82,7 @@
 <style src="@/css/code-highlight.css"></style>
 <script setup>
 import {onMounted} from "vue";
-import {initializeGroupFunctions, initializeMoreButtons, addGroupButtonListeners, sessionStore, setActiveChat, loadGroupMessages, initializeScrollLoading} from "@/utils/chat";
+import {initializeGroupFunctions, initializeMoreButtons, addGroupButtonListeners, sessionStore, setActiveChat, loadGroupMessages, initializeScrollLoading, initializeImageClickEvents, addGroupCardClickListeners} from "@/utils/chat";
 
 // 直接应用保存的群组状态，不使用setTimeout
 function applySavedGroupState() {
@@ -123,6 +123,15 @@ onMounted(() => {
 
   // 确保在组件挂载后再初始化滚动加载更多事件
   initializeScrollLoading();
+
+  // 为已有的消息添加图片点击事件和群名片点击事件
+  setTimeout(() => {
+    // 初始化所有图片的点击事件，用于放大预览
+    initializeImageClickEvents();
+    
+    // 为所有群名片添加点击事件
+    addGroupCardClickListeners();
+  }, 500);
 
   // 初始化群组MD工具栏
   const groupMarkdownToolbar = document.getElementById('groupMarkdownToolbar');

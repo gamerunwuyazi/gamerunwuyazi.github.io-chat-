@@ -64,11 +64,31 @@
 
 <script setup>
 import {onMounted} from "vue";
-import {saveChatHistory, initializeMessageSending, initializeMoreButtons} from "@/utils/chat";
+import {saveChatHistory, initializeMessageSending, initializeMoreButtons, initializeScrollLoading, addWithdrawButtonListener, addAvatarClickListenersToAllMessages, addGroupCardClickListeners, initializeImageClickEvents} from "@/utils/chat";
 
 onMounted(() => {
   saveChatHistory('pull')
   initializeMessageSending()
   initializeMoreButtons()
+  initializeScrollLoading()
+
+  // 为已有的消息添加撤回按钮事件监听器
+  setTimeout(() => {
+    const messageElements = document.querySelectorAll('.message');
+    messageElements.forEach(element => {
+      if (element.querySelector('.delete-button')) {
+        addWithdrawButtonListener(element);
+      }
+    });
+    
+    // 为所有消息的用户头像添加点击事件
+    addAvatarClickListenersToAllMessages();
+    
+    // 为所有群名片添加点击事件
+    addGroupCardClickListeners();
+    
+    // 初始化所有图片的点击事件，用于放大预览
+    initializeImageClickEvents();
+  }, 500);
 })
 </script>

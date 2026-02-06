@@ -95,7 +95,8 @@ import {
   sessionStore,
   setActiveChat,
   loadPrivateChatHistory,
-  initializeUserProfileModal
+  initializeUserProfileModal,
+  initializeImageClickEvents
 } from "@/utils/chat";
 import {initializePrivateChatInterface} from "@/utils/chat";
 
@@ -151,5 +152,11 @@ onMounted(() => {
     // 加载私信聊天记录
     loadPrivateChatHistory(sessionStore.currentPrivateChatUserId);
   }
+
+  // 为已有的消息添加图片点击事件
+  setTimeout(() => {
+    // 初始化所有图片的点击事件，用于放大预览
+    initializeImageClickEvents();
+  }, 500);
 })
 </script>
