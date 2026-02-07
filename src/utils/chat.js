@@ -24,6 +24,14 @@ export let sessionStore = {
     selectedGroupIdForCard: null
 };
 
+// 未读消息计数
+// 使用Vue 3的reactive API创建响应式对象
+export let unreadMessages = {
+  global: 0,
+  groups: {},
+  private: {}
+};
+
 // 初始化变量
 let currentUser = null;
 let currentSessionToken = localStorage.getItem('currentSessionToken') || null;
@@ -43,7 +51,7 @@ let hasReceivedHistory = false; // 用于跟踪是否已经接收过普通聊天
 let hasReceivedGroupHistory = false; // 用于跟踪是否已经接收过群组聊天历史记录
 let hasReceivedPrivateHistory = false; // 用于跟踪是否已经接收过私信聊天历史记录
 let originalTitle = document.title; // 保存原始标题
-let unreadMessages = { global: 0, groups: {}, private: {} }; // 未读消息计数
+// 使用已导出的unreadMessages变量
 let isPageVisible = true; // 页面可见性状态
 let currentActiveChat = sessionStore.currentActiveChat; // 当前活动聊天室：'main'、群组ID或用户ID
 // let lastNotificationTime = 0; // 最后通知时间，用于控制通知频率
@@ -286,7 +294,8 @@ export function initializeChat() {
                         nickname: currentPrivateChatNickname,
                         activeChat: currentActiveChat
                     });
-                    setActiveChat('private', currentPrivateChatUserId);
+                    // 设置活动聊天状态，但不清除未读计数（因为这是初始化时的调用）
+                    setActiveChat('private', currentPrivateChatUserId, false);
                     // 确保私信聊天界面显示
                     const privateEmptyState = document.getElementById('privateEmptyState');
                     const privateChatInterface = document.getElementById('privateChatInterface');
@@ -526,8 +535,8 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
     // 加载私信聊天历史
     loadPrivateChatHistory(userId);
 
-    // 设置当前活动聊天室为私信
-    setActiveChat('private', userId);
+    // 设置当前活动聊天室为私信，并清除未读计数（因为用户真正进入了私信聊天）
+    setActiveChat('private', userId, true);
 
     // 重新初始化私信聊天界面事件，确保按钮功能更新
     initializePrivateChatInterface();
@@ -2055,7 +2064,10 @@ function logout() {
     hasReceivedHistory = false;
     hasReceivedGroupHistory = false;
     hasReceivedPrivateHistory = false;
-    unreadMessages = { global: 0, groups: {}, private: {} };
+    // 重置未读消息计数，保持响应性
+    unreadMessages.global = 0;
+    unreadMessages.groups = {};
+    unreadMessages.private = {};
 
     // 跳转到登录页面
     setTimeout(() => {
@@ -2153,11 +2165,19 @@ function initializeChatInternal() {
 
 // 检查IP封禁和用户存在性函数
 function checkUserAndIPStatus(callback) {
+    // 构建请求头，包含会话令牌
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+    
+    // 如果有会话令牌，添加到请求头中
+    if (currentSessionToken) {
+        headers['session-token'] = currentSessionToken;
+    }
+    
     fetch(`${SERVER_URL}/check-status`, {
         method: 'GET',
-        headers: {
-            'Content-Type': 'application/json'
-        }
+        headers: headers
     })
         .then(response => {
             if (!response.ok) {
@@ -2529,7 +2549,18 @@ function initializeWebSocket() {
         }
 
         // 更新未读消息计数
-        unreadMessages = processedUnreadMessages;
+        // 只在服务器明确返回未读消息计数时才更新，否则保持当前的未读计数
+        if (data.unreadMessages || data.unreadPrivateMessages) {
+            if (processedUnreadMessages.global !== undefined) {
+                unreadMessages.global = processedUnreadMessages.global;
+            }
+            if (processedUnreadMessages.groups) {
+                unreadMessages.groups = processedUnreadMessages.groups;
+            }
+            if (processedUnreadMessages.private) {
+                unreadMessages.private = processedUnreadMessages.private;
+            }
+        }
 
         // 检查并处理免打扰群组的未读消息
         const mutedGroups = getMutedGroups();
@@ -2679,12 +2710,17 @@ function initializeWebSocket() {
                     groups: processedUnreadMessages
                 };
             }
-            // 更新未读消息计数，确保包含groups和private属性
-            unreadMessages = {
-                global: processedUnreadMessages.global || 0,
-                groups: processedUnreadMessages.groups || {},
-                private: processedUnreadMessages.private || {}
-            };
+            // 更新未读消息计数，确保包含groups和private属性，保持响应性
+            // 只在服务器明确返回未读消息计数时才更新，否则保持当前的未读计数
+            if (processedUnreadMessages.global !== undefined) {
+                unreadMessages.global = processedUnreadMessages.global;
+            }
+            if (processedUnreadMessages.groups) {
+                unreadMessages.groups = processedUnreadMessages.groups;
+            }
+            if (processedUnreadMessages.private) {
+                unreadMessages.private = processedUnreadMessages.private;
+            }
 
             // 检查并处理免打扰群组的未读消息
             const mutedGroups = getMutedGroups();
@@ -2876,12 +2912,17 @@ function initializeWebSocket() {
                     groups: processedUnreadMessages
                 };
             }
-            // 更新未读消息计数，确保包含groups和private属性
-            unreadMessages = {
-                global: processedUnreadMessages.global || 0,
-                groups: processedUnreadMessages.groups || {},
-                private: processedUnreadMessages.private || {}
-            };
+            // 更新未读消息计数，确保包含groups和private属性，保持响应性
+            // 只在服务器明确返回未读消息计数时才更新，否则保持当前的未读计数
+            if (processedUnreadMessages.global !== undefined) {
+                unreadMessages.global = processedUnreadMessages.global;
+            }
+            if (processedUnreadMessages.groups) {
+                unreadMessages.groups = processedUnreadMessages.groups;
+            }
+            if (processedUnreadMessages.private) {
+                unreadMessages.private = processedUnreadMessages.private;
+            }
 
             // 检查并处理免打扰群组的未读消息
             const mutedGroups = getMutedGroups();
@@ -5036,8 +5077,15 @@ function displayGroupMessage(message, returnElement = false) {
 
         groupMessageContainer.appendChild(messageElement);
 
-        // 移除滚动逻辑，只在group-chat-history事件处理函数中执行滚动
-        // 这样可以确保打开群组时只执行一次向下滚动逻辑
+        // 改进滚动逻辑：只有当用户已经在聊天底部附近（距离底部不超过150px），或者是用户自己发送的消息时才滚动到底部
+        // 使用setTimeout确保DOM更新完成后再计算和滚动
+        setTimeout(() => {
+            const distanceToBottom = groupMessageContainer.scrollHeight - groupMessageContainer.scrollTop - groupMessageContainer.clientHeight;
+            const isAtBottom = distanceToBottom <= 150;
+            if (isAtBottom || isOwn) {
+                groupMessageContainer.scrollTop = groupMessageContainer.scrollHeight;
+            }
+        }, 100);
     } else if (chatHistory) {
         // 如果没有groupMessageContainer但是有chatHistory，将消息添加到chatHistory
         if (chatHistory.nodeType === 11) { // 11 是文档片段的节点类型
@@ -8124,7 +8172,8 @@ function backToMainChat() {
     currentGroupName = '';
 
     // 设置当前活动聊天室为主聊天
-    setActiveChat('main');
+    // 设置活动聊天状态为main，并清除未读计数（因为用户真正进入了主聊天室）
+    setActiveChat('main', null, true);
 }
 
 // 初始化群组信息和成员按钮事件
@@ -8371,7 +8420,7 @@ function updateTitleWithUnreadCount() {
 }
 
 // 更新未读计数显示
-function updateUnreadCountsDisplay() {
+export function updateUnreadCountsDisplay() {
     // 更新公共聊天按钮的未读计数
     const publicChatUnreadEl = document.getElementById('publicChatUnreadCount');
     if (publicChatUnreadEl) {
@@ -8510,11 +8559,11 @@ function handleFocusChange() {
 }
 
 // 设置当前活动聊天室
-export function setActiveChat(chatType, id = null) {
+export function setActiveChat(chatType, id = null, clearUnread = false) {
     if (chatType === 'main') {
         currentActiveChat = 'main';
         // 清除全局未读消息计数
-        if (unreadMessages.global > 0) {
+        if (clearUnread && unreadMessages.global > 0) {
             // console.log(`🔔 切换到主聊天室，清除全局未读消息计数: ${unreadMessages.global}`);
             unreadMessages.global = 0;
             updateTitleWithUnreadCount();
@@ -8522,14 +8571,14 @@ export function setActiveChat(chatType, id = null) {
     } else if (chatType === 'group' && id) {
         currentActiveChat = id;
         // 清除该群组未读消息计数
-        if (unreadMessages.groups[id] > 0) {
+        if (clearUnread && unreadMessages.groups[id] > 0) {
             unreadMessages.groups[id] = 0;
             updateTitleWithUnreadCount();
         }
     } else if (chatType === 'private' && id) {
         currentActiveChat = `private_${id}`;
         // 清除该好友未读消息计数
-        if (unreadMessages.private[id] > 0) {
+        if (clearUnread && unreadMessages.private[id] > 0) {
             unreadMessages.private[id] = 0;
             updateTitleWithUnreadCount();
         }
@@ -8774,8 +8823,8 @@ function updateGroupList(groups) {
             sessionStore.currentSendChatType = currentSendChatType;
             sessionStore.selectedGroupIdForCard = selectedGroupIdForCard;
             
-            // 设置活动聊天状态
-            setActiveChat('group', groupId);
+            // 设置活动聊天状态，并清除未读计数（因为用户真正进入了群组聊天）
+                setActiveChat('group', groupId, true);
 
             // 显示群组聊天界面
             const groupEmptyState = document.getElementById('groupEmptyState');
@@ -9101,7 +9150,8 @@ export function initSidebarToggle() {
 
             // 当切换到主聊天室时，更新当前活动聊天室并清除未读计数
             if (targetSection === 'public-chat') {
-                setActiveChat('main');
+                // 设置活动聊天状态为main，并清除未读计数（因为用户真正进入了主聊天室）
+                setActiveChat('main', null, true);
                 // 不再重置当前群组信息，以便切换回群组聊天时能恢复
             } else if (targetSection === 'group-chat') {
                 // 切换到群组聊天页面时，刷新群组列表
@@ -9110,7 +9160,8 @@ export function initSidebarToggle() {
                 // 如果当前有选中的群组，立即更新currentActiveChat
                 // 这样在loadGroupList异步完成之前，新消息就能正常显示
                 if (currentGroupId) {
-                    setActiveChat('group', currentGroupId);
+                    // 设置活动聊天状态为group，并清除未读计数（因为用户真正进入了群组聊天）
+                    setActiveChat('group', currentGroupId, true);
                 }
 
                 // 立即恢复当前群组选择状态，因为loadGroupList是异步的，需要在回调中处理
@@ -9131,7 +9182,8 @@ export function initSidebarToggle() {
                                 // 恢复之前选择的群组状态
                                 if (currentGroupId) {
                                     // 确保currentActiveChat正确设置
-                                    setActiveChat('group', currentGroupId);
+                                    // 设置活动聊天状态为group，并清除未读计数（因为用户真正进入了群组聊天）
+                                    setActiveChat('group', currentGroupId, true);
 
                                     // 注意：不再为群组添加active类
                                     // 高亮显示当前选择的群组项
@@ -9236,7 +9288,8 @@ function initGroupClick() {
             currentGroupName = groupName;
 
             // 更新当前活动聊天室并清除未读计数
-            setActiveChat('group', groupId);
+            // 设置活动聊天状态为group，并清除未读计数（因为用户真正进入了群组聊天）
+            setActiveChat('group', groupId, true);
 
             // TODO: 加载群组聊天记录
         });

@@ -21,9 +21,9 @@ const activeMenuItem = computed(() => {
   }
 });
 
-// 初始化必要的变量
-let unreadMessages = { global: 0, groups: {}, private: {} }; // 未读消息计数
-let originalTitle = document.title; // 保存原始标题
+// // 初始化必要的变量
+// let unreadMessages = { global: 0, groups: {}, private: {} }; // 未读消息计数
+// let originalTitle = document.title; // 保存原始标题
 
 onMounted(() => {
   // 初始化侧边栏切换功能
@@ -204,27 +204,35 @@ function initSidebarToggle() {
         toggleGroupMarkdownToolbarBtn.style.display = targetSection === 'group-chat' ? 'inline-block' : 'none';
       }
 
-      // 当切换到主聊天室时，清除未读计数
+      // 当切换到主聊天室时，通过chat.js中的setActiveChat函数来更新未读计数
       if (targetSection === 'public-chat') {
-        // 清除全局未读消息计数
-        unreadMessages.global = 0;
-        updateUnreadCount();
-        // 清除未读消息指示
-        document.getElementById('publicChatUnreadCount').textContent = '';
-        // 恢复页面标题
-        document.title = originalTitle;
+        // 导入并调用setActiveChat函数，只清除主聊天室的未读计数，不清除群组和私信的未读计数
+        import('@/utils/chat').then(({ setActiveChat, updateUnreadCountsDisplay }) => {
+          // 只清除主聊天室的未读计数
+          setActiveChat('main', null, true);
+          // 强制更新未读计数显示，确保所有未读计数显示正确
+          updateUnreadCountsDisplay();
+        });
       }
 
-      // 当切换到群组聊天时，更新当前活动聊天室并清除对应群组的未读计数
+      // 当切换到群组聊天时，强制更新未读计数显示
       if (targetSection === 'group-chat') {
-        // 清除群组未读消息计数显示
-        document.getElementById('groupChatUnreadCount').textContent = '';
+        // 导入并调用updateUnreadCountsDisplay函数，确保群组的未读计数显示正确
+        import('@/utils/chat').then(({ updateUnreadCountsDisplay }) => {
+          setTimeout(() => {
+            updateUnreadCountsDisplay();
+          }, 100);
+        });
       }
 
-      // 当切换到私信聊天时，更新当前活动聊天室并清除对应用户的未读计数
+      // 当切换到私信聊天时，强制更新未读计数显示
       if (targetSection === 'private-chat') {
-        // 清除私信未读消息计数显示
-        document.getElementById('privateChatUnreadCount').textContent = '';
+        // 导入并调用updateUnreadCountsDisplay函数，确保私信的未读计数显示正确
+        import('@/utils/chat').then(({ updateUnreadCountsDisplay }) => {
+          setTimeout(() => {
+            updateUnreadCountsDisplay();
+          }, 100);
+        });
       }
 
       // 更新哈希路径
@@ -255,10 +263,10 @@ function adjustChatLayout() {
   console.log('Adjusting chat layout');
 }
 
-function updateUnreadCount() {
-  // 更新未读消息计数的逻辑
-  console.log('Updating unread count');
-}
+// function updateUnreadCount() {
+//   // 更新未读消息计数的逻辑
+//   console.log('Updating unread count');
+// }
 
 function updateHashPath(section) {
   // 根据 section 更新哈希路径

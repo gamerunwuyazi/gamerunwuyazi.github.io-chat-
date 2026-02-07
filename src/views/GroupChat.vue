@@ -92,8 +92,8 @@ function applySavedGroupState() {
     //   groupName: sessionStore.currentGroupName
     // });
     
-    // 设置活动聊天为群组
-    setActiveChat('group', sessionStore.currentGroupId);
+    // 设置活动聊天为群组，但不清除未读计数
+    setActiveChat('group', sessionStore.currentGroupId, false);
     
     // 确保群组聊天界面显示
     const groupEmptyState = document.getElementById('groupEmptyState');

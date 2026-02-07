@@ -111,8 +111,8 @@ onMounted(() => {
     //   nickname: sessionStore.currentPrivateChatNickname
     // });
     
-    // 设置活动聊天状态
-    setActiveChat('private', sessionStore.currentPrivateChatUserId);
+    // 设置活动聊天状态，但不清除未读计数
+    setActiveChat('private', sessionStore.currentPrivateChatUserId, false);
     
     // 确保私信聊天界面显示
     const privateEmptyState = document.getElementById('privateEmptyState');

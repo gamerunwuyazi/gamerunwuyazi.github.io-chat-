@@ -40,7 +40,7 @@
         <!-- 群组成员列表 -->
         <div class="group-members-section">
           <h3>群组成员</h3>
-          <div id="groupMembersContainer" class="group-members-container">
+          <div id="groupMembersContainer" class="group-members-container" style="max-height: 300px; overflow-y: auto;">
             <div class="loading-members">正在加载成员列表...</div>
           </div>
         </div>
