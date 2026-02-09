@@ -2314,9 +2314,6 @@ function initializeWebSocket() {
         autoConnect: true
     });
 
-    // 在线用户列表定时请求定时器
-    let onlineUsersTimer = null;
-
     // 连接成功事件
     socket.on('connect', () => {
         isConnected = true;
@@ -2374,15 +2371,6 @@ function initializeWebSocket() {
 
                     // 启用消息发送功能
                     enableMessageSending();
-
-                    // 启动定时请求在线用户列表（每30秒一次），用于及时获取IP封禁消息
-                    if (!onlineUsersTimer) {
-                        onlineUsersTimer = setInterval(() => {
-                            if (isConnected && currentUser && currentSessionToken) {
-                                socket.emit('get-online-users');
-                            }
-                        }, 30000); // 30秒
-                    }
                 }
             });
         }
@@ -2445,15 +2433,6 @@ function initializeWebSocket() {
 
                     // 启用消息发送功能
                     enableMessageSending();
-
-                    // 确保定时请求在线用户列表的定时器已启动
-                    if (!onlineUsersTimer) {
-                        onlineUsersTimer = setInterval(() => {
-                            if (isConnected && currentUser && currentSessionToken) {
-                                socket.emit('get-online-users');
-                            }
-                        }, 30000); // 30秒
-                    }
                 }
             });
         }
@@ -2464,11 +2443,6 @@ function initializeWebSocket() {
         isConnected = false;
         // 禁用消息发送功能
         disableMessageSending();
-        // 清除在线用户列表定时请求定时器
-        if (onlineUsersTimer) {
-            clearInterval(onlineUsersTimer);
-            onlineUsersTimer = null;
-        }
     });
 
     // 接收消息事件
@@ -3195,13 +3169,11 @@ function initializeWebSocket() {
 
         // 更新未读计数
         // 如果页面不可见，或者用户不在当前私信聊天中，添加未读计数
-        const isInCurrentPrivateChat = currentActiveChat === `private_${msgSenderId}`;
-        if (!isPageVisible || !isInCurrentPrivateChat) {
-            // 确定消息对应的用户ID（如果是收到的消息，显示发送者的未读计数）
-            const targetUserId = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
-
+        // 排除自己发送的消息
+        const isOwnMessage = String(currentUser.id) === String(msgSenderId);
+        if (!isOwnMessage && (!isPageVisible || currentActiveChat !== `private_${msgSenderId}`)) {
             // 更新未读消息计数
-            unreadMessages.private[targetUserId] = (unreadMessages.private[targetUserId] || 0) + 1;
+            unreadMessages.private[msgSenderId] = (unreadMessages.private[msgSenderId] || 0) + 1;
             updateUnreadCountsDisplay();
             updateTitleWithUnreadCount();
         }
