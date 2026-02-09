@@ -199,6 +199,10 @@
               <label>状态:</label>
               <span id="modalUserStatus" class="user-status"></span>
             </div>
+            <div class="signature-section" style="display: none;">
+              <div class="signature-label">个性签名</div>
+              <div id="modalUserSignature" class="signature-content"></div>
+            </div>
           </div>
 
         </div>
@@ -221,6 +225,10 @@
         <div id="popupUsername" style="font-size: 14px; color: #666;"></div>
       </div>
     </div>
+    <div class="popup-signature-section" id="popupSignatureSection" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee;">
+      <div class="signature-label" style="font-size: 12px; color: #999; margin-bottom: 4px;">个性签名</div>
+      <div id="popupSignature" class="signature-content" style="font-size: 13px; color: #666; word-break: break-word;"></div>
+    </div>
     <div class="popup-actions" style="margin-top: 10px; display: flex; gap: 10px;">
       <button id="popupAddFriend" style="flex: 1; padding: 8px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer;">添加好友</button>
     </div>
@@ -238,7 +246,7 @@
           <label for="searchKeyword">搜索关键词:</label>
           <input type="text" id="searchKeyword" placeholder="输入用户名或昵称" required>
         </div>
-        <div id="searchResults" class="search-results">
+        <div id="searchResults" class="search-results" style="max-height: 300px; overflow-y: auto; margin-top: 15px;">
           <!-- 搜索结果将通过JavaScript动态加载 -->
         </div>
       </div>

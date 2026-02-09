@@ -12,23 +12,27 @@
         <div class="input-group">
           <label for="username">用户名</label>
           <input type="text" id="username" ref="usernameInput" name="username" required placeholder="请输入用户名">
-          <div class="validation-message" ref="usernameValidation"></div>
+          <!-- <div class="validation-message" ref="usernameValidation"></div> -->
         </div>
         <div class="input-group">
           <label for="nickname">昵称</label>
           <input type="text" id="nickname" ref="nicknameInput" name="nickname" required placeholder="请输入昵称">
-          <div class="validation-message" ref="nicknameValidation"></div>
+          <!-- <div class="validation-message" ref="nicknameValidation"></div> -->
         </div>
         <div class="input-group">
           <label for="password">密码</label>
           <input type="password" id="password" ref="passwordInput" name="password" required placeholder="请输入密码">
-          <div class="validation-message" ref="passwordValidation"></div>
+          <!-- <div class="validation-message" ref="passwordValidation"></div> -->
           <div class="password-strength" ref="passwordStrength"></div>
         </div>
         <div class="input-group">
           <label for="confirmPassword">确认密码</label>
           <input type="password" id="confirmPassword" ref="confirmPasswordInput" name="confirmPassword" required placeholder="请再次输入密码">
-          <div class="validation-message" ref="confirmPasswordValidation"></div>
+          <!-- <div class="validation-message" ref="confirmPasswordValidation"></div> -->
+        </div>
+        <div class="input-group">
+          <label for="signature">个性签名 <span style="color: #999; font-weight: normal;">(可选)</span></label>
+          <input type="text" id="signature" ref="signatureInput" name="signature" placeholder="请输入个性签名（最多500字）" maxlength="500">
         </div>
         <div class="input-group">
           <label for="captcha">验证码</label>
@@ -66,6 +70,7 @@ const registerMessage = ref(null);
 const registerButton = ref(null);
 const captchaInput = ref(null);
 const captchaContainer = ref(null);
+const signatureInput = ref(null);
 let currentCaptchaId = '';
 
 // 防抖函数
@@ -270,6 +275,7 @@ async function handleRegister(e) {
   const username = usernameInput.value?.value?.trim() || '';
   const nickname = nicknameInput.value?.value?.trim() || '';
   const password = passwordInput.value?.value?.trim() || '';
+  const signature = signatureInput.value?.value?.trim() || '';
   const captchaCode = captchaInput.value?.value?.trim() || '';
 
   try {
@@ -289,6 +295,7 @@ async function handleRegister(e) {
         username: username,
         nickname: nickname,
         password: password,
+        signature: signature,
         captchaId: currentCaptchaId,
         captchaCode: captchaCode
       })
@@ -487,14 +494,14 @@ h1 {
 form {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
 }
 
 /* 输入组样式 */
 .input-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 /* 标签样式 */

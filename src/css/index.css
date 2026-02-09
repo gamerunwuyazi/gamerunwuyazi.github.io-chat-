@@ -2340,7 +2340,7 @@ body {
 
 /* 群组成员列表样式 */
 .group-members-container {
-    max-height: 300px;
+    max-height: 100px;
     overflow-y: auto;
     margin: 20px 0;
     border: 1px solid #e9ecef;
@@ -2544,4 +2544,65 @@ body {
 
 .retry-button:hover {
     background-color: #0b5ed7;
+}
+
+/* 个性签名样式 */
+.signature-section {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.signature-label {
+    font-size: 12px;
+    color: #999;
+    margin-bottom: 6px;
+}
+
+.signature-content {
+    font-size: 14px;
+    color: #666;
+    word-break: break-word;
+    line-height: 1.5;
+}
+
+/* 用户资料模态框中的个性签名 */
+.user-profile-info .signature-section {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.user-profile-info .signature-label {
+    font-size: 12px;
+    color: #999;
+    margin-bottom: 6px;
+}
+
+.user-profile-info .signature-content {
+    font-size: 14px;
+    color: #666;
+    word-break: break-word;
+    line-height: 1.5;
+    margin-top: 8px;
+}
+
+/* 弹窗中的个性签名 */
+.popup-signature-section {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+}
+
+.popup-signature-section .signature-label {
+    font-size: 12px;
+    color: #999;
+    margin-bottom: 4px;
+}
+
+.popup-signature-section .signature-content {
+    font-size: 13px;
+    color: #666;
+    word-break: break-word;
+    line-height: 1.4;
 }

@@ -81,6 +81,7 @@ const activeSecondarySidebar = computed(() => {
             <ul class="settings-list">
                 <li class="settings-item" data-setting-id="change-password">修改密码</li>
                 <li class="settings-item" data-setting-id="change-nickname">修改昵称</li>
+                <li class="settings-item" data-setting-id="change-signature">个性签名</li>
                 <li class="settings-item" data-setting-id="upload-avatar">上传头像</li>
             </ul>
         </div>

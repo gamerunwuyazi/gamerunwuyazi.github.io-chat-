@@ -8,7 +8,6 @@ const marked = require('marked');
 const io = require('socket.io-client');
 import toast from "./toast.js";
 
-
 const SERVER_URL = 'https://back.hs.airoe.cn';
 
 // 内存存储对象，用于存储群组和私信会话信息（刷新页面后会丢失）
@@ -25,7 +24,6 @@ export let sessionStore = {
 };
 
 // 未读消息计数
-// 使用Vue 3的reactive API创建响应式对象
 export let unreadMessages = {
   global: 0,
   groups: {},
@@ -60,6 +58,7 @@ let currentSendChatType = sessionStore.currentSendChatType; // 当前要发送�
 let selectedGroupIdForCard = sessionStore.selectedGroupIdForCard; // 当前选中的要发送的群组ID
 let currentSharedGroup = null; // 当前要分享的群组信息
 let chatHistory = null;
+let groupsList = []; // 群组列表数据
 
 // 设置当前用户
 export function setCurrentUser(user) {
@@ -224,23 +223,12 @@ export function initializeImageClickEvents() {
         });
     });
     
-    // 为所有用户头像添加点击事件
-    const userAvatars = document.querySelectorAll('.user-avatar img, .user-avatar-img');
-    userAvatars.forEach(img => {
-        img.addEventListener('click', function(e) {
-            e.stopPropagation(); // 阻止事件冒泡
-            const src = this.src;
-            openImagePreview(src);
-        });
-    });
-    
-    // 为私信聊天中的用户头像添加点击事件
+    // 私信聊天中的用户头像不应该触发图片放大
     const privateUserAvatars = document.querySelectorAll('#privateUserAvatar');
     privateUserAvatars.forEach(img => {
         img.addEventListener('click', function(e) {
             e.stopPropagation(); // 阻止事件冒泡
-            const src = this.src;
-            openImagePreview(src);
+            // 不再触发图片放大
         });
     });
 }
@@ -394,6 +382,29 @@ function loadFriendsList() {
                 friendsList.innerHTML = '<li>加载好友列表失败: 网络错误</li>';
             }
         });
+}
+
+// 将指定好友移到列表顶部
+function moveFriendToTop(friendId) {
+    const friendsListElement = document.getElementById('friendsList');
+    if (!friendsListElement) return;
+    
+    const friendItems = friendsListElement.querySelectorAll('.friend-item');
+    for (const item of friendItems) {
+        if (String(item.getAttribute('data-user-id')) === String(friendId)) {
+            // 将好友移到列表顶部
+            friendsListElement.insertBefore(item, friendsListElement.firstChild);
+            
+            // 更新内存中的好友列表顺序
+            const friendIndex = friendsList.findIndex(f => String(f.id) === String(friendId));
+            if (friendIndex > 0) {
+                const friend = friendsList.splice(friendIndex, 1)[0];
+                friendsList.unshift(friend);
+            }
+            
+            break;
+        }
+    }
 }
 
 // 更新好友列表
@@ -860,6 +871,9 @@ function renderPrivateMessage(message, returnElement = false) {
         // 添加到消息容器
         privateMessageContainer.appendChild(messageElement);
 
+        // 为新添加的图片添加点击事件
+        addImageClickEvents();
+
         // 滚动到底部
         privateMessageContainer.scrollTop = privateMessageContainer.scrollHeight;
     }
@@ -1260,6 +1274,10 @@ function displaySearchResults(users) {
 // 显示用户资料
 function showUserProfile(user) {
     const userProfileModal = document.getElementById('userProfileModal');
+    
+    if (!userProfileModal) return;
+
+    // 获取模态框元素
     const modalUserAvatar = document.getElementById('modalUserAvatar');
     const modalUserInitials = document.getElementById('modalUserInitials');
     const modalUserNickname = document.getElementById('modalUserNickname');
@@ -1267,83 +1285,47 @@ function showUserProfile(user) {
     const modalUserId = document.getElementById('modalUserId');
     const modalUserStatus = document.getElementById('modalUserStatus');
 
-    if (!userProfileModal || !modalUserAvatar || !modalUserInitials || !modalUserNickname || !modalUsername || !modalUserId || !modalUserStatus) return;
+    if (!modalUserAvatar || !modalUserInitials || !modalUserNickname || !modalUsername || !modalUserId || !modalUserStatus) return;
 
-    // 安全获取用户头像URL，复制其他地方的头像插入逻辑
-    let avatarUrl = '';
-    if (user.avatarUrl && typeof user.avatarUrl === 'string') {
-        avatarUrl = user.avatarUrl.trim();
-    } else if (user.avatar_url && typeof user.avatar_url === 'string') {
-        avatarUrl = user.avatar_url.trim();
-    } else if (user.avatar && typeof user.avatar === 'string') {
-        avatarUrl = user.avatar.trim();
+    // 显示加载状态
+    modalUserNickname.textContent = '加载中...';
+    modalUsername.textContent = '';
+    modalUserId.textContent = user.id || '';
+    modalUserStatus.textContent = '';
+    
+    // 隐藏个性签名区域（等待加载完成后再显示或隐藏）
+    const signatureSection = document.querySelector('#userProfileModal .signature-section');
+    if (signatureSection) {
+        signatureSection.style.display = 'none';
     }
 
-    // 检查avatarUrl是否为有效的图片URL，避免显示无效链接
-    if (avatarUrl) {
-        const imageExtensions = /\.(jpg|jpeg|png|gif|webp|bmp)$/i;
-        if (!avatarUrl.match(imageExtensions) && !avatarUrl.includes('/avatar/') && !avatarUrl.includes('/upload/')) {
-            // 无效的头像URL，清空以便显示默认头像
-            avatarUrl = '';
+    // 暂时不显示模态框，等待API请求完成
+    userProfileModal.style.display = 'none';
+
+    // 总是请求API获取最新的用户信息（包括个性签名）
+    fetch(`${SERVER_URL}/user/${user.id}`, {
+        headers: {
+            'user-id': currentUser?.id || '',
+            'session-token': currentSessionToken || ''
         }
-    }
-
-    // 检查头像URL是否为SVG格式，防止XSS攻击
-    const isSvgAvatar = /\.svg$/i.test(avatarUrl);
-
-    // 更新用户头像
-    if (avatarUrl && !isSvgAvatar) {
-        let fullAvatarUrl = '';
-        // 如果已经是完整URL，直接使用，否则拼接SERVER_URL
-        if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) {
-            fullAvatarUrl = avatarUrl;
-        } else {
-            fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
-        }
-        modalUserAvatar.src = fullAvatarUrl;
-        modalUserAvatar.style.display = 'block';
-        modalUserAvatar.style.width = '120px'; // 确保头像大小一致
-        modalUserAvatar.style.height = '120px'; // 确保头像大小一致
-        modalUserAvatar.style.visibility = 'visible'; // 确保头像可见
-        modalUserInitials.style.display = 'none';
-        modalUserInitials.style.visibility = 'hidden'; // 确保初始头像不可见
-    } else {
-        // 没有头像时显示默认头像（首字母）
-        const initials = user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
-        modalUserInitials.textContent = initials;
-        modalUserInitials.style.display = 'flex';
-        modalUserInitials.style.alignItems = 'center';
-        modalUserInitials.style.justifyContent = 'center';
-        modalUserInitials.style.width = '80px'; // 调整初始头像大小为更小的值
-        modalUserInitials.style.height = '80px'; // 调整初始头像大小为更小的值
-        modalUserInitials.style.fontSize = '32px'; // 调整初始头像字体大小为更小的值
-        modalUserInitials.style.borderRadius = '50%'; // 圆形初始头像
-        modalUserInitials.style.backgroundColor = '#f0f0f0'; // 初始头像背景色
-        modalUserInitials.style.color = '#333'; // 初始头像文字颜色
-        modalUserInitials.style.border = '2px solid #e0e0e0'; // 添加边框
-        modalUserInitials.style.visibility = 'visible'; // 确保初始头像可见
-        modalUserInitials.style.position = 'relative'; // 确保初始头像在正确的层级
-        modalUserInitials.style.zIndex = '1'; // 确保初始头像不会覆盖其他内容
-
-        // 确保没有头像时，图片元素完全不可见
-        modalUserAvatar.style.display = 'none';
-        modalUserAvatar.style.visibility = 'hidden'; // 确保图片不可见
-        modalUserAvatar.src = ''; // 清空图片src，防止alt文本显示
-    }
-
-    // 更新用户资料
-    modalUserNickname.textContent = user.nickname ? unescapeHtml(user.nickname) : '未知昵称';
-    // 确保modalUsername显示的是用户名，而不是昵称
-    const username = user.username || user.name || '未知用户名';
-    modalUsername.textContent = typeof username === 'string' ? unescapeHtml(username) : username;
-    modalUserId.textContent = user.id;
-
-    // 检查用户是否在线
-    const isOnline = onlineUsersList.some(onlineUser => String(onlineUser.id) === String(user.id));
-    modalUserStatus.textContent = isOnline ? '在线' : '离线';
-
-    // 显示用户资料模态框
-    userProfileModal.style.display = 'flex';
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' && data.user) {
+                displayUserInfo(data.user);
+            } else {
+                // 如果请求失败，使用传入的基本信息
+                displayUserInfo(user);
+            }
+            // API请求完成后再显示模态框
+            userProfileModal.style.display = 'flex';
+        })
+        .catch(error => {
+            console.error('获取用户信息失败:', error);
+            displayUserInfo(user);
+            // 即使请求失败也显示模态框
+            userProfileModal.style.display = 'flex';
+        });
 
     // 添加事件监听器，防止模态框内容点击事件冒泡导致关闭
     const modalContent = userProfileModal.querySelector('.modal-content');
@@ -1357,6 +1339,97 @@ function showUserProfile(user) {
     userProfileModal.addEventListener('click', () => {
         userProfileModal.style.display = 'none';
     });
+}
+
+// 显示用户信息的辅助函数
+function displayUserInfo(user) {
+    const userProfileModal = document.getElementById('userProfileModal');
+    if (!userProfileModal) return;
+
+    const modalUserAvatar = document.getElementById('modalUserAvatar');
+    const modalUserInitials = document.getElementById('modalUserInitials');
+    const modalUserNickname = document.getElementById('modalUserNickname');
+    const modalUsername = document.getElementById('modalUsername');
+    const modalUserId = document.getElementById('modalUserId');
+    const modalUserStatus = document.getElementById('modalUserStatus');
+
+    if (!modalUserAvatar || !modalUserInitials || !modalUserNickname || !modalUsername || !modalUserId || !modalUserStatus) return;
+
+    // 安全获取用户头像URL
+    let avatarUrl = '';
+    if (user.avatarUrl && typeof user.avatarUrl === 'string') {
+        avatarUrl = user.avatarUrl.trim();
+    } else if (user.avatar_url && typeof user.avatar_url === 'string') {
+        avatarUrl = user.avatar_url.trim();
+    } else if (user.avatar && typeof user.avatar === 'string') {
+        avatarUrl = user.avatar.trim();
+    }
+
+    // 检查avatarUrl是否为有效的图片URL
+    if (avatarUrl) {
+        const imageExtensions = /\.(jpg|jpeg|png|gif|webp|bmp)$/i;
+        if (!avatarUrl.match(imageExtensions) && !avatarUrl.includes('/avatar/') && !avatarUrl.includes('/upload/')) {
+            avatarUrl = '';
+        }
+    }
+
+    const isSvgAvatar = /\.svg$/i.test(avatarUrl);
+
+    // 更新用户头像
+    if (avatarUrl && !isSvgAvatar) {
+        let fullAvatarUrl = avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://') 
+            ? avatarUrl 
+            : `${SERVER_URL}${avatarUrl}`;
+        modalUserAvatar.src = fullAvatarUrl;
+        modalUserAvatar.style.display = 'block';
+        modalUserAvatar.style.width = '120px';
+        modalUserAvatar.style.height = '120px';
+        modalUserAvatar.style.visibility = 'visible';
+        modalUserInitials.style.display = 'none';
+        modalUserInitials.style.visibility = 'hidden';
+    } else {
+        const initials = user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
+        modalUserInitials.textContent = initials;
+        modalUserInitials.style.display = 'flex';
+        modalUserInitials.style.alignItems = 'center';
+        modalUserInitials.style.justifyContent = 'center';
+        modalUserInitials.style.width = '80px';
+        modalUserInitials.style.height = '80px';
+        modalUserInitials.style.fontSize = '32px';
+        modalUserInitials.style.borderRadius = '50%';
+        modalUserInitials.style.backgroundColor = '#f0f0f0';
+        modalUserInitials.style.color = '#333';
+        modalUserInitials.style.border = '2px solid #e0e0e0';
+        modalUserInitials.style.visibility = 'visible';
+        modalUserInitials.style.position = 'relative';
+        modalUserInitials.style.zIndex = '1';
+        modalUserAvatar.style.display = 'none';
+        modalUserAvatar.style.visibility = 'hidden';
+        modalUserAvatar.src = '';
+    }
+
+    // 更新用户资料
+    modalUserNickname.textContent = user.nickname ? unescapeHtml(user.nickname) : '未知昵称';
+    const username = user.username || user.name || '未知用户名';
+    modalUsername.textContent = typeof username === 'string' ? unescapeHtml(username) : username;
+    modalUserId.textContent = user.id;
+
+    // 检查用户是否在线
+    const isOnline = onlineUsersList.some(onlineUser => String(onlineUser.id) === String(user.id));
+    modalUserStatus.textContent = isOnline ? '在线' : '离线';
+
+    // 显示个性签名
+    const signatureSection = document.querySelector('#userProfileModal .signature-section');
+    const modalUserSignature = document.getElementById('modalUserSignature');
+    if (signatureSection && modalUserSignature) {
+        const signature = user.signature || '';
+        if (signature && signature.trim()) {
+            modalUserSignature.textContent = unescapeHtml(signature);
+            signatureSection.style.display = 'block';
+        } else {
+            signatureSection.style.display = 'none';
+        }
+    }
 }
 
 // 显示用户头像小弹窗
@@ -1448,6 +1521,19 @@ function showUserAvatarPopup(event, user) {
         } else {
             popupUsername.textContent = '';
             popupUsername.style.display = 'none';
+        }
+
+        // 显示个性签名
+        const popupSignatureSection = document.getElementById('popupSignatureSection');
+        const popupSignature = document.getElementById('popupSignature');
+        if (popupSignatureSection && popupSignature) {
+            const signature = displayUser.signature || '';
+            if (signature && signature.trim()) {
+                popupSignature.textContent = unescapeHtml(signature);
+                popupSignatureSection.style.display = 'block';
+            } else {
+                popupSignatureSection.style.display = 'none';
+            }
         }
 
         // 安全获取用户头像URL
@@ -2422,6 +2508,10 @@ function initializeWebSocket() {
 
             // 检查消息是否包含群组ID
             if (message.groupId) {
+                // 如果当前正在该群组聊天中，自动将群组移到列表顶部
+                if (currentGroupId === String(message.groupId)) {
+                    moveGroupToTop(message.groupId);
+                }
                 // 如果是群组消息，直接显示，不更新未读计数（自己发送的消息）
                 displayGroupMessage(message);
             } else {
@@ -2446,6 +2536,14 @@ function initializeWebSocket() {
         const messageTime = message.timestamp ? new Date(message.timestamp).getTime() : now;
         const isRecentMessage = now - messageTime < 10000; // 10秒内的消息视为实时消息
         message.isHistory = message.isHistory || !isRecentMessage;
+        
+        // 如果当前正在该群组聊天中，自动将群组移到列表顶部
+        // 注意：后端发送的消息中使用groupId属性
+        const msgGroupId = message.groupId || message.group_id;
+        if (msgGroupId && currentGroupId === String(msgGroupId)) {
+            moveGroupToTop(msgGroupId);
+        }
+        
         // 只显示消息，不重复更新未读计数（已在message-received事件中处理）
         displayGroupMessage(message);
     });
@@ -3077,17 +3175,20 @@ function initializeWebSocket() {
             localStorage.setItem('currentSessionToken', currentSessionToken);
         }
 
-        // 检查消息发送者是否是自己，如果是则不添加未读计数
-        if (message.senderId === currentUser.id || message.userId === currentUser.id) {
-            return;
-        }
-
         // 标记为实时消息
         message.isHistory = false;
 
         // 检查消息是否是当前聊天对象的消息，使用字符串比较确保类型一致
         const msgSenderId = String(message.senderId);
         const msgReceiverId = String(message.receiverId);
+        
+        // 确定聊天对象ID（无论收到还是发送消息，聊天对象都是对方）
+        const chatPartnerId = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
+
+        // 如果当前正在该私信聊天中，自动将好友移到列表顶部
+        if (currentActiveChat === `private_${chatPartnerId}`) {
+            moveFriendToTop(chatPartnerId);
+        }
 
         // 显示私信消息
         renderPrivateMessage(message);
@@ -6832,6 +6933,43 @@ function handleSettingsSubmit(form) {
             // 显示成功消息
             showSuccess('昵称修改成功');
         }
+    } else if (settingId === 'change-signature') {
+        // 获取新个性签名
+        const newSignature = document.getElementById('newSignature').value;
+
+        // 发送个性签名修改请求到后端
+        fetch(`${SERVER_URL}/update-signature`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'session-token': currentSessionToken,
+                'user-id': currentUser.id
+            },
+            body: JSON.stringify({
+                signature: newSignature
+            })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showSuccess('个性签名修改成功');
+
+                    // 更新本地用户信息
+                    if (currentUser) {
+                        currentUser.signature = newSignature;
+                        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                    }
+
+                    // 清空表单
+                    form.reset();
+                } else {
+                    showError(data.message || '个性签名修改失败');
+                }
+            })
+            .catch(error => {
+                console.error('个性签名修改失败:', error);
+                showError('个性签名修改失败');
+            });
     } else if (settingId === 'change-password') {
         // 获取密码输入值
         const oldPassword = document.getElementById('oldPassword').value;
@@ -8752,6 +8890,29 @@ function hideContextMenu() {
     document.removeEventListener('click', hideContextMenu);
 }
 
+// 将指定群组移到列表顶部
+function moveGroupToTop(groupId) {
+    const groupList = document.getElementById('groupList');
+    if (!groupList) return;
+    
+    const groupItems = groupList.querySelectorAll('li[data-group-id]');
+    for (const item of groupItems) {
+        if (String(item.getAttribute('data-group-id')) === String(groupId)) {
+            // 将群组移到列表顶部
+            groupList.insertBefore(item, groupList.firstChild);
+            
+            // 更新内存中的群组列表顺序
+            const groupIndex = groupsList.findIndex(g => String(g.id) === String(groupId));
+            if (groupIndex > 0) {
+                const group = groupsList.splice(groupIndex, 1)[0];
+                groupsList.unshift(group);
+            }
+            
+            break;
+        }
+    }
+}
+
 function updateGroupList(groups) {
     const groupList = document.getElementById('groupList');
     if (!groupList) return;
@@ -9152,6 +9313,8 @@ export function initSidebarToggle() {
             if (targetSection === 'public-chat') {
                 // 设置活动聊天状态为main，并清除未读计数（因为用户真正进入了主聊天室）
                 setActiveChat('main', null, true);
+                // 只重新初始化头像点击事件，不需要重新加载用户列表
+                initAllFunctions();
                 // 不再重置当前群组信息，以便切换回群组聊天时能恢复
             } else if (targetSection === 'group-chat') {
                 // 切换到群组聊天页面时，刷新群组列表
@@ -9278,12 +9441,19 @@ function initGroupClick() {
         const groupNameSpan = item.querySelector('.group-name');
 
         item.addEventListener('click', () => {
-            groupEmptyState.style.display = 'none';
-            groupChatInterface.style.display = 'flex';
+            // 添加空值检查
+            if (groupEmptyState) {
+                groupEmptyState.style.display = 'none';
+            }
+            if (groupChatInterface) {
+                groupChatInterface.style.display = 'flex';
+            }
 
             // 使用textContent避免二次转义
             const groupName = groupNameSpan ? groupNameSpan.textContent : '群组名称';
-            currentGroupNameElement.textContent = groupName;
+            if (currentGroupNameElement) {
+                currentGroupNameElement.textContent = groupName;
+            }
             currentGroupId = groupId;
             currentGroupName = groupName;
 
@@ -9693,8 +9863,9 @@ export function setupEventDelegation() {
         // 查找对应的用户ID
         let userId;
         let nickname = '';
+        
+        // 首先查找消息元素
         const messageElement = e.target.closest('.message-item');
-
         if (messageElement) {
             userId = messageElement.getAttribute('data-user-id');
             // 查找消息中的用户昵称
@@ -9703,24 +9874,71 @@ export function setupEventDelegation() {
                 nickname = nameElement.textContent;
             }
         } else {
-            const userElement = e.target.closest('[data-user-id]');
-            if (userElement) {
-                userId = userElement.getAttribute('data-user-id');
-                // 查找用户元素中的昵称
-                if (userElement.hasAttribute('data-user-nickname')) {
-                    nickname = userElement.getAttribute('data-user-nickname');
-                } else {
-                    const nameElement = userElement.querySelector('.friend-name, .user-name, .message-nickname');
-                    if (nameElement) {
-                        nickname = nameElement.textContent;
+            // 查找好友列表项
+            const friendItem = e.target.closest('.friend-item');
+            if (friendItem) {
+                // 尝试从好友列表项中提取用户ID
+                // 检查好友列表项的点击事件，获取用户ID
+                const friendNameElement = friendItem.querySelector('.friend-name');
+                if (friendNameElement) {
+                    nickname = friendNameElement.textContent;
+                    // 遍历好友列表找到对应的用户ID
+                    for (const friend of friendsList) {
+                        if (friend.nickname === nickname || friendNameElement.textContent.includes(friend.nickname)) {
+                            userId = friend.id;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // 如果没找到，查找用户元素
+            if (!userId) {
+                const userElement = e.target.closest('[data-user-id]');
+                if (userElement) {
+                    userId = userElement.getAttribute('data-user-id');
+                    // 查找用户元素中的昵称
+                    if (userElement.hasAttribute('data-user-nickname')) {
+                        nickname = userElement.getAttribute('data-user-nickname');
+                    } else {
+                        const nameElement = userElement.querySelector('.friend-name, .user-name, .message-nickname');
+                        if (nameElement) {
+                            nickname = nameElement.textContent;
+                        }
                     }
                 }
             }
         }
 
         if (userId) {
-            // 显示用户头像小弹窗
-            showUserAvatarPopup(e, { id: userId, nickname: nickname });
+            // 尝试从onlineUsersList或friendsList中获取完整的用户信息
+            let fullUser = null;
+            
+            // 先从onlineUsersList中查找
+            for (const onlineUser of onlineUsersList) {
+                if (String(onlineUser.id) === String(userId)) {
+                    fullUser = onlineUser;
+                    break;
+                }
+            }
+            
+            // 如果没找到，从friendsList中查找
+            if (!fullUser) {
+                for (const friend of friendsList) {
+                    if (String(friend.id) === String(userId)) {
+                        fullUser = friend;
+                        break;
+                    }
+                }
+            }
+            
+            // 如果找到完整用户信息，传递给弹窗
+            if (fullUser) {
+                showUserAvatarPopup(e, fullUser);
+            } else {
+                // 否则只传递基本信息
+                showUserAvatarPopup(e, { id: userId, nickname: nickname });
+            }
         }
     }
 
@@ -9761,6 +9979,14 @@ export function setupEventDelegation() {
     // 私信聊天消息容器
     if (privateMessageContainer) {
         privateMessageContainer.addEventListener('click', function(e) {
+            // 检查点击的是否是头像或包含头像的元素
+            const avatarElement = e.target.closest('.user-avatar');
+            if (avatarElement) {
+                e.stopPropagation();
+                handleAvatarClick(e);
+                return;
+            }
+            
             // 图片点击
             if (e.target.classList.contains('message-image')) {
                 const src = e.target.getAttribute('src');
@@ -9768,41 +9994,43 @@ export function setupEventDelegation() {
                     openImagePreview(src);
                 }
             }
-            // 头像点击
-            else if (e.target.classList.contains('user-avatar') || (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar'))) {
-                handleAvatarClick(e);
-            }
         });
     }
 
     // 在线用户列表容器
-    const userList = document.getElementById('userList');
-    if (userList) {
-        userList.addEventListener('click', function(e) {
-            // 头像点击 - 检查点击的是否是头像图片或包含头像图片的元素
-            if (e.target.classList.contains('user-avatar') || (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar'))) {
+    const userListElement = document.getElementById('userList');
+    if (userListElement) {
+        userListElement.addEventListener('click', function(e) {
+            // 头像点击 - 检查点击的是否是头像或包含头像的元素
+            const avatarElement = e.target.closest('.user-avatar');
+            if (avatarElement) {
+                e.stopPropagation();
                 handleAvatarClick(e);
             }
         });
     }
 
     // 离线用户列表容器
-    const offlineUserList = document.getElementById('offlineUserList');
-    if (offlineUserList) {
-        offlineUserList.addEventListener('click', function(e) {
-            // 头像点击 - 检查点击的是否是头像图片或包含头像图片的元素
-            if (e.target.classList.contains('user-avatar') || (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar'))) {
+    const offlineUserListElement = document.getElementById('offlineUserList');
+    if (offlineUserListElement) {
+        offlineUserListElement.addEventListener('click', function(e) {
+            // 头像点击 - 检查点击的是否是头像或包含头像的元素
+            const avatarElement = e.target.closest('.user-avatar');
+            if (avatarElement) {
+                e.stopPropagation();
                 handleAvatarClick(e);
             }
         });
     }
 
     // 好友列表容器
-    const friendsList = document.getElementById('friendsList');
-    if (friendsList) {
-        friendsList.addEventListener('click', function(e) {
-            // 头像点击 - 检查点击的是否是头像图片或包含头像图片的元素
-            if ((e.target.classList.contains('user-avatar') || (e.target.tagName === 'IMG' && e.target.parentElement.classList.contains('user-avatar'))) && !e.target.closest('.friend-item')) {
+    const friendsListElement = document.getElementById('friendsList');
+    if (friendsListElement) {
+        friendsListElement.addEventListener('click', function(e) {
+            // 头像点击 - 检查点击的是否是头像或包含头像的元素
+            const avatarElement = e.target.closest('.user-avatar');
+            if (avatarElement) {
+                e.stopPropagation();
                 handleAvatarClick(e);
             }
         });

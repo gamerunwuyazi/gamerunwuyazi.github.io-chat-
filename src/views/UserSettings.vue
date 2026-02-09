@@ -57,6 +57,21 @@
         </form>
       </div>
 
+      <!-- 修改个性签名 -->
+      <div class="settings-detail" data-setting="change-signature" style="display: none;">
+        <h2>修改个性签名</h2>
+        <form class="settings-form">
+          <div class="form-group">
+            <label for="newSignature">个性签名</label>
+            <textarea id="newSignature" name="newSignature" placeholder="请输入个性签名（最多500字）" maxlength="500" rows="3"></textarea>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="save-btn">保存</button>
+            <button type="button" class="cancel-btn">取消</button>
+          </div>
+        </form>
+      </div>
+
       <!-- 上传头像 -->
       <div class="settings-detail" data-setting="upload-avatar" style="display: none;">
         <h2>上传头像</h2>
