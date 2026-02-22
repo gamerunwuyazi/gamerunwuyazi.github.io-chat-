@@ -4,13 +4,16 @@
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
-    "build": "vue-cli-service build && copy CNAME docs\\CNAME",
+    "build": "vue-cli-service build",
     "lint": "vue-cli-service lint"
   },
   "dependencies": {
     "core-js": "^3.8.3",
+    "dompurify": "^3.3.1",
+    "dotenv": "^17.3.1",
     "marked": "^17.0.1",
     "pinia": "^3.0.4",
+    "playwright": "^1.58.2",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "vue": "^3.2.13",
@@ -37,7 +40,12 @@
     "parserOptions": {
       "parser": "@babel/eslint-parser"
     },
-    "rules": {}
+    "rules": {
+      "no-unused-vars": "off",
+      "no-empty": "off",
+      "no-undef": "off",
+      "no-import-assign": "off"
+    }
   },
   "browserslist": [
     "> 1%",

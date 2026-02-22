@@ -303,7 +303,7 @@ body {
 
 /* 私信聊天界面样式 */
 .private-chat-interface {
-    display: none;
+    display: flex;
     flex-direction: column;
     height: 100%;
     width: 100%;
@@ -500,7 +500,6 @@ body {
     font-size: 24px;
     font-weight: 600;
     color: white;
-    display: none;
 }
 
 .sidebar-icon {
@@ -653,18 +652,12 @@ body {
 
 /* 二层侧边栏内容切换样式 */
 .secondary-content {
-    display: none;
     width: 100%;
     height: 100%;
 }
 
-.secondary-content.active {
-    display: block;
-}
-
 /* 聊天主界面切换样式 */
 .chat-content {
-    display: flex;
     width: 100%;
     height: 100%;
     min-height: 100%;
@@ -673,9 +666,9 @@ body {
     overflow: hidden;
     padding-top: 0; /* 默认不预留工具栏空间，由JavaScript动态调整 */
     flex: 1; /* 确保chat-content填满父容器 */
-}
-
-.chat-content.active {
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: hidden;
     display: flex;
     flex: 1; /* 确保active状态的chat-content填满父容器 */
 }
@@ -740,16 +733,12 @@ body {
 
 /* 群组聊天界面样式 */
 .group-chat-interface {
-    display: none;
+    display: flex;
     flex-direction: column;
     height: 100%;
     width: 100%;
     background-color: white;
     overflow: hidden;
-}
-
-.group-chat-interface.active {
-    display: flex;
 }
 
 #groupEmptyState {
@@ -914,9 +903,8 @@ body {
 
 .message.own-message {
     background: #dcf8c6;
-    margin-left: 20%;
+    align-self: flex-end;
     max-width: 80%;
-    display: block;
 }
 
 .message-header {
@@ -1463,7 +1451,6 @@ body {
 
 /* Modal styles */
 .modal {
-    display: none; /* 默认隐藏 */
     position: fixed;
     z-index: 1000;
     left: 0;
@@ -1472,6 +1459,7 @@ body {
     height: 100%;
     background-color: rgba(0, 0, 0, 0.5);
     /* 使用flexbox确保内容居中 */
+    display: flex;
     justify-content: center;
     align-items: center;
     animation: fadeIn 0.3s ease;
@@ -1665,13 +1653,14 @@ body {
     font-family: 'Courier New', monospace;
 }
 
-/* 块级代码内容样式 */
-.message-content pre code {
-    background: none;
-    padding: 0;
-    font-family: 'Courier New', monospace;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+/* 行内代码样式 */
+.message-content code:not(pre code) {
+    background-color: #f1f1f1 !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace !important;
+    font-size: 0.9em !important;
+    color: #c7254e !important;
 }
 
 /* 文件链接卡片样式 - 确保高优先级 */
@@ -2019,13 +2008,6 @@ body {
     gap: 10px;
 }
 
-/* 修复chat-content下边距问题，使用更具体的选择器 */
-.chat-content.active {
-    margin-bottom: 0 !important;
-    padding-bottom: 0 !important;
-    overflow: hidden;
-}
-
 /* 确保更多按钮是可点击的，使用更具体的选择器 */
 .input-buttons .more-button {
     pointer-events: auto;
@@ -2050,7 +2032,7 @@ body {
     display: none;
     flex-direction: row;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 20px;
     margin-top: 10px;
     padding: 10px;
     background-color: #f8f9fa;
@@ -2223,7 +2205,7 @@ body {
     display: none;
     flex-direction: row;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 20px;
     margin-top: 10px;
     padding: 10px;
     background-color: #f8f9fa;
@@ -2238,7 +2220,7 @@ body {
 }
 
 .more-functions button {
-    margin: 0;
+    margin: 5px 10px;
     padding: 8px 16px;
     background-color: #3498db;
     color: white;

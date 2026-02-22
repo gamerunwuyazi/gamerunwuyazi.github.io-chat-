@@ -1,298 +1,145 @@
 <script setup>
-import { onMounted, computed } from 'vue';
-import { useRouter } from 'vue-router';
-import {saveChatHistory} from "@/utils/chat";
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
+import { useChatStore } from '@/stores/chatStore';
+import toast from '@/utils/toast';
 
 const router = useRouter();
+const route = useRoute();
+const chatStore = useChatStore();
 
-// 计算属性：根据当前哈希路径确定应该激活的菜单项
+const avatarVersion = ref(Date.now())
+
+function handleUserAvatarUpdate() {
+  avatarVersion.value = Date.now()
+}
+
+onMounted(() => {
+  window.chatStore = chatStore;
+  window.addEventListener('user-avatar-updated', handleUserAvatarUpdate)
+});
+
+onUnmounted(() => {
+  window.removeEventListener('user-avatar-updated', handleUserAvatarUpdate)
+});
+
 const activeMenuItem = computed(() => {
-  const hash = window.location.hash;
-  if (hash === '#/chat') {
+  const path = route.path;
+  if (path === '/chat' || path === '/') {
     return 'public-chat';
-  } else if (hash === '#/chat/group') {
+  } else if (path.startsWith('/chat/group')) {
     return 'group-chat';
-  } else if (hash === '#/chat/private') {
+  } else if (path.startsWith('/chat/private')) {
     return 'private-chat';
-  } else if (hash === '#/settings') {
+  } else if (path.startsWith('/chat/settings')) {
     return 'user-settings';
   } else {
     return 'public-chat';
   }
 });
 
-// // 初始化必要的变量
-// let unreadMessages = { global: 0, groups: {}, private: {} }; // 未读消息计数
-// let originalTitle = document.title; // 保存原始标题
-
-onMounted(() => {
-  // 初始化侧边栏切换功能
-  initSidebarToggle();
-  // 加载用户头像
-  updateUserAvatar();
+const publicUnreadCount = computed(() => {
+  return chatStore.unreadMessages?.global || 0;
 });
 
-// 更新用户头像显示
-function updateUserAvatar() {
-  const currentUserAvatar = document.getElementById('currentUserAvatar');
-  const userInitials = document.getElementById('userInitials');
+const groupUnreadCount = computed(() => {
+  if (!chatStore.unreadMessages?.groups) return 0;
+  let total = 0;
+  Object.values(chatStore.unreadMessages.groups).forEach(count => {
+    total += count || 0;
+  });
+  return total;
+});
 
-  if (!currentUserAvatar || !userInitials) return;
+const privateUnreadCount = computed(() => {
+  if (!chatStore.unreadMessages?.private) return 0;
+  let total = 0;
+  Object.values(chatStore.unreadMessages.private).forEach(count => {
+    total += count || 0;
+  });
+  return total;
+});
 
-  // 尝试从多个来源获取用户信息
-  let currentUser = null;
-  
-  // 先尝试从localStorage获取currentUser
+const currentUser = computed(() => {
+  const v = avatarVersion.value
   const currentUserStr = localStorage.getItem('currentUser');
   if (currentUserStr) {
     try {
-      currentUser = JSON.parse(currentUserStr);
-    } catch (error) {
-      console.warn('解析currentUser失败，尝试从其他localStorage项获取');
+      return JSON.parse(currentUserStr);
+    } catch {
+      // ignore
     }
   }
   
-  // 如果没有获取到，尝试从其他localStorage项获取
-  if (!currentUser) {
-    const userId = localStorage.getItem('chatUserId');
-    const nickname = localStorage.getItem('chatUserNickname');
-    const avatarUrl = localStorage.getItem('chatUserAvatar');
-    
-    if (userId) {
-      currentUser = {
-        id: userId,
-        nickname: nickname,
-        avatarUrl: avatarUrl
-      };
-    }
+  const userId = localStorage.getItem('chatUserId');
+  const nickname = localStorage.getItem('chatUserNickname');
+  const avatarUrl = localStorage.getItem('chatUserAvatar');
+  if (userId) {
+    return { id: userId, nickname, avatarUrl };
   }
   
-  // 如果还是没有获取到，尝试从userId、nickname等获取
-  if (!currentUser) {
-    const userId = localStorage.getItem('userId');
-    const nickname = localStorage.getItem('nickname');
-    const avatarUrl = localStorage.getItem('avatarUrl');
-    
-    if (userId) {
-      currentUser = {
-        id: userId,
-        nickname: nickname,
-        avatarUrl: avatarUrl
-      };
-    }
+  const id = localStorage.getItem('userId');
+  const nick = localStorage.getItem('nickname');
+  const avatar = localStorage.getItem('avatarUrl');
+  if (id) {
+    return { id, nickname: nick, avatarUrl: avatar };
   }
   
-  // 如果仍然没有获取到用户信息，返回
-  if (!currentUser) return;
+  return null;
+});
 
-  // 获取用户头像URL，支持多种格式
-  let avatarUrl = '';
-  if (currentUser.avatar && typeof currentUser.avatar === 'string') {
-    avatarUrl = currentUser.avatar.trim();
-  } else if (currentUser.avatarUrl && typeof currentUser.avatarUrl === 'string') {
-    avatarUrl = currentUser.avatarUrl.trim();
+const userAvatarUrl = computed(() => {
+  const user = currentUser.value;
+  if (!user) return '';
+  
+  let url = user.avatar || user.avatarUrl || '';
+  if (url && !/\.svg$/i.test(url)) {
+    return `https://back.hs.airoe.cn${url}?v=${avatarVersion.value}`;
+  }
+  return '';
+});
+
+const userInitials = computed(() => {
+  const user = currentUser.value;
+  return user?.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
+});
+
+const showAvatarImage = computed(() => {
+  return userAvatarUrl.value !== '';
+});
+
+function handleMenuClick(section) {
+  if (section === 'logout') {
+    if (confirm('确定要退出登录吗？')) {
+      logout();
+    }
+    return;
   }
 
-  // 检查头像URL是否为SVG格式，如果是则使用默认头像，防止SVG XSS攻击
-  const isSvgAvatar = avatarUrl && /\.svg$/i.test(avatarUrl);
-
-  if (avatarUrl && !isSvgAvatar) {
-    // 显示用户头像，隐藏默认头像
-    const fullAvatarUrl = `https://back.hs.airoe.cn${avatarUrl}`;
-    currentUserAvatar.src = fullAvatarUrl;
-    currentUserAvatar.style.display = 'block';
-    userInitials.style.display = 'none';
-  } else {
-    // 显示用户首字母，隐藏真实头像（包括SVG格式头像）
-    const initials = currentUser.nickname ? currentUser.nickname.charAt(0).toUpperCase() : 'U';
-    userInitials.textContent = initials;
-    userInitials.style.display = 'block';
-    currentUserAvatar.style.display = 'none';
+  let path = '';
+  if (section === 'public-chat') {
+    path = '/chat';
+  } else if (section === 'group-chat') {
+    path = '/chat/group';
+  } else if (section === 'private-chat') {
+    path = '/chat/private';
+  } else if (section === 'user-settings') {
+    path = '/chat/settings';
   }
-}
-
-function initSidebarToggle() {
-  const menuItems = document.querySelectorAll('.menu-item');
-  const secondaryContents = document.querySelectorAll('.secondary-content');
-  const chatContents = document.querySelectorAll('.chat-content');
-  const switchToOldUI = document.getElementById('switchToOldUI');
-
-  // 添加切换到旧UI的点击事件
-  if (switchToOldUI) {
-    switchToOldUI.addEventListener('click', () => {
-      window.location.href = '/oldUI/';
-    });
+  
+  if (path) {
+    router.push(path);
   }
-
-  menuItems.forEach(item => {
-    item.addEventListener('click', () => {
-      const targetSection = item.getAttribute('data-section');
-
-      // 处理退出登录 - 先检查，避免移除active类
-      if (targetSection === 'logout') {
-        if (confirm('确定要退出登录吗？')) {
-          logout();
-        }
-        return;
-      }
-
-      // 非退出登录操作，才执行active类的切换
-      menuItems.forEach(menuItem => {
-        menuItem.classList.remove('active');
-      });
-
-      secondaryContents.forEach(content => {
-        content.classList.remove('active');
-      });
-
-      chatContents.forEach(content => {
-        content.classList.remove('active');
-        // 明确设置display为none，确保非活动聊天内容被隐藏
-        content.style.display = 'none';
-      });
-
-      item.classList.add('active');
-
-      const targetSecondaryContent = document.querySelector(`.secondary-content[data-content="${targetSection}"]`);
-      if (targetSecondaryContent) {
-        targetSecondaryContent.classList.add('active');
-      }
-
-      const targetChatContent = document.querySelector(`.chat-content[data-content="${targetSection}"]`);
-      if (targetChatContent) {
-        targetChatContent.classList.add('active');
-        // 明确设置display为flex，确保目标聊天内容显示
-        targetChatContent.style.display = 'flex';
-        // 切换后调整布局
-        adjustChatLayout();
-      }
-
-      // 根据目标页面类型控制Markdown工具栏的显示
-      const markdownToolbar = document.getElementById('markdownToolbar');
-      const toggleMarkdownToolbarBtn = document.getElementById('toggleMarkdownToolbar');
-      const toggleGroupMarkdownToolbarBtn = document.getElementById('toggleGroupMarkdownToolbar');
-
-      // 公共聊天工具栏只在公共聊天界面显示
-      if (markdownToolbar) {
-        if (targetSection === 'public-chat') {
-          // 公共聊天页面，保持工具栏的显示状态
-          // 不改变工具栏的display状态，保持用户之前的选择
-        } else {
-          // 非公共聊天页面，隐藏公共工具栏
-          markdownToolbar.style.display = 'none';
-        }
-      }
-
-      // 显示/隐藏相应的切换按钮，并更新按钮文本
-      if (toggleMarkdownToolbarBtn) {
-        if (targetSection === 'public-chat') {
-          toggleMarkdownToolbarBtn.style.display = 'inline-block';
-          // 根据工具栏的显示状态更新按钮文本
-          if (markdownToolbar) {
-            if (markdownToolbar.style.display === 'none') {
-              toggleMarkdownToolbarBtn.innerHTML = '<i class="fas fa-chevron-down"></i> MD';
-            } else {
-              toggleMarkdownToolbarBtn.innerHTML = '<i class="fas fa-chevron-up"></i> 隐藏Markdown工具栏';
-            }
-          }
-        } else {
-          toggleMarkdownToolbarBtn.style.display = 'none';
-        }
-      }
-
-      if (toggleGroupMarkdownToolbarBtn) {
-        toggleGroupMarkdownToolbarBtn.style.display = targetSection === 'group-chat' ? 'inline-block' : 'none';
-      }
-
-      // 当切换到主聊天室时，通过chat.js中的setActiveChat函数来更新未读计数
-      if (targetSection === 'public-chat') {
-        // 导入并调用setActiveChat函数，只清除主聊天室的未读计数，不清除群组和私信的未读计数
-        import('@/utils/chat').then(({ setActiveChat, updateUnreadCountsDisplay }) => {
-          // 只清除主聊天室的未读计数
-          setActiveChat('main', null, true);
-          // 强制更新未读计数显示，确保所有未读计数显示正确
-          updateUnreadCountsDisplay();
-        });
-      }
-
-      // 当切换到群组聊天时，强制更新未读计数显示
-      if (targetSection === 'group-chat') {
-        // 导入并调用updateUnreadCountsDisplay函数，确保群组的未读计数显示正确
-        import('@/utils/chat').then(({ updateUnreadCountsDisplay }) => {
-          setTimeout(() => {
-            updateUnreadCountsDisplay();
-          }, 100);
-        });
-      }
-
-      // 当切换到私信聊天时，强制更新未读计数显示
-      if (targetSection === 'private-chat') {
-        // 导入并调用updateUnreadCountsDisplay函数，确保私信的未读计数显示正确
-        import('@/utils/chat').then(({ updateUnreadCountsDisplay }) => {
-          setTimeout(() => {
-            updateUnreadCountsDisplay();
-          }, 100);
-        });
-      }
-
-      // 更新哈希路径
-      updateHashPath(targetSection);
-    });
-  });
 }
 
 function logout() {
-  // 清除localStorage中的用户信息
   localStorage.removeItem('currentUser');
   localStorage.removeItem('currentSessionToken');
   localStorage.removeItem('chatUserId');
   localStorage.removeItem('chatUserNickname');
-  localStorage.removeItem('chatSessionToken');
   localStorage.removeItem('chatUserAvatar');
-  localStorage.removeItem('userId');
-  localStorage.removeItem('nickname');
-  localStorage.removeItem('avatarUrl');
-  localStorage.removeItem('sessionToken');
-
-  // 重定向到登录页面
+  localStorage.removeItem('chatUserId');
   router.push('/login');
-}
-
-function adjustChatLayout() {
-  // 调整聊天布局的逻辑
-  console.log('Adjusting chat layout');
-}
-
-// function updateUnreadCount() {
-//   // 更新未读消息计数的逻辑
-//   console.log('Updating unread count');
-// }
-
-function updateHashPath(section) {
-  // 根据 section 更新哈希路径
-  let hash = '';
-  // 保存历史消息
-  if (window.location.hash === '#/chat') {
-    saveChatHistory('save')
-  }
-  switch (section) {
-    case 'public-chat':
-      hash = '#/chat';
-      break;
-    case 'group-chat':
-      hash = '#/chat/group';
-      break;
-    case 'private-chat':
-      hash = '#/chat/private';
-      break;
-    case 'user-settings':
-      hash = '#/settings';
-      break;
-    default:
-      hash = '#/chat';
-  }
-  // 更新哈希路径，不触发页面刷新
-  window.location.hash = hash;
 }
 </script>
 
@@ -301,61 +148,50 @@ function updateHashPath(section) {
     <div class="sidebar-header">
         <div id="userProfile" class="user-profile">
             <div id="userAvatar" class="user-avatar">
-                <img id="currentUserAvatar" src="" alt="用户头像" class="user-avatar-img" loading="lazy" width="60" height="60" style="aspect-ratio: 1/1; object-fit: cover;">
-                <span id="userInitials" class="user-initials"></span>
+                <img v-if="showAvatarImage" :src="userAvatarUrl" alt="用户头像" class="user-avatar-img" loading="lazy" width="60" height="60" style="aspect-ratio: 1/1; object-fit: cover;">
+                <span v-else id="userInitials" class="user-initials">{{ userInitials }}</span>
             </div>
         </div>
     </div>
-    <!-- 公共聊天板块 -->
+    
     <div class="menu-section">
         <ul class="menu-list">
-            <li :class="['menu-item', { active: activeMenuItem === 'public-chat' }]" data-section="public-chat">
+            <li :class="['menu-item', { active: activeMenuItem === 'public-chat' }]" data-section="public-chat" @click="handleMenuClick('public-chat')">
                 <div class="chat-avatar">💬</div>
-                <div class="unread-count" id="publicChatUnreadCount"></div>
+                <div v-if="publicUnreadCount > 0" class="unread-count">{{ publicUnreadCount }}</div>
             </li>
         </ul>
     </div>
     
-    <!-- 群组聊天板块 -->
     <div class="menu-section">
         <ul class="menu-list">
-            <li :class="['menu-item', { active: activeMenuItem === 'group-chat' }]" data-section="group-chat">
+            <li :class="['menu-item', { active: activeMenuItem === 'group-chat' }]" data-section="group-chat" @click="handleMenuClick('group-chat')">
                 <div class="chat-avatar"><img src="icon/User-Group-256.ico" alt="群组聊天" style="width: 24px; height: 24px;"></div>
-                <div class="unread-count" id="groupChatUnreadCount"></div>
+                <div v-if="groupUnreadCount > 0" class="unread-count">{{ groupUnreadCount }}</div>
             </li>
         </ul>
     </div>
 
-    <!-- 私信聊天板块 -->
     <div class="menu-section">
         <ul class="menu-list">
-            <li :class="['menu-item', { active: activeMenuItem === 'private-chat' }]" data-section="private-chat">
+            <li :class="['menu-item', { active: activeMenuItem === 'private-chat' }]" data-section="private-chat" @click="handleMenuClick('private-chat')">
                 <div class="chat-avatar"><img src="icon/User-Profile-256.ico" alt="私信聊天" style="width: 24px; height: 24px;"></div>
-                <div class="unread-count" id="privateChatUnreadCount"></div>
+                <div v-if="privateUnreadCount > 0" class="unread-count">{{ privateUnreadCount }}</div>
             </li>
         </ul>
     </div>
 
     <div class="menu-section">
         <ul class="menu-list">
-            <li :class="['menu-item', { active: activeMenuItem === 'user-settings' }]" data-section="user-settings">
+            <li :class="['menu-item', { active: activeMenuItem === 'user-settings' }]" data-section="user-settings" @click="handleMenuClick('user-settings')">
                 <div class="chat-avatar"><img src="icon/Settings-01-256.ico" alt="用户设置" style="width: 24px; height: 24px;"></div>
             </li>
         </ul>
     </div>
     
-    <!-- 底部区域 -->
     <div class="menu-section" style="margin-top: auto; margin-bottom: 20px;">
-        <!-- 切换到旧UI按钮 -->
         <ul class="menu-list">
-            <li class="menu-item" id="switchToOldUI">
-                <div class="chat-avatar" title="切换到旧UI">⬅️</div>
-            </li>
-        </ul>
-        
-        <!-- 退出登录按钮 -->
-        <ul class="menu-list">
-            <li class="menu-item" data-section="logout">
+            <li class="menu-item" data-section="logout" @click="handleMenuClick('logout')">
                 <div class="chat-avatar">⏻</div>
             </li>
         </ul>

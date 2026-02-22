@@ -1,78 +1,86 @@
 <template>
-  <!-- 群组聊天界面 -->
   <div class="chat-content" data-content="group-chat">
-    <!-- 空白状态 -->
-    <div class="empty-chat-state active" id="groupEmptyState">
+    <div v-if="!isGroupChatVisible" class="empty-chat-state">
       <div class="empty-icon">👥</div>
       <h3>选择一个群组开始聊天</h3>
       <p>请从左侧群组列表中选择一个群组，开始群聊会话</p>
     </div>
 
-    <!-- 具体群组聊天界面 -->
-    <div class="group-chat-interface" id="groupChatInterface" style="display: none;">
-      <!-- 群组头部 -->
+    <div v-else class="group-chat-interface">
       <div class="group-header">
-        <h2 id="currentGroupName">群组名称</h2>
+        <h2 v-html="currentGroupName"></h2>
         <div class="group-actions">
-          <button id="groupInfoButton">群组信息</button>
-          <button id="leaveGroupButton">退出群组</button>
+          <button id="groupInfoButton" @click="handleGroupInfoClick">群组信息</button>
+          <button v-if="isCurrentUserGroupOwner" id="dissolveGroupButton" @click="handleDissolveGroupClick" style="background: #ff4757;">解散群组</button>
+          <button v-else id="leaveGroupButton" @click="handleLeaveGroupClick">退出群组</button>
         </div>
       </div>
 
-      <!-- 群组Markdown工具栏 -->
-      <div class="markdown-toolbar group-markdown-toolbar" id="groupMarkdownToolbar" style="display: none;">
-        <button class="markdown-btn" data-prefix="**" data-suffix="**" data-sample="粗体文本">粗体</button>
-        <button class="markdown-btn" data-prefix="_" data-suffix="_" data-sample="斜体文本">斜体</button>
-        <button class="markdown-btn" data-prefix="`" data-suffix="`" data-sample="代码">代码</button>
-        <button class="markdown-btn" data-prefix="```\n" data-suffix="\n```" data-sample="代码块">代码块</button>
-        <button class="markdown-btn" data-prefix="# " data-sample="标题">标题</button>
-        <button class="markdown-btn" data-prefix="- " data-sample="列表项">列表</button>
-        <button class="markdown-btn" data-prefix="> " data-sample="引用文本">引用</button>
-        <button class="markdown-btn" data-prefix="[链接描述](" data-suffix=")" data-sample="链接文本">链接</button>
-        <button class="markdown-btn" data-prefix="![图片无法显示时的文字](" data-suffix=")" data-sample="图片URL">图片</button>
+      <div class="markdown-toolbar group-markdown-toolbar" v-if="showMarkdownToolbar">
+        <button class="markdown-btn" @click="insertMarkdown('**', '**', '粗体文本')">粗体</button>
+        <button class="markdown-btn" @click="insertMarkdown('_', '_', '斜体文本')">斜体</button>
+        <button class="markdown-btn" @click="insertMarkdown('`', '`', '代码')">代码</button>
+        <button class="markdown-btn" @click="insertMarkdown('```\n', '\n```', '代码块')">代码块</button>
+        <button class="markdown-btn" @click="insertMarkdown('# ', '', '标题')">标题</button>
+        <button class="markdown-btn" @click="insertMarkdown('- ', '', '列表项')">列表</button>
+        <button class="markdown-btn" @click="insertMarkdown('> ', '', '引用文本')">引用</button>
+        <button class="markdown-btn" @click="insertMarkdown('[链接描述](', ')', '链接文本')">链接</button>
+        <button class="markdown-btn" @click="insertMarkdown('![图片无法显示时的文字](', ')', '图片URL')">图片</button>
       </div>
 
-      <!-- 群组消息列表 -->
-      <div id="groupMessageContainer">
-        <div class="empty-state">
+      <div id="groupMessageContainer" ref="groupMessageContainerRef">
+        <GroupMessageItem 
+          v-for="message in groupMessages" 
+          :key="message.id || message.sequence"
+          :message="message"
+          :is-own="isOwnMessage(message)"
+        />
+        <div v-if="groupMessages.length === 0" class="empty-state">
           <h3>暂无群消息</h3>
           <p>发送第一条消息开始群聊吧!</p>
         </div>
       </div>
-
-      <!-- 群组输入区域 -->
       <div class="input-area">
-        <div class="input-container" id="groupInputContainer">
-          <textarea id="groupMessageInput" placeholder="输入群组消息..."></textarea>
+        <div class="input-container">
+          <div class="editable-div"
+            id="groupMessageInput" 
+            @keydown="handleGroupMessageInputKeydown"
+            ref="groupMessageInputRef"
+            contenteditable="true"
+            placeholder="输入群组消息..."
+            @input="handleGroupMessageInput"
+          ></div>
         </div>
         <div class="input-buttons" id="groupInputButtons">
-          <button id="sendGroupMessage">发送</button>
-          <button id="groupMoreButton" class="more-button" title="更多功能">
+          <button id="sendGroupMessage" @click="handleSendGroupMessage">发送</button>
+          <button id="groupMoreButton" class="more-button" title="更多功能" @click="toggleMoreFunctions">
             ⋯ <span class="button-text">更多</span>
           </button>
-          <button id="toggleGroupMarkdownToolbar" class="toggle-btn" style="background: #f1f1f1; border: 1px solid #ddd; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: #666; transition: all 0.2s; margin-left: 5px;">
-            <i class="fas fa-chevron-down"></i> MD
+          <button class="toggle-btn" 
+            style="background: #f1f1f1; border: 1px solid #ddd; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: #666; transition: all 0.2s; margin-left: 5px;"
+            @click="toggleMarkdownToolbar">
+            <i v-if="!showMarkdownToolbar" class="fas fa-chevron-down"></i>
+            <i v-else class="fas fa-chevron-up"></i>
+            {{ showMarkdownToolbar ? ' 隐藏Markdown工具栏' : ' MD' }}
           </button>
         </div>
-        <!-- 将more-functions移到input-buttons外面 -->
-        <div class="more-functions" id="groupMoreFunctions" style="display: none;">
-          <button id="groupImageUploadButton" title="上传图片">
+        <div class="more-functions" id="groupMoreFunctions" :style="{ display: showMoreFunctions ? 'block' : 'none' }">
+          <button id="groupImageUploadButton" title="上传图片" @click="handleGroupImageUploadClick">
             📷 <span class="button-text">发送图片</span>
           </button>
-          <button id="groupFileUploadButton" title="上传文件">
+          <button id="groupFileUploadButton" title="上传文件" @click="handleGroupFileUploadClick">
             📤 <span class="button-text">发送文件</span>
           </button>
-          <button id="sendGroupCardButtonGroup" title="发送群名片">
+          <button id="sendGroupCardButtonGroup" title="发送群名片" @click="handleSendGroupCard">
             📱 <span class="button-text">发送群名片</span>
           </button>
         </div>
-        <input type="file" id="groupImageInput" style="display: none;" accept="image/*">
-        <input type="file" id="groupFileInput" style="display: none;">
+        <input type="file" ref="groupImageInputRef" id="groupImageInput" style="display: none;" accept="image/*" @change="handleGroupImageUpload">
+        <input type="file" ref="groupFileInputRef" id="groupFileInput" style="display: none;" @change="handleGroupFileUpload">
       </div>
 
-      <!-- 上传进度条 -->
-      <div class="upload-progress" id="groupUploadProgress">
-        <div class="upload-progress-bar" id="groupUploadProgressBar"></div>
+      <div class="upload-progress" id="groupUploadProgress" :style="{ display: chatStore.showUploadProgress ? 'block' : 'none' }">
+        <div class="upload-progress-bar" id="groupUploadProgressBar" :style="{ width: chatStore.uploadProgress + '%' }"></div>
       </div>
     </div>
   </div>
@@ -80,79 +88,394 @@
 
 <style src="@/css/index.css"></style>
 <style src="@/css/code-highlight.css"></style>
-<script setup>
-import {onMounted} from "vue";
-import {initializeGroupFunctions, initializeMoreButtons, addGroupButtonListeners, sessionStore, setActiveChat, loadGroupMessages, initializeScrollLoading, initializeImageClickEvents, addGroupCardClickListeners} from "@/utils/chat";
 
-// 直接应用保存的群组状态，不使用setTimeout
-function applySavedGroupState() {
-  if (sessionStore.currentGroupId) {
-    // console.log('直接应用保存的群组状态:', {
-    //   groupId: sessionStore.currentGroupId,
-    //   groupName: sessionStore.currentGroupName
-    // });
-    
-    // 设置活动聊天为群组，但不清除未读计数
-    setActiveChat('group', sessionStore.currentGroupId, false);
-    
-    // 确保群组聊天界面显示
-    const groupEmptyState = document.getElementById('groupEmptyState');
-    const groupChatInterface = document.getElementById('groupChatInterface');
-    const currentGroupNameElement = document.getElementById('currentGroupName');
-    if (groupEmptyState) groupEmptyState.style.display = 'none';
-    if (groupChatInterface) {
-      groupChatInterface.style.display = 'flex';
-      groupChatInterface.style.flexDirection = 'column';
+<script setup>
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
+import { useChatStore } from "@/stores/chatStore";
+import { useRoute } from "vue-router";
+import GroupMessageItem from "@/components/MessageItem/GroupMessageItem.vue";
+import { initializeGroupFunctions, addGroupButtonListeners, setActiveChat, loadGroupMessages, initializeScrollLoading, initializeImageClickEvents, addGroupCardClickListeners, uploadImage, uploadFile } from "@/utils/chat";
+import toast from "@/utils/toast";
+
+const chatStore = useChatStore();
+const route = useRoute();
+const groupMessageInputRef = ref(null);
+const groupImageInputRef = ref(null);
+const groupFileInputRef = ref(null);
+const groupMessageContainerRef = ref(null);
+let previousGroupMessageLength = 0;
+
+const isGroupChatVisible = ref(false);
+const currentGroupName = ref('群组名称');
+const showMarkdownToolbar = ref(false);
+const showMoreFunctions = ref(false);
+const currentGroupInfo = ref(null);
+
+const currentUserId = computed(() => chatStore.currentUser?.id);
+
+const groupMessages = computed(() => {
+  return chatStore.groupMessages[chatStore.currentGroupId] || [];
+});
+
+function isOwnMessage(message) {
+  if (!currentUserId.value) return false;
+  return String(message.userId) === String(currentUserId.value) || 
+         (message.user && String(message.user.id) === String(currentUserId.value));
+}
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (groupMessageContainerRef.value) {
+      groupMessageContainerRef.value.scrollTop = groupMessageContainerRef.value.scrollHeight;
     }
-    if (currentGroupNameElement) currentGroupNameElement.textContent = sessionStore.currentGroupName;
-    
-    // 加载群组聊天记录
-    loadGroupMessages(sessionStore.currentGroupId, false);
-    
-    // 执行addGroupButtonListeners函数
-    addGroupButtonListeners();
+  });
+}
+
+function refreshScrollPos() {
+  // console.log('[GroupChat] refreshScrollPos - 开始刷新滚动位置');
+  // console.log('[GroupChat] refreshScrollPos - window.prevGroupScrollHeight:', window.prevGroupScrollHeight);
+  // console.log('[GroupChat] refreshScrollPos - window.prevGroupScrollTop:', window.prevGroupScrollTop);
+  
+  nextTick(() => {
+    if (groupMessageContainerRef.value && window.prevGroupScrollHeight !== undefined && window.prevGroupScrollTop !== undefined) {
+      const scrollWrap = groupMessageContainerRef.value;
+      const newScrollHeight = scrollWrap.scrollHeight;
+      const offsetTop = newScrollHeight - window.prevGroupScrollHeight;
+      const newScrollTop = window.prevGroupScrollTop + offsetTop;
+      
+      // console.log('[GroupChat] refreshScrollPos - newScrollHeight:', newScrollHeight);
+      // console.log('[GroupChat] refreshScrollPos - offsetTop:', offsetTop);
+      // console.log('[GroupChat] refreshScrollPos - 新scrollTop:', newScrollTop);
+      
+      scrollWrap.scrollTop = newScrollTop;
+      
+      window.prevGroupScrollHeight = undefined;
+      window.prevGroupScrollTop = undefined;
+      // console.log('[GroupChat] refreshScrollPos - 滚动位置刷新完成');
+    } else {
+      // console.log('[GroupChat] refreshScrollPos - 条件不满足，跳过刷新');
+    }
+  });
+}
+
+window.groupRefreshScrollPos = refreshScrollPos;
+
+const groupMessageInput = computed({
+  get: () => chatStore.groupMessageInput,
+  set: (val) => chatStore.groupMessageInput = val
+});
+
+const isCurrentUserGroupOwner = computed(() => {
+  if (!currentGroupInfo.value || !chatStore.currentUser) {
+    return false;
+  }
+  return String(currentGroupInfo.value.creator_id) === String(chatStore.currentUser.id);
+});
+
+function applySavedGroupState() {
+  if (chatStore.currentGroupId) {
+    setActiveChat('group', chatStore.currentGroupId, false);
+    isGroupChatVisible.value = true;
+    currentGroupName.value = chatStore.currentGroupName;
+    loadGroupMessages(chatStore.currentGroupId, false);
+    loadCurrentGroupInfo();
   }
 }
 
-onMounted(() => {
-  initializeGroupFunctions()
-  initializeMoreButtons()
-
-  // 直接应用保存的群组状态
-  applySavedGroupState();
-
-  // 确保在组件挂载后再初始化滚动加载更多事件
-  initializeScrollLoading();
-
-  // 为已有的消息添加图片点击事件和群名片点击事件
-  setTimeout(() => {
-    // 初始化所有图片的点击事件，用于放大预览
-    initializeImageClickEvents();
-    
-    // 为所有群名片添加点击事件
-    addGroupCardClickListeners();
-  }, 500);
-
-  // 初始化群组MD工具栏
-  const groupMarkdownToolbar = document.getElementById('groupMarkdownToolbar');
-  const toggleGroupMarkdownToolbarBtn = document.getElementById('toggleGroupMarkdownToolbar');
-
-  if (toggleGroupMarkdownToolbarBtn && groupMarkdownToolbar) {
-    // 默认隐藏工具栏
-    groupMarkdownToolbar.style.display = 'none';
-
-    // 绑定点击事件
-    toggleGroupMarkdownToolbarBtn.addEventListener('click', function () {
-      if (groupMarkdownToolbar.style.display === 'none') {
-        // 显示工具栏
-        groupMarkdownToolbar.style.display = 'flex';
-        this.innerHTML = '<i class="fas fa-chevron-up"></i> 隐藏Markdown工具栏';
-      } else {
-        // 隐藏工具栏
-        groupMarkdownToolbar.style.display = 'none';
-        this.innerHTML = '<i class="fas fa-chevron-down"></i> MD';
+function loadCurrentGroupInfo() {
+  if (!chatStore.currentGroupId) return;
+  const user = chatStore.currentUser;
+  const sessionToken = chatStore.currentSessionToken;
+  
+  if (!user || !sessionToken) return;
+  
+  fetch(`${chatStore.SERVER_URL}/group-info/${chatStore.currentGroupId}`, {
+    headers: {
+      'user-id': user.id,
+      'session-token': sessionToken
+    }
+  })
+    .then(response => response.json())
+    .then(data => {
+      if (data.status === 'success') {
+        currentGroupInfo.value = data.group;
       }
     });
+}
+
+function toggleMarkdownToolbar() {
+  showMarkdownToolbar.value = !showMarkdownToolbar.value;
+}
+
+function toggleMoreFunctions() {
+  showMoreFunctions.value = !showMoreFunctions.value;
+}
+
+function handleGroupMessageInputKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+    e.preventDefault();
+    handleSendGroupMessage();
   }
+}
+
+function handleGroupMessageInput() {
+  if (groupMessageInputRef.value) {
+    chatStore.groupMessageInput = groupMessageInputRef.value.innerHTML;
+  }
+}
+
+function handleSendGroupMessage() {
+  if (groupMessageInputRef.value) {
+    const content = groupMessageInputRef.value.textContent.trim() || groupMessageInputRef.value.innerHTML.trim();
+    if (content) {
+      if (window.sendGroupMessage) {
+        window.sendGroupMessage();
+      } else if (window.chatSocket && window.isConnected && chatStore.currentGroupId) {
+        const messageData = {
+          content: content,
+          groupId: chatStore.currentGroupId,
+          sessionToken: chatStore.currentSessionToken,
+          userId: chatStore.currentUser.id
+        };
+        window.chatSocket.emit('send-message', messageData);
+        groupMessageInputRef.value.innerHTML = '';
+      }
+    }
+  }
+}
+
+function handleSendGroupCard() {
+  if (window.showSendGroupCardModal) {
+    window.showSendGroupCardModal('group');
+  }
+}
+
+function handleGroupInfoClick() {
+  if (!chatStore.currentGroupId) {
+    toast.warning('请先选择一个群组');
+    return;
+  }
+  const user = chatStore.currentUser;
+  const sessionToken = chatStore.currentSessionToken;
+  
+  if (!user || !sessionToken) {
+    toast.warning('请先登录');
+    return;
+  }
+  
+  fetch(`${chatStore.SERVER_URL}/group-info/${chatStore.currentGroupId}`, {
+    headers: {
+      'user-id': user.id,
+      'session-token': sessionToken
+    }
+  })
+    .then(response => response.json())
+    .then(data => {
+      if (data.status === 'success') {
+        currentGroupInfo.value = data.group;
+        chatStore.openModal('groupInfo', data.group);
+      }
+    });
+}
+
+function handleDissolveGroupClick() {
+  if (window.dissolveGroup) {
+    window.dissolveGroup(chatStore.currentGroupId);
+  }
+}
+
+function handleLeaveGroupClick() {
+  if (!chatStore.currentGroupId) {
+    toast.warning('请先选择一个群组');
+    return;
+  }
+  const user = chatStore.currentUser;
+  const sessionToken = chatStore.currentSessionToken;
+  
+  if (!user || !sessionToken) {
+    toast.warning('请先登录');
+    return;
+  }
+  
+  if (window.handleLeaveGroup) {
+    window.handleLeaveGroup(chatStore.currentGroupId);
+  } else {
+    if (confirm('确定要退出这个群组吗？')) {
+      fetch(`${chatStore.SERVER_URL}/leave-group`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'user-id': user.id,
+          'session-token': sessionToken
+        },
+        body: JSON.stringify({
+          groupId: chatStore.currentGroupId
+        })
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'success') {
+            toast.success('退出群组成功');
+            if (window.loadGroupList) {
+              window.loadGroupList();
+            }
+          } else {
+            toast.error(data.message || '退出群组失败');
+          }
+        })
+        .catch(() => {
+          toast.error('退出群组失败，网络错误');
+        });
+    }
+  }
+}
+
+function insertMarkdown(prefix, suffix, sample) {
+  if (!groupMessageInputRef.value) return;
+  
+  const input = groupMessageInputRef.value;
+  input.focus();
+  
+  // 获取当前选中的文本
+  let selectedText = '';
+  if (window.getSelection) {
+    const selection = window.getSelection();
+    selectedText = selection.toString();
+  }
+  
+  if (!selectedText) selectedText = sample;
+  
+  // 插入Markdown格式
+  const newText = prefix + selectedText + suffix;
+  
+  // 使用 document.execCommand 插入文本到 contenteditable div
+  document.execCommand('insertText', false, newText);
+  
+  // 将光标移动到插入文本的末尾
+  setTimeout(() => {
+    if (window.getSelection) {
+      const selection = window.getSelection();
+      if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    }
+  }, 0);
+}
+
+function handleGroupImageUploadClick() {
+  if (groupImageInputRef.value) {
+    groupImageInputRef.value.click();
+  }
+}
+
+function handleGroupFileUploadClick() {
+  if (groupFileInputRef.value) {
+    groupFileInputRef.value.click();
+  }
+}
+
+function handleGroupImageUpload(e) {
+  const file = e.target.files[0];
+  if (file) {
+    uploadImage(file);
+  }
+  if (groupImageInputRef.value) {
+    groupImageInputRef.value.value = '';
+  }
+}
+
+function handleGroupFileUpload(e) {
+  const file = e.target.files[0];
+  if (file) {
+    uploadFile(file);
+  }
+  if (groupFileInputRef.value) {
+    groupFileInputRef.value.value = '';
+  }
+}
+
+function handleGroupSwitched() {
+  if (chatStore.currentGroupId) {
+    isGroupChatVisible.value = true;
+    currentGroupName.value = chatStore.currentGroupName;
+    loadCurrentGroupInfo();
+    
+    // 切换群组后，重新初始化滚动监听器
+    setTimeout(() => {
+      initializeScrollLoading(true);
+    }, 100);
+  }
+}
+
+watch(
+  () => chatStore.currentGroupId,
+  (newGroupId, oldGroupId) => {
+    if (newGroupId && newGroupId !== oldGroupId) {
+      nextTick(() => {
+        if (groupMessageContainerRef.value) {
+          groupMessageContainerRef.value.scrollTop = 0;
+        }
+        // 切换群组后，重新初始化滚动监听器
+        setTimeout(() => {
+          initializeScrollLoading(true);
+        }, 100);
+      });
+    }
+  }
+);
+
+watch(
+  () => groupMessages.value,
+  (newMessages) => {
+    // console.log('[GroupChat] 群组消息变化 - isLoadingMoreMessages:', window.isLoadingMoreMessages);
+    // console.log('[GroupChat] 群组消息变化 - 新消息数量:', newMessages.length);
+    // console.log('[GroupChat] 群组消息变化 - 旧消息数量:', previousGroupMessageLength);
+    
+    if (window.isLoadingMoreMessages) {
+      // console.log('[GroupChat] 检测到加载更多历史消息，开始刷新滚动位置');
+      refreshScrollPos();
+      setTimeout(() => {
+        if (typeof window.resetLoadingState === 'function') {
+          // console.log('[GroupChat] 调用window.resetLoadingState清除加载状态');
+          window.resetLoadingState();
+        }
+      }, 100);
+    } else if (newMessages.length > previousGroupMessageLength && !window.isLoadingMoreMessages) {
+      // console.log('[GroupChat] 检测到新消息，滚动到底部');
+      scrollToBottom();
+    }
+    previousGroupMessageLength = newMessages.length;
+  },
+  { deep: true }
+);
+
+watch(
+  () => route.path,
+  (newPath) => {
+    if (newPath.startsWith('/chat/group')) {
+      scrollToBottom();
+      nextTick(() => {
+        initializeScrollLoading(true);
+      });
+    }
+  }
+);
+
+onMounted(() => {
+  window.addEventListener('group-switched', handleGroupSwitched);
+  
+  // 恢复之前保存的群组会话
+  if (chatStore.currentGroupId) {
+    applySavedGroupState();
+  }
+  
+  scrollToBottom();
+});
+
+onUnmounted(() => {
+  window.removeEventListener('group-switched', handleGroupSwitched);
 });
 </script>

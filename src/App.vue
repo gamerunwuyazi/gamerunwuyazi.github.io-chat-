@@ -1,36 +1,15 @@
 <template>
-  <div id="main-chat" v-if="isUserLoggedIn && shouldShowSidebar">
-    <ChatSidebar/>
-
-    <ChatSecondarySidebar/>
-
-    <div id="chat-main">
-      <router-view></router-view>
-    </div>
-    <div id="modal">
-      <ChatModal/>
-    </div>
-  </div>
-  <router-view v-else></router-view>
+  <router-view></router-view>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import ChatSidebar from "@/components/ChatSidebar.vue"
-import ChatSecondarySidebar from "@/components/ChatSecondarySidebar.vue"
-import { 
-  initializeChat,
-} from "@/utils/chat"
-import ChatModal from "@/components/ChatModal.vue";
+import { ref, onMounted } from 'vue'
+import { useChatStore } from '@/stores/chatStore'
+import { initializeChat, initChatStore } from "@/utils/chat"
 
-const router = useRouter()
-const route = useRoute()
-
-// 响应式数据
 const userLoggedIn = ref(false)
+const chatStore = useChatStore()
 
-// 检查登录状态的函数
 function checkLoginStatus() {
   const currentUser = localStorage.getItem('currentUser')
   const currentSessionToken = localStorage.getItem('currentSessionToken')
@@ -39,7 +18,6 @@ function checkLoginStatus() {
   const userId = localStorage.getItem('userId')
   const sessionToken = localStorage.getItem('sessionToken')
   
-  // 多种登录状态判断方式
   const isLoggedIn = (!!currentUser && (!!currentSessionToken || !!chatSessionToken)) || 
                      (!!chatUserId && !!chatSessionToken) || 
                      (!!userId && !!sessionToken)
@@ -48,54 +26,13 @@ function checkLoginStatus() {
   return isLoggedIn
 }
 
-// 计算属性
-const isUserLoggedIn = computed(() => userLoggedIn.value)
-
-// 计算属性：当前路由路径
-const currentRoutePath = computed(() => route.path)
-
-// 计算属性：判断是否应该显示侧边栏
-const shouldShowSidebar = computed(() => {
-  // 只在聊天相关页面显示侧边栏
-  return ['/chat', '/chat/group', '/chat/private', '/settings'].includes(currentRoutePath.value)
-})
-
-// 监听路由变化
-const handleRouteChange = () => {
-  // 检查是否需要登录
-  const requiresAuth = ['public', 'group', 'private', 'settings'].includes(route.name)
+onMounted(() => {
+  // 首先初始化 store 引用
+  initChatStore(chatStore)
   
-  // 使用checkLoginStatus函数检查登录状态
-  const isLoggedIn = checkLoginStatus()
-  
-  if (requiresAuth && !isLoggedIn) {
-    // 重定向到登录页面
-    router.push('/login')
-  }
-  
-  // 如果用户已登录，确保在聊天相关页面显示侧边栏
-  if (isLoggedIn) {
-    if (['/chat', '/chat/group', '/chat/private', '/settings'].includes(currentRoutePath.value)) {
-      // 确保侧边栏显示
-      // 这里不需要额外操作，shouldShowSidebar计算属性会处理
-    }
-  }
-}
-
-// 初始化
-onMounted(async () => {
-  // 初始检查登录状态
   checkLoginStatus()
   
-  // 监听路由变化
-  router.afterEach(() => {
-    checkLoginStatus()
-    handleRouteChange()
-  })
-
-  await router.isReady()
-
-  if (isUserLoggedIn.value) {
+  if (userLoggedIn.value) {
     initializeChat()
   }
 })
