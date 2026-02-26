@@ -5,6 +5,12 @@ body {
     background-color: #f0f2f5;
 }
 
+.quoted-highlight,
+.message.active {
+    border-radius: 8px;
+    transition: background-color 0.5s ease-out;
+}
+
 /* 登录和注册页面样式 */
 .login-container,
 .register-container {

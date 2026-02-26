@@ -6,7 +6,8 @@ import {
   unreadMessages 
 } from './store.js';
 import { unescapeHtml } from './message.js';
-import { updateUnreadCountsDisplay, updateTitleWithUnreadCount, currentUser, currentSessionToken, currentGroupId, currentActiveChat } from './ui.js';
+import { updateUnreadCountsDisplay, updateTitleWithUnreadCount, currentUser, currentSessionToken, currentGroupId, currentActiveChat, isPageVisible, logout } from './ui.js';
+import { loadGroupList } from './group.js';
 
 let isConnected = false;
 let avatarVersions = {};
@@ -186,29 +187,55 @@ function initializeWebSocket() {
         }
 
         const store = window.chatStore;
+        const pageVisible = (window.isPageVisible !== undefined ? window.isPageVisible : true) && document.hasFocus();
+        
         // 检查消息是否包含群组ID
         if (message.groupId) {
-            // 检查是否是历史消息：当消息没有isHistory标记但有timestamp且不是刚刚发送的，视为历史消息
-            // 这样可以避免与group-chat-history事件处理函数中的向下滚动逻辑重复执行
+            // 检查是否是历史消息
             const now = Date.now();
             const messageTime = message.timestamp ? new Date(message.timestamp).getTime() : now;
-            const isRecentMessage = now - messageTime < 10000; // 10秒内的消息视为实时消息
+            const isRecentMessage = now - messageTime < 10000;
             message.isHistory = message.isHistory || !isRecentMessage;
-            // 如果包含群组ID，直接添加到 store
+            
+            // 添加消息到 store
             if (store && store.addGroupMessage) {
                 store.addGroupMessage(message.groupId, message);
             }
             
-            // 如果当前焦点在群组页面，并且是当前群组的新消息，将群组移到顶部
-            if (isPageVisible && currentActiveChat === `group_${message.groupId}`) {
+            // 更新群组未读计数 - 如果不是自己发送的消息且不在当前群组页面或浏览器没有焦点
+            const isOwnMessage = String(currentUser.id) === String(message.userId);
+            const isBrowserNotFocused = !document.hasFocus();
+            if (!isOwnMessage && (currentActiveChat !== `group_${message.groupId}` || isBrowserNotFocused)) {
+                const groupIdStr = String(message.groupId);
+                if (store && store.unreadMessages) {
+                    store.unreadMessages.groups[groupIdStr] = (store.unreadMessages.groups[groupIdStr] || 0) + 1;
+                }
+                updateUnreadCountsDisplay();
+                updateTitleWithUnreadCount();
+            }
+            
+            // 如果当前焦点在群组页面，将群组移到顶部
+            if (pageVisible && currentActiveChat === `group_${message.groupId}`) {
                 if (store && store.moveGroupToTop) {
                     store.moveGroupToTop(message.groupId);
                 }
             }
         } else {
-            // 否则直接添加到 store
+            // 添加公共消息到 store
             if (store && store.addPublicMessage) {
                 store.addPublicMessage(message);
+            }
+            
+            // 更新公共聊天未读计数 - 如果不是自己发送的消息且页面不可见或浏览器没有焦点
+            const isOwnMessage = String(currentUser.id) === String(message.userId);
+            const isPageInvisible = window.isPageVisible === false;
+            const isBrowserNotFocused = !document.hasFocus();
+            if (!isOwnMessage && (isPageInvisible || isBrowserNotFocused)) {
+                if (store && store.unreadMessages) {
+                    store.unreadMessages.global = (store.unreadMessages.global || 0) + 1;
+                }
+                updateUnreadCountsDisplay();
+                updateTitleWithUnreadCount();
             }
         }
     });
@@ -282,26 +309,17 @@ function initializeWebSocket() {
 
     // 群组创建事件
     socket.on('group-created', () => {
-        const groupList = document.getElementById('groupList');
-        if (groupList) {
-            loadGroupList();
-        }
+        loadGroupList();
     });
 
     // 群组删除事件
     socket.on('group-deleted', () => {
-        const groupList = document.getElementById('groupList');
-        if (groupList) {
-            loadGroupList();
-        }
+        loadGroupList();
     });
 
     // 群组解散事件
     socket.on('group-dissolved', () => {
-        const groupList = document.getElementById('groupList');
-        if (groupList) {
-            loadGroupList();
-        }
+        loadGroupList();
     });
 
     // 好友删除事件
@@ -721,7 +739,7 @@ function initializeWebSocket() {
                 // 加载更多后，保持用户原来的相对位置
                 const newScrollHeight = groupMessageContainer.scrollHeight;
                 const heightDifference = newScrollHeight - prevScrollHeight;
-                groupMessageContainer.scrollTop = heightDifference;
+                groupMessageContainer.scrollTop = prevScrollTop + heightDifference;
             } else {
                 // 首次加载时，确保滚动到底部
                 setTimeout(() => {
@@ -921,7 +939,9 @@ function initializeWebSocket() {
         // 如果当前正在该私信聊天中，自动将好友移到列表顶部
         // 条件：页面可见 + 当前聊天是私聊页面 + 消息是当前私聊对象发来的
         const store = window.chatStore;
-        if (isPageVisible && currentActiveChat === `private_${chatPartnerId}`) {
+        const pageVisible = (window.isPageVisible !== undefined ? window.isPageVisible : true) && document.hasFocus();
+        
+        if (pageVisible && currentActiveChat === `private_${chatPartnerId}`) {
             if (store && store.moveFriendToTop) {
                 store.moveFriendToTop(chatPartnerId);
             }
@@ -935,12 +955,16 @@ function initializeWebSocket() {
         }
 
         // 更新未读计数
-        // 如果页面不可见，或者用户不在当前私信聊天中，添加未读计数
+        // 如果页面不可见，或者用户不在当前私信聊天中，或者浏览器没有焦点，添加未读计数
         // 排除自己发送的消息
         const isOwnMessage = String(currentUser.id) === String(msgSenderId);
-        if (!isOwnMessage && (!isPageVisible || currentActiveChat !== `private_${msgSenderId}`)) {
+        const isPageInvisible = window.isPageVisible === false;
+        const isBrowserNotFocused = !document.hasFocus();
+        if (!isOwnMessage && (isPageInvisible || isBrowserNotFocused || currentActiveChat !== `private_${msgSenderId}`)) {
             // 更新未读消息计数
-            unreadMessages.private[msgSenderId] = (unreadMessages.private[msgSenderId] || 0) + 1;
+            if (store && store.unreadMessages) {
+                store.unreadMessages.private[msgSenderId] = (store.unreadMessages.private[msgSenderId] || 0) + 1;
+            }
             updateUnreadCountsDisplay();
             updateTitleWithUnreadCount();
         }

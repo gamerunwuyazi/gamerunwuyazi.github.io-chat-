@@ -54,3 +54,163 @@
 .markdown-code-block .hljs-attr {
     color: #d19a66;
 }
+
+/* 代码块高亮样式 - 新结构 */
+.highlight {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 15px 0;
+    box-shadow: none;
+    line-height: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.highlight-tools {
+    background: #f8f8f8;
+    border-bottom: 1px solid #ddd;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.macStyle {
+    display: flex;
+    gap: 6px;
+    margin-right: 12px;
+}
+
+.mac-close, .mac-minimize, .mac-maximize {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.mac-close {
+    background-color: #ff5f56;
+}
+
+.mac-minimize {
+    background-color: #ffbd2e;
+}
+
+.mac-maximize {
+    background-color: #27c93f;
+}
+
+.code-lang {
+    color: #666;
+    font-weight: bold;
+    margin-right: auto;
+}
+
+.copy-notice {
+    margin-right: 8px;
+    color: #666;
+    display: none;
+}
+
+.copy-button, .fullpage-button {
+    cursor: pointer;
+    margin-left: 8px;
+    color: #666;
+    transition: color 0.2s;
+}
+
+.copy-button:hover, .fullpage-button:hover {
+    color: #333;
+}
+
+.highlight table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+    border-spacing: 0;
+    font-size: 0;
+}
+
+.highlight table tbody {
+    margin: 0;
+    padding: 0;
+}
+
+.highlight table tr {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+
+.highlight table td {
+    margin: 0;
+    padding: 0;
+    vertical-align: top;
+}
+
+/* 行数区域样式 */
+.gutter {
+    background-color: #f5f5f5;
+    border-right: 1px solid #ddd;
+    width: 40px;
+    text-align: right;
+    vertical-align: top;
+    padding: 0;
+    user-select: none;
+    display: table-cell;
+    height: 100%;
+}
+
+.gutter pre {
+    margin: 0;
+    padding: 5px 5px;
+    background: transparent;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    color: #666;
+    line-height: 1.4;
+    overflow: hidden;
+    white-space: nowrap;
+    display: block;
+    border: 0px;
+}
+
+.code {
+    vertical-align: top;
+    padding: 0;
+    margin: 0;
+    display: table-cell;
+    width: 100%;
+    height: 100%;
+    line-height: 0;
+    position: relative;
+}
+
+.code pre {
+    margin: 0 !important;
+    padding: 5px;
+    background: #fafafa;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    text-indent: 0;
+    height: auto;
+    min-height: 0;
+    display: block;
+    border: none;
+    box-shadow: none;
+    position: relative;
+    bottom: 0;
+}
+
+.code code {
+    background: transparent;
+    padding: 0;
+    border: none;
+    display: inline-block;
+    text-indent: 0;
+}

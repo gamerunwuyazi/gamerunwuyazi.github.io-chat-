@@ -1290,7 +1290,7 @@ async function initializeDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         content TEXT,
-        message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件',
+        message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件，4代表引用消息',
         group_id INT DEFAULT NULL,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX user_id_index (user_id),
@@ -1504,7 +1504,7 @@ async function initializeDatabase() {
           sender_id INT NOT NULL,
           receiver_id INT NOT NULL,
           content TEXT,
-          message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件',
+          message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件，4代表引用消息',
           sequence BIGINT NOT NULL DEFAULT 0,
           timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (sender_id) REFERENCES chat_users(id) ON DELETE CASCADE,
@@ -1522,7 +1522,7 @@ async function initializeDatabase() {
           id INT AUTO_INCREMENT PRIMARY KEY,
           user_id INT NOT NULL,
           content TEXT,
-          message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件',
+          message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件，4代表引用消息',
           group_id INT DEFAULT NULL,
           image_url VARCHAR(500) DEFAULT NULL,
           timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -3781,7 +3781,7 @@ io.on('connection', (socket) => {
   // 加入群组
   socket.on('join-group', async (data) => {
       try {
-        const { groupId, userId, sessionToken, loadMore = false, onlyClearUnread = false } = data;
+        const { groupId, userId, sessionToken, loadMore = false, onlyClearUnread = false, noHistory = false } = data;
     
         // console.log('👥 [群组加入] 收到请求:', {
         //   socketId: socket.id,
@@ -3816,7 +3816,7 @@ io.on('connection', (socket) => {
           );
           
           // 如果只需要清除未读计数，则不返回消息历史
-          if (onlyClearUnread) {
+          if (onlyClearUnread || noHistory) {
             return;
           }
         }
@@ -3921,6 +3921,19 @@ io.on('connection', (socket) => {
           return;
         }
     
+        // 如果是群组消息，验证用户是否在群组中
+        if (groupId) {
+          const [memberCheck] = await pool.execute(
+            'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+            [parseInt(groupId), parseInt(userId)]
+          );
+          
+          if (memberCheck.length === 0) {
+            socket.emit('error', { message: '您不在该群组中，无法发送消息' });
+            return;
+          }
+        }
+    
         // 获取用户信息...
         const [users] = await pool.execute(
             'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
@@ -3945,10 +3958,26 @@ io.on('connection', (socket) => {
 
         // 插入消息到数据库（使用MySQL的NOW()函数而不是JavaScript生成的ISO格式时间）
         // 使用前端发送的消息类型，默认为文字消息类型
-        const messageType = messageData.messageType || 0;
+        const messageType = messageData.message_type || messageData.messageType || 0;
+        
+        let messageContent = cleanContent;
+        if (messageData.quotedMessage) {
+          const quotedData = {
+            id: messageData.quotedMessage.id,
+            userId: messageData.quotedMessage.userId || messageData.quotedMessage.user_id,
+            nickname: messageData.quotedMessage.nickname,
+            content: messageData.quotedMessage.content
+          };
+          messageContent = JSON.stringify({
+            type: 'quoted',
+            quoted: quotedData,
+            text: cleanContent
+          });
+        }
+        
         const [result] = await pool.execute(
             'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
-            [userId, cleanContent, messageType, groupId || null]
+            [userId, messageContent, messageType, groupId || null]
         );
         
         // 计算新消息的sequence值 - 优化方法，确保不会清除现有消息的序号
@@ -4072,11 +4101,11 @@ io.on('connection', (socket) => {
           userId,
           nickname: user.nickname,
           avatarUrl: user.avatar_url,
-          content: cleanContent,
+          content: messageContent,
           messageType: messageType,
-          groupId: groupId ? parseInt(groupId) : null, // 确保groupId是数字类型
-          timestamp: timestampMs, // 直接使用毫秒级时间戳
-          timestampISO: timestamp, // 同时提供ISO格式时间戳
+          groupId: groupId ? parseInt(groupId) : null,
+          timestamp: timestampMs,
+          timestampISO: timestamp,
           sequence: messageSequence
         };
     
@@ -4267,10 +4296,26 @@ io.on('connection', (socket) => {
       }
 
       // 插入私信到数据库，直接包含sequence值
-      const messageType = messageData.messageType || 0;
+      const messageType = messageData.message_type || messageData.messageType || 0;
+      
+      let messageContent = cleanContent;
+      if (messageData.quotedMessage) {
+        const quotedData = {
+          id: messageData.quotedMessage.id,
+          userId: messageData.quotedMessage.userId || messageData.quotedMessage.user_id,
+          nickname: messageData.quotedMessage.nickname,
+          content: messageData.quotedMessage.content
+        };
+        messageContent = JSON.stringify({
+          type: 'quoted',
+          quoted: quotedData,
+          text: cleanContent
+        });
+      }
+      
       const [result] = await pool.execute(
           'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, sequence, timestamp) VALUES (?, ?, ?, ?, ?, NOW())',
-          [userId, receiverId, cleanContent, messageType, parseInt(messageSequence)]
+          [userId, receiverId, messageContent, messageType, parseInt(messageSequence)]
       );
 
       // 构建私信消息对象
@@ -4280,7 +4325,7 @@ io.on('connection', (socket) => {
         receiverId: receiverId,
         senderNickname: user.nickname,
         senderAvatarUrl: user.avatar_url,
-        content: cleanContent,
+        content: messageContent,
         messageType: messageType,
         timestamp: timestampMs,
         timestampISO: timestamp,
@@ -4448,7 +4493,7 @@ io.on('connection', (socket) => {
   // 加入私人聊天，获取聊天历史
   socket.on('join-private-chat', async (data) => {
     try {
-      const { userId, friendId, sessionToken, loadMore = false, onlyClearUnread = false } = data;
+      const { userId, friendId, sessionToken, loadMore = false, onlyClearUnread = false, noHistory = false } = data;
 
       // 会话和IP验证
       const isValid = await validateSocketSession(socket, data);
@@ -4556,7 +4601,7 @@ io.on('connection', (socket) => {
         );
         
         // 如果只需要清除未读计数，则不返回消息历史
-        if (onlyClearUnread) {
+        if (onlyClearUnread || noHistory) {
           return;
         }
       } catch (unreadErr) {
@@ -4801,6 +4846,20 @@ io.on('connection', (socket) => {
         console.error('❌ 权限不足，只能删除自己的消息:', { messageUserId: message.user_id, requestUserId: userId });
         socket.emit('error', { message: '只能删除自己的消息' });
         return;
+      }
+      
+      // 如果是群组消息，验证用户是否在群组中
+      if (message.group_id) {
+        const [memberCheck] = await pool.execute(
+          'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+          [parseInt(message.group_id), parseInt(userId)]
+        );
+        
+        if (memberCheck.length === 0) {
+          console.error('❌ 用户不在群组中，无法删除消息:', { userId, groupId: message.group_id });
+          socket.emit('error', { message: '您不在该群组中，无法删除消息' });
+          return;
+        }
       }
 
       // 处理文件删除 - 根据message_type和JSON内容判断
@@ -5065,6 +5124,16 @@ app.post('/recall-group-messages', validateIPAndSession, async (req, res) => {
     
     if (groupResults.length === 0) {
       return res.status(404).json({ status: 'error', message: '群组不存在' });
+    }
+    
+    // 验证用户是否是群组成员
+    const [memberCheck] = await pool.execute(
+      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      [parseInt(groupId), parseInt(userId)]
+    );
+    
+    if (memberCheck.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不在该群组中' });
     }
     
     const group = groupResults[0];

@@ -41,10 +41,10 @@
       "parser": "@babel/eslint-parser"
     },
     "rules": {
-      "no-unused-vars": "off",
-      "no-empty": "off",
-      "no-undef": "off",
-      "no-import-assign": "off"
+      "no-unused-vars": "warn",
+      "no-empty": "warn",
+      "no-undef": "warn",
+      "no-import-assign": "warn"
     }
   },
   "browserslist": [

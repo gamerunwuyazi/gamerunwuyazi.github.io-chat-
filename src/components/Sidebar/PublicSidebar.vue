@@ -38,7 +38,10 @@ function isSvgAvatar(url) {
 // 工具函数：获取用户显示名称
 function getUserDisplayName(user) {
   const isCurrentUser = chatStore.currentUser && String(chatStore.currentUser.id) === String(user.id);
-  return isCurrentUser ? `${unescapeHtml(user.nickname)} (我)` : unescapeHtml(user.nickname);
+  if (isCurrentUser) {
+    return `<strong>${unescapeHtml(user.nickname)} (我)</strong>`;
+  }
+  return unescapeHtml(user.nickname);
 }
 
 // 处理用户头像点击

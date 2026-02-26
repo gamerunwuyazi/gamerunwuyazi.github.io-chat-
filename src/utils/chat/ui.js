@@ -1,18 +1,24 @@
 import { SERVER_URL, toast, getModalId, getModalNameFromId } from './config.js';
 import { 
-  getStore, 
-  getCurrentUser, 
-  getCurrentSessionToken, 
-  sessionStore, 
+  getStore,
   unreadMessages,
   syncCurrentActiveChat
 } from './store.js';
-import { unescapeHtml } from './message.js';
 
 let originalTitle = document.title;
 let isPageVisible = !document.hidden;
 let currentActiveChat = 'main';
 let currentGroupId = null;
+
+function logout() {
+  localStorage.removeItem('currentUser');
+  localStorage.removeItem('currentSessionToken');
+  localStorage.removeItem('chatUserId');
+  localStorage.removeItem('chatUserNickname');
+  localStorage.removeItem('chatUserAvatar');
+  localStorage.removeItem('chatUserId');
+  window.router.push('/login');
+}
 let currentGroupName = '';
 let currentUser = null;
 let currentSessionToken = null;
@@ -617,31 +623,17 @@ function updateTitleWithUnreadCount() {
 function handlePageVisibilityChange() {
   isPageVisible = !document.hidden;
 
-  // 确保currentActiveChat是字符串
-  const chat = currentActiveChat || '';
-  if (typeof chat !== 'string') {
-    return;
-  }
-
-  // 页面从不可见变为可见时，清除当前活动聊天室的未读计数
+  // 页面从不可见变为可见时，只清除主聊天室的未读计数（群组和私信只在点击时清除）
   if (isPageVisible) {
+    const chat = currentActiveChat || '';
+    if (typeof chat !== 'string') {
+      return;
+    }
+
     if (chat === 'main') {
       // 清除主聊天室未读计数
       if (unreadMessages.global > 0) {
         unreadMessages.global = 0;
-        updateTitleWithUnreadCount();
-      }
-    } else if (chat.startsWith('private_')) {
-      // 清除当前私信聊天未读计数
-      const userId = chat.replace('private_', '');
-      if (unreadMessages.private[userId] > 0) {
-        unreadMessages.private[userId] = 0;
-        updateTitleWithUnreadCount();
-      }
-    } else {
-      // 清除当前群组未读计数
-      if (unreadMessages.groups[chat] > 0) {
-        unreadMessages.groups[chat] = 0;
         updateTitleWithUnreadCount();
       }
     }
@@ -651,7 +643,7 @@ function handlePageVisibilityChange() {
 function handleFocusChange() {
   isPageVisible = document.hasFocus();
 
-  // 页面获得焦点时，清除当前活动聊天室的未读计数
+  // 页面获得焦点时，只清除主聊天室的未读计数（群组和私信只在点击时清除）
   if (isPageVisible) {
     const chat = currentActiveChat || '';
     if (typeof chat !== 'string') return;
@@ -660,19 +652,6 @@ function handleFocusChange() {
       // 清除主聊天室未读计数
       if (unreadMessages.global > 0) {
         unreadMessages.global = 0;
-        updateTitleWithUnreadCount();
-      }
-    } else if (chat.startsWith('private_')) {
-      // 清除当前私信聊天未读计数
-      const userId = chat.replace('private_', '');
-      if (unreadMessages.private[userId] > 0) {
-        unreadMessages.private[userId] = 0;
-        updateTitleWithUnreadCount();
-      }
-    } else {
-      // 清除当前群组未读计数
-      if (chat && unreadMessages.groups[chat] > 0) {
-        unreadMessages.groups[chat] = 0;
         updateTitleWithUnreadCount();
       }
     }
@@ -980,6 +959,7 @@ function initializeChat() {
           if (typeof initializeWebSocket === 'function') initializeWebSocket();
           if (typeof initializeMessageSending === 'function') initializeMessageSending();
           if (typeof enableMessageSending === 'function') enableMessageSending();
+          initializeFocusListeners();
           loadOfflineUsers();
           loadGroupList();
         } catch (error) {
@@ -1218,6 +1198,7 @@ export {
   closeModal,
   getModalNameFromId,
   getModalId,
+  logout,
   initSettingsItemClick,
   insertMarkdownFormat,
   initializeMoreButtons,

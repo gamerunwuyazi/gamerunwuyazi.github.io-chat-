@@ -29,22 +29,32 @@
       </div>
 
       <div id="groupMessageContainer" ref="groupMessageContainerRef">
-        <GroupMessageItem 
-          v-for="message in groupMessages" 
-          :key="message.id || message.sequence"
-          :message="message"
-          :is-own="isOwnMessage(message)"
-        />
-        <div v-if="groupMessages.length === 0" class="empty-state">
+        <template v-if="groupMessages.length !== 0">
+          <GroupMessageItem 
+            v-for="message in groupMessages" 
+            :key="message.id || message.sequence"
+            :message="message"
+            :is-own="isOwnMessage(message)"
+          />
+        </template>
+        <div v-else class="empty-state">
           <h3>暂无群消息</h3>
           <p>发送第一条消息开始群聊吧!</p>
         </div>
       </div>
       <div class="input-area">
+        <div v-if="chatStore.quotedMessage" class="quoted-message-preview" style="display: flex; align-items: center; padding: 8px 12px; background: #f5f5f5; border-left: 3px solid #4CAF50; margin-bottom: 8px; border-radius: 4px;">
+          <div style="flex: 1;">
+            <div style="font-size: 12px; color: #666;">引用: <strong>{{ chatStore.quotedMessage.nickname }}</strong></div>
+            <div style="font-size: 13px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ chatStore.quotedMessage.content }}</div>
+          </div>
+          <button @click="chatStore.clearQuotedMessage()" style="background: none; border: none; color: #999; font-size: 18px; cursor: pointer; padding: 0 5px;">×</button>
+        </div>
         <div class="input-container">
           <div class="editable-div"
             id="groupMessageInput" 
             @keydown="handleGroupMessageInputKeydown"
+            @paste="handleGroupPaste"
             ref="groupMessageInputRef"
             contenteditable="true"
             placeholder="输入群组消息..."
@@ -94,7 +104,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useChatStore } from "@/stores/chatStore";
 import { useRoute } from "vue-router";
 import GroupMessageItem from "@/components/MessageItem/GroupMessageItem.vue";
-import { initializeGroupFunctions, addGroupButtonListeners, setActiveChat, loadGroupMessages, initializeScrollLoading, initializeImageClickEvents, addGroupCardClickListeners, uploadImage, uploadFile } from "@/utils/chat";
+import { initializeGroupFunctions, setActiveChat, loadGroupMessages, initializeScrollLoading, initializeImageClickEvents, addGroupCardClickListeners, uploadImage, uploadFile } from "@/utils/chat";
 import toast from "@/utils/toast";
 
 const chatStore = useChatStore();
@@ -215,6 +225,40 @@ function handleGroupMessageInputKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
     e.preventDefault();
     handleSendGroupMessage();
+  } else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
+    e.preventDefault();
+    insertGroupNewLine();
+  }
+}
+
+function insertGroupNewLine() {
+  if (!groupMessageInputRef.value) return;
+  
+  const input = groupMessageInputRef.value;
+  
+  if (input.tagName === 'DIV' && input.isContentEditable) {
+    document.execCommand('insertHTML', false, '<br><br>');
+  }
+}
+
+function handleGroupPaste(e) {
+  const items = e.clipboardData.items;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file) {
+        uploadImage(file);
+      }
+      break;
+    } else if (item.type === 'application/octet-stream') {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file) {
+        uploadFile(file);
+      }
+      break;
+    }
   }
 }
 
@@ -473,6 +517,35 @@ onMounted(() => {
   }
   
   scrollToBottom();
+  
+  document.addEventListener('click', function(e) {
+    const copyButton = e.target.closest('.copy-button');
+    if (copyButton) {
+      const code = copyButton.getAttribute('data-code');
+      if (code) {
+        const decodedCode = decodeURIComponent(code);
+        const unescapedCode = decodedCode
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&nbsp;/g, ' ');
+        navigator.clipboard.writeText(unescapedCode).then(() => {
+          const notice = copyButton.closest('.highlight-tools').querySelector('.copy-notice');
+          if (notice) {
+            notice.textContent = '已复制';
+            notice.style.color = '#4CAF50';
+            setTimeout(() => {
+              notice.textContent = '';
+            }, 2000);
+          }
+        }).catch(err => {
+          console.error('复制失败:', err);
+        });
+      }
+    }
+  });
 });
 
 onUnmounted(() => {

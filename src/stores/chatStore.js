@@ -68,6 +68,9 @@ export const useChatStore = defineStore('chat', () => {
     userAvatarPopup: null
   });
   
+  // 引用消息
+  const quotedMessage = ref(null);
+  
   const SERVER_URL = process.env.VUE_APP_SERVER_URL || 'https://back.hs.airoe.cn';
   
   // Actions
@@ -319,6 +322,14 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
   
+  function setQuotedMessage(message) {
+    quotedMessage.value = message;
+  }
+  
+  function clearQuotedMessage() {
+    quotedMessage.value = null;
+  }
+  
   return {
     onlineUsers,
     offlineUsers,
@@ -328,6 +339,9 @@ export const useChatStore = defineStore('chat', () => {
     groupMessages,
     privateMessages,
     unreadMessages,
+    quotedMessage,
+    setQuotedMessage,
+    clearQuotedMessage,
     currentUser,
     currentSessionToken,
     currentGroupId,

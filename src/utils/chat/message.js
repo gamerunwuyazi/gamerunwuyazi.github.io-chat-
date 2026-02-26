@@ -6,6 +6,17 @@ import {
   sessionStore 
 } from './store.js';
 
+let chatStore = null;
+export function setChatStore(store) {
+  chatStore = store;
+}
+
+export function getChatStore() {
+  if (chatStore) return chatStore;
+  if (typeof window !== 'undefined' && window.chatStore) return window.chatStore;
+  return null;
+}
+
 export function escapeHtml(text) {
   if (typeof text !== 'string') return text;
   const div = document.createElement('div');
@@ -35,7 +46,15 @@ export function sendMessage() {
   const messageInput = document.getElementById('messageInput');
   if (!messageInput) return;
   
-  const content = messageInput.textContent.trim() || messageInput.innerHTML.trim();
+  let content = messageInput.innerHTML.trim();
+  if (content) {
+    content = content.replace(/<div>/g, '\n').replace(/<\/div>/g, '').replace(/<br>/g, '\n').replace(/<br\s*\/?>/g, '\n');
+    content = content.trim();
+  }
+  if (!content) {
+    content = messageInput.textContent.trim() || '';
+  }
+  
   const currentUser = getCurrentUser();
   const currentSessionToken = getCurrentSessionToken();
 
@@ -49,14 +68,33 @@ export function sendMessage() {
         groupId = activeChat;
       }
     }
+    
+    const quotedMessage = getChatStore()?.quotedMessage;
+    
     const messageData = {
       content: content,
       groupId: groupId,
       sessionToken: currentSessionToken,
       userId: currentUser.id
     };
+    
+    if (quotedMessage) {
+      messageData.message_type = 4;
+      messageData.quotedMessage = {
+        id: quotedMessage.id,
+        userId: quotedMessage.userId,
+        nickname: quotedMessage.nickname,
+        content: quotedMessage.content,
+        messageType: quotedMessage.messageType || 0
+      };
+    }
+    
     window.chatSocket.emit('send-message', messageData);
     messageInput.innerHTML = '';
+    
+    if (quotedMessage) {
+      getChatStore()?.clearQuotedMessage();
+    }
   }
 }
 
@@ -75,11 +113,13 @@ export function sendGroupMessage() {
 
   let content = '';
   if (groupMessageInput.tagName === 'DIV' && groupMessageInput.isContentEditable) {
-    content = groupMessageInput.textContent.trim();
+    let htmlContent = groupMessageInput.innerHTML.trim();
+    if (htmlContent) {
+      htmlContent = htmlContent.replace(/<div>/g, '\n').replace(/<\/div>/g, '').replace(/<br>/g, '\n').replace(/<br\s*\/?>/g, '\n');
+      content = htmlContent.trim();
+    }
     if (!content) {
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = groupMessageInput.innerHTML;
-      content = tempDiv.textContent.trim();
+      content = groupMessageInput.textContent.trim();
     }
   } else {
     content = groupMessageInput.value || groupMessageInput.innerHTML || '';
@@ -90,17 +130,35 @@ export function sendGroupMessage() {
   const currentSessionToken = getCurrentSessionToken();
 
   if (content && window.chatSocket) {
+    const quotedMessage = getChatStore()?.quotedMessage;
+    
     const messageData = {
       groupId: currentGroupId,
       content: content,
       sessionToken: currentSessionToken,
       userId: currentUser.id
     };
+    
+    if (quotedMessage) {
+      messageData.message_type = 4;
+      messageData.quotedMessage = {
+        id: quotedMessage.id,
+        userId: quotedMessage.userId,
+        nickname: quotedMessage.nickname,
+        content: quotedMessage.content,
+        messageType: quotedMessage.messageType || 0
+      };
+    }
+    
     window.chatSocket.emit('send-message', messageData);
     if (groupMessageInput.tagName === 'TEXTAREA') {
       groupMessageInput.value = '';
     } else {
       groupMessageInput.innerHTML = '';
+    }
+    
+    if (quotedMessage) {
+      getChatStore()?.clearQuotedMessage();
     }
   }
 }
@@ -115,8 +173,17 @@ export function sendPrivateMessage() {
   const privateMessageInput = document.getElementById('privateMessageInput');
   if (!privateMessageInput) return;
 
-  const content = privateMessageInput.innerText.trim();
+  let content = privateMessageInput.innerHTML.trim();
+  if (content) {
+    content = content.replace(/<div>/g, '\n').replace(/<\/div>/g, '').replace(/<br>/g, '\n').replace(/<br\s*\/?>/g, '\n');
+    content = content.trim();
+  }
+  if (!content) {
+    content = privateMessageInput.innerText.trim();
+  }
   if (!content) return;
+  
+  const quotedMessage = getChatStore()?.quotedMessage;
 
   const messageData = {
     userId: currentUser.id,
@@ -124,10 +191,25 @@ export function sendPrivateMessage() {
     receiverId: currentPrivateChatUserId,
     sessionToken: currentSessionToken
   };
+  
+  if (quotedMessage) {
+    messageData.message_type = 4;
+    messageData.quotedMessage = {
+      id: quotedMessage.id,
+      userId: quotedMessage.userId,
+      nickname: quotedMessage.nickname,
+      content: quotedMessage.content,
+      messageType: quotedMessage.messageType || 0
+    };
+  }
 
   if (window.chatSocket) {
     window.chatSocket.emit('private-message', messageData);
   }
 
   privateMessageInput.innerHTML = '';
+  
+  if (quotedMessage) {
+    getChatStore()?.clearQuotedMessage();
+  }
 }

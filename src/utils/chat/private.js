@@ -205,41 +205,7 @@ export function initializePrivateMessageSending() {
 
   const privateMessageInput = document.getElementById('privateMessageInput');
   if (privateMessageInput) {
-    privateMessageInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
-        e.preventDefault();
-        sendPrivateMessage();
-      } else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
-        e.preventDefault();
-        
-        if (privateMessageInput.tagName === 'DIV' && privateMessageInput.isContentEditable) {
-          const selection = window.getSelection();
-          const range = selection.getRangeAt(0);
-          
-          const br = document.createElement('br');
-          
-          range.deleteContents();
-          range.insertNode(br);
-          
-          range.setStartAfter(br);
-          range.setEndAfter(br);
-          
-          selection.removeAllRanges();
-          selection.addRange(range);
-        } else {
-          const start = privateMessageInput.selectionStart;
-          const end = privateMessageInput.selectionEnd;
-          
-          const value = privateMessageInput.value;
-          privateMessageInput.value = value.substring(0, start) + '\n' + value.substring(end);
-          
-          const newPosition = start + 1;
-          privateMessageInput.setSelectionRange(newPosition, newPosition);
-          
-          privateMessageInput.focus();
-        }
-      }
-    });
+    // keydown事件已在PrivateChat.vue中处理
   }
 
   const markdownToolbar = document.getElementById('privateMarkdownToolbar');

@@ -13,19 +13,28 @@
     </div>
 
     <div id="messageContainer" ref="messageContainerRef">
-      <PublicMessageItem 
-        v-for="message in chatStore.publicMessages" 
-        :key="message.id || message.sequence"
-        :message="message"
-        :is-own="isOwnMessage(message)"
-      />
-      <div v-if="chatStore.publicMessages.length === 0" class="empty-state" id="emptyState">
+      <template v-if="chatStore.publicMessages.length !== 0">
+        <PublicMessageItem
+          v-for="message in chatStore.publicMessages" 
+          :key="message.id || message.sequence"
+          :message="message"
+          :is-own="isOwnMessage(message)"
+        />
+      </template>
+      <div v-else class="empty-state" id="emptyState">
         <h3>暂无消息</h3>
         <p>发送第一条消息开始聊天吧!</p>
       </div>
     </div>
 
     <div class="input-area">
+      <div v-if="chatStore.quotedMessage" class="quoted-message-preview" style="display: flex; align-items: center; padding: 8px 12px; background: #f5f5f5; border-left: 3px solid #4CAF50; margin-bottom: 8px; border-radius: 4px;">
+        <div style="flex: 1;">
+          <div style="font-size: 12px; color: #666;">引用: <strong>{{ chatStore.quotedMessage.nickname }}</strong></div>
+          <div style="font-size: 13px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ chatStore.quotedMessage.content }}</div>
+        </div>
+        <button @click="chatStore.clearQuotedMessage()" style="background: none; border: none; color: #999; font-size: 18px; cursor: pointer; padding: 0 5px;">×</button>
+      </div>
       <div class="input-container" id="mainInputContainer">
         <div 
           ref="messageInputRef"
@@ -182,6 +191,35 @@ onMounted(() => {
   setTimeout(() => {
     initializeScrollLoading(true);
   }, 100);
+  
+  document.addEventListener('click', function(e) {
+    const copyButton = e.target.closest('.copy-button');
+    if (copyButton) {
+      const code = copyButton.getAttribute('data-code');
+      if (code) {
+        const decodedCode = decodeURIComponent(code);
+        const unescapedCode = decodedCode
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&nbsp;/g, ' ');
+        navigator.clipboard.writeText(unescapedCode).then(() => {
+          const notice = copyButton.closest('.highlight-tools').querySelector('.copy-notice');
+          if (notice) {
+            notice.textContent = '已复制';
+            notice.style.color = '#4CAF50';
+            setTimeout(() => {
+              notice.textContent = '';
+            }, 2000);
+          }
+        }).catch(err => {
+          console.error('复制失败:', err);
+        });
+      }
+    }
+  });
 });
 
 const showMarkdownToolbar = ref(false);
@@ -248,17 +286,23 @@ function insertMarkdown(prefix, suffix, sample) {
 function insertNewLine() {
   if (!messageInputRef.value) return;
   
-  const selection = window.getSelection();
-  const range = selection.getRangeAt(0);
+  const input = messageInputRef.value;
   
-  const br = document.createElement('br');
-  range.deleteContents();
-  range.insertNode(br);
-  
-  range.setStartAfter(br);
-  range.setEndAfter(br);
-  selection.removeAllRanges();
-  selection.addRange(range);
+  if (input.tagName === 'DIV' && input.isContentEditable) {
+    document.execCommand('insertHTML', false, '<br><br>');
+  } else {
+    const selection = window.getSelection();
+    const range = selection.getRangeAt(0);
+    
+    const br = document.createElement('br');
+    range.deleteContents();
+    range.insertNode(br);
+    
+    range.setStartAfter(br);
+    range.setEndAfter(br);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
 }
 
 function handlePaste(e) {

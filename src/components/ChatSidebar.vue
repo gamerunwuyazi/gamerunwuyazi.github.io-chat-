@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useChatStore } from '@/stores/chatStore';
 import toast from '@/utils/toast';
+import { logout } from '@/utils/chat/ui';
 
 const router = useRouter();
 const route = useRoute();
@@ -130,16 +131,6 @@ function handleMenuClick(section) {
   if (path) {
     router.push(path);
   }
-}
-
-function logout() {
-  localStorage.removeItem('currentUser');
-  localStorage.removeItem('currentSessionToken');
-  localStorage.removeItem('chatUserId');
-  localStorage.removeItem('chatUserNickname');
-  localStorage.removeItem('chatUserAvatar');
-  localStorage.removeItem('chatUserId');
-  router.push('/login');
 }
 </script>
 
