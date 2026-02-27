@@ -84,6 +84,18 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
     window.setActiveChat('private', userId, true);
   }
 
+  // 跳转到私信页面
+  if (window.router && window.router.currentRoute.value.path !== '/chat/private') {
+    window.router.push('/chat/private');
+  }
+
+  // 将好友移到列表顶端（在路由跳转后执行，避免被 loadFriendsList 覆盖）
+  setTimeout(() => {
+    if (store && store.moveFriendToTop) {
+      store.moveFriendToTop(userId);
+    }
+  }, 100);
+
   window.dispatchEvent(new CustomEvent('private-switched'));
   
   loadPrivateChatHistory(userId);
@@ -510,7 +522,8 @@ function displayUserInfo(user) {
     modalUserAvatar.style.display = 'block';
     modalUserInitials.style.display = 'none';
   } else {
-    const initials = user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
+    const unescapedNickname = unescapeHtml(user.nickname || '');
+    const initials = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
     modalUserInitials.textContent = initials;
     modalUserInitials.style.display = 'block';
     modalUserAvatar.style.display = 'none';
@@ -543,12 +556,21 @@ function showUserAvatarPopup(event, user) {
   const currentUser = getCurrentUser();
   const isCurrentUser = currentUser && String(currentUser.id) === String(user.id);
 
-  if (isFriend || isCurrentUser) {
+  if (isCurrentUser) {
     popupAddFriend.textContent = '已添加';
     popupAddFriend.style.backgroundColor = '#ccc';
     popupAddFriend.style.cursor = 'not-allowed';
     popupAddFriend.disabled = true;
     popupAddFriend.onclick = null;
+  } else if (isFriend) {
+    popupAddFriend.textContent = '发消息';
+    popupAddFriend.style.backgroundColor = '#3498db';
+    popupAddFriend.style.cursor = 'pointer';
+    popupAddFriend.disabled = false;
+    popupAddFriend.onclick = function() {
+      hideUserAvatarPopup();
+      switchToPrivateChat(user.id, user.nickname || user.username, user.username, user.avatarUrl || user.avatar_url || user.avatar);
+    };
   } else {
     popupAddFriend.textContent = '添加好友';
     popupAddFriend.style.backgroundColor = '#3498db';
@@ -639,7 +661,8 @@ function showUserAvatarPopup(event, user) {
       });
       popupInitials.style.display = 'none';
     } else {
-      const initials = displayUser.nickname ? displayUser.nickname.charAt(0).toUpperCase() : 'U';
+      const unescapedNickname = unescapeHtml(displayUser.nickname || '');
+      const initials = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
       popupInitials.textContent = initials;
       popupInitials.style.display = 'block';
       popupAvatarImg.style.display = 'none';
@@ -794,26 +817,29 @@ function displaySearchResults(users) {
       }
     }
 
+    const unescapedNickname = unescapeHtml(user.nickname || '');
+    const unescapedUsername = unescapeHtml(user.username || '');
+
     let avatarHtml = '';
     if (avatarUrl) {
       const isSvgAvatar = /\.svg$/i.test(avatarUrl);
       if (isSvgAvatar) {
-        const initials = user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
+        const initials = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
         avatarHtml = `<span class="user-avatar">${initials}</span>`;
       } else {
         const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
-        avatarHtml = `<span class="user-avatar"><img src="${fullAvatarUrl}" alt="${user.nickname}"></span>`;
+        avatarHtml = `<span class="user-avatar"><img src="${fullAvatarUrl}" alt="${unescapedNickname}"></span>`;
       }
     } else {
-      const initials = user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
+      const initials = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
       avatarHtml = `<span class="user-avatar">${initials}</span>`;
     }
 
     resultItem.innerHTML = `
       ${avatarHtml}
       <div class="search-result-info">
-        <div class="search-result-nickname">${user.nickname}</div>
-        <div class="search-result-username">@${user.username}</div>
+        <div class="search-result-nickname">${unescapedNickname}</div>
+        <div class="search-result-username">@${unescapedUsername}</div>
       </div>
       <button class="add-friend-btn" data-user-id="${user.id}" data-user-nickname="${user.nickname}" data-user-avatar="${avatarUrl}">+</button>
     `;

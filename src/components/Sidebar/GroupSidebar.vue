@@ -167,7 +167,7 @@ function handleCreateGroupClick() {
                     <span v-else class="group-avatar" @click.stop="handleGroupAvatarClick($event, group)">
                         {{ unescapeHtml(group.name).charAt(0).toUpperCase() }}
                     </span>
-                    <span class="group-name" v-html="unescapeHtml(group.name)"></span>
+                    <span class="group-name">{{ unescapeHtml(group.name) }}</span>
                     <span v-if="isGroupMuted(group.id)" class="mute-icon" style="margin-left: 5px; font-size: 12px;" title="已免打扰">🔕</span>
                     <div class="unread-count group-unread-count" v-if="chatStore.unreadMessages.groups && chatStore.unreadMessages.groups[group.id] && !isGroupMuted(group.id)">
                         {{ chatStore.unreadMessages.groups[group.id] }}

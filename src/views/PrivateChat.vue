@@ -132,7 +132,8 @@ import {
   initializePrivateChatInterface,
   initializeScrollLoading,
   uploadPrivateImage,
-  uploadPrivateFile
+  uploadPrivateFile,
+  unescapeHtml
 } from "@/utils/chat";
 import toast from "@/utils/toast";
 
@@ -214,7 +215,8 @@ function applySavedPrivateState() {
       currentUserAvatarUrl.value = `https://back.hs.airoe.cn${avatarUrl}`;
     } else {
       currentUserAvatarUrl.value = '';
-      currentUserInitials.value = chatStore.currentPrivateChatNickname ? chatStore.currentPrivateChatNickname.charAt(0).toUpperCase() : 'U';
+      const unescapedNickname = unescapeHtml(chatStore.currentPrivateChatNickname || '');
+      currentUserInitials.value = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
     }
     
     initializePrivateChatInterface();
@@ -245,6 +247,12 @@ function handlePrivateMessageInput() {
       input.style.overflowY = 'auto';
     } else {
       input.style.overflowY = 'hidden';
+    }
+    
+    const textContent = input.textContent.trim();
+    const htmlContent = input.innerHTML.trim();
+    if (!textContent && (!htmlContent || htmlContent === '<br>' || htmlContent === '<br/>' || htmlContent === '<br />')) {
+      input.innerHTML = '';
     }
   }
 }
@@ -505,7 +513,8 @@ function handlePrivateSwitched() {
       currentUserAvatarUrl.value = `https://back.hs.airoe.cn${avatarUrl}`;
     } else {
       currentUserAvatarUrl.value = '';
-      currentUserInitials.value = chatStore.currentPrivateChatNickname ? chatStore.currentPrivateChatNickname.charAt(0).toUpperCase() : 'U';
+      const unescapedNickname = unescapeHtml(chatStore.currentPrivateChatNickname || '');
+      currentUserInitials.value = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
     }
     
     // 切换私信后，重新初始化滚动监听器

@@ -120,7 +120,7 @@ function handleSearchUserClick() {
                     <span v-else class="user-avatar" @click.stop="handleUserAvatarClick($event, friend)">
                         {{ unescapeHtml(friend.nickname) ? unescapeHtml(friend.nickname).charAt(0).toUpperCase() : 'U' }}
                     </span>
-                    <span class="friend-name" v-html="unescapeHtml(friend.nickname)"></span>
+                    <span class="friend-name">{{ unescapeHtml(friend.nickname) }}</span>
                     <span class="friend-status" :class="isUserOnline(friend.id) ? 'online' : 'offline'"></span>
                     <div class="unread-count private-unread-count" v-if="chatStore.unreadMessages.private && chatStore.unreadMessages.private[friend.id]">
                         {{ chatStore.unreadMessages.private[friend.id] }}

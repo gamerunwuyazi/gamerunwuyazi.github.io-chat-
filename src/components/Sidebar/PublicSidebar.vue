@@ -38,10 +38,11 @@ function isSvgAvatar(url) {
 // 工具函数：获取用户显示名称
 function getUserDisplayName(user) {
   const isCurrentUser = chatStore.currentUser && String(chatStore.currentUser.id) === String(user.id);
+  const nickname = unescapeHtml(user.nickname);
   if (isCurrentUser) {
-    return `<strong>${unescapeHtml(user.nickname)} (我)</strong>`;
+    return `${nickname} (我)`;
   }
-  return unescapeHtml(user.nickname);
+  return nickname;
 }
 
 // 处理用户头像点击
@@ -76,7 +77,7 @@ function handleUserAvatarClick(event, user) {
                     <span v-else class="user-avatar" @click="handleUserAvatarClick($event, user)">
                         {{ unescapeHtml(user.nickname) ? unescapeHtml(user.nickname).charAt(0).toUpperCase() : 'U' }}
                     </span>
-                    <span class="user-name" v-html="getUserDisplayName(user)"></span>
+                    <span class="user-name" :class="{ 'current-user': chatStore.currentUser && String(chatStore.currentUser.id) === String(user.id) }">{{ getUserDisplayName(user) }}</span>
                     <span class="user-status online"></span>
                 </li>
             </ul>
@@ -96,13 +97,19 @@ function handleUserAvatarClick(event, user) {
                     <span v-else class="user-avatar" @click="handleUserAvatarClick($event, user)">
                         {{ unescapeHtml(user.nickname) ? unescapeHtml(user.nickname).charAt(0).toUpperCase() : 'U' }}
                     </span>
-                    <span class="user-name" v-html="unescapeHtml(user.nickname)"></span>
+                    <span class="user-name">{{ unescapeHtml(user.nickname) }}</span>
                 </li>
             </ul>
         </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.current-user {
+  font-weight: bold;
+}
+</style>
 
 <style src="@/css/index.css"></style>
 <style src="@/css/code-highlight.css"></style>

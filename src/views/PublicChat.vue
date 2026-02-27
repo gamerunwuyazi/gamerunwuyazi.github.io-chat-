@@ -256,6 +256,12 @@ function handleMessageInput() {
     } else {
       input.style.overflowY = 'hidden';
     }
+    
+    const textContent = input.textContent.trim();
+    const htmlContent = input.innerHTML.trim();
+    if (!textContent && (!htmlContent || htmlContent === '<br>' || htmlContent === '<br/>' || htmlContent === '<br />')) {
+      input.innerHTML = '';
+    }
   }
 }
 

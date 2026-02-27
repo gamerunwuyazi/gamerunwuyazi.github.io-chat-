@@ -1,6 +1,6 @@
 <script setup>
 import {ref, computed, onMounted, onUnmounted} from "vue";
-import {currentUser, currentSessionToken} from "@/utils/chat";
+import {currentUser, currentSessionToken, unescapeHtml} from "@/utils/chat";
 
 const SERVER_URL = process.env.VUE_APP_SERVER_URL || 'https://back.hs.airoe.cn'
 
@@ -42,7 +42,8 @@ const avatarInputRef = ref(null)
 // 用户首字母
 const userInitials = computed(() => {
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}')
-  return user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U'
+  const nickname = unescapeHtml(user.nickname || '');
+  return nickname ? nickname.charAt(0).toUpperCase() : 'U'
 })
 
 // 验证码图片

@@ -51,15 +51,15 @@
             @click.stop="handleImageClick(groupCardAvatarUrl)"
           >
           <div 
-            v-else
-            style="width: 20px; height: 20px; border-radius: 50%; background-color: #3498db; color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;"
+        v-else
+        style="width: 20px; height: 20px; border-radius: 50%; background-color: #3498db; color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;"
           >
-            {{ groupCardData.group_name.charAt(0).toUpperCase() }}
+            {{ groupCardInitials }}
           </div>
-          {{ groupCardData.group_name }}
+          {{ groupCardGroupName }}
         </div>
         <div class="group-card-description" style="color: #666; font-size: 14px; margin-bottom: 5px;">
-          {{ groupCardData.group_description || '暂无公告' }}
+          {{ groupCardGroupDescription }}
         </div>
         <div class="group-card-footer" style="font-size: 12px; color: #999;">
           点击查看群组详情
@@ -307,6 +307,25 @@ const fileIcon = computed(() => {
 const groupCardAvatarUrl = computed(() => {
   if (!groupCardData.value || !groupCardData.value.avatar_url) return '';
   return `${chatStore.SERVER_URL}${groupCardData.value.avatar_url}`;
+});
+
+const groupCardGroupName = computed(() => {
+  if (!groupCardData.value || !groupCardData.value.group_name) return '';
+  const text = document.createElement('textarea');
+  text.innerHTML = groupCardData.value.group_name;
+  return text.value;
+});
+
+const groupCardGroupDescription = computed(() => {
+  if (!groupCardData.value || !groupCardData.value.group_description) return '暂无公告';
+  const text = document.createElement('textarea');
+  text.innerHTML = groupCardData.value.group_description;
+  return text.value;
+});
+
+const groupCardInitials = computed(() => {
+  const name = groupCardGroupName.value;
+  return name ? name.charAt(0).toUpperCase() : 'G';
 });
 
 function escapeHtml(text) {

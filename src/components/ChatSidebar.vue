@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useChatStore } from '@/stores/chatStore';
 import { logout } from '@/utils/chat/ui';
+import { unescapeHtml } from '@/utils/chat';
 
 const router = useRouter();
 const route = useRoute();
@@ -101,7 +102,9 @@ const userAvatarUrl = computed(() => {
 
 const userInitials = computed(() => {
   const user = currentUser.value;
-  return user?.nickname ? user.nickname.charAt(0).toUpperCase() : 'U';
+  const nickname = user?.nickname || '';
+  const unescapedNickname = unescapeHtml(nickname);
+  return unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
 });
 
 const showAvatarImage = computed(() => {

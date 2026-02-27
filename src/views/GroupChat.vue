@@ -61,7 +61,7 @@
             @paste="handleGroupPaste"
             ref="groupMessageInputRef"
             contenteditable="true"
-            placeholder="输入群组消息..."
+            placeholder="发送消息（Ctrl+Enter或Shift+Enter换行  支持Markdown语法）"
             @input="handleGroupMessageInput"
           ></div>
           <div v-if="isDragOver" class="drop-overlay">
@@ -114,7 +114,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useChatStore } from "@/stores/chatStore";
 import { useRoute } from "vue-router";
 import GroupMessageItem from "@/components/MessageItem/GroupMessageItem.vue";
-import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile } from "@/utils/chat";
+import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile, clearContentEditable } from "@/utils/chat";
 import toast from "@/utils/toast";
 
 const chatStore = useChatStore();
@@ -362,6 +362,12 @@ function handleGroupMessageInput() {
     } else {
       input.style.overflowY = 'hidden';
     }
+    
+    const textContent = input.textContent.trim();
+    const htmlContent = input.innerHTML.trim();
+    if (!textContent && (!htmlContent || htmlContent === '<br>' || htmlContent === '<br/>' || htmlContent === '<br />')) {
+      input.innerHTML = '';
+    }
   }
 }
 
@@ -379,7 +385,7 @@ function handleSendGroupMessage() {
           userId: chatStore.currentUser.id
         };
         window.chatSocket.emit('send-message', messageData);
-        groupMessageInputRef.value.innerHTML = '';
+        clearContentEditable(groupMessageInputRef.value);
       }
     }
   }

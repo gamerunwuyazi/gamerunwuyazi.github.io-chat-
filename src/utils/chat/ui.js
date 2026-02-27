@@ -4,6 +4,7 @@ import {
   unreadMessages,
   syncCurrentActiveChat
 } from './store.js';
+import { unescapeHtml } from './message.js';
 
 let originalTitle = document.title;
 let isPageVisible = !document.hidden;
@@ -1031,7 +1032,8 @@ function updateUserAvatar() {
         userInitials.style.display = 'none';
     } else {
         // 显示用户首字母，隐藏真实头像（包括SVG格式头像）
-        const initials = currentUser.nickname ? currentUser.nickname.charAt(0).toUpperCase() : 'U';
+        const unescapedNickname = unescapeHtml(currentUser.nickname || '');
+        const initials = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
         userInitials.textContent = initials;
         userInitials.style.display = 'block';
         currentUserAvatar.style.display = 'none';

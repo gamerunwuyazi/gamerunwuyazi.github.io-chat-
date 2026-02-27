@@ -1091,7 +1091,8 @@ function showGroupCardPopup(event, groupCardData) {
         titleContainer.appendChild(avatarImg);
     } else {
         // 显示默认头像
-        const initials = groupCardData.group_name ? groupCardData.group_name.charAt(0).toUpperCase() : 'G';
+        const unescapedName = unescapeHtml(groupCardData.group_name || '');
+        const initials = unescapedName ? unescapedName.charAt(0).toUpperCase() : 'G';
         const defaultAvatar = document.createElement('div');
         defaultAvatar.style.width = '40px';
         defaultAvatar.style.height = '40px';
@@ -1146,6 +1147,10 @@ function showGroupCardPopup(event, groupCardData) {
     content.appendChild(groupIdP);
     content.appendChild(descP);
 
+    // 检查用户是否已在群组中
+    const store = window.chatStore;
+    const isInGroup = store && store.groupsList && store.groupsList.some(g => String(g.id) === String(groupCardData.group_id));
+
     // 创建按钮区
     const buttonArea = document.createElement('div');
     buttonArea.style.display = 'flex';
@@ -1155,7 +1160,30 @@ function showGroupCardPopup(event, groupCardData) {
     joinBtn.id = 'joinGroupButton';
     joinBtn.className = 'save-btn';
     joinBtn.style.flex = '1';
-    joinBtn.textContent = '加入群组';
+
+    if (isInGroup) {
+        joinBtn.textContent = '发消息';
+        joinBtn.addEventListener('click', function() {
+            popup.remove();
+            if (window.switchToGroupChat) {
+                window.switchToGroupChat(
+                    groupCardData.group_id,
+                    groupCardData.group_name,
+                    groupCardData.avatar_url || groupCardData.avatarUrl || ''
+                );
+            }
+        });
+    } else {
+        joinBtn.textContent = '加入群组';
+        joinBtn.addEventListener('click', function() {
+            if (groupCardData.invite_token && groupCardData.group_id) {
+                joinGroupWithToken(groupCardData.invite_token, groupCardData.group_id, groupCardData.group_name, popup);
+            } else {
+                console.warn('加入群组失败: 缺少必要的群组信息');
+                toast.error('加入群组失败: 缺少必要的群组信息');
+            }
+        });
+    }
 
     buttonArea.appendChild(joinBtn);
 
@@ -1170,16 +1198,6 @@ function showGroupCardPopup(event, groupCardData) {
     // 绑定关闭按钮事件
     closeBtn.addEventListener('click', function() {
         popup.remove();
-    });
-
-    // 绑定加入群组按钮事件
-    joinBtn.addEventListener('click', function() {
-        if (groupCardData.invite_token && groupCardData.group_id) {
-            joinGroupWithToken(groupCardData.invite_token, groupCardData.group_id, groupCardData.group_name, popup);
-        } else {
-            console.warn('加入群组失败: 缺少必要的群组信息');
-            toast.error('加入群组失败: 缺少必要的群组信息');
-        }
     });
 
     // 点击外部关闭
@@ -1415,6 +1433,18 @@ function switchToGroupChat(groupId, groupName, _groupAvatarUrl) {
     
     // 设置活动聊天状态，并清除未读计数（因为用户真正进入了群组聊天）
     setActiveChat('group', groupId, true);
+
+    // 跳转到群组页面
+    if (window.router && window.router.currentRoute.value.path !== '/chat/group') {
+        window.router.push('/chat/group');
+    }
+
+    // 将群组移到列表顶端（在路由跳转后执行，避免被 loadGroupList 覆盖）
+    setTimeout(() => {
+        if (store && store.moveGroupToTop) {
+            store.moveGroupToTop(groupId);
+        }
+    }, 100);
 
     // 派发事件让Vue组件响应
     window.dispatchEvent(new CustomEvent('group-switched'));

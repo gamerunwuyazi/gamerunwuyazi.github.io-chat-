@@ -19,7 +19,8 @@ import {
   formatFileSize,
   sendMessage,
   sendGroupMessage,
-  sendPrivateMessage
+  sendPrivateMessage,
+  clearContentEditable
 } from './message.js';
 import * as privateModule from './private.js';
 import * as groupModule from './group.js';
@@ -96,6 +97,7 @@ export {
   sendMessage,
   sendGroupMessage,
   sendPrivateMessage,
+  clearContentEditable,
   login,
   privateModule,
   groupModule,

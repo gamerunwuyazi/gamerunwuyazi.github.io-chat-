@@ -42,6 +42,15 @@ export function formatFileSize(bytes) {
   }
 }
 
+export function clearContentEditable(element) {
+  if (!element) return;
+  element.innerHTML = '';
+  while (element.firstChild) {
+    element.removeChild(element.firstChild);
+  }
+  element.textContent = '';
+}
+
 export function sendMessage() {
   const messageInput = document.getElementById('messageInput');
   if (!messageInput) return;
@@ -50,6 +59,7 @@ export function sendMessage() {
   if (content) {
     content = content.replace(/<div>/g, '\n').replace(/<\/div>/g, '').replace(/<br>/g, '\n').replace(/<br\s*\/?>/g, '\n');
     content = content.trim();
+    content = unescapeHtml(content);
   }
   if (!content) {
     content = messageInput.textContent.trim() || '';
@@ -90,7 +100,7 @@ export function sendMessage() {
     }
     
     window.chatSocket.emit('send-message', messageData);
-    messageInput.innerHTML = '';
+    clearContentEditable(messageInput);
     
     if (quotedMessage) {
       getChatStore()?.clearQuotedMessage();
@@ -117,6 +127,7 @@ export function sendGroupMessage() {
     if (htmlContent) {
       htmlContent = htmlContent.replace(/<div>/g, '\n').replace(/<\/div>/g, '').replace(/<br>/g, '\n').replace(/<br\s*\/?>/g, '\n');
       content = htmlContent.trim();
+      content = unescapeHtml(content);
     }
     if (!content) {
       content = groupMessageInput.textContent.trim();
@@ -154,7 +165,7 @@ export function sendGroupMessage() {
     if (groupMessageInput.tagName === 'TEXTAREA') {
       groupMessageInput.value = '';
     } else {
-      groupMessageInput.innerHTML = '';
+      clearContentEditable(groupMessageInput);
     }
     
     if (quotedMessage) {
@@ -177,6 +188,7 @@ export function sendPrivateMessage() {
   if (content) {
     content = content.replace(/<div>/g, '\n').replace(/<\/div>/g, '').replace(/<br>/g, '\n').replace(/<br\s*\/?>/g, '\n');
     content = content.trim();
+    content = unescapeHtml(content);
   }
   if (!content) {
     content = privateMessageInput.innerText.trim();
@@ -207,7 +219,7 @@ export function sendPrivateMessage() {
     window.chatSocket.emit('private-message', messageData);
   }
 
-  privateMessageInput.innerHTML = '';
+  clearContentEditable(privateMessageInput);
   
   if (quotedMessage) {
     getChatStore()?.clearQuotedMessage();
