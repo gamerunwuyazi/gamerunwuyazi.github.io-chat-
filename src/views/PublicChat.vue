@@ -35,7 +35,11 @@
         </div>
         <button @click="chatStore.clearQuotedMessage()" style="background: none; border: none; color: #999; font-size: 18px; cursor: pointer; padding: 0 5px;">×</button>
       </div>
-      <div class="input-container" id="mainInputContainer">
+      <div class="input-container" id="mainInputContainer" 
+        @drop="handleDrop"
+        @dragover="handleDragOver"
+        @dragenter="handleDragEnter"
+        @dragleave="handleDragLeave">
         <div 
           ref="messageInputRef"
           id="messageInput" 
@@ -46,6 +50,12 @@
           @input="handleMessageInput"
           @paste="handlePaste"
         ></div>
+        <div v-if="isDragOver" class="drop-overlay">
+          <div class="drop-content">
+            <i class="fas fa-cloud-upload-alt"></i>
+            <p>松开即可发送</p>
+          </div>
+        </div>
       </div>
       <div class="input-buttons" id="mainInputButtons">
         <button id="sendButton" @click="handleSendMessage">发送</button>
@@ -101,6 +111,8 @@ const messageInputRef = ref(null);
 const imageInputRef = ref(null);
 const fileInputRef = ref(null);
 const messageContainerRef = ref(null);
+const isDragOver = ref(false);
+let dragCounter = 0;
 let previousPublicMessageLength = 0;
 
 const currentUserId = computed(() => chatStore.currentUser?.id);
@@ -236,6 +248,14 @@ function toggleMoreFunctions() {
 function handleMessageInput() {
   if (messageInputRef.value) {
     chatStore.mainMessageInput = messageInputRef.value.textContent || messageInputRef.value.innerHTML;
+    
+    const input = messageInputRef.value;
+    const maxHeight = 180;
+    if (input.scrollHeight > maxHeight) {
+      input.style.overflowY = 'auto';
+    } else {
+      input.style.overflowY = 'hidden';
+    }
   }
 }
 
@@ -307,6 +327,8 @@ function insertNewLine() {
 
 function handlePaste(e) {
   const items = e.clipboardData.items;
+  let hasImageOrFile = false;
+  
   for (const item of items) {
     if (item.type.startsWith('image/')) {
       e.preventDefault();
@@ -314,6 +336,7 @@ function handlePaste(e) {
       if (file) {
         uploadImage(file);
       }
+      hasImageOrFile = true;
       break;
     } else if (item.type === 'application/octet-stream') {
       e.preventDefault();
@@ -321,7 +344,81 @@ function handlePaste(e) {
       if (file) {
         uploadFile(file);
       }
+      hasImageOrFile = true;
       break;
+    }
+  }
+  
+  if (!hasImageOrFile) {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text/plain') || e.clipboardData.getData('text');
+    if (text) {
+      document.execCommand('insertText', false, text);
+    }
+  }
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+}
+
+function handleDragEnter(e) {
+  e.preventDefault();
+  dragCounter++;
+  if (dragCounter === 1) {
+    isDragOver.value = true;
+  }
+}
+
+function handleDragLeave(e) {
+  e.preventDefault();
+  dragCounter--;
+  if (dragCounter === 0) {
+    isDragOver.value = false;
+  }
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  dragCounter = 0;
+  isDragOver.value = false;
+  
+  const files = e.dataTransfer.files;
+  if (files && files.length > 0) {
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        uploadImage(file);
+      } else {
+        uploadFile(file);
+      }
+    }
+    return;
+  }
+  
+  const items = e.dataTransfer.items;
+  if (items) {
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) {
+          if (file.type.startsWith('image/')) {
+            uploadImage(file);
+          } else {
+            uploadFile(file);
+          }
+        }
+        return;
+      }
+    }
+  }
+  
+  const text = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+  if (text) {
+    const messageInput = document.getElementById('messageInput');
+    if (messageInput) {
+      messageInput.focus();
+      document.execCommand('insertText', false, text);
     }
   }
 }

@@ -50,7 +50,11 @@
           </div>
           <button @click="chatStore.clearQuotedMessage()" style="background: none; border: none; color: #999; font-size: 18px; cursor: pointer; padding: 0 5px;">×</button>
         </div>
-        <div class="input-container">
+        <div class="input-container"
+          @drop="handleGroupDrop"
+          @dragover="handleGroupDragOver"
+          @dragenter="handleGroupDragEnter"
+          @dragleave="handleGroupDragLeave">
           <div class="editable-div"
             id="groupMessageInput" 
             @keydown="handleGroupMessageInputKeydown"
@@ -60,6 +64,12 @@
             placeholder="输入群组消息..."
             @input="handleGroupMessageInput"
           ></div>
+          <div v-if="isDragOver" class="drop-overlay">
+            <div class="drop-content">
+              <i class="fas fa-cloud-upload-alt"></i>
+              <p>松开即可发送</p>
+            </div>
+          </div>
         </div>
         <div class="input-buttons" id="groupInputButtons">
           <button id="sendGroupMessage" @click="handleSendGroupMessage">发送</button>
@@ -104,7 +114,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useChatStore } from "@/stores/chatStore";
 import { useRoute } from "vue-router";
 import GroupMessageItem from "@/components/MessageItem/GroupMessageItem.vue";
-import { initializeGroupFunctions, setActiveChat, loadGroupMessages, initializeScrollLoading, initializeImageClickEvents, addGroupCardClickListeners, uploadImage, uploadFile } from "@/utils/chat";
+import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile } from "@/utils/chat";
 import toast from "@/utils/toast";
 
 const chatStore = useChatStore();
@@ -113,6 +123,8 @@ const groupMessageInputRef = ref(null);
 const groupImageInputRef = ref(null);
 const groupFileInputRef = ref(null);
 const groupMessageContainerRef = ref(null);
+const isDragOver = ref(false);
+let dragCounter = 0;
 let previousGroupMessageLength = 0;
 
 const isGroupChatVisible = ref(false);
@@ -170,11 +182,6 @@ function refreshScrollPos() {
 
 window.groupRefreshScrollPos = refreshScrollPos;
 
-const groupMessageInput = computed({
-  get: () => chatStore.groupMessageInput,
-  set: (val) => chatStore.groupMessageInput = val
-});
-
 const isCurrentUserGroupOwner = computed(() => {
   if (!currentGroupInfo.value || !chatStore.currentUser) {
     return false;
@@ -189,6 +196,11 @@ function applySavedGroupState() {
     currentGroupName.value = chatStore.currentGroupName;
     loadGroupMessages(chatStore.currentGroupId, false);
     loadCurrentGroupInfo();
+    
+    // 重新初始化滚动监听器
+    nextTick(() => {
+      initializeScrollLoading(true);
+    });
   }
 }
 
@@ -243,6 +255,8 @@ function insertGroupNewLine() {
 
 function handleGroupPaste(e) {
   const items = e.clipboardData.items;
+  let hasImageOrFile = false;
+  
   for (const item of items) {
     if (item.type.startsWith('image/')) {
       e.preventDefault();
@@ -250,6 +264,7 @@ function handleGroupPaste(e) {
       if (file) {
         uploadImage(file);
       }
+      hasImageOrFile = true;
       break;
     } else if (item.type === 'application/octet-stream') {
       e.preventDefault();
@@ -257,7 +272,81 @@ function handleGroupPaste(e) {
       if (file) {
         uploadFile(file);
       }
+      hasImageOrFile = true;
       break;
+    }
+  }
+  
+  if (!hasImageOrFile) {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text/plain') || e.clipboardData.getData('text');
+    if (text) {
+      document.execCommand('insertText', false, text);
+    }
+  }
+}
+
+function handleGroupDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+}
+
+function handleGroupDragEnter(e) {
+  e.preventDefault();
+  dragCounter++;
+  if (dragCounter === 1) {
+    isDragOver.value = true;
+  }
+}
+
+function handleGroupDragLeave(e) {
+  e.preventDefault();
+  dragCounter--;
+  if (dragCounter === 0) {
+    isDragOver.value = false;
+  }
+}
+
+function handleGroupDrop(e) {
+  e.preventDefault();
+  dragCounter = 0;
+  isDragOver.value = false;
+  
+  const files = e.dataTransfer.files;
+  if (files && files.length > 0) {
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        uploadImage(file);
+      } else {
+        uploadFile(file);
+      }
+    }
+    return;
+  }
+  
+  const items = e.dataTransfer.items;
+  if (items) {
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) {
+          if (file.type.startsWith('image/')) {
+            uploadImage(file);
+          } else {
+            uploadFile(file);
+          }
+        }
+        return;
+      }
+    }
+  }
+  
+  const text = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+  if (text) {
+    const groupMessageInput = document.getElementById('groupMessageInput');
+    if (groupMessageInput) {
+      groupMessageInput.focus();
+      document.execCommand('insertText', false, text);
     }
   }
 }
@@ -265,6 +354,14 @@ function handleGroupPaste(e) {
 function handleGroupMessageInput() {
   if (groupMessageInputRef.value) {
     chatStore.groupMessageInput = groupMessageInputRef.value.innerHTML;
+    
+    const input = groupMessageInputRef.value;
+    const maxHeight = 180;
+    if (input.scrollHeight > maxHeight) {
+      input.style.overflowY = 'auto';
+    } else {
+      input.style.overflowY = 'hidden';
+    }
   }
 }
 

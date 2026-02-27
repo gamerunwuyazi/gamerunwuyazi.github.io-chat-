@@ -28,14 +28,14 @@ function updateCurrentActiveChat() {
   const path = route.path;
   
   if (path === '/chat' || path === '/chat/') {
-    setActiveChat('main');
+    setActiveChat('main', null, true);
   } else if (path.startsWith('/chat/group')) {
     if (chatStore.currentGroupId) {
-      setActiveChat('group', chatStore.currentGroupId);
+      setActiveChat('group', chatStore.currentGroupId, true);
     }
   } else if (path.startsWith('/chat/private')) {
     if (chatStore.currentPrivateChatUserId) {
-      setActiveChat('private', chatStore.currentPrivateChatUserId);
+      setActiveChat('private', chatStore.currentPrivateChatUserId, true);
     }
   }
 }

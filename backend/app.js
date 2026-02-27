@@ -3526,6 +3526,7 @@ io.on('connection', (socket) => {
   socket.on('get-group-chat-history', async (data) => {
       try {
         const { groupId } = data;
+        const userId = data.userId;
 
         
         // 确保groupId是字符串类型，避免Map键类型不一致
@@ -3534,6 +3535,17 @@ io.on('connection', (socket) => {
         // 会话和IP验证
         const isValid = await validateSocketSession(socket, data);
         if (!isValid) {
+          return;
+        }
+        
+        // 验证用户是否在群组中
+        const [memberCheck] = await pool.query(
+          'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+          [groupId, userId]
+        );
+        
+        if (memberCheck.length === 0) {
+          socket.emit('error', { message: '您不在该群组中，无法查看聊天记录' });
           return;
         }
         
@@ -4696,6 +4708,17 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // 验证对方是否是自己的好友
+      const [friendCheck] = await pool.query(
+        'SELECT id FROM chat_friends WHERE user_id = ? AND friend_id = ?',
+        [numericUserId, numericFriendId]
+      );
+      
+      if (friendCheck.length === 0) {
+        socket.emit('error', { message: '对方不是您的好友，无法查看聊天记录' });
+        return;
+      }
+
       let messages = [];
 
       // 从数据库获取私人聊天记录
@@ -5730,14 +5753,18 @@ async function cleanExpiredFiles() {
       
       for (const file of files) {
         const filePath = path.join(uploadDir, file);
-        // 从文件名中提取时间戳（格式：..._timestamp.ext）
-        const match = file.match(/_([0-9]+)\.[^.]+$/);
-        if (match) {
-          const fileTimestamp = parseInt(match[1]);
-          if (fileTimestamp < sevenDaysAgo) {
+        try {
+          // 获取文件的系统更改时间（mtime）
+          const stats = fs.statSync(filePath);
+          const fileMtime = stats.mtime.getTime();
+          
+          if (fileMtime < sevenDaysAgo) {
             fs.unlinkSync(filePath);
             deletedFileCount++;
           }
+        } catch (err) {
+          // 跳过无法访问的文件
+          console.warn(`⚠️ 无法处理文件 ${file}: ${err.message}`);
         }
       }
       console.log(`✅ 清理了 ${deletedFileCount} 个过期文件`);
@@ -5765,7 +5792,10 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
 
   console.log('⏰ 已设置定时任务：每天凌晨2点清理过期文件');
   
-  // 移除服务器启动时立即执行清理的代码，避免新上传的文件被误删
+  // 服务器启动时立即执行一次清理
+  cleanExpiredFiles().then(() => {
+    console.log('✅ 服务器启动时已执行过期文件清理');
+  });
 }
 
 // 在启动服务器之前设置定时任务

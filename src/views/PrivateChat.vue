@@ -61,7 +61,11 @@
           </div>
           <button @click="chatStore.clearQuotedMessage()" style="background: none; border: none; color: #999; font-size: 18px; cursor: pointer; padding: 0 5px;">×</button>
         </div>
-        <div class="input-container" id="privateInputContainer">
+        <div class="input-container" id="privateInputContainer"
+          @drop="handlePrivateDrop"
+          @dragover="handlePrivateDragOver"
+          @dragenter="handlePrivateDragEnter"
+          @dragleave="handlePrivateDragLeave">
           <div 
             ref="privateMessageInputRef"
             id="privateMessageInput" 
@@ -72,6 +76,12 @@
             @input="handlePrivateMessageInput"
             @paste="handlePrivatePaste"
           ></div>
+          <div v-if="isDragOver" class="drop-overlay">
+            <div class="drop-content">
+              <i class="fas fa-cloud-upload-alt"></i>
+              <p>松开即可发送</p>
+            </div>
+          </div>
         </div>
         <div class="input-buttons" id="privateInputButtons">
           <button id="sendPrivateMessage" @click="handleSendPrivateMessage">发送</button>
@@ -132,6 +142,8 @@ const privateMessageInputRef = ref(null);
 const privateImageInputRef = ref(null);
 const privateFileInputRef = ref(null);
 const privateMessageContainerRef = ref(null);
+const isDragOver = ref(false);
+let dragCounter = 0;
 let previousPrivateMessageLength = 0;
 
 const currentUserId = computed(() => chatStore.currentUser?.id);
@@ -207,6 +219,11 @@ function applySavedPrivateState() {
     
     initializePrivateChatInterface();
     loadPrivateChatHistory(chatStore.currentPrivateChatUserId);
+    
+    // 重新初始化滚动监听器
+    nextTick(() => {
+      initializeScrollLoading(true);
+    });
   }
 }
 
@@ -221,6 +238,14 @@ function toggleMoreFunctions() {
 function handlePrivateMessageInput() {
   if (privateMessageInputRef.value) {
     chatStore.privateMessageInput = privateMessageInputRef.value.textContent || privateMessageInputRef.value.innerHTML;
+    
+    const input = privateMessageInputRef.value;
+    const maxHeight = 180;
+    if (input.scrollHeight > maxHeight) {
+      input.style.overflowY = 'auto';
+    } else {
+      input.style.overflowY = 'hidden';
+    }
   }
 }
 
@@ -338,6 +363,8 @@ function insertPrivateNewLine() {
 
 function handlePrivatePaste(e) {
   const items = e.clipboardData.items;
+  let hasImageOrFile = false;
+  
   for (const item of items) {
     if (item.type.startsWith('image/')) {
       e.preventDefault();
@@ -345,6 +372,7 @@ function handlePrivatePaste(e) {
       if (file) {
         uploadPrivateImage(file);
       }
+      hasImageOrFile = true;
       break;
     } else if (item.type === 'application/octet-stream') {
       e.preventDefault();
@@ -352,7 +380,81 @@ function handlePrivatePaste(e) {
       if (file) {
         uploadPrivateFile(file);
       }
+      hasImageOrFile = true;
       break;
+    }
+  }
+  
+  if (!hasImageOrFile) {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text/plain') || e.clipboardData.getData('text');
+    if (text) {
+      document.execCommand('insertText', false, text);
+    }
+  }
+}
+
+function handlePrivateDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+}
+
+function handlePrivateDragEnter(e) {
+  e.preventDefault();
+  dragCounter++;
+  if (dragCounter === 1) {
+    isDragOver.value = true;
+  }
+}
+
+function handlePrivateDragLeave(e) {
+  e.preventDefault();
+  dragCounter--;
+  if (dragCounter === 0) {
+    isDragOver.value = false;
+  }
+}
+
+function handlePrivateDrop(e) {
+  e.preventDefault();
+  dragCounter = 0;
+  isDragOver.value = false;
+  
+  const files = e.dataTransfer.files;
+  if (files && files.length > 0) {
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        uploadPrivateImage(file);
+      } else {
+        uploadPrivateFile(file);
+      }
+    }
+    return;
+  }
+  
+  const items = e.dataTransfer.items;
+  if (items) {
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) {
+          if (file.type.startsWith('image/')) {
+            uploadPrivateImage(file);
+          } else {
+            uploadPrivateFile(file);
+          }
+        }
+        return;
+      }
+    }
+  }
+  
+  const text = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+  if (text) {
+    const privateMessageInput = document.getElementById('privateMessageInput');
+    if (privateMessageInput) {
+      privateMessageInput.focus();
+      document.execCommand('insertText', false, text);
     }
   }
 }

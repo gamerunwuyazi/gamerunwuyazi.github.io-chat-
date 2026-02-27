@@ -106,7 +106,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useChatStore } from '@/stores/chatStore';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -126,6 +126,22 @@ const props = defineProps({
 const chatStore = useChatStore();
 
 const isActive = ref(false);
+
+onMounted(() => {
+  const messageEl = document.querySelector(`[data-id="${props.message.id}"]`);
+  if (messageEl) {
+    messageEl.addEventListener('click', (e) => {
+      const link = e.target.closest('a.message-link, a.file-link');
+      if (link) {
+        e.preventDefault();
+        const href = link.getAttribute('href');
+        if (href) {
+          window.open(href, '_blank');
+        }
+      }
+    });
+  }
+});
 
 const messageUser = computed(() => {
   if (props.message.user) {

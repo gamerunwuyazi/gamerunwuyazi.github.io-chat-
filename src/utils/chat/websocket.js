@@ -226,11 +226,17 @@ function initializeWebSocket() {
                 store.addPublicMessage(message);
             }
             
-            // 更新公共聊天未读计数 - 如果不是自己发送的消息且页面不可见或浏览器没有焦点
+            // 更新公共聊天未读计数
+            // 规则：如果不是自己发送的消息，且(不在主聊天室 或 页面不可见 或 浏览器没有焦点)，则增加未读计数
             const isOwnMessage = String(currentUser.id) === String(message.userId);
             const isPageInvisible = window.isPageVisible === false;
             const isBrowserNotFocused = !document.hasFocus();
-            if (!isOwnMessage && (isPageInvisible || isBrowserNotFocused)) {
+            const isMainChat = currentActiveChat === 'main';
+            
+            // 如果在主聊天室且浏览器有焦点且页面可见，不增加未读计数
+            const shouldAddUnread = !isOwnMessage && !(isMainChat && !isPageInvisible && !isBrowserNotFocused);
+            
+            if (shouldAddUnread) {
                 if (store && store.unreadMessages) {
                     store.unreadMessages.global = (store.unreadMessages.global || 0) + 1;
                 }

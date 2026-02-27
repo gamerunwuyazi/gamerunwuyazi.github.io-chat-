@@ -2059,7 +2059,12 @@ body {
     border-radius: 8px;
     padding: 10px;
     transition: all 0.3s ease;
-    max-height: 220px; /* 输入框最大高度200px + 内边距10px*2 */
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.input-container:has(.drop-overlay) {
+    overflow: visible;
 }
 
 .input-container:focus-within {
@@ -2067,10 +2072,40 @@ body {
     box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
 }
 
+.drop-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(52, 152, 219, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    z-index: 10;
+    pointer-events: none;
+}
+
+.drop-content {
+    text-align: center;
+    color: white;
+}
+
+.drop-content i {
+    font-size: 48px;
+    margin-bottom: 10px;
+}
+
+.drop-content p {
+    font-size: 16px;
+    font-weight: bold;
+}
+
 #messageInput, #groupMessageInput, #privateMessageInput, .editable-div {
     width: 100%;
     min-height: 60px;
-    max-height: 200px;
+    max-height: 180px !important;
     border: none;
     background: transparent;
     resize: none;
@@ -2081,9 +2116,27 @@ body {
     color: #495057;
     outline: none;
     box-sizing: border-box;
-    overflow-y: auto;
     white-space: pre-wrap;
     word-wrap: break-word;
+    scrollbar-width: thin;
+    scrollbar-color: #ccc transparent;
+    display: block;
+    overflow-y: auto !important;
+}
+
+#messageInput::-webkit-scrollbar,
+#groupMessageInput::-webkit-scrollbar,
+#privateMessageInput::-webkit-scrollbar,
+.editable-div::-webkit-scrollbar {
+    width: 6px;
+}
+
+#messageInput::-webkit-scrollbar-thumb,
+#groupMessageInput::-webkit-scrollbar-thumb,
+#privateMessageInput::-webkit-scrollbar-thumb,
+.editable-div::-webkit-scrollbar-thumb {
+    background-color: #ccc;
+    border-radius: 3px;
 }
 
 /* 可编辑div的placeholder样式 - 使用更高优先级的选择器 */
@@ -2141,6 +2194,7 @@ body {
     font: inherit;
     text-align: left;
     word-break: break-word;
+    overflow: visible;
 }
 
 #messageInput::placeholder {

@@ -623,15 +623,19 @@ function updateTitleWithUnreadCount() {
 function handlePageVisibilityChange() {
   isPageVisible = !document.hidden;
 
-  // 页面从不可见变为可见时，只清除主聊天室的未读计数（群组和私信只在点击时清除）
+  // 页面从不可见变为可见时，只有在当前确实在主聊天室时才清除未读计数
+  // 群组和私信的未读计数只在点击进入时清除
   if (isPageVisible) {
     const chat = currentActiveChat || '';
     if (typeof chat !== 'string') {
       return;
     }
 
-    if (chat === 'main') {
-      // 清除主聊天室未读计数
+    // 检查当前路径是否为主聊天室（/chat 或 /chat/）
+    const isMainChatPage = window.location.pathname === '/chat' || window.location.pathname === '/chat/';
+    
+    if (chat === 'main' && isMainChatPage) {
+      // 只有在主聊天室页面时才清除未读计数
       if (unreadMessages.global > 0) {
         unreadMessages.global = 0;
         updateTitleWithUnreadCount();
@@ -643,13 +647,17 @@ function handlePageVisibilityChange() {
 function handleFocusChange() {
   isPageVisible = document.hasFocus();
 
-  // 页面获得焦点时，只清除主聊天室的未读计数（群组和私信只在点击时清除）
+  // 页面获得焦点时，只有在当前确实在主聊天室时才清除未读计数
+  // 群组和私信的未读计数只在点击进入时清除
   if (isPageVisible) {
     const chat = currentActiveChat || '';
     if (typeof chat !== 'string') return;
 
-    if (chat === 'main') {
-      // 清除主聊天室未读计数
+    // 检查当前路径是否为主聊天室（/chat 或 /chat/）
+    const isMainChatPage = window.location.pathname === '/chat' || window.location.pathname === '/chat/';
+    
+    if (chat === 'main' && isMainChatPage) {
+      // 只有在主聊天室页面时才清除未读计数
       if (unreadMessages.global > 0) {
         unreadMessages.global = 0;
         updateTitleWithUnreadCount();
