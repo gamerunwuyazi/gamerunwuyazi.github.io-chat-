@@ -1,7 +1,6 @@
 <template>
   <div class="chat-content" data-content="private-chat">
     <div v-if="!isPrivateChatVisible" class="empty-chat-state">
-      <div class="empty-icon">👤</div>
       <h3>选择一个好友开始聊天</h3>
       <p>请从左侧好友列表中选择一个好友，开始私聊会话</p>
     </div>
@@ -14,15 +13,14 @@
             <span v-else class="user-initials">{{ currentUserInitials }}</span>
           </div>
           <div class="private-user-details">
-            <h2 v-html="currentUserName"></h2>
+            <h2>{{ displayCurrentUserName }}</h2>
             <div class="user-status">
               {{ isUserOnline(chatStore.currentPrivateChatUserId) ? '在线' : '离线' }}
             </div>
           </div>
         </div>
         <div class="private-actions">
-          <button id="privateUserInfoButton" title="查看用户资料" @click="handlePrivateUserInfoClick">👤</button>
-          <button id="deleteFriendButton" title="删除好友" @click="handleDeleteFriendClick">🗑️</button>
+          <button id="privateUserInfoButton" title="查看用户资料" @click="handlePrivateUserInfoClick"><img src="/icon/User-Profile-256-2.ico" alt="查看用户资料" style="width: 15px; height: 15px;"></button>
         </div>
       </div>
 
@@ -135,7 +133,6 @@ import {
   uploadPrivateFile,
   unescapeHtml
 } from "@/utils/chat";
-import toast from "@/utils/toast";
 
 const chatStore = useChatStore();
 const route = useRoute();
@@ -204,6 +201,10 @@ const currentUserInitials = ref('U');
 const showMarkdownToolbar = ref(false);
 const showMoreFunctions = ref(false);
 
+const displayCurrentUserName = computed(() => {
+  return unescapeHtml(currentUserName.value || '好友昵称');
+});
+
 function applySavedPrivateState() {
   if (chatStore.currentPrivateChatUserId) {
     setActiveChat('private', chatStore.currentPrivateChatUserId, false);
@@ -254,6 +255,8 @@ function handlePrivateMessageInput() {
     if (!textContent && (!htmlContent || htmlContent === '<br>' || htmlContent === '<br/>' || htmlContent === '<br />')) {
       input.innerHTML = '';
     }
+    
+    input.scrollTop = input.scrollHeight;
   }
 }
 
@@ -291,49 +294,6 @@ function handlePrivateUserInfoClick() {
     window.showUserProfile(user);
   } else {
     chatStore.openModal('userProfile', user);
-  }
-}
-
-function handleDeleteFriendClick() {
-  if (!chatStore.currentPrivateChatUserId) {
-    toast.warning('请先选择一个好友');
-    return;
-  }
-  const user = chatStore.currentUser;
-  const sessionToken = chatStore.currentSessionToken;
-  
-  if (!user || !sessionToken) {
-    toast.warning('请先登录');
-    return;
-  }
-  
-  if (confirm('确定要删除这个好友吗？')) {
-    fetch(`${chatStore.SERVER_URL}/user/remove-friend`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': user.id,
-        'session-token': sessionToken
-      },
-      body: JSON.stringify({
-        friendId: chatStore.currentPrivateChatUserId
-      })
-    })
-      .then(response => response.json())
-      .then(data => {
-        if (data.status === 'success') {
-          toast.success('删除好友成功');
-          if (window.loadFriendsList) {
-            window.loadFriendsList();
-          }
-          isPrivateChatVisible.value = false;
-        } else {
-          toast.error(data.message || '删除好友失败');
-        }
-      })
-      .catch(() => {
-        toast.error('删除好友失败，网络错误');
-      });
   }
 }
 
@@ -585,6 +545,10 @@ watch(
           initializeScrollLoading(true);
         }, 100);
       });
+    }
+    // 当用户 ID 变为 null 时（好友删除或退出），隐藏私信聊天界面
+    if (!newUserId) {
+      isPrivateChatVisible.value = false;
     }
   }
 );

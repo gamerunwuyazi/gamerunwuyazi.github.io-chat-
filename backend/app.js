@@ -720,11 +720,15 @@ function validateNickname(nickname) {
 }
 
 function validateMessageContent(content) {
-  // 对于普通消息，只要求内容是有效的字符串类型，不限制长度
+  // 对于普通消息，要求内容是有效的字符串类型，且长度不超过10000字符
   if (content && typeof content === 'string') {
     // 直接使用原始内容，不进行HTML转义
     // 前端将负责安全的解析和渲染
-    return true; // 不再限制长度，只要求是有效的字符串
+    // 限制消息长度为10000字符
+    if (content.length > 10000) {
+      return false;
+    }
+    return true;
   }
   // 允许空内容的消息（用于图片消息）
   return ip;
@@ -1089,13 +1093,13 @@ app.get('/user/friends', validateIPAndSession, async (req, res) => {
   try {
     const userId = parseInt(req.userId);
     
-    // 查询用户的好友列表，按最后私信消息时间排序
+    // 查询用户的好友列表，按 ID 排序
     const [friends] = await pool.execute(`
-      SELECT cu.id, cu.nickname, cu.username, cu.avatar_url, cf.last_message_time
+      SELECT cu.id, cu.nickname, cu.username, cu.avatar_url
       FROM chat_friends cf 
       JOIN chat_users cu ON cf.friend_id = cu.id 
       WHERE cf.user_id = ?
-      ORDER BY cf.last_message_time DESC, cf.created_at DESC
+      ORDER BY cf.id DESC
     `, [userId]);
     
     res.json({
@@ -1145,18 +1149,35 @@ app.post('/user/add-friend', validateIPAndSession, async (req, res) => {
     await pool.execute('INSERT INTO chat_friends (user_id, friend_id) VALUES (?, ?)', [userId, friendIdNum]);
     await pool.execute('INSERT INTO chat_friends (user_id, friend_id) VALUES (?, ?)', [friendIdNum, userId]);
     
-    // 向被添加好友的用户发送WebSocket事件，通知其更新私信会话列表
+    // 向被添加好友的用户发送 WebSocket 事件，通知其更新私信会话列表
     for (let [socketId, user] of onlineUsers.entries()) {
       if (user.id === friendIdNum) {
         const socket = io.sockets.sockets.get(socketId);
         if (socket) {
-          // 发送更新好友列表的事件
+          // 发送好友添加事件，包含好友 ID
+          socket.emit('friend-added', {
+            friendId: userId,
+            timestamp: Date.now()
+          });
+          // 同时发送更新好友列表的事件
           socket.emit('friend-list-updated', {
             message: '好友列表已更新',
             timestamp: Date.now()
           });
         }
         break;
+      }
+    }
+    
+    // 也给添加好友的人发送事件
+    const requesterSocket = Array.from(onlineUsers.entries()).find(([_, user]) => user.id === userId);
+    if (requesterSocket) {
+      const socket = io.sockets.sockets.get(requesterSocket[0]);
+      if (socket) {
+        socket.emit('friend-added', {
+          friendId: friendIdNum,
+          timestamp: Date.now()
+        });
       }
     }
     
@@ -1196,7 +1217,13 @@ app.post('/user/remove-friend', validateIPAndSession, async (req, res) => {
     // 通知被删除的好友刷新好友列表
     const friendSocket = findSocketByUserId(friendIdNum);
     if (friendSocket) {
-      friendSocket.emit('friend-removed', { userId: userId });
+      friendSocket.emit('friend-removed', { friendId: userId });
+    }
+    
+    // 也通知删除好友的人
+    const requesterSocket = findSocketByUserId(userId);
+    if (requesterSocket) {
+      requesterSocket.emit('friend-removed', { friendId: friendIdNum });
     }
 
     res.json({ status: 'success', message: '删除好友成功' });
@@ -1456,10 +1483,8 @@ async function initializeDatabase() {
           description TEXT,
           creator_id INT NOT NULL,
           avatar_url VARCHAR(500) DEFAULT NULL,
-          last_message_time TIMESTAMP NULL DEFAULT NULL COMMENT '最后消息时间，用于排序',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           INDEX creator_id_index (creator_id),
-          INDEX last_message_time_index (last_message_time),
           FOREIGN KEY (creator_id) REFERENCES chat_users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
       `);
@@ -1486,14 +1511,12 @@ async function initializeDatabase() {
           id INT AUTO_INCREMENT PRIMARY KEY,
           user_id INT NOT NULL,
           friend_id INT NOT NULL,
-          last_message_time TIMESTAMP NULL DEFAULT NULL COMMENT '最后私信消息时间，用于排序',
           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (user_id) REFERENCES chat_users(id) ON DELETE CASCADE,
           FOREIGN KEY (friend_id) REFERENCES chat_users(id) ON DELETE CASCADE,
           UNIQUE KEY unique_friendship (user_id, friend_id),
           INDEX idx_friends_user_id (user_id),
-          INDEX idx_friends_friend_id (friend_id),
-          INDEX idx_friends_last_message_time (last_message_time)
+          INDEX idx_friends_friend_id (friend_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
       `);
       
@@ -2659,11 +2682,11 @@ app.get('/user-groups/:userId', validateIPAndSession, async (req, res) => {
 
     // console.log('🔍 正在查询用户', userId, '的群组');
     const [groups] = await pool.execute(`
-      SELECT g.*, gm.joined_at
+      SELECT g.*
       FROM chat_groups g 
       JOIN chat_group_members gm ON g.id = gm.group_id 
-      WHERE gm.user_id = ? 
-      ORDER BY g.last_message_time DESC, g.created_at DESC
+      WHERE gm.user_id = ?
+      ORDER BY g.id DESC
     `, [userId]);
 
     // console.log('✅ 查询结果: 找到', groups.length, '个群组');
@@ -3287,18 +3310,12 @@ app.post('/upload', validateIPAndSession, checkFileRequestLimit, upload.fields([
     if (safeGroupId) {
       io.to(`group_${safeGroupId}`).emit('message-received', newMessage);
       
-      // 更新群组的最后消息时间
-      await pool.execute(
-        'UPDATE chat_groups SET last_message_time = NOW() WHERE id = ?',
-        [safeGroupId]
-      );
-      
-      // 确保groupId是字符串类型，避免Map键类型不一致
+      // 确保 groupId 是字符串类型，避免 Map 键类型不一致
       const groupIdStr = String(safeGroupId);
       // 直接将新消息添加到群组消息缓存
       let cachedGroupMessages = messageCache.groups.get(groupIdStr) || [];
       cachedGroupMessages.unshift(newMessage);
-      // 保留最新的50条消息
+      // 保留最新的 50 条消息
       cachedGroupMessages = cachedGroupMessages.slice(0, 50);
       messageCache.groups.set(groupIdStr, cachedGroupMessages);
       messageCache.lastUpdated = Date.now();
@@ -3328,23 +3345,17 @@ app.post('/upload', validateIPAndSession, checkFileRequestLimit, upload.fields([
         }
       } catch (unreadErr) {
         console.error('更新未读消息计数失败:', unreadErr.message);
-      }
-      
-      // 更新群组的最后消息时间
-      await pool.execute(
-        'UPDATE chat_groups SET last_message_time = NOW() WHERE id = ?',
-        [parseInt(groupId)]
-      );
-    } else {
-      io.emit('message-received', newMessage);
-      // 直接将新消息添加到全局消息缓存
-      let cachedGlobalMessages = messageCache.global || [];
-      cachedGlobalMessages.unshift(newMessage);
-      // 保留最新的50条消息
-      cachedGlobalMessages = cachedGlobalMessages.slice(0, 50);
-      messageCache.global = cachedGlobalMessages;
-      messageCache.lastUpdated = Date.now();
     }
+  } else {
+    io.emit('message-received', newMessage);
+    // 直接将新消息添加到全局消息缓存
+    let cachedGlobalMessages = messageCache.global || [];
+    cachedGlobalMessages.unshift(newMessage);
+    // 保留最新的 50 条消息
+    cachedGlobalMessages = cachedGlobalMessages.slice(0, 50);
+    messageCache.global = cachedGlobalMessages;
+    messageCache.lastUpdated = Date.now();
+  }
 
     // 根据文件类型返回正确的URL
     if (isImage) {
@@ -3525,7 +3536,7 @@ io.on('connection', (socket) => {
   // 获取群组聊天历史（不依赖join-group事件）
   socket.on('get-group-chat-history', async (data) => {
       try {
-        const { groupId } = data;
+        const { groupId, loadTime } = data;
         const userId = data.userId;
 
         
@@ -3578,7 +3589,8 @@ io.on('connection', (socket) => {
           groupId: groupId,
           messages: messages,
           lastUpdate: messageCache.lastUpdated,
-          loadMore: data.loadMore || false
+          loadMore: data.loadMore || false,
+          loadTime: loadTime
         });
       } catch (err) {
         console.error('❌ 处理获取群组聊天历史请求时出错:', err.message);
@@ -3589,17 +3601,17 @@ io.on('connection', (socket) => {
   // 用户加入聊天室
   socket.on('user-joined', async (userData) => {
       try {
-        // 会话和IP验证...
+        // 会话和 IP 验证...
         const isValid = await validateSocketSession(socket, userData);
         if (!isValid) {
           return;
         }
         
-        // 确保用户ID是数字类型，防止SQL注入
+        // 确保用户 ID 是数字类型，防止 SQL 注入
         const userId = parseInt(userData.userId);
         if (isNaN(userId)) {
-          console.error('❌ 无效的用户ID:', userData.userId);
-          socket.emit('error', { message: '无效的用户ID' });
+          console.error('❌ 无效的用户 ID:', userData.userId);
+          socket.emit('error', { message: '无效的用户 ID' });
           return;
         }
         
@@ -3716,12 +3728,68 @@ io.on('connection', (socket) => {
           }
         }
 
+        // 如果有未读群组消息，获取每个群组的最后消息时间
+        let groupLastMessageTimes = {};
+        if (Object.keys(unreadMessages).length > 0) {
+          try {
+            const promises = Object.keys(unreadMessages).map(async (groupId) => {
+              try {
+                const [results] = await pool.execute(
+                  'SELECT MAX(timestamp) as last_time FROM chat_messages WHERE group_id = ?',
+                  [parseInt(groupId)]
+                );
+                if (!results || !results[0] || !results[0].last_time) {
+                  return [groupId, null];
+                }
+                return [groupId, results[0].last_time];
+              } catch (err) {
+                return [groupId, null];
+              }
+            });
+            
+            const results = await Promise.all(promises);
+            groupLastMessageTimes = Object.fromEntries(results);
+          } catch (err) {
+            console.error('获取群组最后消息时间失败:', err.message);
+          }
+        }
+
+        // 如果有未读私信消息，获取每个好友的最后消息时间
+        let privateLastMessageTimes = {};
+        if (Object.keys(privateUnreadMessages).length > 0) {
+          try {
+            const promises = Object.keys(privateUnreadMessages).map(async (friendId) => {
+              try {
+                const [results] = await pool.execute(
+                  `SELECT MAX(timestamp) as last_time FROM chat_private_messages 
+                   WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)`,
+                  [userId, parseInt(friendId), parseInt(friendId), userId]
+                );
+                if (!results || !results[0] || !results[0].last_time) {
+                  return [friendId, null];
+                }
+                return [friendId, results[0].last_time];
+              } catch (err) {
+                return [friendId, null];
+              }
+            });
+            
+            const results = await Promise.all(promises);
+            privateLastMessageTimes = Object.fromEntries(results);
+          } catch (err) {
+            console.error('获取私信最后消息时间失败:', err.message);
+          }
+        }
+
+        // 发送聊天历史
         socket.emit('chat-history', {
           messages: messages,
           lastUpdate: messageCache.lastUpdated,
           loadMore: loadMore,
           unreadMessages: unreadMessages,
           unreadPrivateMessages: privateUnreadMessages,
+          groupLastMessageTimes: groupLastMessageTimes,
+          privateLastMessageTimes: privateLastMessageTimes,
           totalUnread: totalUnread + totalPrivateUnread
         });
     
@@ -3793,7 +3861,7 @@ io.on('connection', (socket) => {
   // 加入群组
   socket.on('join-group', async (data) => {
       try {
-        const { groupId, userId, sessionToken, loadMore = false, onlyClearUnread = false, noHistory = false } = data;
+        const { groupId, userId, sessionToken, loadMore = false, onlyClearUnread = false, noHistory = false, loadTime } = data;
     
         // console.log('👥 [群组加入] 收到请求:', {
         //   socketId: socket.id,
@@ -3884,7 +3952,8 @@ io.on('connection', (socket) => {
           lastUpdate: messageCache.lastUpdated,
           loadMore: loadMore,
           unreadMessages: unreadMessages,
-          totalUnread: totalUnread
+          totalUnread: totalUnread,
+          loadTime: loadTime
         });
       } catch (err) {
         console.error('❌ 加入群组失败:', err.message);
@@ -3928,13 +3997,24 @@ io.on('connection', (socket) => {
     
         // 验证消息内容...
         if (!validateMessageContent(content)) {
-          console.error('❌ 消息内容格式错误');
-          socket.emit('error', { message: '消息内容格式错误' });
+          console.error('❌ 消息内容格式错误或超过10000字符限制');
+          socket.emit('error', { message: '消息内容格式错误或超过10000字符限制' });
           return;
         }
     
         // 如果是群组消息，验证用户是否在群组中
         if (groupId) {
+          // 先检查群组是否存在
+          const [groupCheck] = await pool.execute(
+            'SELECT id FROM chat_groups WHERE id = ?',
+            [parseInt(groupId)]
+          );
+          
+          if (groupCheck.length === 0) {
+            socket.emit('error', { message: '群组不存在' });
+            return;
+          }
+          
           const [memberCheck] = await pool.execute(
             'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
             [parseInt(groupId), parseInt(userId)]
@@ -4208,12 +4288,6 @@ io.on('connection', (socket) => {
           } catch (unreadErr) {
             console.error('更新未读消息计数失败:', unreadErr.message);
           }
-          
-          // 更新群组的最后消息时间
-          await pool.execute(
-            'UPDATE chat_groups SET last_message_time = NOW() WHERE id = ?',
-            [parseInt(groupId)]
-          );
         } else {
           // 全局消息：发送给所有用户
           io.emit('message-received', newMessage);
@@ -4250,8 +4324,8 @@ io.on('connection', (socket) => {
 
       // 验证消息内容
       if (!validateMessageContent(content)) {
-        console.error('❌ 消息内容格式错误');
-        socket.emit('error', { message: '消息内容格式错误' });
+        console.error('❌ 消息内容格式错误或超过10000字符限制');
+        socket.emit('error', { message: '消息内容格式错误或超过10000字符限制' });
         return;
       }
 
@@ -4384,21 +4458,6 @@ io.on('connection', (socket) => {
         );
       } catch (unreadErr) {
         console.error('更新私信未读计数失败:', unreadErr.message);
-      }
-      
-      // 更新好友关系的最后私信消息时间
-      try {
-        // 更新发送者与接收者的好友关系中的最后消息时间
-        await pool.execute(
-          'UPDATE chat_friends SET last_message_time = NOW() WHERE user_id = ? AND friend_id = ?',
-          [userId, parseInt(receiverId)]
-        );
-        await pool.execute(
-          'UPDATE chat_friends SET last_message_time = NOW() WHERE user_id = ? AND friend_id = ?',
-          [parseInt(receiverId), userId]
-        );
-      } catch (lastMsgErr) {
-        console.error('更新最后私信消息时间失败:', lastMsgErr.message);
       }
       
       // 发送私信给发送者（自己也能看到自己发送的私信）
@@ -4857,7 +4916,7 @@ io.on('connection', (socket) => {
       );
 
       if (messages.length === 0) {
-        console.error('❌ 消息不存在:', messageId);
+        // console.error('❌ 消息不存在:', messageId);
         socket.emit('error', { message: '消息不存在' });
         return;
       }
@@ -5482,8 +5541,8 @@ app.post('/send-message', validateIPAndSession, async (req, res) => {
 
     // 验证消息内容
     if (!validateMessageContent(content)) {
-      console.error('❌ 消息内容格式错误');
-      return res.status(400).json({ status: 'error', message: '消息内容格式错误' });
+      console.error('❌ 消息内容格式错误或超过10000字符限制');
+      return res.status(400).json({ status: 'error', message: '消息内容格式错误或超过10000字符限制' });
     }
 
     // 获取用户信息
@@ -5625,28 +5684,54 @@ async function initializeMessageSequences() {
 
 async function startServer() {
   try {
+    // 每天凌晨2点执行
+    schedule.scheduleJob('0 0 2 * * *', cleanExpiredFiles);
+
+    console.log(`
+__  ___/__(_)______ ______________  /____     _________  /_______ __  /_   __________________________ ___ 
+_____ \\__  /__  __ \`__ \\__  __ \\_  /_  _ \\    _  ___/_  __ \\  __ \`/  __/   __  ___/  __ \\  __ \\_  __ \`__ \\
+____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  /   / /_/ / /_/ /  / / / / /
+/____/ /_/  /_/ /_/ /_/_  .___//_/  \\___/     \\___/ /_/ /_/\\__,_/ \\__/     /_/    \\____/\\____//_/ /_/ /_/ 
+                      /_/                                                                                 
+    `);
+
+    console.log('⏰ 已设置定时任务：每天凌晨2点清理过期文件');
+    
+    // 服务器启动时立即执行一次清理
+    cleanExpiredFiles()
+
     await initializeDatabase();
     await loadSessionsFromDatabase();
     await initializeMessageSequences();
     
-    // 初始化消息缓存，确保第一次获取消息时缓存不是空的
-    // 获取更多消息以确保包含所有最新消息，特别是那些可能因为sequence值问题而被遗漏的消息
-    const globalMessages = await getGlobalMessages(50);
-    messageCache.global = globalMessages;
-    messageCache.lastUpdated = Date.now();
-    // console.log(`📊 初始化全局消息缓存完成，包含${globalMessages.length}条消息`);
-    
-    // 获取所有群组ID，初始化每个群组的消息缓存
-    const [groups] = await pool.execute('SELECT DISTINCT group_id FROM chat_messages WHERE group_id IS NOT NULL');
-    for (const group of groups) {
-      // 获取更多消息以确保包含所有最新消息，特别是那些可能因为sequence值问题而被遗漏的消息
-      const groupMessages = await getGroupMessages(group.group_id, 50);
-      // 确保使用字符串类型作为Map键
-      messageCache.groups.set(String(group.group_id), groupMessages);
-      messageCache.lastUpdated = Date.now();
-      // console.log(`📊 初始化群组${group.group_id}缓存完成，包含${groupMessages.length}条消息`);
-    }
-
+    // 初始化消息缓存（不阻塞服务器启动）
+    // 在后台异步初始化缓存，服务器会立即启动
+    (async () => {
+      try {
+        // console.log('📊 开始初始化消息缓存...');
+        
+        // 初始化全局消息缓存
+        const globalMessages = await getGlobalMessages(50);
+        messageCache.global = globalMessages;
+        messageCache.lastUpdated = Date.now();
+        // console.log(`✅ 初始化全局消息缓存完成，包含${globalMessages.length}条消息`);
+        
+        // 获取所有群组 ID，初始化每个群组的消息缓存
+        const [groups] = await pool.execute('SELECT DISTINCT group_id FROM chat_messages WHERE group_id IS NOT NULL');
+        for (const group of groups) {
+          // 获取更多消息以确保包含所有最新消息
+          const groupMessages = await getGroupMessages(group.group_id, 50);
+          // 确保使用字符串类型作为 Map 键
+          messageCache.groups.set(String(group.group_id), groupMessages);
+          messageCache.lastUpdated = Date.now();
+          // console.log(`✅ 初始化群组${group.group_id}缓存完成，包含${groupMessages.length}条消息`);
+        }
+        
+        // console.log('📊 消息缓存初始化完成');
+      } catch (err) {
+        console.error('❌ 初始化消息缓存失败:', err.message);
+      }
+    })();
 
     server.listen(PORT, '0.0.0.0', () => {
       console.log('🚀 服务器启动成功!');
@@ -5776,27 +5861,5 @@ async function cleanExpiredFiles() {
     console.error('❌ 清理过期文件失败:', err.message);
   }
 }
-
-// 设置定时任务，每天凌晨2点执行清理
-function scheduleCleanupTask() {
-  // 每天凌晨2点执行
-  schedule.scheduleJob('0 0 2 * * *', cleanExpiredFiles);
-
-  console.log(`
-__  ___/__(_)______ ______________  /____     _________  /_______ __  /_   __________________________ ___ 
-_____ \\__  /__  __ \`__ \\__  __ \\_  /_  _ \\    _  ___/_  __ \\  __ \`/  __/   __  ___/  __ \\  __ \\_  __ \`__ \\
-____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  /   / /_/ / /_/ /  / / / / /
-/____/ /_/  /_/ /_/ /_/_  .___//_/  \\___/     \\___/ /_/ /_/\\__,_/ \\__/     /_/    \\____/\\____//_/ /_/ /_/ 
-                       /_/                                                                                 
-`);
-
-  console.log('⏰ 已设置定时任务：每天凌晨2点清理过期文件');
-  
-  // 服务器启动时立即执行一次清理
-  cleanExpiredFiles()
-}
-
-// 在启动服务器之前设置定时任务
-scheduleCleanupTask();
 
 startServer();

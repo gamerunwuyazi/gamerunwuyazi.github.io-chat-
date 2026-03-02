@@ -1,5 +1,4 @@
 <template>
-  <div>
     <!-- 群组信息模态框 -->
     <div id="groupInfoModal" class="modal" v-if="chatStore.showGroupInfoModal" :style="modalStyle" @click="chatStore.closeModal('groupInfo')">
       <div class="modal-content" style="max-height: 85vh; max-width: 450px; width: 90%; display: flex; flex-direction: column; background: #f5f5f5;" @click.stop>
@@ -123,8 +122,10 @@
             加载群组信息中...
           </div>
         </div>
-        <div class="modal-footer" style="flex-shrink: 0; background: #f5f5f5; border-top: none; padding: 12px 16px; justify-content: flex-end;">
-          <button id="modalCloseButton" class="cancel-btn" @click="chatStore.closeModal('groupInfo')" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">关闭</button>
+        <div class="modal-footer" style="flex-shrink: 0; background: #f5f5f5; border-top: none; padding: 12px 16px; justify-content: space-between;">
+          <button v-if="isCurrentUserGroupOwner" @click="handleDissolveGroup" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">解散群组</button>
+          <button v-else @click="handleLeaveGroup" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">退出群组</button>
+          <button id="modalCloseButton" class="cancel-btn" @click="chatStore.closeModal('groupInfo')" style="background: #95a5a6; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">关闭</button>
         </div>
       </div>
     </div>
@@ -201,9 +202,9 @@
         </div>
         <div class="modal-body">
           <div v-if="chatStore.modalData.userProfile" class="user-profile-container">
-            <div class="user-profile-avatar">
+            <div class="user-profile-avatar" style="width: 80px; height: 80px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
               <img v-if="chatStore.modalData.userProfile.avatarUrl" :src="getFullAvatarUrl(chatStore.modalData.userProfile.avatarUrl)" alt="用户头像" class="user-avatar-img" loading="lazy" width="80" height="80" style="aspect-ratio: 1/1; object-fit: cover; border-radius: 50%;">
-              <span v-else class="user-initials">{{ getUserInitials(chatStore.modalData.userProfile.nickname) }}</span>
+              <span v-else class="user-initials" style="font-size: 32px; color: white; font-weight: bold;">{{ getUserInitials(chatStore.modalData.userProfile.nickname) }}</span>
             </div>
             <div class="user-profile-info">
               <div class="user-profile-item">
@@ -230,8 +231,9 @@
             <span>加载用户资料中...</span>
           </div>
         </div>
-        <div class="modal-footer">
-          <button id="closeUserProfileButton" class="cancel-btn" @click="chatStore.closeModal('userProfile')">关闭</button>
+        <div class="modal-footer" style="justify-content: space-between;">
+          <button id="deleteFriendButton" @click="handleDeleteFriend" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">删除好友</button>
+          <button id="closeUserProfileButton" class="cancel-btn" @click="chatStore.closeModal('userProfile')" style="background: #95a5a6; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">关闭</button>
         </div>
       </div>
     </div>
@@ -361,7 +363,6 @@
         </div>
       </div>
     </div>
-  </div>
 </template>
 
 <style>
@@ -783,11 +784,28 @@ async function loadGroupMembers(groupId) {
 async function loadAvailableMembers() {
   loadingMembers.value = true;
   try {
-    availableMembers.value = [...chatStore.onlineUsers, ...chatStore.offlineUsers]
-      .filter(user => user.id !== chatStore.currentUser?.id)
-      .filter((user, index, self) => 
-        index === self.findIndex(u => u.id === user.id)
-      );
+    // 直接从服务器获取最新的好友列表
+    const user = chatStore.currentUser;
+    const sessionToken = chatStore.currentSessionToken;
+    
+    const friendsResponse = await fetch(`${chatStore.SERVER_URL}/user/friends`, {
+      headers: {
+        'user-id': user?.id || '',
+        'session-token': sessionToken || ''
+      }
+    });
+    
+    const friendsData = await friendsResponse.json();
+    if (friendsData.status === 'success' && friendsData.friends) {
+      // 从好友列表中选择成员，而不是所有在线/离线用户
+      availableMembers.value = friendsData.friends
+        .filter(friend => String(friend.id) !== String(user?.id))
+        .filter((friend, index, self) => 
+          index === self.findIndex(f => String(f.id) === String(friend.id))
+        );
+    } else {
+      availableMembers.value = [];
+    }
   } catch (error) {
     console.error('加载可用成员失败:', error);
     availableMembers.value = [];
@@ -1014,6 +1032,124 @@ async function handleRemoveGroupMember(member) {
   } catch (error) {
     console.error('踢出成员失败:', error);
     toast.error('踢出成员失败');
+  }
+}
+
+async function handleDissolveGroup() {
+  const groupId = chatStore.modalData.groupInfo?.id;
+  if (!groupId) {
+    toast.error('群组信息不存在');
+    return;
+  }
+  
+  if (!confirm('确定要解散这个群组吗？此操作不可撤销！')) {
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${chatStore.SERVER_URL}/dissolve-group`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'user-id': chatStore.currentUser?.id || '',
+        'session-token': chatStore.currentSessionToken || ''
+      },
+      body: JSON.stringify({ groupId })
+    });
+    
+    const data = await response.json();
+    if (data.status === 'success') {
+      toast.success('群组已解散');
+      chatStore.closeModal('groupInfo');
+      chatStore.setCurrentGroupId(null);
+      if (window.loadGroupList) {
+        window.loadGroupList();
+      }
+    } else {
+      toast.error(data.message || '解散群组失败');
+    }
+  } catch (error) {
+    console.error('解散群组失败:', error);
+    toast.error('解散群组失败');
+  }
+}
+
+async function handleLeaveGroup() {
+  const groupId = chatStore.modalData.groupInfo?.id;
+  if (!groupId) {
+    toast.error('群组信息不存在');
+    return;
+  }
+  
+  if (!confirm('确定要退出这个群组吗？')) {
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${chatStore.SERVER_URL}/leave-group`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'user-id': chatStore.currentUser?.id || '',
+        'session-token': chatStore.currentSessionToken || ''
+      },
+      body: JSON.stringify({ groupId })
+    });
+    
+    const data = await response.json();
+    if (data.status === 'success') {
+      toast.success('已退出群组');
+      chatStore.closeModal('groupInfo');
+      chatStore.setCurrentGroupId(null);
+      if (window.loadGroupList) {
+        window.loadGroupList();
+      }
+    } else {
+      toast.error(data.message || '退出群组失败');
+    }
+  } catch (error) {
+    console.error('退出群组失败:', error);
+    toast.error('退出群组失败');
+  }
+}
+
+async function handleDeleteFriend() {
+  const friendId = chatStore.modalData.userProfile?.id;
+  if (!friendId) {
+    toast.error('用户信息不存在');
+    return;
+  }
+  
+  if (!confirm('确定要删除这个好友吗？')) {
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${chatStore.SERVER_URL}/user/remove-friend`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'user-id': chatStore.currentUser?.id || '',
+        'session-token': chatStore.currentSessionToken || ''
+      },
+      body: JSON.stringify({ friendId })
+    });
+    
+    const data = await response.json();
+    if (data.status === 'success') {
+      toast.success('删除好友成功');
+      chatStore.closeModal('userProfile');
+      if (window.loadFriendsList) {
+        window.loadFriendsList();
+      }
+      chatStore.setCurrentPrivateChatUserId(null);
+      chatStore.currentPrivateChatUserId = null;
+    } else {
+      toast.error(data.message || '删除好友失败');
+    }
+  } catch (error) {
+    console.error('删除好友失败:', error);
+    toast.error('删除好友失败');
   }
 }
 
@@ -1263,6 +1399,12 @@ function handleUserAvatarPopupAddFriend() {
           user.avatarUrl || user.avatar_url || user.avatar
         );
       }
+      // 将好友移到列表顶端（延迟执行，避免被页面加载逻辑覆盖）
+      setTimeout(() => {
+        if (chatStore && chatStore.moveFriendToTop) {
+          chatStore.moveFriendToTop(userAvatarPopupUserId.value);
+        }
+      }, 200);
     }
     return;
   }

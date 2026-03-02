@@ -380,7 +380,6 @@ onUnmounted(() => {
   <div class="chat-content" data-content="user-settings">
     <!-- 空白状态 - 没有选择设置项时显示 -->
     <div v-if="!currentSetting" class="empty-chat-state active">
-      <div class="empty-icon">⚙️</div>
       <h3>选择一个设置项进行配置</h3>
       <p>请从左侧设置列表中选择一个选项，进行个性化配置</p>
     </div>

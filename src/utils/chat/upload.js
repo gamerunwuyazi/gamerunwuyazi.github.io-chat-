@@ -25,6 +25,63 @@ function showSuccess(message) {
 // ============================================
 
 /**
+ * 使用 XMLHttpRequest 上传文件（支持进度显示）
+ */
+function uploadWithProgress(url, formData, store, onSuccess, onError) {
+  const xhr = new XMLHttpRequest();
+  
+  xhr.upload.addEventListener('progress', (e) => {
+    if (e.lengthComputable && store) {
+      const percentComplete = Math.round((e.loaded / e.total) * 100);
+      store.uploadProgress = percentComplete;
+    }
+  });
+  
+  xhr.addEventListener('load', () => {
+    if (store) {
+      store.showUploadProgress = false;
+      store.uploadProgress = 0;
+    }
+    
+    if (xhr.status === 413) {
+      onError('文件过大');
+      return;
+    }
+    
+    try {
+      const data = JSON.parse(xhr.responseText);
+      if (data.status === 'success') {
+        onSuccess(data);
+      } else {
+        onError(data.message || '上传失败');
+      }
+    } catch (e) {
+      onError('上传失败，请稍后重试');
+    }
+  });
+  
+  xhr.addEventListener('error', () => {
+    if (store) {
+      store.showUploadProgress = false;
+      store.uploadProgress = 0;
+    }
+    onError('上传失败，请稍后重试');
+  });
+  
+  xhr.addEventListener('abort', () => {
+    if (store) {
+      store.showUploadProgress = false;
+      store.uploadProgress = 0;
+    }
+  });
+  
+  xhr.open('POST', url);
+  xhr.setRequestHeader('user-id', currentUser.id);
+  xhr.setRequestHeader('session-token', currentSessionToken);
+  xhr.send(formData);
+}
+
+/**
  * 上传图片到当前聊天（公共或群组）
  * @param {File} file - 要上传的图片文件
  */
@@ -71,40 +128,13 @@ function uploadImage(file) {
         store.uploadProgress = 0;
       }
 
-      fetch(`${SERVER_URL}/upload`, {
-        method: 'POST',
-        headers: {
-          'user-id': currentUser.id,
-          'session-token': currentSessionToken
-        },
-        body: formData
-      })
-        .then(response => {
-          if (response.status === 413) {
-            throw new Error('文件过大');
-          }
-          return response.json();
-        })
-        .then(data => {
-          if (data.status === 'success') {
-            // 上传成功，不做额外处理
-          } else {
-            showError(data.message || '图片上传失败');
-          }
-        })
-        .catch(error => {
-          if (error.message && error.message.includes('Failed to fetch')) {
-            showError('文件过大');
-          } else {
-            showError(error.message || '图片上传失败，请稍后重试');
-          }
-        })
-        .finally(() => {
-          if (store) {
-            store.showUploadProgress = false;
-            store.uploadProgress = 0;
-          }
-        });
+      uploadWithProgress(
+        `${SERVER_URL}/upload`,
+        formData,
+        store,
+        () => {},
+        (error) => showError(error)
+      );
     };
 
     img.onerror = function() {
@@ -121,23 +151,18 @@ function uploadImage(file) {
         formData.append('groupId', groupId);
       }
 
-      fetch(`${SERVER_URL}/upload`, {
-        method: 'POST',
-        headers: {
-          'user-id': currentUser.id,
-          'session-token': currentSessionToken
-        },
-        body: formData
-      })
-        .then(response => response.json())
-        .then(data => {
-          if (data.status !== 'success') {
-            showError(data.message || '图片上传失败');
-          }
-        })
-        .catch(() => {
-          showError('图片上传失败，请稍后重试');
-        });
+      if (store) {
+        store.showUploadProgress = true;
+        store.uploadProgress = 0;
+      }
+
+      uploadWithProgress(
+        `${SERVER_URL}/upload`,
+        formData,
+        store,
+        () => {},
+        (error) => showError(error)
+      );
     };
 
     img.src = e.target.result;
@@ -184,40 +209,13 @@ function uploadFile(file) {
     store.uploadProgress = 0;
   }
 
-  fetch(`${SERVER_URL}/upload`, {
-    method: 'POST',
-    headers: {
-      'user-id': currentUser.id,
-      'session-token': currentSessionToken
-    },
-    body: formData
-  })
-    .then(response => {
-      if (response.status === 413) {
-        throw new Error('文件过大');
-      }
-      return response.json();
-    })
-    .then(data => {
-      if (data.status === 'success') {
-        // 上传成功，不做额外处理
-      } else {
-        showError(data.message || '文件上传失败');
-      }
-    })
-    .catch(error => {
-      if (error.message && error.message.includes('Failed to fetch')) {
-        showError('文件过大');
-      } else {
-        showError(error.message || '文件上传失败，请稍后重试');
-      }
-    })
-    .finally(() => {
-      if (store) {
-        store.showUploadProgress = false;
-        store.uploadProgress = 0;
-      }
-    });
+  uploadWithProgress(
+    `${SERVER_URL}/upload`,
+    formData,
+    store,
+    () => {},
+    (error) => showError(error)
+  );
 }
 
 /**
@@ -248,51 +246,30 @@ function uploadPrivateImage(file) {
   formData.append('userId', currentUser.id);
   formData.append('privateChat', true);
 
-  const uploadProgress = document.getElementById('privateUploadProgress');
-  const uploadProgressBar = document.getElementById('privateUploadProgressBar');
-  if (uploadProgress && uploadProgressBar) {
-    uploadProgress.style.display = 'block';
-    uploadProgressBar.style.width = '0%';
+  if (store) {
+    store.showUploadProgress = true;
+    store.uploadProgress = 0;
   }
 
-  fetch(`${SERVER_URL}/upload`, {
-    method: 'POST',
-    headers: {
-      'user-id': currentUser.id,
-      'session-token': currentSessionToken
-    },
-    body: formData
-  })
-    .then(response => response.json())
-    .then(data => {
-      if (data.status === 'success') {
-        const messageData = {
-          userId: currentUser.id,
-          content: JSON.stringify({ url: data.url, name: file.name }),
-          receiverId: privateChatUserId,
-          sessionToken: currentSessionToken,
-          messageType: 1
-        };
+  uploadWithProgress(
+    `${SERVER_URL}/upload`,
+    formData,
+    store,
+    (data) => {
+      const messageData = {
+        userId: currentUser.id,
+        content: JSON.stringify({ url: data.url, name: file.name }),
+        receiverId: privateChatUserId,
+        sessionToken: currentSessionToken,
+        messageType: 1
+      };
 
-        if (window.chatSocket) {
-          window.chatSocket.emit('private-message', messageData);
-        }
-      } else {
-        showError(data.message || '图片上传失败');
+      if (window.chatSocket) {
+        window.chatSocket.emit('private-message', messageData);
       }
-    })
-    .catch(() => {
-      showError('图片上传失败，请稍后重试');
-    })
-    .finally(() => {
-      if (uploadProgress) {
-        uploadProgress.style.display = 'none';
-      }
-      const privateImageInput = document.getElementById('privateImageInput');
-      if (privateImageInput) {
-        privateImageInput.value = '';
-      }
-    });
+    },
+    (error) => showError(error)
+  );
 }
 
 /**
@@ -323,51 +300,30 @@ function uploadPrivateFile(file) {
   formData.append('userId', currentUser.id);
   formData.append('privateChat', true);
 
-  const uploadProgress = document.getElementById('privateUploadProgress');
-  const uploadProgressBar = document.getElementById('privateUploadProgressBar');
-  if (uploadProgress && uploadProgressBar) {
-    uploadProgress.style.display = 'block';
-    uploadProgressBar.style.width = '0%';
+  if (store) {
+    store.showUploadProgress = true;
+    store.uploadProgress = 0;
   }
 
-  fetch(`${SERVER_URL}/upload`, {
-    method: 'POST',
-    headers: {
-      'user-id': currentUser.id,
-      'session-token': currentSessionToken
-    },
-    body: formData
-  })
-    .then(response => response.json())
-    .then(data => {
-      if (data.status === 'success') {
-        const messageData = {
-          userId: currentUser.id,
-          content: JSON.stringify({ url: data.url, name: file.name, size: file.size }),
-          receiverId: privateChatUserId,
-          sessionToken: currentSessionToken,
-          messageType: 2
-        };
+  uploadWithProgress(
+    `${SERVER_URL}/upload`,
+    formData,
+    store,
+    (data) => {
+      const messageData = {
+        userId: currentUser.id,
+        content: JSON.stringify({ url: data.url, name: file.name, size: file.size }),
+        receiverId: privateChatUserId,
+        sessionToken: currentSessionToken,
+        messageType: 2
+      };
 
-        if (window.chatSocket) {
-          window.chatSocket.emit('private-message', messageData);
-        }
-      } else {
-        showError(data.message || '文件上传失败');
+      if (window.chatSocket) {
+        window.chatSocket.emit('private-message', messageData);
       }
-    })
-    .catch(() => {
-      showError('文件上传失败，请稍后重试');
-    })
-    .finally(() => {
-      if (uploadProgress) {
-        uploadProgress.style.display = 'none';
-      }
-      const privateFileInput = document.getElementById('privateFileInput');
-      if (privateFileInput) {
-        privateFileInput.value = '';
-      }
-    });
+    },
+    (error) => showError(error)
+  );
 }
 
 /**

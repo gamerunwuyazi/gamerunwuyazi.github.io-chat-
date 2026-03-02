@@ -89,13 +89,6 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
     window.router.push('/chat/private');
   }
 
-  // 将好友移到列表顶端（在路由跳转后执行，避免被 loadFriendsList 覆盖）
-  setTimeout(() => {
-    if (store && store.moveFriendToTop) {
-      store.moveFriendToTop(userId);
-    }
-  }, 100);
-
   window.dispatchEvent(new CustomEvent('private-switched'));
   
   loadPrivateChatHistory(userId);
@@ -362,7 +355,18 @@ function updateFriendsList(friends) {
   friendsList = friends;
 
   if (window.chatStore) {
-    window.chatStore.friendsList = [...friends];
+    // 应用 localStorage 缓存的最后消息时间
+    const updatedFriends = friends.map(friend => {
+      const cachedTime = window.chatStore.getFriendLastMessageTime(friend.id);
+      if (cachedTime) {
+        return { ...friend, last_message_time: cachedTime };
+      }
+      return friend;
+    });
+    
+    window.chatStore.friendsList = updatedFriends;
+    // 按最后消息时间排序
+    window.chatStore.sortFriendsByLastMessageTime();
   }
 
   if (typeof window.updateUnreadCountsDisplay === 'function') {
@@ -570,6 +574,13 @@ function showUserAvatarPopup(event, user) {
     popupAddFriend.onclick = function() {
       hideUserAvatarPopup();
       switchToPrivateChat(user.id, user.nickname || user.username, user.username, user.avatarUrl || user.avatar_url || user.avatar);
+      // 将好友移到列表顶端（延迟执行，避免被页面加载逻辑覆盖）
+      setTimeout(() => {
+        const store = getStore();
+        if (store && store.moveFriendToTop) {
+          store.moveFriendToTop(user.id);
+        }
+      }, 200);
     };
   } else {
     popupAddFriend.textContent = '添加好友';

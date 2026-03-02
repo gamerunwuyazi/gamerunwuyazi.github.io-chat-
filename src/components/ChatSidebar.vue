@@ -150,7 +150,7 @@ function handleMenuClick(section) {
     <div class="menu-section">
         <ul class="menu-list">
             <li :class="['menu-item', { active: activeMenuItem === 'public-chat' }]" data-section="public-chat" @click="handleMenuClick('public-chat')">
-                <div class="chat-avatar">💬</div>
+                <div class="chat-avatar"><img src="/icon/Message-256.ico" alt="公共聊天" style="width: 24px; height: 24px;"></div>
                 <div v-if="publicUnreadCount > 0" class="unread-count">{{ publicUnreadCount }}</div>
             </li>
         </ul>

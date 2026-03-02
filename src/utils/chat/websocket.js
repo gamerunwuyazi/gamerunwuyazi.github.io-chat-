@@ -85,15 +85,18 @@ function initializeWebSocket() {
                         socket.emit('join-group', {
                             groupId: currentGroupId,
                             sessionToken: currentSessionToken,
-                            userId: currentUser.id
+                            userId: currentUser.id,
+                            loadTime: Date.now()
                         });
 
                         // 使用新的WebSocket事件获取群组聊天历史
+                        const loadTime = Date.now();
                         const historyRequest = {
                             groupId: currentGroupId,
                             userId: currentUser.id,
                             sessionToken: currentSessionToken,
-                            limit: 20
+                            limit: 20,
+                            loadTime: loadTime
                         };
                         // console.log(`📡 发送群组聊天历史请求 - 事件: get-group-chat-history, 请求参数:`, historyRequest);
                         socket.emit('get-group-chat-history', historyRequest);
@@ -148,15 +151,18 @@ function initializeWebSocket() {
                         socket.emit('join-group', {
                             groupId: currentGroupId,
                             sessionToken: currentSessionToken,
-                            userId: currentUser.id
+                            userId: currentUser.id,
+                            loadTime: Date.now()
                         });
 
                         // 使用新的WebSocket事件获取群组聊天历史
+                        const loadTime = Date.now();
                         const historyRequest = {
                             groupId: currentGroupId,
                             userId: currentUser.id,
                             sessionToken: currentSessionToken,
-                            limit: 20
+                            limit: 20,
+                            loadTime: loadTime
                         };
                         // console.log(`📡 重连后发送群组聊天历史请求 - 事件: get-group-chat-history, 请求参数:`, historyRequest);
                         socket.emit('get-group-chat-history', historyRequest);
@@ -189,7 +195,7 @@ function initializeWebSocket() {
         const store = window.chatStore;
         const pageVisible = (window.isPageVisible !== undefined ? window.isPageVisible : true) && document.hasFocus();
         
-        // 检查消息是否包含群组ID
+        // 检查消息是否包含群组 ID
         if (message.groupId) {
             // 检查是否是历史消息
             const now = Date.now();
@@ -202,9 +208,25 @@ function initializeWebSocket() {
                 store.addGroupMessage(message.groupId, message);
             }
             
+            // 更新群组最后消息时间并重新排序
+            if (store && store.groupsList) {
+                const group = store.groupsList.find(g => String(g.id) === String(message.groupId));
+                if (group) {
+                    const newTime = new Date(message.timestamp || Date.now()).toISOString();
+                    group.last_message_time = newTime;
+                    store.sortGroupsByLastMessageTime();
+                    // 保存到 localStorage
+                    if (store.saveGroupLastMessageTime) {
+                        store.saveGroupLastMessageTime(message.groupId, newTime);
+                    }
+                }
+            }
+            
             // 更新群组未读计数 - 如果不是自己发送的消息且不在当前群组页面或浏览器没有焦点
             const isOwnMessage = String(currentUser.id) === String(message.userId);
             const isBrowserNotFocused = !document.hasFocus();
+            const isCurrentGroup = currentActiveChat === `group_${message.groupId}`;
+            
             if (!isOwnMessage && (currentActiveChat !== `group_${message.groupId}` || isBrowserNotFocused)) {
                 const groupIdStr = String(message.groupId);
                 if (store && store.unreadMessages) {
@@ -212,6 +234,26 @@ function initializeWebSocket() {
                 }
                 updateUnreadCountsDisplay();
                 updateTitleWithUnreadCount();
+            }
+            
+            // 如果用户当前正在该群组聊天中，自动清除未读并发送加入聊天事件
+            if (isCurrentGroup && !isOwnMessage) {
+                // 先立即清除群组未读计数
+                if (store && store.unreadMessages) {
+                    store.unreadMessages.groups[String(message.groupId)] = 0;
+                }
+                updateUnreadCountsDisplay();
+                
+                // 延迟几秒后发送加入群组事件到后端，清除后端未读计数
+                setTimeout(() => {
+                    socket.emit('join-group', {
+                        userId: currentUser.id,
+                        sessionToken: currentSessionToken,
+                        groupId: message.groupId,
+                        noHistory: true,
+                        loadTime: Date.now()
+                    });
+                }, 500);
             }
             
             // 如果当前焦点在群组页面，将群组移到顶部
@@ -227,7 +269,7 @@ function initializeWebSocket() {
             }
             
             // 更新公共聊天未读计数
-            // 规则：如果不是自己发送的消息，且(不在主聊天室 或 页面不可见 或 浏览器没有焦点)，则增加未读计数
+            // 规则：如果不是自己发送的消息，且 (不在主聊天室 或 页面不可见 或 浏览器没有焦点)，则增加未读计数
             const isOwnMessage = String(currentUser.id) === String(message.userId);
             const isPageInvisible = window.isPageVisible === false;
             const isBrowserNotFocused = !document.hasFocus();
@@ -242,6 +284,15 @@ function initializeWebSocket() {
                 }
                 updateUnreadCountsDisplay();
                 updateTitleWithUnreadCount();
+            }
+            
+            // 如果用户当前正在主聊天室，自动清除未读
+            if (isMainChat && !isOwnMessage && !isPageInvisible && !isBrowserNotFocused) {
+                // 清除主聊天室未读计数
+                if (store && store.unreadMessages) {
+                    store.unreadMessages.global = 0;
+                }
+                updateUnreadCountsDisplay();
             }
         }
     });
@@ -314,24 +365,77 @@ function initializeWebSocket() {
     });
 
     // 群组创建事件
-    socket.on('group-created', () => {
+    socket.on('group-created', (data) => {
+        // 加载群组列表
         loadGroupList();
+        // 保存群组创建时间到最后消息时间记录
+        if (data && data.groupId) {
+            const store = window.chatStore;
+            if (store && store.saveGroupLastMessageTime) {
+                const createTime = new Date().toISOString();
+                store.saveGroupLastMessageTime(data.groupId, createTime);
+            }
+        }
     });
 
     // 群组删除事件
-    socket.on('group-deleted', () => {
+    socket.on('group-deleted', (data) => {
+        // 加载群组列表
         loadGroupList();
+        // 清除群组的最后消息时间记录
+        if (data && data.groupId) {
+            const store = window.chatStore;
+            if (store && store.deleteGroupLastMessageTime) {
+                store.deleteGroupLastMessageTime(data.groupId);
+            }
+        }
     });
 
     // 群组解散事件
-    socket.on('group-dissolved', () => {
+    socket.on('group-dissolved', (data) => {
         loadGroupList();
+        // 清除群组的最后消息时间记录
+        if (data && data.groupId) {
+            const store = window.chatStore;
+            if (store && store.deleteGroupLastMessageTime) {
+                store.deleteGroupLastMessageTime(data.groupId);
+            }
+            // 如果当前打开的群组就是解散的群组，清空当前群组
+            if (store && String(store.currentGroupId) === String(data.groupId)) {
+                store.setCurrentGroupId(null);
+            }
+        }
+    });
+
+    // 好友添加事件
+    socket.on('friend-added', (data) => {
+        // 刷新好友列表
+        loadFriendsList();
+        // 保存添加好友的时间到最后消息时间记录
+        if (data && data.friendId) {
+            const store = window.chatStore;
+            if (store && store.saveFriendLastMessageTime) {
+                const addTime = new Date(data.timestamp || Date.now()).toISOString();
+                store.saveFriendLastMessageTime(data.friendId, addTime);
+            }
+        }
     });
 
     // 好友删除事件
-    socket.on('friend-removed', () => {
+    socket.on('friend-removed', (data) => {
         // 刷新好友列表
         loadFriendsList();
+        // 清除好友的最后消息时间记录
+        if (data && data.friendId) {
+            const store = window.chatStore;
+            if (store && store.deleteFriendLastMessageTime) {
+                store.deleteFriendLastMessageTime(data.friendId);
+            }
+            // 如果当前打开的私信就是删除的好友，清空当前私信
+            if (store && String(store.currentPrivateChatUserId) === String(data.friendId)) {
+                store.setCurrentPrivateChatUserId(null);
+            }
+        }
     });
 
     // 头像更新事件
@@ -388,7 +492,7 @@ function initializeWebSocket() {
         // 处理群组未读消息
         if (data.unreadMessages) {
             if (data.unreadMessages && typeof data.unreadMessages === 'object' && !Object.prototype.hasOwnProperty.call(data.unreadMessages, 'global')) {
-                // 格式转换：将直接的群组键值对转换为包含global和groups的对象
+                // 格式转换：将直接的群组键值对转换为包含 global 和 groups 的对象
                 processedUnreadMessages.groups = data.unreadMessages;
             } else {
                 processedUnreadMessages.groups = data.unreadMessages.groups || {};
@@ -399,6 +503,48 @@ function initializeWebSocket() {
         // 处理私信未读消息
         if (data.unreadPrivateMessages) {
             processedUnreadMessages.private = data.unreadPrivateMessages;
+        }
+
+        // 处理群组最后消息时间（仅在有未读消息时返回）
+        if (data.groupLastMessageTimes && Object.keys(data.groupLastMessageTimes).length > 0) {
+            // 更新群组列表中的最后消息时间
+            if (window.chatStore && window.chatStore.groupsList) {
+                const groups = window.chatStore.groupsList;
+                groups.forEach(group => {
+                    const lastTime = data.groupLastMessageTimes[group.id];
+                    if (lastTime) {
+                        // 如果是字符串时间，转换为 ISO 格式
+                        group.last_message_time = lastTime instanceof Date ? lastTime.toISOString() : new Date(lastTime).toISOString();
+                    }
+                });
+                // 重新排序
+                window.chatStore.sortGroupsByLastMessageTime();
+            }
+            // 保存到 localStorage
+            if (window.chatStore && window.chatStore.saveGroupLastMessageTimes) {
+                window.chatStore.saveGroupLastMessageTimes(data.groupLastMessageTimes);
+            }
+        }
+
+        // 处理私信最后消息时间（仅在有未读消息时返回）
+        if (data.privateLastMessageTimes && Object.keys(data.privateLastMessageTimes).length > 0) {
+            // 更新好友列表中的最后消息时间
+            if (window.chatStore && window.chatStore.friendsList) {
+                const friends = window.chatStore.friendsList;
+                friends.forEach(friend => {
+                    const lastTime = data.privateLastMessageTimes[friend.id];
+                    if (lastTime) {
+                        // 如果是字符串时间，转换为 ISO 格式
+                        friend.last_message_time = lastTime instanceof Date ? lastTime.toISOString() : new Date(lastTime).toISOString();
+                    }
+                });
+                // 重新排序
+                window.chatStore.sortFriendsByLastMessageTime();
+            }
+            // 保存到 localStorage
+            if (window.chatStore && window.chatStore.saveFriendLastMessageTimes) {
+                window.chatStore.saveFriendLastMessageTimes(data.privateLastMessageTimes);
+            }
         }
 
         // 更新未读消息计数
@@ -429,7 +575,8 @@ function initializeWebSocket() {
                         window.chatSocket.emit('join-group', {
                             groupId: groupId,
                             sessionToken: currentSessionToken,
-                            userId: currentUser.id
+                            userId: currentUser.id,
+                            loadTime: Date.now()
                         });
                     }
                 }
@@ -602,7 +749,8 @@ function initializeWebSocket() {
                             window.chatSocket.emit('join-group', {
                                 groupId: groupId,
                                 sessionToken: currentSessionToken,
-                                userId: currentUser.id
+                                userId: currentUser.id,
+                                loadTime: Date.now()
                             });
                         }
                     }
@@ -807,7 +955,8 @@ function initializeWebSocket() {
                             window.chatSocket.emit('join-group', {
                                 groupId: groupId,
                                 sessionToken: currentSessionToken,
-                                userId: currentUser.id
+                                userId: currentUser.id,
+                                loadTime: Date.now()
                             });
                         }
                     }
@@ -953,6 +1102,20 @@ function initializeWebSocket() {
             }
         }
 
+        // 更新好友最后消息时间并重新排序
+        if (store && store.friendsList) {
+            const friend = store.friendsList.find(f => String(f.id) === String(chatPartnerId));
+            if (friend) {
+                const newTime = new Date(message.timestamp || Date.now()).toISOString();
+                friend.last_message_time = newTime;
+                store.sortFriendsByLastMessageTime();
+                // 保存到 localStorage
+                if (store.saveFriendLastMessageTime) {
+                    store.saveFriendLastMessageTime(chatPartnerId, newTime);
+                }
+            }
+        }
+
         // 显示私信消息 - 已禁用，使用 Vue 响应式渲染
         // renderPrivateMessage(message);
 
@@ -966,6 +1129,8 @@ function initializeWebSocket() {
         const isOwnMessage = String(currentUser.id) === String(msgSenderId);
         const isPageInvisible = window.isPageVisible === false;
         const isBrowserNotFocused = !document.hasFocus();
+        const isCurrentPrivateChat = currentActiveChat === `private_${chatPartnerId}`;
+        
         if (!isOwnMessage && (isPageInvisible || isBrowserNotFocused || currentActiveChat !== `private_${msgSenderId}`)) {
             // 更新未读消息计数
             if (store && store.unreadMessages) {
@@ -973,6 +1138,23 @@ function initializeWebSocket() {
             }
             updateUnreadCountsDisplay();
             updateTitleWithUnreadCount();
+        }
+        
+        // 如果用户当前正在该私信聊天中，自动清除未读并发送加入聊天事件
+        if (isCurrentPrivateChat && !isOwnMessage) {
+            // 清除私信未读计数
+            if (store && store.unreadMessages) {
+                store.unreadMessages.private[msgSenderId] = 0;
+            }
+            updateUnreadCountsDisplay();
+            
+            // 发送加入私信事件到后端，清除后端未读计数（不返回聊天历史）
+            socket.emit('join-private-chat', {
+                userId: currentUser.id,
+                sessionToken: currentSessionToken,
+                friendId: chatPartnerId,
+                noHistory: true  // 无聊天记录参数
+            });
         }
     });
 
@@ -1208,13 +1390,15 @@ function initializeWebSocket() {
             return;
         }
 
+        const loadTime = Date.now();
         const historyOptions = {
             userId: currentUser.id,
             sessionToken: currentSessionToken,
             groupId: groupId,
             loadMore: options.loadMore || false,
             olderThan: options.olderThan || null,
-            limit: options.limit || 20
+            limit: options.limit || 20,
+            loadTime: loadTime
         };
 
         if (historyOptions.loadMore) {

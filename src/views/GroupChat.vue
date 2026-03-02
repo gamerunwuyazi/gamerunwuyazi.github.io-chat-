@@ -1,18 +1,15 @@
 <template>
   <div class="chat-content" data-content="group-chat">
     <div v-if="!isGroupChatVisible" class="empty-chat-state">
-      <div class="empty-icon">👥</div>
       <h3>选择一个群组开始聊天</h3>
       <p>请从左侧群组列表中选择一个群组，开始群聊会话</p>
     </div>
 
     <div v-else class="group-chat-interface">
       <div class="group-header">
-        <h2 v-html="currentGroupName"></h2>
+        <h2>{{ displayGroupName }}</h2>
         <div class="group-actions">
           <button id="groupInfoButton" @click="handleGroupInfoClick">群组信息</button>
-          <button v-if="isCurrentUserGroupOwner" id="dissolveGroupButton" @click="handleDissolveGroupClick" style="background: #ff4757;">解散群组</button>
-          <button v-else id="leaveGroupButton" @click="handleLeaveGroupClick">退出群组</button>
         </div>
       </div>
 
@@ -114,7 +111,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useChatStore } from "@/stores/chatStore";
 import { useRoute } from "vue-router";
 import GroupMessageItem from "@/components/MessageItem/GroupMessageItem.vue";
-import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile, clearContentEditable } from "@/utils/chat";
+import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile, clearContentEditable, unescapeHtml } from "@/utils/chat";
 import toast from "@/utils/toast";
 
 const chatStore = useChatStore();
@@ -132,6 +129,11 @@ const currentGroupName = ref('群组名称');
 const showMarkdownToolbar = ref(false);
 const showMoreFunctions = ref(false);
 const currentGroupInfo = ref(null);
+
+const displayGroupName = computed(() => {
+  const name = currentGroupName.value || '群组名称';
+  return unescapeHtml(name);
+});
 
 const currentUserId = computed(() => chatStore.currentUser?.id);
 
@@ -181,13 +183,6 @@ function refreshScrollPos() {
 }
 
 window.groupRefreshScrollPos = refreshScrollPos;
-
-const isCurrentUserGroupOwner = computed(() => {
-  if (!currentGroupInfo.value || !chatStore.currentUser) {
-    return false;
-  }
-  return String(currentGroupInfo.value.creator_id) === String(chatStore.currentUser.id);
-});
 
 function applySavedGroupState() {
   if (chatStore.currentGroupId) {
@@ -368,6 +363,8 @@ function handleGroupMessageInput() {
     if (!textContent && (!htmlContent || htmlContent === '<br>' || htmlContent === '<br/>' || htmlContent === '<br />')) {
       input.innerHTML = '';
     }
+    
+    input.scrollTop = input.scrollHeight;
   }
 }
 
@@ -423,58 +420,6 @@ function handleGroupInfoClick() {
         chatStore.openModal('groupInfo', data.group);
       }
     });
-}
-
-function handleDissolveGroupClick() {
-  if (window.dissolveGroup) {
-    window.dissolveGroup(chatStore.currentGroupId);
-  }
-}
-
-function handleLeaveGroupClick() {
-  if (!chatStore.currentGroupId) {
-    toast.warning('请先选择一个群组');
-    return;
-  }
-  const user = chatStore.currentUser;
-  const sessionToken = chatStore.currentSessionToken;
-  
-  if (!user || !sessionToken) {
-    toast.warning('请先登录');
-    return;
-  }
-  
-  if (window.handleLeaveGroup) {
-    window.handleLeaveGroup(chatStore.currentGroupId);
-  } else {
-    if (confirm('确定要退出这个群组吗？')) {
-      fetch(`${chatStore.SERVER_URL}/leave-group`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'user-id': user.id,
-          'session-token': sessionToken
-        },
-        body: JSON.stringify({
-          groupId: chatStore.currentGroupId
-        })
-      })
-        .then(response => response.json())
-        .then(data => {
-          if (data.status === 'success') {
-            toast.success('退出群组成功');
-            if (window.loadGroupList) {
-              window.loadGroupList();
-            }
-          } else {
-            toast.error(data.message || '退出群组失败');
-          }
-        })
-        .catch(() => {
-          toast.error('退出群组失败，网络错误');
-        });
-    }
-  }
 }
 
 function insertMarkdown(prefix, suffix, sample) {
@@ -570,6 +515,11 @@ watch(
           initializeScrollLoading(true);
         }, 100);
       });
+    }
+    // 当群组 ID 变为 null 时（群组解散或退出），隐藏群组聊天界面
+    if (!newGroupId) {
+      isGroupChatVisible.value = false;
+      currentGroupInfo.value = null;
     }
   }
 );

@@ -87,6 +87,14 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
   
+  function setCurrentGroupId(id) {
+    currentGroupId.value = id;
+  }
+  
+  function setCurrentPrivateChatUserId(id) {
+    currentPrivateChatUserId.value = id;
+  }
+  
   function openModal(modalName, data = null) {
     switch (modalName) {
       case 'groupInfo':
@@ -310,7 +318,14 @@ export const useChatStore = defineStore('chat', () => {
     const index = groupsList.value.findIndex(g => String(g.id) === String(groupId));
     if (index > 0) {
       const group = groupsList.value.splice(index, 1)[0];
+      // 更新最后消息时间为当前时间，确保重新排序后仍在顶部
+      const newTime = new Date().toISOString();
+      group.last_message_time = newTime;
       groupsList.value.unshift(group);
+      // 重新排序
+      sortGroupsByLastMessageTime();
+      // 保存到 localStorage
+      saveGroupLastMessageTime(groupId, newTime);
     }
   }
 
@@ -318,8 +333,129 @@ export const useChatStore = defineStore('chat', () => {
     const index = friendsList.value.findIndex(f => String(f.id) === String(userId));
     if (index > 0) {
       const friend = friendsList.value.splice(index, 1)[0];
+      // 更新最后消息时间为当前时间，确保重新排序后仍在顶部
+      const newTime = new Date().toISOString();
+      friend.last_message_time = newTime;
       friendsList.value.unshift(friend);
+      // 重新排序
+      sortFriendsByLastMessageTime();
+      // 保存到 localStorage
+      saveFriendLastMessageTime(userId, newTime);
     }
+  }
+
+  // 保存群组最后消息时间到 localStorage
+  function saveGroupLastMessageTime(groupId, time) {
+    try {
+      const key = 'group_last_message_times';
+      const data = JSON.parse(localStorage.getItem(key) || '{}');
+      data[groupId] = time;
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (err) {
+      console.error('保存群组最后消息时间失败:', err);
+    }
+  }
+
+  // 保存好友最后消息时间到 localStorage
+  function saveFriendLastMessageTime(userId, time) {
+    try {
+      const key = 'friend_last_message_times';
+      const data = JSON.parse(localStorage.getItem(key) || '{}');
+      data[userId] = time;
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (err) {
+      console.error('保存好友最后消息时间失败:', err);
+    }
+  }
+
+  // 从 localStorage 获取群组最后消息时间
+  function getGroupLastMessageTime(groupId) {
+    try {
+      const key = 'group_last_message_times';
+      const data = JSON.parse(localStorage.getItem(key) || '{}');
+      return data[groupId] || null;
+    } catch (err) {
+      console.error('获取群组最后消息时间失败:', err);
+      return null;
+    }
+  }
+
+  // 从 localStorage 获取好友最后消息时间
+  function getFriendLastMessageTime(userId) {
+    try {
+      const key = 'friend_last_message_times';
+      const data = JSON.parse(localStorage.getItem(key) || '{}');
+      return data[userId] || null;
+    } catch (err) {
+      console.error('获取好友最后消息时间失败:', err);
+      return null;
+    }
+  }
+
+  // 删除群组的最后消息时间记录
+  function deleteGroupLastMessageTime(groupId) {
+    try {
+      const key = 'group_last_message_times';
+      const data = JSON.parse(localStorage.getItem(key) || '{}');
+      delete data[groupId];
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (err) {
+      console.error('删除群组最后消息时间失败:', err);
+    }
+  }
+
+  // 删除好友的最后消息时间记录
+  function deleteFriendLastMessageTime(userId) {
+    try {
+      const key = 'friend_last_message_times';
+      const data = JSON.parse(localStorage.getItem(key) || '{}');
+      delete data[userId];
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (err) {
+      console.error('删除好友最后消息时间失败:', err);
+    }
+  }
+
+  // 批量保存群组最后消息时间
+  function saveGroupLastMessageTimes(times) {
+    try {
+      const key = 'group_last_message_times';
+      const data = JSON.parse(localStorage.getItem(key) || '{}');
+      Object.assign(data, times);
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (err) {
+      console.error('批量保存群组最后消息时间失败:', err);
+    }
+  }
+
+  // 批量保存好友最后消息时间
+  function saveFriendLastMessageTimes(times) {
+    try {
+      const key = 'friend_last_message_times';
+      const data = JSON.parse(localStorage.getItem(key) || '{}');
+      Object.assign(data, times);
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (err) {
+      console.error('批量保存好友最后消息时间失败:', err);
+    }
+  }
+
+  // 按最后消息时间排序好友列表
+  function sortFriendsByLastMessageTime() {
+    friendsList.value.sort((a, b) => {
+      const aTime = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
+      const bTime = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
+      return bTime - aTime;
+    });
+  }
+
+  // 按最后消息时间排序群组列表
+  function sortGroupsByLastMessageTime() {
+    groupsList.value.sort((a, b) => {
+      const aTime = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
+      const bTime = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
+      return bTime - aTime;
+    });
   }
   
   function setQuotedMessage(message) {
@@ -376,6 +512,8 @@ export const useChatStore = defineStore('chat', () => {
     SERVER_URL,
     setCurrentUser,
     setCurrentSessionToken,
+    setCurrentGroupId,
+    setCurrentPrivateChatUserId,
     openModal,
     closeModal,
     addPublicMessage,
@@ -395,6 +533,16 @@ export const useChatStore = defineStore('chat', () => {
     deletePrivateMessage,
     moveGroupToTop,
     moveFriendToTop,
+    saveGroupLastMessageTime,
+    saveFriendLastMessageTime,
+    getGroupLastMessageTime,
+    getFriendLastMessageTime,
+    deleteGroupLastMessageTime,
+    deleteFriendLastMessageTime,
+    saveGroupLastMessageTimes,
+    saveFriendLastMessageTimes,
+    sortFriendsByLastMessageTime,
+    sortGroupsByLastMessageTime,
     sortMessages
   };
 });

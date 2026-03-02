@@ -262,6 +262,8 @@ function handleMessageInput() {
     if (!textContent && (!htmlContent || htmlContent === '<br>' || htmlContent === '<br/>' || htmlContent === '<br />')) {
       input.innerHTML = '';
     }
+    
+    input.scrollTop = input.scrollHeight;
   }
 }
 

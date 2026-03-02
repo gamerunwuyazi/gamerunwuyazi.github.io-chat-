@@ -1172,6 +1172,13 @@ function showGroupCardPopup(event, groupCardData) {
                     groupCardData.avatar_url || groupCardData.avatarUrl || ''
                 );
             }
+            // 将群组移到列表顶端（延迟执行，避免被页面加载逻辑覆盖）
+            setTimeout(() => {
+                const chatStore = window.chatStore;
+                if (chatStore && chatStore.moveGroupToTop) {
+                    chatStore.moveGroupToTop(groupCardData.group_id);
+                }
+            }, 200);
         });
     } else {
         joinBtn.textContent = '加入群组';
@@ -1439,17 +1446,10 @@ function switchToGroupChat(groupId, groupName, _groupAvatarUrl) {
         window.router.push('/chat/group');
     }
 
-    // 将群组移到列表顶端（在路由跳转后执行，避免被 loadGroupList 覆盖）
-    setTimeout(() => {
-        if (store && store.moveGroupToTop) {
-            store.moveGroupToTop(groupId);
-        }
-    }, 100);
-
-    // 派发事件让Vue组件响应
+    // 派发事件让 Vue 组件响应
     window.dispatchEvent(new CustomEvent('group-switched'));
     
-    // 加载群组聊天记录，forceReload设置为true，确保切换群组时清空消息列表
+    // 加载群组聊天记录，forceReload 设置为 true，确保切换群组时清空消息列表
     loadGroupMessages(groupId, true);
 }
 
@@ -1492,9 +1492,20 @@ function updateGroupList(groups) {
     // 更新群组列表全局变量
     groupsList = groups;
 
-    // 直接更新store
+    // 直接更新 store
     if (window.chatStore) {
-        window.chatStore.groupsList = [...groups];
+        // 应用 localStorage 缓存的最后消息时间
+        const updatedGroups = groups.map(group => {
+            const cachedTime = window.chatStore.getGroupLastMessageTime(group.id);
+            if (cachedTime) {
+                return { ...group, last_message_time: cachedTime };
+            }
+            return group;
+        });
+        
+        window.chatStore.groupsList = updatedGroups;
+        // 按最后消息时间排序
+        window.chatStore.sortGroupsByLastMessageTime();
     }
 
     // 更新未读计数显示

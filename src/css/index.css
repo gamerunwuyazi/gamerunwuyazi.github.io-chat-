@@ -939,6 +939,32 @@ body {
     line-height: 1.4;
     word-wrap: break-word;
     margin-bottom: 5px;
+    overflow: visible;
+}
+
+.message-content .message-text {
+    max-height: 300px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 transparent;
+}
+
+.message-content .message-text::-webkit-scrollbar {
+    width: 6px;
+}
+
+.message-content .message-text::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 3px;
+}
+
+.message-content .message-text::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.message-content .message-text::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
 }
 
 .message-content p {
