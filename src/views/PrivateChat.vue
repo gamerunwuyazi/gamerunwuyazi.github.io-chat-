@@ -540,6 +540,15 @@ watch(
         if (privateMessageContainerRef.value) {
           privateMessageContainerRef.value.scrollTop = 0;
         }
+        // 切换私信后，等待消息加载完成后再滚动到底部
+        scrollToBottom();
+        // 多次尝试滚动，确保消息加载后也能滚动
+        setTimeout(() => {
+          scrollToBottom();
+        }, 200);
+        setTimeout(() => {
+          scrollToBottom();
+        }, 500);
         // 切换私信后，重新初始化滚动监听器
         setTimeout(() => {
           initializeScrollLoading(true);
@@ -583,6 +592,10 @@ watch(
   (newPath) => {
     if (newPath.startsWith('/chat/private')) {
       scrollToBottom();
+      // 切换到私信聊天时清除引用消息
+      if (chatStore.clearQuotedMessage) {
+        chatStore.clearQuotedMessage();
+      }
       nextTick(() => {
         initializeScrollLoading(true);
       });

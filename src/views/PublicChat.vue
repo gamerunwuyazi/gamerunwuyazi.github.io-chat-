@@ -190,6 +190,10 @@ watch(
   (newPath) => {
     if (newPath === '/chat' || newPath === '/chat/') {
       scrollToBottom();
+      // 切换到公共聊天时清除引用消息
+      if (chatStore.clearQuotedMessage) {
+        chatStore.clearQuotedMessage();
+      }
       nextTick(() => {
         initializeScrollLoading(true);
       });

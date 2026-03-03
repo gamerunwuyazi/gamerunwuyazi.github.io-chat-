@@ -29,12 +29,14 @@ function updateUserList(users) {
   }
 }
 
+// 保存 socket 实例以便断开连接
+let socket = null;
 
 function initializeWebSocket() {
-    // 实现真实的WebSocket连接 - 使用Socket.io
+    // 实现真实的 WebSocket 连接 - 使用 Socket.io
 
-    // 使用Socket.io连接到服务器
-    const socket = io(SERVER_URL, {
+    // 使用 Socket.io 连接到服务器
+    socket = io(SERVER_URL, {
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionAttempts: Infinity,
@@ -2125,9 +2127,19 @@ function updateOfflineUserList(users) {
         return !store.onlineUsers.some(onlineUser => onlineUser.id == offlineUser.id);
     });
 
-    // 直接更新store
+    // 直接更新 store
     if (store) {
         store.offlineUsers = [...filteredOfflineUsers];
+    }
+}
+
+// 断开 WebSocket 连接
+function disconnectWebSocket() {
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+        isConnected = false;
+        console.log('✅ WebSocket 连接已断开');
     }
 }
 
@@ -2138,6 +2150,7 @@ export {
   checkUserAndIPStatus,
   loadOfflineUsers,
   updateOfflineUserList,
+  disconnectWebSocket,
   isConnected,
   avatarVersions
 };

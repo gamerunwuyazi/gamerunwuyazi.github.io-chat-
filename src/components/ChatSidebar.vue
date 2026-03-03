@@ -66,7 +66,15 @@ const currentUser = computed(() => {
   const currentUserStr = localStorage.getItem('currentUser');
   if (currentUserStr) {
     try {
-      return JSON.parse(currentUserStr);
+      const user = JSON.parse(currentUserStr);
+      if (user && user.id) {
+        return {
+          id: user.id,
+          nickname: user.nickname,
+          gender: user.gender,
+          avatarUrl: user.avatarUrl  // 从后端获取，不保存在 localStorage
+        };
+      }
     } catch {
       // ignore
     }
@@ -74,16 +82,15 @@ const currentUser = computed(() => {
   
   const userId = localStorage.getItem('chatUserId');
   const nickname = localStorage.getItem('chatUserNickname');
-  const avatarUrl = localStorage.getItem('chatUserAvatar');
+  const gender = localStorage.getItem('chatUserGender');
   if (userId) {
-    return { id: userId, nickname, avatarUrl };
+    return { id: userId, nickname, gender, avatarUrl: null };
   }
   
   const id = localStorage.getItem('userId');
   const nick = localStorage.getItem('nickname');
-  const avatar = localStorage.getItem('avatarUrl');
   if (id) {
-    return { id, nickname: nick, avatarUrl: avatar };
+    return { id, nickname: nick, avatarUrl: null };
   }
   
   return null;

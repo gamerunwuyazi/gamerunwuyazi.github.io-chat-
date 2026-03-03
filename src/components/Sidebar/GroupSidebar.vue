@@ -153,8 +153,11 @@ function handleCreateGroupClick() {
                 </div>
             </div>
             <ul class="user-list" id="groupList">
-                <li v-if="chatStore.groupsList.length === 0" class="loading-item">
+                <li v-if="chatStore.groupsList === null" class="loading-item">
                     <span class="loading-text">正在加载群组列表...</span>
+                </li>
+                <li v-else-if="chatStore.groupsList.length === 0" class="empty-item">
+                    <span class="empty-text">暂无群组</span>
                 </li>
                 <li v-else v-for="group in filteredGroupsList" :key="group.id" 
                     :data-group-id="group.id" 

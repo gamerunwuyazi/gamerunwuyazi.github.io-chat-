@@ -455,25 +455,6 @@ function showUserProfile(user) {
   }
   
   setTimeout(() => {
-    const modalUserAvatar = document.getElementById('modalUserAvatar');
-    const modalUserInitials = document.getElementById('modalUserInitials');
-    const modalUserNickname = document.getElementById('modalUserNickname');
-    const modalUsername = document.getElementById('modalUsername');
-    const modalUserId = document.getElementById('modalUserId');
-    const modalUserStatus = document.getElementById('modalUserStatus');
-
-    if (!modalUserAvatar || !modalUserInitials || !modalUserNickname || !modalUsername || !modalUserId || !modalUserStatus) return;
-
-    modalUserNickname.textContent = '加载中...';
-    modalUsername.textContent = '';
-    modalUserId.textContent = user.id || '';
-    modalUserStatus.textContent = '';
-    
-    const signatureSection = document.querySelector('#userProfileModal .signature-section');
-    if (signatureSection) {
-      signatureSection.style.display = 'none';
-    }
-
     const currentUserInfo = getCurrentUser();
     const sessionToken = getCurrentSessionToken();
 
@@ -486,59 +467,24 @@ function showUserProfile(user) {
       .then(response => response.json())
       .then(data => {
         if (data.status === 'success' && data.user) {
-          displayUserInfo(data.user);
-        } else {
-          displayUserInfo(user);
+          // 使用 chatStore 更新用户资料数据（Vue 响应式）
+          if (window.chatStore) {
+            // 使用 Vue 的响应式更新方式
+            window.chatStore.modalData.value.userProfile = {
+              id: data.user.id,
+              username: data.user.username,
+              nickname: data.user.nickname,
+              gender: data.user.gender || 0,
+              signature: data.user.signature,
+              avatarUrl: data.user.avatar_url || data.user.avatarUrl || data.user.avatar
+            };
+          }
         }
       })
       .catch(_error => {
         console.error('获取用户信息失败:', _error);
-        displayUserInfo(user);
       });
   }, 100);
-}
-
-function displayUserInfo(user) {
-  const modalUserAvatar = document.getElementById('modalUserAvatar');
-  const modalUserInitials = document.getElementById('modalUserInitials');
-  const modalUserNickname = document.getElementById('modalUserNickname');
-  const modalUsername = document.getElementById('modalUsername');
-  const modalUserId = document.getElementById('modalUserId');
-
-  if (!modalUserAvatar || !modalUserInitials || !modalUserNickname || !modalUsername || !modalUserId) return;
-
-  modalUserNickname.textContent = user.nickname || '未知昵称';
-  modalUsername.textContent = user.username || '';
-  modalUserId.textContent = user.id || '';
-
-  let avatarUrl = '';
-  if (user.avatarUrl && typeof user.avatarUrl === 'string') {
-    avatarUrl = user.avatarUrl.trim();
-  } else if (user.avatar_url && typeof user.avatar_url === 'string') {
-    avatarUrl = user.avatar_url.trim();
-  } else if (user.avatar && typeof user.avatar === 'string') {
-    avatarUrl = user.avatar.trim();
-  }
-
-  if (avatarUrl) {
-    const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
-    modalUserAvatar.src = fullAvatarUrl;
-    modalUserAvatar.style.display = 'block';
-    modalUserInitials.style.display = 'none';
-  } else {
-    const unescapedNickname = unescapeHtml(user.nickname || '');
-    const initials = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
-    modalUserInitials.textContent = initials;
-    modalUserInitials.style.display = 'block';
-    modalUserAvatar.style.display = 'none';
-  }
-
-  const signatureSection = document.querySelector('#userProfileModal .signature-section');
-  const signatureElement = document.getElementById('modalUserSignature');
-  if (signatureSection && signatureElement && user.signature) {
-    signatureElement.textContent = unescapeHtml(user.signature);
-    signatureSection.style.display = 'block';
-  }
 }
 
 function showUserAvatarPopup(event, user) {

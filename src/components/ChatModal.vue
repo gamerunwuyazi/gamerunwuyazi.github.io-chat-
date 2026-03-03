@@ -216,8 +216,12 @@
                 <span>{{ chatStore.modalData.userProfile.username }}</span>
               </div>
               <div class="user-profile-item">
-                <label>用户ID:</label>
+                <label>用户 ID:</label>
                 <span>{{ chatStore.modalData.userProfile.id }}</span>
+              </div>
+              <div class="user-profile-item">
+                <label>性别:</label>
+                <span>{{ getGenderText(chatStore.modalData.userProfile.gender) }}</span>
               </div>
               <div class="user-profile-item">
                 <label>状态:</label>
@@ -339,7 +343,17 @@
             >{{ userAvatarPopupInitials }}</span>
           </div>
           <div class="popup-info">
-            <div id="popupNickname">{{ userAvatarPopupNickname }}</div>
+            <div class="popup-info-top">
+              <div id="popupNickname">{{ userAvatarPopupNickname }}</div>
+              <span 
+                v-if="userAvatarPopupGender && userAvatarPopupGender !== 0" 
+                class="gender-icon" 
+                :class="userAvatarPopupGender === 1 ? 'male' : 'female'"
+                :title="userAvatarPopupGender === 1 ? '男' : '女'"
+              >
+                {{ userAvatarPopupGender === 1 ? '♂' : '♀' }}
+              </span>
+            </div>
             <div 
               id="popupUsername" 
               :style="{ display: userAvatarPopupUsername ? 'block' : 'none' }"
@@ -418,6 +432,12 @@
   flex: 1;
 }
 
+#userAvatarPopup .popup-info-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 #userAvatarPopup .popup-info #popupNickname {
   font-weight: bold;
   font-size: 16px;
@@ -426,6 +446,20 @@
 #userAvatarPopup .popup-info #popupUsername {
   font-size: 14px;
   color: #666;
+}
+
+/* 性别图标样式 */
+#userAvatarPopup .gender-icon {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+#userAvatarPopup .gender-icon.male {
+  color: #3498db;
+}
+
+#userAvatarPopup .gender-icon.female {
+  color: #e91e63;
 }
 
 #userAvatarPopup .popup-actions {
@@ -569,6 +603,10 @@ const userAvatarPopupSignature = computed(() => {
   return unescapeHtml(signature);
 });
 
+const userAvatarPopupGender = computed(() => {
+  return chatStore.modalData.userAvatarPopup?.gender || 0;
+});
+
 const userAvatarPopupInitials = computed(() => {
   const nickname = userAvatarPopupNickname.value;
   return nickname ? nickname.charAt(0).toUpperCase() : 'U';
@@ -665,6 +703,12 @@ function getUserInitials(name) {
   if (!name) return 'U';
   const unescapedName = unescapeHtml(name);
   return unescapedName.charAt(0).toUpperCase();
+}
+
+function getGenderText(gender) {
+  if (gender === 1) return '男';
+  if (gender === 2) return '女';
+  return '保密';
 }
 
 function isUserOnline(userId) {

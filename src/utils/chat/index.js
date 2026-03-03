@@ -34,7 +34,7 @@ function login() {
   const chatUserId = localStorage.getItem('chatUserId');
   const chatSessionToken = localStorage.getItem('chatSessionToken');
   const chatUserNickname = localStorage.getItem('chatUserNickname');
-  const chatUserAvatar = localStorage.getItem('chatUserAvatar');
+  const chatUserGender = localStorage.getItem('chatUserGender');
   
   const store = getStore();
   if (store) {
@@ -45,13 +45,14 @@ function login() {
       try {
         currentUser = JSON.parse(currentUserStr);
       } catch (error) {
-        console.warn('解析currentUser失败:', error);
+        console.warn('解析 currentUser 失败:', error);
       }
     } else if (chatUserId) {
       currentUser = {
         id: chatUserId,
         nickname: chatUserNickname,
-        avatarUrl: chatUserAvatar
+        gender: chatUserGender ? parseInt(chatUserGender) : 0,
+        avatarUrl: null  // 从后端获取，不从 localStorage 读取
       };
     }
     

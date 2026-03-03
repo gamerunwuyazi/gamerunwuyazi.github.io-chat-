@@ -29,6 +29,7 @@ function handleSettingItemClick(settingId) {
             <ul class="settings-list">
                 <li class="settings-item" data-setting-id="change-password" @click="handleSettingItemClick('change-password')">修改密码</li>
                 <li class="settings-item" data-setting-id="change-nickname" @click="handleSettingItemClick('change-nickname')">修改昵称</li>
+                <li class="settings-item" data-setting-id="change-gender" @click="handleSettingItemClick('change-gender')">性别设置</li>
                 <li class="settings-item" data-setting-id="change-signature" @click="handleSettingItemClick('change-signature')">个性签名</li>
                 <li class="settings-item" data-setting-id="upload-avatar" @click="handleSettingItemClick('upload-avatar')">上传头像</li>
             </ul>

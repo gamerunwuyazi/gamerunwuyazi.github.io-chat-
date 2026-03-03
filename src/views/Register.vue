@@ -8,247 +8,327 @@
     
     <div class="register-form">
       <h1>注册聊天室账号</h1>
-      <form ref="registerForm">
+      <form @submit.prevent="handleRegister">
         <div class="input-group">
           <label for="username">用户名</label>
-          <input type="text" id="username" ref="usernameInput" name="username" required placeholder="请输入用户名">
-          <!-- <div class="validation-message" ref="usernameValidation"></div> -->
+          <input 
+            type="text" 
+            id="username" 
+            v-model="formData.username" 
+            name="username" 
+            required 
+            placeholder="请输入用户名"
+            @input="debouncedValidateUsername"
+          >
+          <div v-if="validation.username" :class="['validation-message', validation.usernameClass]">
+            {{ validation.username }}
+          </div>
         </div>
         <div class="input-group">
           <label for="nickname">昵称</label>
-          <input type="text" id="nickname" ref="nicknameInput" name="nickname" required placeholder="请输入昵称">
-          <!-- <div class="validation-message" ref="nicknameValidation"></div> -->
+          <input 
+            type="text" 
+            id="nickname" 
+            v-model="formData.nickname" 
+            name="nickname" 
+            required 
+            placeholder="请输入昵称"
+            @input="validateNickname"
+          >
         </div>
         <div class="input-group">
           <label for="password">密码</label>
-          <input type="password" id="password" ref="passwordInput" name="password" required placeholder="请输入密码">
-          <!-- <div class="validation-message" ref="passwordValidation"></div> -->
-          <div class="password-strength" ref="passwordStrength"></div>
+          <input 
+            type="password" 
+            id="password" 
+            v-model="formData.password" 
+            name="password" 
+            required 
+            placeholder="请输入密码"
+            @input="validatePassword"
+          >
+          <div v-if="validation.password" :class="['validation-message', validation.passwordClass]">
+            {{ validation.password }}
+          </div>
+          <div v-if="passwordStrengthText" :class="['password-strength', passwordStrengthClass]">
+            {{ passwordStrengthText }}
+          </div>
         </div>
         <div class="input-group">
           <label for="confirmPassword">确认密码</label>
-          <input type="password" id="confirmPassword" ref="confirmPasswordInput" name="confirmPassword" required placeholder="请再次输入密码">
-          <!-- <div class="validation-message" ref="confirmPasswordValidation"></div> -->
+          <input 
+            type="password" 
+            id="confirmPassword" 
+            v-model="formData.confirmPassword" 
+            name="confirmPassword" 
+            required 
+            placeholder="请再次输入密码"
+            @input="validateConfirmPassword"
+          >
+          <div v-if="validation.confirmPassword" :class="['validation-message', validation.confirmPasswordClass]">
+            {{ validation.confirmPassword }}
+          </div>
         </div>
         <div class="input-group">
-          <label for="signature">个性签名 <span style="color: #999; font-weight: normal;">(可选)</span></label>
-          <input type="text" id="signature" ref="signatureInput" name="signature" placeholder="请输入个性签名（最多500字）" maxlength="500">
+          <label>性别</label>
+          <div class="gender-options">
+            <label class="gender-option">
+              <input 
+                type="radio" 
+                name="gender" 
+                value="0" 
+                v-model="formData.gender"
+              >
+              <span>保密</span>
+            </label>
+            <label class="gender-option">
+              <input 
+                type="radio" 
+                name="gender" 
+                value="1" 
+                v-model="formData.gender"
+              >
+              <span>男</span>
+            </label>
+            <label class="gender-option">
+              <input 
+                type="radio" 
+                name="gender" 
+                value="2" 
+                v-model="formData.gender"
+              >
+              <span>女</span>
+            </label>
+          </div>
         </div>
         <div class="input-group">
           <label for="captcha">验证码</label>
           <div style="display: flex; gap: 10px; align-items: center;">
-            <input type="text" id="captcha" ref="captchaInput" name="captcha" required placeholder="请输入验证码" style="flex: 1; width: 0;"> <!-- width: 0 确保flex: 1 能正常工作 -->
-            <div ref="captchaContainer" style="cursor: pointer; flex-shrink: 0; width: 120px;"></div>
+            <input 
+              type="text" 
+              id="captcha" 
+              v-model="formData.captchaCode" 
+              name="captcha" 
+              required 
+              placeholder="请输入验证码" 
+              style="flex: 1; width: 0;"
+            >
+            <div 
+              v-html="captchaSvg" 
+              @click="getCaptcha" 
+              style="cursor: pointer; flex-shrink: 0; width: 120px;"
+            ></div>
           </div>
         </div>
-        <button type="submit" ref="registerButton">注册</button>
+        <button type="submit" ref="registerButton" :disabled="isSubmitting">
+          {{ isSubmitting ? '注册中...' : '注册' }}
+        </button>
       </form>
       <p class="login-link">已有账号？<router-link to="/login">去登录</router-link></p>
-      <div ref="registerMessage" class="register-message" style="display: none;"></div>
+      <div v-if="message" :class="['register-message', messageType]">
+        {{ message }}
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, reactive, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { debounce } from 'lodash';
+import { login } from '@/utils/chat';
 
 const router = useRouter();
 
-// 使用ref引用DOM元素
-const registerForm = ref(null);
-const usernameInput = ref(null);
-const usernameValidation = ref(null);
-const nicknameInput = ref(null);
-const nicknameValidation = ref(null);
-const passwordInput = ref(null);
-const passwordValidation = ref(null);
-const passwordStrength = ref(null);
-const confirmPasswordInput = ref(null);
-const confirmPasswordValidation = ref(null);
-const registerMessage = ref(null);
-const registerButton = ref(null);
-const captchaInput = ref(null);
-const captchaContainer = ref(null);
-const signatureInput = ref(null);
-let currentCaptchaId = '';
+// 响应式表单数据
+const formData = reactive({
+  username: '',
+  nickname: '',
+  password: '',
+  confirmPassword: '',
+  gender: '0',  // 默认保密
+  captchaCode: ''
+});
 
-// 防抖函数
-function debounce(func, delay) {
-  let timer;
-  return function() {
-    clearTimeout(timer);
-    timer = setTimeout(() => func.apply(this, arguments), delay);
-  };
-}
+// UI 状态
+const captchaSvg = ref('');
+const currentCaptchaId = ref('');
+const message = ref('');
+const messageType = ref('error');
+const isSubmitting = ref(false);
+const registerButton = ref(null);
+
+// 验证状态
+const validation = reactive({
+  username: '',
+  usernameClass: '',
+  nickname: '',
+  nicknameClass: '',
+  password: '',
+  passwordClass: '',
+  confirmPassword: '',
+  confirmPasswordClass: ''
+});
+
+// 密码强度
+const passwordStrengthText = ref('');
+const passwordStrengthClass = ref('');
 
 // 获取验证码
 async function getCaptcha() {
   try {
     const response = await fetch('https://back.hs.airoe.cn/captcha');
     const data = await response.json();
-    if (data.status === 'success' && captchaContainer.value) {
-      captchaContainer.value.innerHTML = data.captchaSvg;
-      currentCaptchaId = data.captchaId;
+    if (data.status === 'success') {
+      captchaSvg.value = data.captchaSvg;
+      currentCaptchaId.value = data.captchaId;
     }
   } catch (error) {
     showMessage('获取验证码失败，请稍后重试', 'error');
   }
 }
 
+// 显示消息函数
+function showMessage(msg, type) {
+  message.value = msg;
+  messageType.value = type;
+  setTimeout(() => {
+    message.value = '';
+  }, 5000);
+}
+
 // 验证用户名
 async function validateUsername() {
-  if (!usernameInput.value || !usernameValidation.value) return false;
-  
-  const username = usernameInput.value.value.trim();
+  const username = formData.username.trim();
   if (!username) {
-    usernameValidation.value.textContent = '';
+    validation.username = '';
+    validation.usernameClass = '';
     return false;
   }
 
   if (username.length > 30) {
-    usernameValidation.value.textContent = '用户名长度不能超过30个字符';
-    usernameValidation.value.className = 'validation-message error';
+    validation.username = '用户名长度不能超过 30 个字符';
+    validation.usernameClass = 'error';
     return false;
   }
 
-  // 显示加载状态
-  usernameValidation.value.textContent = '检查中...';
-  usernameValidation.value.className = 'validation-message';
+  validation.username = '检查中...';
+  validation.usernameClass = '';
 
   try {
-    // 调用后端API检查用户名是否重复
     const response = await fetch(`https://back.hs.airoe.cn/check-username?username=${encodeURIComponent(username)}`);
     const data = await response.json();
 
     if (data.status === 'success') {
       if (data.isAvailable) {
-        usernameValidation.value.textContent = '用户名可用';
-        usernameValidation.value.className = 'validation-message success';
+        validation.username = '用户名可用';
+        validation.usernameClass = 'success';
         return true;
       } else {
-        usernameValidation.value.textContent = '用户名已存在';
-        usernameValidation.value.className = 'validation-message error';
+        validation.username = '用户名已存在';
+        validation.usernameClass = 'error';
         return false;
       }
     } else {
-      usernameValidation.value.textContent = data.message || '检查失败，请稍后重试';
-      usernameValidation.value.className = 'validation-message error';
+      validation.username = data.message || '检查失败，请稍后重试';
+      validation.usernameClass = 'error';
       return false;
     }
   } catch (error) {
-    usernameValidation.value.textContent = '网络错误，请检查用户名是否合法，并稍后重试';
-    usernameValidation.value.className = 'validation-message error';
+    validation.username = '网络错误，请检查用户名是否合法，并稍后重试';
+    validation.usernameClass = 'error';
     return false;
   }
 }
 
+// 创建防抖版本的用户名验证
+const debouncedValidateUsername = debounce(validateUsername, 500);
+
 // 验证昵称
 function validateNickname() {
-  if (!nicknameInput.value || !nicknameValidation.value) return false;
-  
-  const nickname = nicknameInput.value.value.trim();
+  const nickname = formData.nickname.trim();
   if (!nickname) {
-    nicknameValidation.value.textContent = '';
+    validation.nickname = '';
+    validation.nicknameClass = '';
     return false;
   }
 
   if (nickname.length > 30) {
-    nicknameValidation.value.textContent = '昵称长度不能超过30个字符';
-    nicknameValidation.value.className = 'validation-message error';
+    validation.nickname = '昵称长度不能超过 30 个字符';
+    validation.nicknameClass = 'error';
     return false;
   }
 
-  nicknameValidation.value.textContent = '昵称可用';
-  nicknameValidation.value.className = 'validation-message success';
+  validation.nickname = '昵称可用';
+  validation.nicknameClass = 'success';
   return true;
 }
 
 // 验证密码
 function validatePassword() {
-  if (!passwordInput.value || !passwordValidation.value || !passwordStrength.value) return false;
-  
-  const password = passwordInput.value.value;
+  const password = formData.password;
   if (!password) {
-    passwordValidation.value.textContent = '';
-    passwordStrength.value.textContent = '';
+    validation.password = '';
+    validation.passwordClass = '';
+    passwordStrengthText.value = '';
+    passwordStrengthClass.value = '';
     return false;
   }
 
   if (password.length < 6) {
-    passwordValidation.value.textContent = '密码长度不能少于6个字符';
-    passwordValidation.value.className = 'validation-message error';
-    passwordStrength.value.textContent = '';
+    validation.password = '密码长度不能少于 6 个字符';
+    validation.passwordClass = 'error';
+    passwordStrengthText.value = '';
     return false;
   }
 
-  passwordValidation.value.textContent = '';
-  passwordValidation.value.className = 'validation-message';
-
-  // 检测密码强度
+  validation.password = '';
+  validation.passwordClass = '';
   checkPasswordStrength(password);
   return true;
 }
 
 // 检测密码强度
 function checkPasswordStrength(password) {
-  if (!passwordStrength.value) return;
-  
   let strength = 0;
 
-  // 长度大于等于6
   if (password.length >= 6) strength++;
-
-  // 包含数字
   if (/[0-9]/.test(password)) strength++;
-
-  // 包含小写字母
   if (/[a-z]/.test(password)) strength++;
-
-  // 包含大写字母
   if (/[A-Z]/.test(password)) strength++;
-
-  // 包含特殊字符
   if (/[^A-Za-z0-9]/.test(password)) strength++;
 
-  let strengthText = '';
-  let strengthClass = '';
-
   if (strength <= 2) {
-    strengthText = '密码强度：弱';
-    strengthClass = 'password-strength weak';
+    passwordStrengthText.value = '密码强度：弱';
+    passwordStrengthClass.value = 'weak';
   } else if (strength <= 3) {
-    strengthText = '密码强度：中等';
-    strengthClass = 'password-strength medium';
+    passwordStrengthText.value = '密码强度：中等';
+    passwordStrengthClass.value = 'medium';
   } else {
-    strengthText = '密码强度：强';
-    strengthClass = 'password-strength strong';
+    passwordStrengthText.value = '密码强度：强';
+    passwordStrengthClass.value = 'strong';
   }
-
-  passwordStrength.value.textContent = strengthText;
-  passwordStrength.value.className = strengthClass;
 }
 
 // 验证确认密码
 function validateConfirmPassword() {
-  if (!passwordInput.value || !confirmPasswordInput.value || !confirmPasswordValidation.value) return false;
-  
-  const password = passwordInput.value.value;
-  const confirmPassword = confirmPasswordInput.value.value;
+  const password = formData.password;
+  const confirmPassword = formData.confirmPassword;
 
   if (!confirmPassword) {
-    confirmPasswordValidation.value.textContent = '';
+    validation.confirmPassword = '';
+    validation.confirmPasswordClass = '';
     return false;
   }
 
   if (password !== confirmPassword) {
-    confirmPasswordValidation.value.textContent = '两次输入的密码不一致';
-    confirmPasswordValidation.value.className = 'validation-message error';
+    validation.confirmPassword = '两次输入的密码不一致';
+    validation.confirmPasswordClass = 'error';
     return false;
   }
 
-  confirmPasswordValidation.value.textContent = '密码一致';
-  confirmPasswordValidation.value.className = 'validation-message success';
+  validation.confirmPassword = '密码一致';
+  validation.confirmPasswordClass = 'success';
   return true;
 }
 
@@ -258,138 +338,138 @@ async function validateAll() {
   const isNicknameValid = validateNickname();
   const isPasswordValid = validatePassword();
   const isConfirmPasswordValid = validateConfirmPassword();
-  const isCaptchaValid = captchaInput.value?.value?.trim() !== '';
+  const isCaptchaValid = formData.captchaCode.trim() !== '';
 
   return isUsernameValid && isNicknameValid && isPasswordValid && isConfirmPasswordValid && isCaptchaValid;
 }
 
 // 注册表单提交事件处理
-async function handleRegister(e) {
-  e.preventDefault();
-
+async function handleRegister() {
   if (!await validateAll()) {
     showMessage('请修正表单中的错误后再提交', 'error');
     return;
   }
 
-  const username = usernameInput.value?.value?.trim() || '';
-  const nickname = nicknameInput.value?.value?.trim() || '';
-  const password = passwordInput.value?.value?.trim() || '';
-  const signature = signatureInput.value?.value?.trim() || '';
-  const captchaCode = captchaInput.value?.value?.trim() || '';
+  isSubmitting.value = true;
 
   try {
-    // 显示加载状态
-    if (registerButton.value) {
-      registerButton.value.disabled = true;
-      registerButton.value.textContent = '注册中...';
-    }
+      // 1. 先注册账号
+      const registerResponse = await fetch('https://back.hs.airoe.cn/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          username: formData.username,
+          nickname: formData.nickname,
+          password: formData.password,
+          gender: parseInt(formData.gender),
+          captchaId: currentCaptchaId.value,
+          captchaCode: formData.captchaCode
+        })
+      });
 
-    // 提交注册请求
-    const response = await fetch('https://back.hs.airoe.cn/register', {
+      const registerResponseText = await registerResponse.text();
+
+      let registerData;
+      try {
+        registerData = JSON.parse(registerResponseText);
+      } catch (parseError) {
+        showMessage('服务器响应格式错误，请稍后重试', 'error');
+        isSubmitting.value = false;
+        return;
+      }
+
+      if (!(registerData.success || registerData.status === 'success' || registerData.code === 200)) {
+        const errorMessage = registerData.message || registerData.msg || '注册失败，请稍后重试';
+        showMessage(errorMessage, 'error');
+        getCaptcha();
+        isSubmitting.value = false;
+        return;
+      }
+
+    // 2. 注册成功后，自动使用返回的 token 登录
+    showMessage('注册成功，正在自动登录...', 'success');
+    
+    // 使用注册返回的 autoLoginToken 直接登录（免验证码）
+    const loginResponse = await fetch('https://back.hs.airoe.cn/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        username: username,
-        nickname: nickname,
-        password: password,
-        signature: signature,
-        captchaId: currentCaptchaId,
-        captchaCode: captchaCode
+        autoLoginToken: registerData.autoLoginToken  // 使用注册返回的自动登录 token
       })
     });
 
-    const responseText = await response.text();
+    const loginResponseText = await loginResponse.text();
 
-    let data;
+    let loginData;
     try {
-      data = JSON.parse(responseText);
+      loginData = JSON.parse(loginResponseText);
     } catch (parseError) {
-      showMessage('服务器响应格式错误，请稍后重试', 'error');
+      showMessage('注册成功，但登录响应解析失败，请手动登录', 'success');
+      setTimeout(() => {
+        router.push('/login');
+      }, 2000);
+      isSubmitting.value = false;
       return;
     }
 
-    // 改进的响应处理逻辑，支持不同的响应格式
-    if (data.success || data.status === 'success' || data.code === 200) {
-      showMessage('注册成功，即将跳转到登录页面...', 'success');
-      // 注册成功，跳转到登录页面
+    if (loginData.success || loginData.status === 'success' || loginData.code === 200) {
+      const userId = loginData.userId || (loginData.user && loginData.user.id) || (loginData.data && loginData.data.id) || '';
+      const nickname = loginData.nickname || (loginData.user && loginData.user.nickname) || (loginData.data && loginData.data.nickname) || '';
+      const avatarUrl = loginData.avatarUrl || (loginData.user && loginData.user.avatarUrl) || (loginData.data && loginData.data.avatarUrl) || (loginData.user && loginData.user.avatar) || (loginData.data && loginData.data.avatar) || null;
+      const gender = loginData.gender || (loginData.user && loginData.user.gender) || (loginData.data && loginData.data.gender) || 0;
+      const sessionToken = loginData.sessionToken || loginData.token || loginData.session_token;
+
+      if (!userId || !sessionToken) {
+        showMessage('注册成功，但登录响应数据不完整，请手动登录', 'success');
+        setTimeout(() => {
+          router.push('/login');
+        }, 2000);
+        isSubmitting.value = false;
+        return;
+      }
+
+      const userData = {
+        id: userId ? String(userId) : '',
+        nickname: nickname,
+        gender: gender,
+        avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
+      };
+
+      // 保存登录信息
+      localStorage.setItem('currentUser', JSON.stringify(userData));
+      localStorage.setItem('currentSessionToken', sessionToken);
+      localStorage.setItem('chatUserId', userData.id);
+      localStorage.setItem('chatUserNickname', userData.nickname);
+      localStorage.setItem('chatSessionToken', sessionToken);
+      localStorage.setItem('chatUserGender', String(userData.gender || 0));
+
+      // 登录成功，跳转到聊天页面
+      showMessage('登录成功，正在跳转...', 'success');
+      setTimeout(() => {
+        login();
+      }, 500);
+    } else {
+      const errorMessage = loginData.message || loginData.msg || '注册成功，但自动登录失败，请手动登录';
+      showMessage(errorMessage, 'success');
       setTimeout(() => {
         router.push('/login');
-      }, 1500);
-    } else {
-      // 注册失败，显示错误信息
-      const errorMessage = data.message || data.msg || '注册失败，请稍后重试';
-      showMessage(errorMessage, 'error');
-      // 失败时刷新验证码
-      getCaptcha();
+      }, 2000);
+      isSubmitting.value = false;
     }
   } catch (error) {
     showMessage('注册请求失败，请检查用户名/昵称/密码是否合法，并稍后重试', 'error');
-    // 失败时刷新验证码
     getCaptcha();
-  } finally {
-    // 恢复按钮状态
-    if (registerButton.value) {
-      registerButton.value.disabled = false;
-      registerButton.value.textContent = '注册';
-    }
-  }
-}
-
-// 显示消息函数
-function showMessage(message, type) {
-  if (registerMessage.value) {
-    registerMessage.value.textContent = message;
-    registerMessage.value.style.display = 'block';
-
-    if (type === 'error') {
-      registerMessage.value.style.color = '#d32f2f';
-      registerMessage.value.style.backgroundColor = '#ffebee';
-      registerMessage.value.style.borderColor = '#ffcdd2';
-    } else if (type === 'success') {
-      registerMessage.value.style.color = '#388e3c';
-      registerMessage.value.style.backgroundColor = '#e8f5e8';
-      registerMessage.value.style.borderColor = '#c8e6c9';
-    }
+    isSubmitting.value = false;
   }
 }
 
 // 在组件挂载后初始化
 onMounted(() => {
-  // 加载验证码
   getCaptcha();
-  
-  // 添加验证码点击事件
-  if (captchaContainer.value) {
-    captchaContainer.value.addEventListener('click', getCaptcha);
-  }
-  
-  // 添加表单提交事件
-  if (registerForm.value) {
-    registerForm.value.addEventListener('submit', handleRegister);
-  }
-  
-  // 实时验证用户名
-  if (usernameInput.value) {
-    usernameInput.value.addEventListener('input', debounce(validateUsername, 500));
-  }
-  
-  // 实时验证昵称
-  if (nicknameInput.value) {
-    nicknameInput.value.addEventListener('input', validateNickname);
-  }
-  
-  // 实时验证密码
-  if (passwordInput.value) {
-    passwordInput.value.addEventListener('input', validatePassword);
-  }
-  
-  // 实时验证确认密码
-  if (confirmPasswordInput.value) {
-    confirmPasswordInput.value.addEventListener('input', validateConfirmPassword);
-  }
 });
 </script>
 
@@ -551,6 +631,11 @@ button:active {
   transform: translateY(0);
 }
 
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* 登录链接样式 */
 .login-link {
   text-align: center;
@@ -573,21 +658,30 @@ button:active {
 
 /* 消息提示样式 */
 .register-message {
-  color: #d32f2f;
   text-align: center;
   font-size: 14px;
   margin-top: 15px;
   padding: 10px;
-  background-color: #ffebee;
   border-radius: 6px;
-  border: 1px solid #ffcdd2;
+  border: 1px solid;
+}
+
+.register-message.error {
+  color: #d32f2f;
+  background-color: #ffebee;
+  border-color: #ffcdd2;
+}
+
+.register-message.success {
+  color: #388e3c;
+  background-color: #e8f5e8;
+  border-color: #c8e6c9;
 }
 
 /* 验证消息样式 */
 .validation-message {
   font-size: 12px;
   min-height: 16px;
-  margin-top: 4px;
 }
 
 .validation-message.error {
@@ -614,6 +708,32 @@ button:active {
 
 .password-strength.strong {
   color: #388e3c;
+}
+
+/* 性别选项样式 */
+.gender-options {
+  display: flex;
+  gap: 20px;
+  padding: 8px 0;
+}
+
+.gender-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #555;
+}
+
+.gender-option input[type="radio"] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+.gender-option:hover {
+  color: #667eea;
 }
 
 /* 响应式设计 */

@@ -5,7 +5,7 @@ export const useChatStore = defineStore('chat', () => {
   // 响应式状态
   const onlineUsers = ref([]);
   const offlineUsers = ref([]);
-  const groupsList = ref([]);
+  const groupsList = ref(null);  // null 表示加载中，空数组表示暂无群组
   const friendsList = ref([]);
   const publicMessages = ref([]);
   const groupMessages = ref({});
@@ -89,10 +89,20 @@ export const useChatStore = defineStore('chat', () => {
   
   function setCurrentGroupId(id) {
     currentGroupId.value = id;
+    // 切换群组时清除引用消息
+    clearQuotedMessage();
   }
   
   function setCurrentPrivateChatUserId(id) {
     currentPrivateChatUserId.value = id;
+    // 切换私信对象时清除引用消息
+    clearQuotedMessage();
+  }
+  
+  function setCurrentActiveChat(type) {
+    currentActiveChat.value = type;
+    // 切换聊天类型时清除引用消息
+    clearQuotedMessage();
   }
   
   function openModal(modalName, data = null) {
@@ -514,6 +524,7 @@ export const useChatStore = defineStore('chat', () => {
     setCurrentSessionToken,
     setCurrentGroupId,
     setCurrentPrivateChatUserId,
+    setCurrentActiveChat,
     openModal,
     closeModal,
     addPublicMessage,

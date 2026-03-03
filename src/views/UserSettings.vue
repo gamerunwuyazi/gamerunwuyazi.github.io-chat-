@@ -32,6 +32,13 @@ const signatureForm = ref({
 const signatureMessage = ref('')
 const signatureMessageClass = ref('')
 
+// 修改性别表单
+const genderForm = ref({
+  newGender: '0'
+})
+const genderMessage = ref('')
+const genderMessageClass = ref('')
+
 // 头像相关
 const avatarPreview = ref('')
 const selectedAvatarFile = ref(null)
@@ -75,6 +82,9 @@ function handleSettingClick(setting) {
   } else if (setting === 'change-nickname') {
     const user = JSON.parse(localStorage.getItem('currentUser') || '{}')
     nicknameForm.value.newNickname = user.nickname || ''
+  } else if (setting === 'change-gender') {
+    const user = JSON.parse(localStorage.getItem('currentUser') || '{}')
+    genderForm.value.newGender = String(user.gender || 0)
   } else if (setting === 'change-signature') {
     const user = JSON.parse(localStorage.getItem('currentUser') || '{}')
     signatureForm.value.newSignature = user.signature || ''
@@ -232,7 +242,7 @@ async function handleChangeNickname() {
   }
 }
 
-// 修改个性签名
+// 修改个性签名处理
 async function handleChangeSignature() {
   signatureMessage.value = ''
   
@@ -266,6 +276,43 @@ async function handleChangeSignature() {
   } catch (error) {
     signatureMessage.value = '网络错误'
     signatureMessageClass.value = 'error'
+  }
+}
+
+// 修改性别处理
+async function handleChangeGender() {
+  genderMessage.value = ''
+  
+  const userId = getCurrentUserId()
+  const sessionToken = getCurrentSessionToken()
+  
+  try {
+    const response = await fetch(`${SERVER_URL}/update-gender`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'user-id': userId,
+        'session-token': sessionToken
+      },
+      body: JSON.stringify({
+        gender: parseInt(genderForm.value.newGender)
+      })
+    })
+    const data = await response.json()
+    
+    if (data.status === 'success') {
+      genderMessage.value = '性别修改成功'
+      genderMessageClass.value = 'success'
+      const user = JSON.parse(localStorage.getItem('currentUser') || '{}')
+      user.gender = parseInt(genderForm.value.newGender)
+      localStorage.setItem('currentUser', JSON.stringify(user))
+    } else {
+      genderMessage.value = data.message || '性别修改失败'
+      genderMessageClass.value = 'error'
+    }
+  } catch (error) {
+    genderMessage.value = '网络错误'
+    genderMessageClass.value = 'error'
   }
 }
 
@@ -426,9 +473,38 @@ onUnmounted(() => {
         <form class="settings-form" @submit.prevent="handleChangeNickname">
           <div class="form-group">
             <label for="newNickname">新昵称</label>
-            <input type="text" id="newNickname" v-model="nicknameForm.newNickname" placeholder="请输入新昵称" maxlength="40" required>
+            <input type="text" id="newNickname" v-model="nicknameForm.newNickname" placeholder="请输入新昵称" required>
           </div>
           <div v-if="nicknameMessage" :class="'form-message ' + nicknameMessageClass">{{ nicknameMessage }}</div>
+          <div class="form-actions">
+            <button type="submit" class="save-btn">保存</button>
+            <button type="button" class="cancel-btn" @click="currentSetting = ''">取消</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- 修改性别 -->
+      <div v-if="currentSetting === 'change-gender'" class="settings-detail">
+        <h2>性别设置</h2>
+        <form class="settings-form" @submit.prevent="handleChangeGender">
+          <div class="form-group">
+            <label>选择性别</label>
+            <div class="gender-options" style="display: flex; gap: 20px; margin-top: 10px;">
+              <label class="gender-option" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="radio" name="gender" value="0" v-model="genderForm.newGender" style="width: auto; margin: 0;">
+                <span>保密</span>
+              </label>
+              <label class="gender-option" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="radio" name="gender" value="1" v-model="genderForm.newGender" style="width: auto; margin: 0;">
+                <span>男</span>
+              </label>
+              <label class="gender-option" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="radio" name="gender" value="2" v-model="genderForm.newGender" style="width: auto; margin: 0;">
+                <span>女</span>
+              </label>
+            </div>
+          </div>
+          <div v-if="genderMessage" :class="'form-message ' + genderMessageClass">{{ genderMessage }}</div>
           <div class="form-actions">
             <button type="submit" class="save-btn">保存</button>
             <button type="button" class="cancel-btn" @click="currentSetting = ''">取消</button>

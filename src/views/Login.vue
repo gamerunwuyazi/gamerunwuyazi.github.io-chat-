@@ -8,184 +8,198 @@
     
     <div class="login-form">
       <h1>登录聊天室</h1>
-      <form ref="loginForm">
+      <form @submit.prevent="handleLogin">
         <div class="input-group">
           <label for="username">用户名</label>
-          <input type="text" id="username" ref="usernameInput" name="username" required placeholder="请输入用户名">
+          <input 
+            type="text" 
+            id="username" 
+            v-model="username" 
+            name="username" 
+            required 
+            placeholder="请输入用户名"
+          >
         </div>
         <div class="input-group">
           <label for="password">密码</label>
-          <input type="password" id="password" ref="passwordInput" name="password" required placeholder="请输入密码">
+          <input 
+            type="password" 
+            id="password" 
+            v-model="password" 
+            name="password" 
+            required 
+            placeholder="请输入密码"
+          >
         </div>
         <div class="input-group">
           <label for="captcha">验证码</label>
           <div style="display: flex; gap: 10px; align-items: center;">
-            <input type="text" id="captcha" ref="captchaInput" name="captcha" required placeholder="请输入验证码" style="flex: 1; width: 0;"> <!-- width: 0 确保flex: 1 能正常工作 -->
-            <div ref="captchaContainer" style="cursor: pointer; flex-shrink: 0; width: 120px;"></div>
+            <input 
+              type="text" 
+              id="captcha" 
+              v-model="captchaCode" 
+              name="captcha" 
+              required 
+              placeholder="请输入验证码" 
+              style="flex: 1; width: 0;"
+            >
+            <div 
+              v-html="captchaSvg" 
+              @click="getCaptcha" 
+              style="cursor: pointer; flex-shrink: 0; width: 120px;"
+            ></div>
           </div>
         </div>
-        <button type="submit">登录</button>
+        <button type="submit" :disabled="isSubmitting">
+          {{ isSubmitting ? '登录中...' : '登录' }}
+        </button>
       </form>
       <p class="register-link">还没有账号？<router-link to="/register">去注册</router-link></p>
-      <div ref="loginMessage" class="login-message" style="display: none;"></div>
+      <div v-if="message" :class="['login-message', messageType]">
+        {{ message }}
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-  import { ref, onMounted } from 'vue';
-  import {login} from "@/utils/chat";
+import { ref, reactive, onMounted } from 'vue';
+import { login } from "@/utils/chat";
 
-  
-  // 使用ref引用DOM元素
-  const loginForm = ref(null);
-  const usernameInput = ref(null);
-  const passwordInput = ref(null);
-  const loginMessage = ref(null);
-  const captchaInput = ref(null);
-  const captchaContainer = ref(null);
-  let currentCaptchaId = '';
+// 响应式表单数据
+const formData = reactive({
+  username: '',
+  password: '',
+  captchaCode: ''
+});
 
-  // 获取验证码
-  async function getCaptcha() {
-    try {
-      const response = await fetch('https://back.hs.airoe.cn/captcha');
-      const data = await response.json();
-      if (data.status === 'success' && captchaContainer.value) {
-        captchaContainer.value.innerHTML = data.captchaSvg;
-        currentCaptchaId = data.captchaId;
-      }
-    } catch (error) {
-      showMessage('获取验证码失败，请稍后重试', 'error');
+// 解构表单数据以便使用 v-model
+const username = ref(formData.username);
+const password = ref(formData.password);
+const captchaCode = ref(formData.captchaCode);
+
+// UI 状态
+const captchaSvg = ref('');
+const currentCaptchaId = ref('');
+const message = ref('');
+const messageType = ref('error');
+const isSubmitting = ref(false);
+
+// 同步表单数据到 reactive 对象
+function syncFormData() {
+  formData.username = username.value;
+  formData.password = password.value;
+  formData.captchaCode = captchaCode.value;
+}
+
+// 获取验证码
+async function getCaptcha() {
+  try {
+    const response = await fetch('https://back.hs.airoe.cn/captcha');
+    const data = await response.json();
+    if (data.status === 'success') {
+      captchaSvg.value = data.captchaSvg;
+      currentCaptchaId.value = data.captchaId;
     }
+  } catch (error) {
+    showMessage('获取验证码失败，请稍后重试', 'error');
+  }
+}
+
+// 显示消息函数
+function showMessage(msg, type) {
+  message.value = msg;
+  messageType.value = type;
+  setTimeout(() => {
+    message.value = '';
+  }, 5000);
+}
+
+// 登录表单提交事件处理
+async function handleLogin() {
+  syncFormData();
+  
+  if (!formData.username || !formData.password || !formData.captchaCode) {
+    showMessage('请输入用户名、密码和验证码', 'error');
+    return;
   }
 
-  // 登录表单提交事件处理
-  async function handleLogin(e) {
-    e.preventDefault();
+  isSubmitting.value = true;
 
-    const username = usernameInput.value?.value?.trim() || '';
-    const password = passwordInput.value?.value?.trim() || '';
-    const captchaCode = captchaInput.value?.value?.trim() || '';
+  try {
+    const response = await fetch('https://back.hs.airoe.cn/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        username: formData.username,
+        password: formData.password,
+        captchaId: currentCaptchaId.value,
+        captchaCode: formData.captchaCode
+      })
+    });
 
-    if (!username || !password || !captchaCode) {
-      showMessage('请输入用户名、密码和验证码', 'error');
+    const responseText = await response.text();
+
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      showMessage('服务器响应格式错误，请稍后重试', 'error');
+      isSubmitting.value = false;
       return;
     }
 
-    try {
-      // 提交登录请求
-      const response = await fetch('https://back.hs.airoe.cn/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          username: username,
-          password: password,
-          captchaId: currentCaptchaId,
-          captchaCode: captchaCode
-        })
-      });
+    if (data.success || data.status === 'success' || data.code === 200) {
+      const userId = data.userId || (data.user && data.user.id) || (data.data && data.data.id) || '';
+      const nickname = data.nickname || (data.user && data.user.nickname) || (data.data && data.data.nickname) || '';
+      const avatarUrl = data.avatarUrl || (data.user && data.user.avatarUrl) || (data.data && data.data.avatarUrl) || (data.user && data.user.avatar) || (data.data && data.data.avatar) || null;
+      const gender = data.gender || (data.user && data.user.gender) || (data.data && data.data.gender) || 0;
+      const sessionToken = data.sessionToken || data.token || data.session_token;
 
-      const responseText = await response.text();
-
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        showMessage('服务器响应格式错误，请稍后重试', 'error');
+      if (!userId || !sessionToken) {
+        showMessage('登录响应数据不完整，请稍后重试', 'error');
+        getCaptcha();
+        isSubmitting.value = false;
         return;
       }
 
-      // 改进的响应处理逻辑，支持不同的响应格式
-      console.log('登录响应数据:', data);
-      if (data.success || data.status === 'success' || data.code === 200) {
-        // 登录成功，构造正确的用户信息对象
-        const userId = data.userId || (data.user && data.user.id) || (data.data && data.data.id) || '';
-        const nickname = data.nickname || (data.user && data.user.nickname) || (data.data && data.data.nickname) || '';
-        const avatarUrl = data.avatarUrl || (data.user && data.user.avatarUrl) || (data.data && data.data.avatarUrl) || (data.user && data.user.avatar) || (data.data && data.data.avatar) || null;
-        const sessionToken = data.sessionToken || data.token || data.session_token;
+      const userData = {
+        id: userId ? String(userId) : '',
+        nickname: nickname,
+        gender: gender,
+        avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
+      };
 
-        // 检查必要字段是否存在
-        if (!userId || !sessionToken) {
-          showMessage('登录响应数据不完整，请稍后重试', 'error');
-          getCaptcha();
-          return;
-        }
+      localStorage.setItem('currentUser', JSON.stringify(userData));
+      localStorage.setItem('currentSessionToken', sessionToken);
+      localStorage.setItem('chatUserId', userData.id);
+      localStorage.setItem('chatUserNickname', userData.nickname);
+      localStorage.setItem('chatSessionToken', sessionToken);
+      localStorage.setItem('chatUserGender', String(userData.gender || 0));
 
-        // 构造与原UI一致的currentUser对象
-        const userData = {
-          id: userId ? String(userId) : '',
-          nickname: nickname,
-          avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
-        };
-
-        // 保存到新的localStorage键（与原UI一致）
-        localStorage.setItem('currentUser', JSON.stringify(userData));
-        localStorage.setItem('currentSessionToken', sessionToken);
-
-        // 同时保存到旧的localStorage键，确保兼容性（与原UI一致）
-        localStorage.setItem('chatUserId', userData.id);
-        localStorage.setItem('chatUserNickname', userData.nickname);
-        localStorage.setItem('chatSessionToken', sessionToken);
-
-        // 只有当头像URL有效时才设置到localStorage（与原UI一致）
-        if (userData.avatarUrl && typeof userData.avatarUrl === 'string') {
-          localStorage.setItem('chatUserAvatar', userData.avatarUrl.trim());
-        } else {
-          localStorage.removeItem('chatUserAvatar');
-        }
-
-        // 跳转到新的聊天室页面
+      showMessage('登录成功，正在跳转...', 'success');
+      setTimeout(() => {
         login();
-      } else {
-        // 登录失败，显示错误信息
-        const errorMessage = data.message || data.msg || '登录失败，请检查用户名和密码';
-        showMessage(errorMessage, 'error');
-        // 失败时刷新验证码
-        getCaptcha();
-      }
-    } catch (error) {
-      showMessage('登录请求失败，请检查用户名/密码是否合法，并稍后重试', 'error');
-      // 失败时刷新验证码
+      }, 500);
+    } else {
+      const errorMessage = data.message || data.msg || '登录失败，请检查用户名和密码';
+      showMessage(errorMessage, 'error');
       getCaptcha();
+      isSubmitting.value = false;
     }
-  }
-
-  // 显示消息函数
-  function showMessage(message, type) {
-    if (loginMessage.value) {
-      loginMessage.value.textContent = message;
-      loginMessage.value.style.display = 'block';
-
-      if (type === 'error') {
-        loginMessage.value.style.color = '#d32f2f';
-        loginMessage.value.style.backgroundColor = '#ffebee';
-        loginMessage.value.style.borderColor = '#ffcdd2';
-      } else if (type === 'success') {
-        loginMessage.value.style.color = '#388e3c';
-        loginMessage.value.style.backgroundColor = '#e8f5e8';
-        loginMessage.value.style.borderColor = '#c8e6c9';
-      }
-    }
-  }
-
-  // 在组件挂载后初始化
-  onMounted(() => {
-    // 加载验证码
+  } catch (error) {
+    showMessage('登录请求失败，请检查用户名/密码是否合法，并稍后重试', 'error');
     getCaptcha();
-    
-    // 添加验证码点击事件
-    if (captchaContainer.value) {
-      captchaContainer.value.addEventListener('click', getCaptcha);
-    }
-    
-    // 添加表单提交事件
-    if (loginForm.value) {
-      loginForm.value.addEventListener('submit', handleLogin);
-    }
-  });
+    isSubmitting.value = false;
+  }
+}
+
+// 在组件挂载后初始化
+onMounted(() => {
+  getCaptcha();
+});
 </script>
 
 <style scoped>
@@ -368,14 +382,24 @@ button:active {
 
 /* 消息提示样式 */
 .login-message {
-  color: #d32f2f;
   text-align: center;
   font-size: 14px;
   margin-top: 15px;
   padding: 10px;
-  background-color: #ffebee;
   border-radius: 6px;
-  border: 1px solid #ffcdd2;
+  border: 1px solid;
+}
+
+.login-message.error {
+  color: #d32f2f;
+  background-color: #ffebee;
+  border-color: #ffcdd2;
+}
+
+.login-message.success {
+  color: #388e3c;
+  background-color: #e8f5e8;
+  border-color: #c8e6c9;
 }
 
 /* 响应式设计 */

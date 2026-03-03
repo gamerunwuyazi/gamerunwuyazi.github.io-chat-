@@ -1095,7 +1095,7 @@ app.get('/user/friends', validateIPAndSession, async (req, res) => {
     
     // 查询用户的好友列表，按 ID 排序
     const [friends] = await pool.execute(`
-      SELECT cu.id, cu.nickname, cu.username, cu.avatar_url
+      SELECT cu.id, cu.nickname, cu.username, cu.gender, cu.avatar_url
       FROM chat_friends cf 
       JOIN chat_users cu ON cf.friend_id = cu.id 
       WHERE cf.user_id = ?
@@ -1252,7 +1252,7 @@ app.get('/user/search', validateIPAndSession, async (req, res) => {
     
     // 搜索用户
     const [users] = await pool.execute(`
-      SELECT id, nickname, username, avatar_url 
+      SELECT id, nickname, username, gender, avatar_url 
       FROM chat_users 
       WHERE username LIKE ? OR nickname LIKE ?
       LIMIT 20
@@ -1416,12 +1416,13 @@ async function initializeDatabase() {
         username VARCHAR(255) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
         nickname VARCHAR(255) NOT NULL,
+        gender TINYINT DEFAULT 0 COMMENT '性别：0=保密，1=男，2=女',
         signature VARCHAR(500) DEFAULT NULL COMMENT '用户个性签名',
         avatar_url VARCHAR(500) DEFAULT NULL,
         last_online TIMESTAMP NULL DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        unread_group_messages JSON COMMENT '存储用户群组的未读消息，格式为{群组ID: 未读数量}',
-        unread_private_messages JSON COMMENT '存储用户私信的未读消息，格式为{用户ID: 未读数量}',
+        unread_group_messages JSON COMMENT '存储用户群组的未读消息，格式为{群组 ID: 未读数量}',
+        unread_private_messages JSON COMMENT '存储用户私信的未读消息，格式为{用户 ID: 未读数量}',
         INDEX username_index (username),
         INDEX last_online_index (last_online)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1961,18 +1962,24 @@ async function logIPAction(userId, ip, action) {
 // 用户注册接口
 app.post('/register', async (req, res) => {
   try {
-    const { username, password, nickname, signature, captchaId, captchaCode } = req.body;
+    const { username, password, nickname, gender, captchaId, captchaCode } = req.body;
     const clientIP = getClientIP(req);
 
-    console.log('注册请求IP:', clientIP);
+    console.log('注册请求 IP:', clientIP);
 
     const banInfo = await isIPBanned(clientIP);
     if (banInfo.isBanned) {
-      return res.status(403).json({ status: 'error', message: '您的IP已被封禁', isBanned: true, remainingTime: banInfo.remainingTime });
+      return res.status(403).json({ status: 'error', message: '您的 IP 已被封禁', isBanned: true, remainingTime: banInfo.remainingTime });
     }
 
     if (!username || !password || !nickname || !captchaId || !captchaCode) {
       return res.status(400).json({ status: 'error', message: '请填写所有字段和验证码' });
+    }
+
+    // 验证性别参数
+    const genderNum = parseInt(gender);
+    if (isNaN(genderNum) || genderNum < 0 || genderNum > 2) {
+      return res.status(400).json({ status: 'error', message: '性别参数非法' });
     }
 
     // 验证验证码
@@ -2007,7 +2014,6 @@ app.post('/register', async (req, res) => {
 
     const cleanUsername = sanitizeInput(username);
     const cleanNickname = sanitizeInput(nickname);
-    const cleanSignature = signature ? sanitizeInput(signature).substring(0, 500) : null;
 
     const [existingUsers] = await pool.execute(
         'SELECT id FROM chat_users WHERE username = ?',
@@ -2021,16 +2027,32 @@ app.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const [result] = await pool.execute(
-        'INSERT INTO chat_users (username, password, nickname, signature, last_online) VALUES (?, ?, ?, ?, NOW())',
-        [cleanUsername, hashedPassword, cleanNickname, cleanSignature]
+        'INSERT INTO chat_users (username, password, nickname, gender, last_online) VALUES (?, ?, ?, ?, NOW())',
+        [cleanUsername, hashedPassword, cleanNickname, genderNum]
     );
 
     await logIPAction(result.insertId, clientIP, 'register');
 
+    // 生成一个用于自动登录的临时 token，有效期 5 分钟
+    const autoLoginToken = `auto_${result.insertId}_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+    
+    // 将 token 存储到 Redis 或内存中，设置 5 分钟过期
+    const tokenData = {
+      userId: result.insertId,
+      expire: Date.now() + 5 * 60 * 1000  // 5 分钟过期
+    };
+    
+    // 使用内存存储（生产环境建议使用 Redis）
+    if (!global.autoLoginTokens) {
+      global.autoLoginTokens = new Map();
+    }
+    global.autoLoginTokens.set(autoLoginToken, tokenData);
+
     res.json({
       status: 'success',
       message: '注册成功',
-      userId: result.insertId
+      userId: result.insertId,
+      autoLoginToken: autoLoginToken  // 返回自动登录 token
     });
   } catch (err) {
     console.error('注册失败:', err.message);
@@ -2045,7 +2067,7 @@ app.post('/update-signature', validateIPAndSession, async (req, res) => {
     const { signature } = req.body;
 
     if (!userId) {
-      return res.status(400).json({ status: 'error', message: '用户ID不能为空' });
+      return res.status(400).json({ status: 'error', message: '用户 ID 不能为空' });
     }
 
     // 验证个性签名长度
@@ -2067,7 +2089,39 @@ app.post('/update-signature', validateIPAndSession, async (req, res) => {
   }
 });
 
-// 修改密码API
+// 更新性别接口
+app.post('/update-gender', validateIPAndSession, async (req, res) => {
+  try {
+    const userId = req.headers['user-id'];
+    const { gender } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ status: 'error', message: '用户 ID 不能为空' });
+    }
+
+    // 验证性别参数
+    const genderNum = parseInt(gender);
+    if (isNaN(genderNum) || genderNum < 0 || genderNum > 2) {
+      return res.status(400).json({ status: 'error', message: '性别参数非法' });
+    }
+
+    // 更新用户性别
+    await pool.execute(
+      'UPDATE chat_users SET gender = ? WHERE id = ?',
+      [genderNum, userId]
+    );
+
+    res.json({
+      status: 'success',
+      message: '性别更新成功'
+    });
+  } catch (err) {
+    console.error('更新性别失败:', err.message);
+    res.status(500).json({ status: 'error', message: '更新性别失败' });
+  }
+});
+
+// 修改密码 API
 app.post('/user/change-password', validateIPAndSession, async (req, res) => {
   try {
     const userId = req.userId;
@@ -2152,15 +2206,15 @@ app.post('/user/update-nickname', validateIPAndSession, async (req, res) => {
 // 用户登录接口
 app.post('/login', async (req, res) => {
   try {
-    const { username, password, captchaId, captchaCode } = req.body;
+    const { username, password, captchaId, captchaCode, autoLoginToken } = req.body;
     const clientIP = getClientIP(req);
 
-    console.log('登录请求IP:', clientIP);
+    console.log('登录请求 IP:', clientIP);
 
-    // 检查IP是否被封禁，并获取封禁详情
+    // 检查 IP 是否被封禁，并获取封禁详情
     const banInfo = await isIPBanned(clientIP);
     if (banInfo.isBanned) {
-      let message = '您的IP已被封禁';
+      let message = '您的 IP 已被封禁';
       
       // 如果有封禁原因，添加到错误消息中
       if (banInfo.reason) {
@@ -2182,6 +2236,69 @@ app.post('/login', async (req, res) => {
       });
     }
 
+    // 检查是否使用自动登录 token
+    if (autoLoginToken) {
+      // 验证自动登录 token
+      if (!global.autoLoginTokens) {
+        global.autoLoginTokens = new Map();
+      }
+      
+      const tokenData = global.autoLoginTokens.get(autoLoginToken);
+      
+      if (!tokenData) {
+        return res.status(400).json({ status: 'error', message: '自动登录 token 无效' });
+      }
+      
+      // 检查 token 是否过期
+      if (Date.now() > tokenData.expire) {
+        global.autoLoginTokens.delete(autoLoginToken);
+        return res.status(400).json({ status: 'error', message: '自动登录 token 已过期，请使用验证码登录' });
+      }
+      
+      // token 有效，获取用户信息
+      const userId = tokenData.userId;
+      
+      const [users] = await pool.execute(
+        'SELECT id, username, nickname, gender, avatar_url FROM chat_users WHERE id = ?',
+        [userId]
+      );
+      
+      if (users.length === 0) {
+        global.autoLoginTokens.delete(autoLoginToken);
+        return res.status(404).json({ status: 'error', message: '用户不存在' });
+      }
+      
+      const user = users[0];
+      
+      // 更新用户在线时间
+      await pool.execute(
+        'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+        [user.id]
+      );
+      
+      // 创建会话
+      const sessionToken = await createUserSession(user.id);
+      
+      // 删除已使用的 token（只能用一次）
+      global.autoLoginTokens.delete(autoLoginToken);
+      
+      await logIPAction(user.id, clientIP, 'login_auto_success');
+      
+      res.json({
+        status: 'success',
+        message: '自动登录成功',
+        userId: user.id,
+        nickname: user.nickname,
+        gender: user.gender,
+        avatarUrl: user.avatar_url,
+        sessionToken: sessionToken,
+        autoLogin: true  // 标记是自动登录
+      });
+      
+      return;
+    }
+
+    // 普通登录流程（需要验证码）
     if (!username || !password || !captchaId || !captchaCode) {
       return res.status(400).json({ status: 'error', message: '请填写用户名、密码和验证码' });
     }
@@ -2215,7 +2332,7 @@ app.post('/login', async (req, res) => {
     const cleanUsername = sanitizeInput(username);
 
     const [users] = await pool.execute(
-        'SELECT id, username, password, nickname, avatar_url FROM chat_users WHERE username = ?',
+        'SELECT id, username, password, nickname, gender, avatar_url FROM chat_users WHERE username = ?',
         [cleanUsername]
     );
 
@@ -2273,6 +2390,7 @@ app.post('/login', async (req, res) => {
       message: '登录成功（会话永不过期）',
       userId: user.id,
       nickname: user.nickname,
+      gender: user.gender,
       avatarUrl: user.avatar_url,
       sessionToken: sessionToken
     });
@@ -2344,7 +2462,7 @@ app.get('/user/:id', validateIPAndSession, async (req, res) => {
     const userId = req.params.id;
 
     const [users] = await pool.execute(
-        'SELECT id, username, nickname, signature, avatar_url FROM chat_users WHERE id = ?',
+        'SELECT id, username, nickname, gender, signature, avatar_url FROM chat_users WHERE id = ?',
         [userId]
     );
 

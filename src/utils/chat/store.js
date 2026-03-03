@@ -28,7 +28,10 @@ export function setCurrentUser(user) {
   if (user) {
     localStorage.setItem('userId', user.id);
     localStorage.setItem('nickname', user.nickname);
-    localStorage.setItem('avatarUrl', user.avatarUrl || '');
+    if (user.gender !== undefined) {
+      localStorage.setItem('chatUserGender', String(user.gender));
+    }
+    // 不再保存 avatarUrl 到 localStorage，让后端自己查找
   }
 }
 

@@ -5,6 +5,7 @@ import {
   syncCurrentActiveChat
 } from './store.js';
 import { unescapeHtml } from './message.js';
+import { websocketModule } from './index.js';
 
 let originalTitle = document.title;
 let isPageVisible = !document.hidden;
@@ -12,12 +13,16 @@ let currentActiveChat = 'main';
 let currentGroupId = null;
 
 function logout() {
+  // 断开 WebSocket 连接
+  if (websocketModule && websocketModule.disconnectWebSocket) {
+    websocketModule.disconnectWebSocket();
+  }
+  
   localStorage.removeItem('currentUser');
   localStorage.removeItem('currentSessionToken');
   localStorage.removeItem('chatUserId');
   localStorage.removeItem('chatUserNickname');
-  localStorage.removeItem('chatUserAvatar');
-  localStorage.removeItem('chatUserId');
+  localStorage.removeItem('chatUserGender');
   window.router.push('/login');
 }
 let currentGroupName = '';
@@ -624,46 +629,72 @@ function updateTitleWithUnreadCount() {
 function handlePageVisibilityChange() {
   isPageVisible = !document.hidden;
 
-  // 页面从不可见变为可见时，只有在当前确实在主聊天室时才清除未读计数
-  // 群组和私信的未读计数只在点击进入时清除
+  // 页面从不可见变为可见时，只清除当前活动会话的未读计数
   if (isPageVisible) {
-    const chat = currentActiveChat || '';
+    const chat = currentActiveChat || window.currentActiveChat || '';
     if (typeof chat !== 'string') {
       return;
     }
 
-    // 检查当前路径是否为主聊天室（/chat 或 /chat/）
-    const isMainChatPage = window.location.pathname === '/chat' || window.location.pathname === '/chat/';
-    
-    if (chat === 'main' && isMainChatPage) {
-      // 只有在主聊天室页面时才清除未读计数
+    // 清除当前活动会话的未读计数
+    if (chat === 'main') {
+      // 公共聊天室
       if (unreadMessages.global > 0) {
         unreadMessages.global = 0;
-        updateTitleWithUnreadCount();
+      }
+    } else if (chat.startsWith('group_')) {
+      // 群组聊天室
+      const groupId = chat.replace('group_', '');
+      if (unreadMessages.groups[groupId] > 0) {
+        unreadMessages.groups[groupId] = 0;
+      }
+    } else if (chat.startsWith('private_')) {
+      // 私信聊天室
+      const userId = chat.replace('private_', '');
+      if (unreadMessages.private[userId] > 0) {
+        unreadMessages.private[userId] = 0;
       }
     }
+    
+    // 更新未读计数显示和标题
+    updateUnreadCountsDisplay();
+    updateTitleWithUnreadCount();
   }
 }
 
 function handleFocusChange() {
   isPageVisible = document.hasFocus();
 
-  // 页面获得焦点时，只有在当前确实在主聊天室时才清除未读计数
-  // 群组和私信的未读计数只在点击进入时清除
+  // 页面获得焦点时，只清除当前活动会话的未读计数
   if (isPageVisible) {
-    const chat = currentActiveChat || '';
-    if (typeof chat !== 'string') return;
+    const chat = currentActiveChat || window.currentActiveChat || '';
+    if (typeof chat !== 'string') {
+      return;
+    }
 
-    // 检查当前路径是否为主聊天室（/chat 或 /chat/）
-    const isMainChatPage = window.location.pathname === '/chat' || window.location.pathname === '/chat/';
-    
-    if (chat === 'main' && isMainChatPage) {
-      // 只有在主聊天室页面时才清除未读计数
+    // 清除当前活动会话的未读计数
+    if (chat === 'main') {
+      // 公共聊天室
       if (unreadMessages.global > 0) {
         unreadMessages.global = 0;
-        updateTitleWithUnreadCount();
+      }
+    } else if (chat.startsWith('group_')) {
+      // 群组聊天室
+      const groupId = chat.replace('group_', '');
+      if (unreadMessages.groups[groupId] > 0) {
+        unreadMessages.groups[groupId] = 0;
+      }
+    } else if (chat.startsWith('private_')) {
+      // 私信聊天室
+      const userId = chat.replace('private_', '');
+      if (unreadMessages.private[userId] > 0) {
+        unreadMessages.private[userId] = 0;
       }
     }
+    
+    // 更新未读计数显示和标题
+    updateUnreadCountsDisplay();
+    updateTitleWithUnreadCount();
   }
 }
 
@@ -727,7 +758,13 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
   if (chatType === 'main') {
     currentActiveChat = 'main';
     window.currentActiveChat = 'main';
-    if (store) store.currentActiveChat = 'main';
+    if (store) {
+      store.currentActiveChat = 'main';
+      // 切换聊天类型时清除引用消息
+      if (store.setCurrentActiveChat) {
+        store.setCurrentActiveChat('main');
+      }
+    }
     // 清除全局未读消息计数
     if (clearUnread && unreadMessages.global > 0) {
       unreadMessages.global = 0;
@@ -736,7 +773,13 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
   } else if (chatType === 'group' && id) {
     currentActiveChat = `group_${id}`;
     window.currentActiveChat = `group_${id}`;
-    if (store) store.currentActiveChat = `group_${id}`;
+    if (store) {
+      store.currentActiveChat = `group_${id}`;
+      // 切换聊天类型时清除引用消息
+      if (store.setCurrentActiveChat) {
+        store.setCurrentActiveChat(`group_${id}`);
+      }
+    }
     // 清除该群组未读消息计数
     if (clearUnread && unreadMessages.groups[id] > 0) {
       unreadMessages.groups[id] = 0;
@@ -745,7 +788,13 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
   } else if (chatType === 'private' && id) {
     currentActiveChat = `private_${id}`;
     window.currentActiveChat = `private_${id}`;
-    if (store) store.currentActiveChat = `private_${id}`;
+    if (store) {
+      store.currentActiveChat = `private_${id}`;
+      // 切换聊天类型时清除引用消息
+      if (store.setCurrentActiveChat) {
+        store.setCurrentActiveChat(`private_${id}`);
+      }
+    }
     // 清除该好友未读消息计数
     if (clearUnread && unreadMessages.private[id] > 0) {
       unreadMessages.private[id] = 0;
@@ -937,9 +986,7 @@ function initializeChat() {
             let nickname = localStorage.getItem('chatUserNickname') ||
                           localStorage.getItem('nickname') ||
                           localStorage.getItem('currentUserNickname');
-            let avatarUrl = localStorage.getItem('chatUserAvatar') ||
-                           localStorage.getItem('avatarUrl') ||
-                           localStorage.getItem('currentUserAvatarUrl');
+            let gender = localStorage.getItem('chatUserGender');
 
             // console.log('📋 从 localStorage 读取到的数据:', { userId, sessionToken, nickname });
 
@@ -947,7 +994,8 @@ function initializeChat() {
                 currentUser = {
                     id: userId,
                     nickname: nickname,
-                    avatarUrl: avatarUrl
+                    gender: gender ? parseInt(gender) : 0,
+                    avatarUrl: null  // 从后端获取，不从 localStorage 读取
                 };
                 currentSessionToken = sessionToken;
                 window.currentSessionToken = sessionToken;
