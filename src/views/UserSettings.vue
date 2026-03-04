@@ -1,6 +1,7 @@
 <script setup>
 import {ref, computed, onMounted, onUnmounted} from "vue";
 import {currentUser, currentSessionToken, unescapeHtml} from "@/utils/chat";
+import VueTurnstile from 'vue-turnstile';
 
 const SERVER_URL = process.env.VUE_APP_SERVER_URL || 'https://back.hs.airoe.cn'
 
@@ -11,12 +12,14 @@ const currentSetting = ref('')
 const passwordForm = ref({
   oldPassword: '',
   newPassword: '',
-  confirmPassword: '',
-  captchaCode: '',
-  captchaId: ''
+  confirmPassword: ''
 })
 const passwordMessage = ref('')
 const passwordMessageClass = ref('')
+
+// Turnstile 相关
+const turnstileRef = ref(null)
+const turnstileToken = ref('')
 
 // 修改昵称表单
 const nicknameForm = ref({
@@ -53,9 +56,6 @@ const userInitials = computed(() => {
   return nickname ? nickname.charAt(0).toUpperCase() : 'U'
 })
 
-// 验证码图片
-const captchaImage = ref('')
-
 // 获取当前用户ID
 function getCurrentUserId() {
   if (currentUser && currentUser.id) {
@@ -73,13 +73,19 @@ function getCurrentSessionToken() {
   return localStorage.getItem('currentSessionToken') || localStorage.getItem('sessionToken') || ''
 }
 
+// 重置 Turnstile
+function resetTurnstile() {
+  if (turnstileRef.value) {
+    turnstileToken.value = ''
+    turnstileRef.value.reset()
+  }
+}
+
 // 处理设置项点击
 function handleSettingClick(setting) {
   currentSetting.value = setting
   
-  if (setting === 'change-password') {
-    refreshCaptcha()
-  } else if (setting === 'change-nickname') {
+  if (setting === 'change-nickname') {
     const user = JSON.parse(localStorage.getItem('currentUser') || '{}')
     nicknameForm.value.newNickname = user.nickname || ''
   } else if (setting === 'change-gender') {
@@ -96,53 +102,18 @@ function handleSettingClick(setting) {
   }
 }
 
-// 刷新验证码
-async function refreshCaptcha() {
-  try {
-    const userId = getCurrentUserId()
-    const response = await fetch(`${SERVER_URL}/captcha`, {
-      headers: {
-        'user-id': userId
-      }
-    })
-    const contentType = response.headers.get('content-type') || ''
-    
-    // 检查响应是否是SVG格式
-    if (contentType.includes('image/svg') || contentType.includes('svg+xml')) {
-      // 直接读取SVG内容
-      const svgText = await response.text()
-      // 将SVG转换为base64数据URL
-      captchaImage.value = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgText)))
-      // 从响应头获取captchaId（如果有的话）
-      const captchaId = response.headers.get('captcha-id') || ''
-      if (captchaId) {
-        passwordForm.value.captchaId = captchaId
-      }
-    } else {
-      // 否则按JSON格式处理
-      const data = await response.json()
-      if (data.captchaId) {
-        passwordForm.value.captchaId = data.captchaId
-        // 检查是captchaImage还是captchaSvg
-        if (data.captchaImage) {
-          captchaImage.value = data.captchaImage
-        } else if (data.captchaSvg) {
-          // 如果是captchaSvg，也转换为base64
-          captchaImage.value = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(data.captchaSvg)))
-        }
-      }
-    }
-  } catch (error) {
-    console.error('获取验证码失败:', error)
-  }
-}
-
 // 修改密码 - 使用API
 async function handleChangePassword() {
   passwordMessage.value = ''
   
   if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
     passwordMessage.value = '两次输入的密码不一致'
+    passwordMessageClass.value = 'error'
+    return
+  }
+
+  if (!turnstileToken.value) {
+    passwordMessage.value = '请完成人机验证'
     passwordMessageClass.value = 'error'
     return
   }
@@ -167,8 +138,7 @@ async function handleChangePassword() {
       body: JSON.stringify({
         oldPassword: passwordForm.value.oldPassword,
         newPassword: passwordForm.value.newPassword,
-        captchaId: passwordForm.value.captchaId,
-        captchaCode: passwordForm.value.captchaCode
+        turnstileToken: turnstileToken.value
       })
     })
     
@@ -177,16 +147,18 @@ async function handleChangePassword() {
     if (data.status === 'success') {
       passwordMessage.value = '密码修改成功'
       passwordMessageClass.value = 'success'
-      passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '', captchaCode: '', captchaId: '' }
+      passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
+      resetTurnstile()
     } else {
       passwordMessage.value = data.message || '密码修改失败'
       passwordMessageClass.value = 'error'
-      refreshCaptcha()
+      resetTurnstile()
     }
   } catch (error) {
     console.error('修改密码失败:', error)
     passwordMessage.value = '网络错误'
     passwordMessageClass.value = 'error'
+    resetTurnstile()
   }
 }
 
@@ -449,15 +421,16 @@ onUnmounted(() => {
             <label for="confirmPassword">确认新密码</label>
             <input type="password" id="confirmPassword" v-model="passwordForm.confirmPassword" placeholder="请再次输入新密码" required>
           </div>
-          <div class="form-group captcha-group">
-            <label for="passwordCaptchaCode">验证码</label>
-            <div class="captcha-row" style="display: flex; gap: 10px; align-items: center;">
-              <input type="text" id="passwordCaptchaCode" v-model="passwordForm.captchaCode" placeholder="请输入验证码" required style="flex: 1;">
-              <div style="display: flex; align-items: center;">
-                <img :src="captchaImage" alt="验证码" @click="refreshCaptcha" style="border: 1px solid #ddd; cursor: pointer; border-radius: 4px;">
-              </div>
+          <div class="form-group">
+            <label>人机验证</label>
+            <div class="turnstile-container">
+              <VueTurnstile 
+                ref="turnstileRef"
+                site-key="0x4AAAAAACmJCFDcKhJ4p3Ua"
+                v-model="turnstileToken"
+                theme="light"
+              />
             </div>
-            <input type="hidden" id="passwordCaptchaId" v-model="passwordForm.captchaId">
           </div>
           <div v-if="passwordMessage" :class="'form-message ' + passwordMessageClass">{{ passwordMessage }}</div>
           <div class="form-actions">
@@ -612,3 +585,10 @@ onUnmounted(() => {
 
 <style src="@/css/index.css"></style>
 <style src="@/css/code-highlight.css"></style>
+<style scoped>
+.turnstile-container {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 8px;
+}
+</style>

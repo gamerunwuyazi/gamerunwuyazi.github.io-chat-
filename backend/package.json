@@ -12,6 +12,7 @@
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
     "svg-captcha": "^1.4.0",
+    "turnstile": "^5.0.5",
     "vue": "^3.5.27",
     "vue-router": "^4.6.4"
   },

@@ -102,22 +102,14 @@
           </div>
         </div>
         <div class="input-group">
-          <label for="captcha">验证码</label>
-          <div style="display: flex; gap: 10px; align-items: center;">
-            <input 
-              type="text" 
-              id="captcha" 
-              v-model="formData.captchaCode" 
-              name="captcha" 
-              required 
-              placeholder="请输入验证码" 
-              style="flex: 1; width: 0;"
-            >
-            <div 
-              v-html="captchaSvg" 
-              @click="getCaptcha" 
-              style="cursor: pointer; flex-shrink: 0; width: 120px;"
-            ></div>
+          <label>人机验证</label>
+          <div class="turnstile-container">
+            <VueTurnstile 
+              ref="turnstileRef"
+              site-key="0x4AAAAAACmJCFDcKhJ4p3Ua"
+              v-model="turnstileToken"
+              theme="light"
+            />
           </div>
         </div>
         <button type="submit" ref="registerButton" :disabled="isSubmitting">
@@ -133,32 +125,29 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue';
+import { ref, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import { debounce } from 'lodash';
 import { login } from '@/utils/chat';
+import VueTurnstile from 'vue-turnstile';
 
 const router = useRouter();
 
-// 响应式表单数据
 const formData = reactive({
   username: '',
   nickname: '',
   password: '',
   confirmPassword: '',
-  gender: '0',  // 默认保密
-  captchaCode: ''
+  gender: '0'
 });
 
-// UI 状态
-const captchaSvg = ref('');
-const currentCaptchaId = ref('');
+const turnstileRef = ref(null);
+const turnstileToken = ref('');
 const message = ref('');
 const messageType = ref('error');
 const isSubmitting = ref(false);
 const registerButton = ref(null);
 
-// 验证状态
 const validation = reactive({
   username: '',
   usernameClass: '',
@@ -170,25 +159,9 @@ const validation = reactive({
   confirmPasswordClass: ''
 });
 
-// 密码强度
 const passwordStrengthText = ref('');
 const passwordStrengthClass = ref('');
 
-// 获取验证码
-async function getCaptcha() {
-  try {
-    const response = await fetch('https://back.hs.airoe.cn/captcha');
-    const data = await response.json();
-    if (data.status === 'success') {
-      captchaSvg.value = data.captchaSvg;
-      currentCaptchaId.value = data.captchaId;
-    }
-  } catch (error) {
-    showMessage('获取验证码失败，请稍后重试', 'error');
-  }
-}
-
-// 显示消息函数
 function showMessage(msg, type) {
   message.value = msg;
   messageType.value = type;
@@ -197,7 +170,13 @@ function showMessage(msg, type) {
   }, 5000);
 }
 
-// 验证用户名
+function resetTurnstile() {
+  if (turnstileRef.value) {
+    turnstileToken.value = '';
+    turnstileRef.value.reset();
+  }
+}
+
 async function validateUsername() {
   const username = formData.username.trim();
   if (!username) {
@@ -241,10 +220,8 @@ async function validateUsername() {
   }
 }
 
-// 创建防抖版本的用户名验证
 const debouncedValidateUsername = debounce(validateUsername, 500);
 
-// 验证昵称
 function validateNickname() {
   const nickname = formData.nickname.trim();
   if (!nickname) {
@@ -264,7 +241,6 @@ function validateNickname() {
   return true;
 }
 
-// 验证密码
 function validatePassword() {
   const password = formData.password;
   if (!password) {
@@ -288,7 +264,6 @@ function validatePassword() {
   return true;
 }
 
-// 检测密码强度
 function checkPasswordStrength(password) {
   let strength = 0;
 
@@ -310,7 +285,6 @@ function checkPasswordStrength(password) {
   }
 }
 
-// 验证确认密码
 function validateConfirmPassword() {
   const password = formData.password;
   const confirmPassword = formData.confirmPassword;
@@ -332,18 +306,20 @@ function validateConfirmPassword() {
   return true;
 }
 
-// 验证所有字段
 async function validateAll() {
   const isUsernameValid = await validateUsername();
   const isNicknameValid = validateNickname();
   const isPasswordValid = validatePassword();
   const isConfirmPasswordValid = validateConfirmPassword();
-  const isCaptchaValid = formData.captchaCode.trim() !== '';
+  const isTurnstileValid = turnstileToken.value !== '';
 
-  return isUsernameValid && isNicknameValid && isPasswordValid && isConfirmPasswordValid && isCaptchaValid;
+  if (!isTurnstileValid) {
+    showMessage('请完成人机验证', 'error');
+  }
+
+  return isUsernameValid && isNicknameValid && isPasswordValid && isConfirmPasswordValid && isTurnstileValid;
 }
 
-// 注册表单提交事件处理
 async function handleRegister() {
   if (!await validateAll()) {
     showMessage('请修正表单中的错误后再提交', 'error');
@@ -353,52 +329,49 @@ async function handleRegister() {
   isSubmitting.value = true;
 
   try {
-      // 1. 先注册账号
-      const registerResponse = await fetch('https://back.hs.airoe.cn/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          username: formData.username,
-          nickname: formData.nickname,
-          password: formData.password,
-          gender: parseInt(formData.gender),
-          captchaId: currentCaptchaId.value,
-          captchaCode: formData.captchaCode
-        })
-      });
+    const registerResponse = await fetch('https://back.hs.airoe.cn/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        username: formData.username,
+        nickname: formData.nickname,
+        password: formData.password,
+        gender: parseInt(formData.gender),
+        turnstileToken: turnstileToken.value
+      })
+    });
 
-      const registerResponseText = await registerResponse.text();
+    const registerResponseText = await registerResponse.text();
 
-      let registerData;
-      try {
-        registerData = JSON.parse(registerResponseText);
-      } catch (parseError) {
-        showMessage('服务器响应格式错误，请稍后重试', 'error');
-        isSubmitting.value = false;
-        return;
-      }
+    let registerData;
+    try {
+      registerData = JSON.parse(registerResponseText);
+    } catch (parseError) {
+      showMessage('服务器响应格式错误，请稍后重试', 'error');
+      isSubmitting.value = false;
+      resetTurnstile();
+      return;
+    }
 
-      if (!(registerData.success || registerData.status === 'success' || registerData.code === 200)) {
-        const errorMessage = registerData.message || registerData.msg || '注册失败，请稍后重试';
-        showMessage(errorMessage, 'error');
-        getCaptcha();
-        isSubmitting.value = false;
-        return;
-      }
+    if (!(registerData.success || registerData.status === 'success' || registerData.code === 200)) {
+      const errorMessage = registerData.message || registerData.msg || '注册失败，请稍后重试';
+      showMessage(errorMessage, 'error');
+      resetTurnstile();
+      isSubmitting.value = false;
+      return;
+    }
 
-    // 2. 注册成功后，自动使用返回的 token 登录
     showMessage('注册成功，正在自动登录...', 'success');
     
-    // 使用注册返回的 autoLoginToken 直接登录（免验证码）
     const loginResponse = await fetch('https://back.hs.airoe.cn/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        autoLoginToken: registerData.autoLoginToken  // 使用注册返回的自动登录 token
+        autoLoginToken: registerData.autoLoginToken
       })
     });
 
@@ -439,7 +412,6 @@ async function handleRegister() {
         avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
       };
 
-      // 保存登录信息
       localStorage.setItem('currentUser', JSON.stringify(userData));
       localStorage.setItem('currentSessionToken', sessionToken);
       localStorage.setItem('chatUserId', userData.id);
@@ -447,7 +419,6 @@ async function handleRegister() {
       localStorage.setItem('chatSessionToken', sessionToken);
       localStorage.setItem('chatUserGender', String(userData.gender || 0));
 
-      // 登录成功，跳转到聊天页面
       showMessage('登录成功，正在跳转...', 'success');
       setTimeout(() => {
         login();
@@ -462,15 +433,10 @@ async function handleRegister() {
     }
   } catch (error) {
     showMessage('注册请求失败，请检查用户名/昵称/密码是否合法，并稍后重试', 'error');
-    getCaptcha();
+    resetTurnstile();
     isSubmitting.value = false;
   }
 }
-
-// 在组件挂载后初始化
-onMounted(() => {
-  getCaptcha();
-});
 </script>
 
 <style scoped>
@@ -606,6 +572,12 @@ input:focus {
   border-color: #667eea;
   background-color: white;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Turnstile 容器样式 */
+.turnstile-container {
+  display: flex;
+  justify-content: flex-start;
 }
 
 /* 按钮样式 */

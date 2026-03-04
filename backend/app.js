@@ -9,7 +9,6 @@ const bcrypt = require('bcryptjs');
 const cors = require('cors');
 const crypto = require('crypto');
 const schedule = require('node-schedule');
-const svgCaptcha = require('svg-captcha');
 const dotenv = require('dotenv');
 
 // 检测并加载环境变量配置
@@ -501,45 +500,26 @@ async function checkFileRequestLimit(req, res, next) {
 // 用户会话管理
 const userSessions = new Map();
 
-// 验证码存储，使用Map存储，键为验证码ID，值为{code: 验证码, expire: 过期时间}
-const captchaStore = new Map();
+// Cloudflare Turnstile 配置
+const TURNSTILE_SECRET_KEY = '0x4AAAAAACmJCFETt3FTq9SzDFaSFBjXVgI';
 
-// 验证码过期时间（分钟）
-const CAPTCHA_EXPIRE_MINUTES = 5;
+// 验证 Cloudflare Turnstile Token
+async function verifyTurnstileToken(token, clientIP) {
+  try {
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: `secret=${encodeURIComponent(TURNSTILE_SECRET_KEY)}&response=${encodeURIComponent(token)}&remoteip=${encodeURIComponent(clientIP)}`
+    });
 
-// 生成验证码ID
-function generateCaptchaId() {
-  return crypto.randomBytes(16).toString('hex');
-}
-
-// 生成验证码
-function generateCaptcha() {
-  const captcha = svgCaptcha.create({
-    size: 4, // 验证码长度
-    ignoreChars: '0o1iIl', // 忽略易混淆字符
-    noise: 2, // 干扰线数量
-    width: 120, // 宽度
-    height: 40, // 高度
-    fontSize: 30, // 字体大小
-    color: true, // 彩色验证码
-    background: '#f0f0f0' // 背景色
-  });
-  
-  return captcha;
-}
-
-// 清理过期验证码
-function cleanupExpiredCaptchas() {
-  const now = Date.now();
-  for (const [id, captcha] of captchaStore.entries()) {
-    if (now > captcha.expire) {
-      captchaStore.delete(id);
-    }
+    const data = await response.json();
+    return { success: data.success === true, message: null };
+  } catch (error) {
+    return { success: false, message: '网络不佳，请稍后再试' };
   }
 }
-
-// 每5分钟清理一次过期验证码
-setInterval(cleanupExpiredCaptchas, 5 * 60 * 1000);
 
 // 生成会话令牌
 function generateSessionToken() {
@@ -972,35 +952,6 @@ app.get('/check-username', async (req, res) => {
   } catch (err) {
     console.error('检查用户名失败:', err.message);
     res.status(500).json({ status: 'error', message: '检查用户名失败' });
-  }
-});
-
-// 获取验证码API
-app.get('/captcha', (req, res) => {
-  try {
-    // 生成验证码
-    const captcha = generateCaptcha();
-    const captchaId = generateCaptchaId();
-    
-    // 计算过期时间
-    const expireTime = Date.now() + CAPTCHA_EXPIRE_MINUTES * 60 * 1000;
-    
-    // 存储验证码
-    captchaStore.set(captchaId, {
-      code: captcha.text.toLowerCase(), // 转为小写存储，不区分大小写验证
-      expire: expireTime
-    });
-    
-    // 返回验证码ID和SVG数据
-    res.json({
-      status: 'success',
-      captchaId: captchaId,
-      captchaSvg: captcha.data,
-      expireMinutes: CAPTCHA_EXPIRE_MINUTES
-    });
-  } catch (err) {
-    console.error('生成验证码失败:', err.message);
-    res.status(500).json({ status: 'error', message: '生成验证码失败' });
   }
 });
 
@@ -1962,7 +1913,7 @@ async function logIPAction(userId, ip, action) {
 // 用户注册接口
 app.post('/register', async (req, res) => {
   try {
-    const { username, password, nickname, gender, captchaId, captchaCode } = req.body;
+    const { username, password, nickname, gender, turnstileToken } = req.body;
     const clientIP = getClientIP(req);
 
     console.log('注册请求 IP:', clientIP);
@@ -1972,8 +1923,8 @@ app.post('/register', async (req, res) => {
       return res.status(403).json({ status: 'error', message: '您的 IP 已被封禁', isBanned: true, remainingTime: banInfo.remainingTime });
     }
 
-    if (!username || !password || !nickname || !captchaId || !captchaCode) {
-      return res.status(400).json({ status: 'error', message: '请填写所有字段和验证码' });
+    if (!username || !password || !nickname || !turnstileToken) {
+      return res.status(400).json({ status: 'error', message: '请填写所有字段并完成人机验证' });
     }
 
     // 验证性别参数
@@ -1982,23 +1933,11 @@ app.post('/register', async (req, res) => {
       return res.status(400).json({ status: 'error', message: '性别参数非法' });
     }
 
-    // 验证验证码
-    const captcha = captchaStore.get(captchaId);
-    if (!captcha) {
-      return res.status(400).json({ status: 'error', message: '验证码已过期或无效' });
+    // 验证 Turnstile Token
+    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIP);
+    if (!turnstileResult.success) {
+      return res.status(400).json({ status: 'error', message: turnstileResult.message || '人机验证失败，请重试' });
     }
-    
-    if (Date.now() > captcha.expire) {
-      captchaStore.delete(captchaId);
-      return res.status(400).json({ status: 'error', message: '验证码已过期' });
-    }
-    
-    if (captchaCode.toLowerCase() !== captcha.code) {
-      return res.status(400).json({ status: 'error', message: '验证码错误' });
-    }
-    
-    // 验证码验证成功，删除验证码（只能使用一次）
-    captchaStore.delete(captchaId);
 
     if (!validateUsername(username)) {
       return res.status(400).json({ status: 'error', message: '用户名或密码非法' });
@@ -2125,9 +2064,10 @@ app.post('/update-gender', validateIPAndSession, async (req, res) => {
 app.post('/user/change-password', validateIPAndSession, async (req, res) => {
   try {
     const userId = req.userId;
-    const { oldPassword, newPassword, captchaId, captchaCode } = req.body;
+    const clientIP = getClientIP(req);
+    const { oldPassword, newPassword, turnstileToken } = req.body;
 
-    if (!oldPassword || !newPassword || !captchaId || !captchaCode) {
+    if (!oldPassword || !newPassword || !turnstileToken) {
       return res.status(400).json({ status: 'error', message: '缺少必要参数' });
     }
 
@@ -2135,21 +2075,11 @@ app.post('/user/change-password', validateIPAndSession, async (req, res) => {
       return res.status(400).json({ status: 'error', message: '新密码格式错误' });
     }
 
-    const captcha = captchaStore.get(captchaId);
-    if (!captcha) {
-      return res.status(400).json({ status: 'error', message: '验证码已过期' });
+    // 验证 Turnstile Token
+    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIP);
+    if (!turnstileResult.success) {
+      return res.status(400).json({ status: 'error', message: turnstileResult.message || '人机验证失败，请重试' });
     }
-
-    if (Date.now() > captcha.expire) {
-      captchaStore.delete(captchaId);
-      return res.status(400).json({ status: 'error', message: '验证码已过期' });
-    }
-
-    if (captchaCode.toLowerCase() !== captcha.code) {
-      return res.status(400).json({ status: 'error', message: '验证码错误' });
-    }
-
-    captchaStore.delete(captchaId);
 
     const [users] = await pool.execute(
       'SELECT id, password FROM chat_users WHERE id = ?',
@@ -2206,7 +2136,7 @@ app.post('/user/update-nickname', validateIPAndSession, async (req, res) => {
 // 用户登录接口
 app.post('/login', async (req, res) => {
   try {
-    const { username, password, captchaId, captchaCode, autoLoginToken } = req.body;
+    const { username, password, turnstileToken, autoLoginToken } = req.body;
     const clientIP = getClientIP(req);
 
     console.log('登录请求 IP:', clientIP);
@@ -2298,28 +2228,16 @@ app.post('/login', async (req, res) => {
       return;
     }
 
-    // 普通登录流程（需要验证码）
-    if (!username || !password || !captchaId || !captchaCode) {
-      return res.status(400).json({ status: 'error', message: '请填写用户名、密码和验证码' });
+    // 普通登录流程（需要 Turnstile 验证）
+    if (!username || !password || !turnstileToken) {
+      return res.status(400).json({ status: 'error', message: '请填写所有字段并完成人机验证' });
     }
 
-    // 验证验证码
-    const captcha = captchaStore.get(captchaId);
-    if (!captcha) {
-      return res.status(400).json({ status: 'error', message: '验证码已过期或无效' });
+    // 验证 Turnstile Token
+    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIP);
+    if (!turnstileResult.success) {
+      return res.status(400).json({ status: 'error', message: turnstileResult.message || '人机验证失败，请重试' });
     }
-    
-    if (Date.now() > captcha.expire) {
-      captchaStore.delete(captchaId);
-      return res.status(400).json({ status: 'error', message: '验证码已过期' });
-    }
-    
-    if (captchaCode.toLowerCase() !== captcha.code) {
-      return res.status(400).json({ status: 'error', message: '验证码错误' });
-    }
-    
-    // 验证码验证成功，删除验证码（只能使用一次）
-    captchaStore.delete(captchaId);
 
     if (!validateUsername(username)) {
       return res.status(400).json({ status: 'error', message: '用户名或密码非法' });

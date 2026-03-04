@@ -91,18 +91,42 @@ export const useChatStore = defineStore('chat', () => {
     currentGroupId.value = id;
     // 切换群组时清除引用消息
     clearQuotedMessage();
+    // 切换群组时，清除其他群组的消息，只保留最近 20 条
+    clearOtherGroupMessages(id);
+    clearPublicMessagesExceptRecent();
+    clearOtherPrivateMessages(null);
   }
   
   function setCurrentPrivateChatUserId(id) {
     currentPrivateChatUserId.value = id;
     // 切换私信对象时清除引用消息
     clearQuotedMessage();
+    // 切换私信时，清除其他私信的消息，只保留最近 20 条
+    clearOtherPrivateMessages(id);
+    clearPublicMessagesExceptRecent();
+    clearOtherGroupMessages(null);
   }
   
   function setCurrentActiveChat(type) {
     currentActiveChat.value = type;
     // 切换聊天类型时清除引用消息
     clearQuotedMessage();
+    // 切换聊天类型时，清除其他会话的消息，只保留最近 20 条
+    if (type === 'main') {
+      clearPublicMessagesExceptRecent();
+      clearOtherGroupMessages(null);
+      clearOtherPrivateMessages(null);
+    } else if (type.startsWith('group_')) {
+      const groupId = type.replace('group_', '');
+      clearOtherGroupMessages(groupId);
+      clearPublicMessagesExceptRecent();
+      clearOtherPrivateMessages(null);
+    } else if (type.startsWith('private_')) {
+      const userId = type.replace('private_', '');
+      clearOtherPrivateMessages(userId);
+      clearPublicMessagesExceptRecent();
+      clearOtherGroupMessages(null);
+    }
   }
   
   function openModal(modalName, data = null) {
@@ -476,6 +500,39 @@ export const useChatStore = defineStore('chat', () => {
     quotedMessage.value = null;
   }
   
+  // 清除其他群组的消息，只保留当前群组的消息
+  function clearOtherGroupMessages(currentGroupId) {
+    const allGroupIds = Object.keys(groupMessages.value);
+    allGroupIds.forEach(groupId => {
+      if (String(groupId) !== String(currentGroupId)) {
+        // 清除其他群组的消息，只保留最近 20 条
+        if (groupMessages.value[groupId] && groupMessages.value[groupId].length > 20) {
+          groupMessages.value[groupId] = groupMessages.value[groupId].slice(-20);
+        }
+      }
+    });
+  }
+  
+  // 清除其他私信的消息，只保留当前私信的消息
+  function clearOtherPrivateMessages(currentUserId) {
+    const allUserIds = Object.keys(privateMessages.value);
+    allUserIds.forEach(userId => {
+      if (String(userId) !== String(currentUserId)) {
+        // 清除其他私信的消息，只保留最近 20 条
+        if (privateMessages.value[userId] && privateMessages.value[userId].length > 20) {
+          privateMessages.value[userId] = privateMessages.value[userId].slice(-20);
+        }
+      }
+    });
+  }
+  
+  // 清除公共聊天消息，只保留最近 20 条
+  function clearPublicMessagesExceptRecent() {
+    if (publicMessages.value.length > 20) {
+      publicMessages.value = publicMessages.value.slice(-20);
+    }
+  }
+  
   return {
     onlineUsers,
     offlineUsers,
@@ -488,6 +545,9 @@ export const useChatStore = defineStore('chat', () => {
     quotedMessage,
     setQuotedMessage,
     clearQuotedMessage,
+    clearOtherGroupMessages,
+    clearOtherPrivateMessages,
+    clearPublicMessagesExceptRecent,
     currentUser,
     currentSessionToken,
     currentGroupId,

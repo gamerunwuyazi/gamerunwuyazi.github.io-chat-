@@ -155,6 +155,13 @@ function scrollToBottom() {
   });
 }
 
+function isNearBottom() {
+  if (!groupMessageContainerRef.value) return false;
+  const container = groupMessageContainerRef.value;
+  const threshold = 150;
+  return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+}
+
 function refreshScrollPos() {
   // console.log('[GroupChat] refreshScrollPos - 开始刷新滚动位置');
   // console.log('[GroupChat] refreshScrollPos - window.prevGroupScrollHeight:', window.prevGroupScrollHeight);
@@ -536,22 +543,17 @@ watch(
 watch(
   () => groupMessages.value,
   (newMessages) => {
-    // console.log('[GroupChat] 群组消息变化 - isLoadingMoreMessages:', window.isLoadingMoreMessages);
-    // console.log('[GroupChat] 群组消息变化 - 新消息数量:', newMessages.length);
-    // console.log('[GroupChat] 群组消息变化 - 旧消息数量:', previousGroupMessageLength);
-    
     if (window.isLoadingMoreMessages) {
-      // console.log('[GroupChat] 检测到加载更多历史消息，开始刷新滚动位置');
       refreshScrollPos();
       setTimeout(() => {
         if (typeof window.resetLoadingState === 'function') {
-          // console.log('[GroupChat] 调用window.resetLoadingState清除加载状态');
           window.resetLoadingState();
         }
       }, 100);
     } else if (newMessages.length > previousGroupMessageLength && !window.isLoadingMoreMessages) {
-      // console.log('[GroupChat] 检测到新消息，滚动到底部');
-      scrollToBottom();
+      if (isNearBottom()) {
+        scrollToBottom();
+      }
     }
     previousGroupMessageLength = newMessages.length;
   },
@@ -566,6 +568,16 @@ watch(
       // 切换到群组聊天时清除引用消息
       if (chatStore.clearQuotedMessage) {
         chatStore.clearQuotedMessage();
+      }
+      // 切换到群组聊天时，清除其他会话的消息，只保留最近 20 条
+      if (chatStore.clearOtherGroupMessages) {
+        chatStore.clearOtherGroupMessages(chatStore.currentGroupId);
+      }
+      if (chatStore.clearOtherPrivateMessages) {
+        chatStore.clearOtherPrivateMessages(null);
+      }
+      if (chatStore.clearPublicMessagesExceptRecent) {
+        chatStore.clearPublicMessagesExceptRecent();
       }
       nextTick(() => {
         initializeScrollLoading(true);

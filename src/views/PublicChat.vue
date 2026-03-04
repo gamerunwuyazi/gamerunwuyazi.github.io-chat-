@@ -131,6 +131,13 @@ function scrollToBottom() {
   });
 }
 
+function isNearBottom() {
+  if (!messageContainerRef.value) return false;
+  const container = messageContainerRef.value;
+  const threshold = 150;
+  return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+}
+
 function refreshScrollPos() {
   // console.log('[PublicChat] refreshScrollPos - 开始刷新滚动位置');
   // console.log('[PublicChat] refreshScrollPos - window.prevPublicScrollHeight:', window.prevPublicScrollHeight);
@@ -163,22 +170,17 @@ window.publicRefreshScrollPos = refreshScrollPos;
 watch(
   () => chatStore.publicMessages,
   (newMessages) => {
-    // console.log('[PublicChat] 公共消息变化 - isLoadingMoreMessages:', window.isLoadingMoreMessages);
-    // console.log('[PublicChat] 公共消息变化 - 新消息数量:', newMessages.length);
-    // console.log('[PublicChat] 公共消息变化 - 旧消息数量:', previousPublicMessageLength);
-    
     if (window.isLoadingMoreMessages) {
-      // console.log('[PublicChat] 检测到加载更多历史消息，开始刷新滚动位置');
       refreshScrollPos();
       setTimeout(() => {
         if (typeof window.resetLoadingState === 'function') {
-          // console.log('[PublicChat] 调用window.resetLoadingState清除加载状态');
           window.resetLoadingState();
         }
       }, 100);
     } else if (newMessages.length > previousPublicMessageLength && !window.isLoadingMoreMessages) {
-      // console.log('[PublicChat] 检测到新消息，滚动到底部');
-      scrollToBottom();
+      if (isNearBottom()) {
+        scrollToBottom();
+      }
     }
     previousPublicMessageLength = newMessages.length;
   },
@@ -193,6 +195,16 @@ watch(
       // 切换到公共聊天时清除引用消息
       if (chatStore.clearQuotedMessage) {
         chatStore.clearQuotedMessage();
+      }
+      // 切换到公共聊天时，清除其他会话的消息，只保留最近 20 条
+      if (chatStore.clearOtherGroupMessages) {
+        chatStore.clearOtherGroupMessages(null);
+      }
+      if (chatStore.clearOtherPrivateMessages) {
+        chatStore.clearOtherPrivateMessages(null);
+      }
+      if (chatStore.clearPublicMessagesExceptRecent) {
+        chatStore.clearPublicMessagesExceptRecent();
       }
       nextTick(() => {
         initializeScrollLoading(true);
