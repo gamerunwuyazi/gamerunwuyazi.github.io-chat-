@@ -1,0 +1,15 @@
+[build]
+  base = "im-web"
+  command = "npm run build"
+  publish = "dist"
+
+  # 构建时使用的环境变量
+  [build.environment]
+    VUE_APP_SERVER_URL = "https://back.hs.airoe.cn"
+
+# 支持 HTML5 History 路由（SPA）
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = true
