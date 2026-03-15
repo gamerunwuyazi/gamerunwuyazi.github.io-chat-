@@ -68,6 +68,8 @@ async function refreshToken() {
     
     if (!userId || !refreshTokenValue) {
         console.log('没有 refresh token，无法刷新');
+        await modal.error('会话已过期，请重新登录', '登录过期');
+        logout();
         return false;
     }
     
@@ -111,6 +113,8 @@ async function refreshToken() {
         }
     } catch (err) {
         console.error('刷新 Token 请求失败:', err);
+        await modal.error('会话已过期，请重新登录', '登录过期');
+        logout();
         return false;
     }
 }

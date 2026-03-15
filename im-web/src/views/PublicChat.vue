@@ -361,7 +361,21 @@ onMounted(() => {
     }
   }, 600);
   
+  // 点击或右键其他地方隐藏 @ 提示框
+  function hideAtPickerOnClick(e) {
+    if (!showAtPicker.value) return;
+    const atPicker = document.querySelector('.at-picker');
+    const messageInput = document.getElementById('messageInput');
+    if (atPicker && messageInput && 
+        !atPicker.contains(e.target) && 
+        !messageInput.contains(e.target)) {
+      showAtPicker.value = false;
+    }
+  }
+  
   document.addEventListener('click', function(e) {
+    hideAtPickerOnClick(e);
+    
     const copyButton = e.target.closest('.copy-button');
     if (copyButton) {
       const code = copyButton.getAttribute('data-code');
@@ -388,6 +402,10 @@ onMounted(() => {
         });
       }
     }
+  });
+  
+  document.addEventListener('contextmenu', function(e) {
+    hideAtPickerOnClick(e);
   });
 });
 
@@ -471,13 +489,6 @@ function handleMessageInput() {
               }))
               .filter(u => u.username);
             
-            // 计算选择器位置 - 显示在输入框上方
-            const inputRect = messageInputRef.value.getBoundingClientRect();
-            atPickerPosition.value = {
-              top: inputRect.top - 100,
-              left: inputRect.left
-            };
-            
             // 过滤建议 - 根据输入的文字匹配
             const searchText = textAfterAt.toLowerCase();
             if (searchText) {
@@ -504,6 +515,17 @@ function handleMessageInput() {
                 .sort((a, b) => b.score - a.score);
             } else {
               filteredAtSuggestions.value = [...atSuggestions.value];
+            }
+            
+            // 在过滤完成后计算位置 - 底部贴在输入框顶部
+            if (filteredAtSuggestions.value.length > 0) {
+              const inputRect = messageInputRef.value.getBoundingClientRect();
+              const pickerMaxHeight = 250;
+              const estimatedHeight = Math.min(filteredAtSuggestions.value.length * 45 + 20, pickerMaxHeight);
+              atPickerPosition.value = {
+                top: inputRect.top - estimatedHeight,
+                left: inputRect.left
+              };
             }
             
             selectedAtIndex.value = 0;

@@ -56,6 +56,17 @@
           @click="handleImageClick(fullImageUrl)"
         >
       </div>
+      <div v-else-if="isAudioFile" class="audio-container" style="width: 300px; max-width: 400px;">
+        <audio 
+          :src="fullFileUrl" 
+          controls 
+          style="width: 100%;"
+          preload="metadata"
+        >
+          您的浏览器不支持音频播放
+        </audio>
+        <div style="font-size: 12px; color: #999; margin-top: 5px;">{{ displayFilename }}</div>
+      </div>
       <div v-else-if="fileUrl" class="file-link-container">
         <a 
           :href="fullFileUrl" 
@@ -314,6 +325,12 @@ const groupCardData = computed(() => messageData.value.groupCardData);
 const quotedMessageData = computed(() => messageData.value.quotedMessageData);
 const imageWidth = computed(() => messageData.value.width);
 const imageHeight = computed(() => messageData.value.height);
+
+const isAudioFile = computed(() => {
+  if (!filename.value) return false;
+  const ext = filename.value.split('.').pop().toLowerCase();
+  return ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma'].includes(ext);
+});
 
 const quotedMessageParsedContent = computed(() => {
   if (!quotedMessageData.value?.text || !quotedMessageData.value?.markdone) return '';
