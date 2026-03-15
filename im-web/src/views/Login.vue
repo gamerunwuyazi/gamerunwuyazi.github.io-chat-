@@ -36,7 +36,7 @@
           <div class="turnstile-container">
             <VueTurnstile 
               ref="turnstileRef"
-              site-key="0x4AAAAAACmJCFDcKhJ4p3Ua"
+              :site-key="TURNSTILE_SITE_KEY"
               v-model="turnstileToken"
               theme="light"
             />
@@ -58,6 +58,9 @@
 import { ref, reactive, computed } from 'vue';
 import { login } from "@/utils/chat";
 import VueTurnstile from 'vue-turnstile';
+
+const SERVER_URL = process.env.VUE_APP_SERVER_URL || '';
+const TURNSTILE_SITE_KEY = process.env.VUE_APP_TURNSTILE_SITE_KEY || '';
 
 const formData = reactive({
   username: '',
@@ -106,7 +109,7 @@ async function handleLogin() {
   isSubmitting.value = true;
 
   try {
-    const response = await fetch('https://back.hs.airoe.cn/login', {
+    const response = await fetch(`${SERVER_URL}/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -136,6 +139,7 @@ async function handleLogin() {
       const avatarUrl = data.avatarUrl || (data.user && data.user.avatarUrl) || (data.data && data.data.avatarUrl) || (data.user && data.user.avatar) || (data.data && data.data.avatar) || null;
       const gender = data.gender || (data.user && data.user.gender) || (data.data && data.data.gender) || 0;
       const sessionToken = data.sessionToken || data.token || data.session_token;
+      const refreshToken = data.refreshToken || data.refresh_token;
 
       if (!userId || !sessionToken) {
         showMessage('登录响应数据不完整，请稍后重试', 'error');
@@ -153,10 +157,14 @@ async function handleLogin() {
 
       localStorage.setItem('currentUser', JSON.stringify(userData));
       localStorage.setItem('currentSessionToken', sessionToken);
+      localStorage.setItem('userId', userData.id);
       localStorage.setItem('chatUserId', userData.id);
       localStorage.setItem('chatUserNickname', userData.nickname);
-      localStorage.setItem('chatSessionToken', sessionToken);
       localStorage.setItem('chatUserGender', String(userData.gender || 0));
+      
+      if (refreshToken) {
+        localStorage.setItem('refreshToken', refreshToken);
+      }
 
       showMessage('登录成功，正在跳转...', 'success');
       setTimeout(() => {

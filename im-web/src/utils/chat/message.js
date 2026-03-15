@@ -1,6 +1,5 @@
-import { SERVER_URL, toast } from './config.js';
+import { toast } from './config.js';
 import { 
-  getStore, 
   getCurrentUser, 
   getCurrentSessionToken, 
   sessionStore 
@@ -81,6 +80,9 @@ export function sendMessage() {
     
     const quotedMessage = getChatStore()?.quotedMessage;
     
+    // 获取 Markdown 工具栏状态
+    const showMarkdownToolbar = document.querySelector('.toggle-btn')?.textContent?.includes('隐藏') || false;
+    
     const messageData = {
       content: content,
       groupId: groupId,
@@ -88,15 +90,44 @@ export function sendMessage() {
       userId: currentUser.id
     };
     
+    // 消息类型逻辑：
+    // 1. 如果有引用消息，类型为 4（引用消息），优先级最高
+    // 2. 如果展开了 MD 工具栏且没有引用消息，类型为 5（MD 消息）
+    // 3. 否则类型为 0（普通文本）
     if (quotedMessage) {
       messageData.message_type = 4;
+      
+      // 递归获取最原始的引用消息内容
+      let quotedContent = quotedMessage.content;
+      let quotedMessageType = quotedMessage.messageType || 0;
+      
+      // 如果被引用的消息也是引用消息，需要获取其实际内容
+      if (quotedMessageType === 4 && quotedMessage.quotedMessage) {
+        // 递归获取原始内容 - eslint-disable-next-line no-inner-declarations
+        const getOriginalContent = (msg) => {
+          if (!msg) return null;
+          if (msg.messageType === 4 && msg.quotedMessage) {
+            return getOriginalContent(msg.quotedMessage);
+          }
+          return msg;
+        };
+        const originalMsg = getOriginalContent(quotedMessage.quotedMessage);
+        if (originalMsg) {
+          quotedContent = originalMsg.content || '[引用消息]';
+          quotedMessageType = originalMsg.messageType || 0;
+        }
+      }
+      
       messageData.quotedMessage = {
         id: quotedMessage.id,
         userId: quotedMessage.userId,
         nickname: quotedMessage.nickname,
-        content: quotedMessage.content,
-        messageType: quotedMessage.messageType || 0
+        content: quotedContent,
+        messageType: quotedMessageType,
+        markdone: showMarkdownToolbar
       };
+    } else if (showMarkdownToolbar) {
+      messageData.message_type = 5;
     }
     
     // 清空输入框
@@ -121,6 +152,28 @@ export function sendMessage() {
     
     // 监听确认事件（一次性）
     const messageSentHandler = (data) => {
+      // 检查是否是速率限制错误
+      if (data.success === false && data.error) {
+        // 清除超时定时器
+        const timeout = window._messageSendTimeouts[timeoutKey];
+        if (timeout) {
+          clearTimeout(timeout);
+          delete window._messageSendTimeouts[timeoutKey];
+        }
+        // 移除事件监听
+        window.chatSocket.off('message-sent', messageSentHandler);
+        
+        // 将消息内容填充回输入框
+        const input = document.getElementById('messageInput');
+        if (input) {
+          input.innerHTML = failedContent;
+        }
+        // 显示速率限制提示
+        toast.error(data.error.message);
+        return;
+      }
+      
+      // 正常消息确认
       if (data.message && data.messageId) {
         // 清除超时定时器
         const timeout = window._messageSendTimeouts[timeoutKey];
@@ -177,6 +230,9 @@ export function sendGroupMessage() {
   if (content && window.chatSocket) {
     const quotedMessage = getChatStore()?.quotedMessage;
     
+    // 检查 MD 工具栏是否展开
+    const showMarkdownToolbar = document.querySelector('.toggle-btn')?.textContent?.includes('隐藏') || false;
+    
     const messageData = {
       groupId: currentGroupId,
       content: content,
@@ -184,6 +240,10 @@ export function sendGroupMessage() {
       userId: currentUser.id
     };
     
+    // 消息类型逻辑：
+    // 1. 如果有引用消息，类型为 4（引用消息），优先级最高
+    // 2. 如果展开了 MD 工具栏且没有引用消息，类型为 5（MD 消息）
+    // 3. 否则类型为 0（普通文本）
     if (quotedMessage) {
       messageData.message_type = 4;
       messageData.quotedMessage = {
@@ -191,8 +251,11 @@ export function sendGroupMessage() {
         userId: quotedMessage.userId,
         nickname: quotedMessage.nickname,
         content: quotedMessage.content,
-        messageType: quotedMessage.messageType || 0
+        messageType: quotedMessage.messageType || 0,
+        markdone: showMarkdownToolbar
       };
+    } else if (showMarkdownToolbar) {
+      messageData.message_type = 5;
     }
     
     // 清空输入框
@@ -225,6 +288,32 @@ export function sendGroupMessage() {
     
     // 监听确认事件（一次性）
     const messageSentHandler = (data) => {
+      // 检查是否是速率限制错误
+      if (data.success === false && data.error) {
+        // 清除超时定时器
+        const timeout = window._messageSendTimeouts[timeoutKey];
+        if (timeout) {
+          clearTimeout(timeout);
+          delete window._messageSendTimeouts[timeoutKey];
+        }
+        // 移除事件监听
+        window.chatSocket.off('message-sent', messageSentHandler);
+        
+        // 将消息内容填充回输入框
+        const input = document.getElementById('groupMessageInput');
+        if (input) {
+          if (input.tagName === 'TEXTAREA') {
+            input.value = failedContent;
+          } else {
+            input.innerHTML = failedContent;
+          }
+        }
+        // 显示速率限制提示
+        toast.error(data.error.message);
+        return;
+      }
+      
+      // 正常消息确认
       if (data.message && data.messageId && String(data.message.groupId) === String(currentGroupId)) {
         // 清除超时定时器
         const timeout = window._messageSendTimeouts[timeoutKey];
@@ -269,6 +358,9 @@ export function sendPrivateMessage() {
   
   const quotedMessage = getChatStore()?.quotedMessage;
 
+  // 检查 MD 工具栏是否展开
+  const showMarkdownToolbar = document.querySelector('#privateInputButtons .toggle-btn')?.textContent?.includes('隐藏') || false;
+
   const messageData = {
     userId: currentUser.id,
     content: content,
@@ -276,6 +368,10 @@ export function sendPrivateMessage() {
     sessionToken: currentSessionToken
   };
   
+  // 消息类型逻辑：
+  // 1. 如果有引用消息，类型为 4（引用消息），优先级最高
+  // 2. 如果展开了 MD 工具栏且没有引用消息，类型为 5（MD 消息）
+  // 3. 否则类型为 0（普通文本）
   if (quotedMessage) {
     messageData.message_type = 4;
     messageData.quotedMessage = {
@@ -283,8 +379,11 @@ export function sendPrivateMessage() {
       userId: quotedMessage.userId,
       nickname: quotedMessage.nickname,
       content: quotedMessage.content,
-      messageType: quotedMessage.messageType || 0
+      messageType: quotedMessage.messageType || 0,
+      markdone: showMarkdownToolbar
     };
+  } else if (showMarkdownToolbar) {
+    messageData.message_type = 5;
   }
   
   if (window.chatSocket) {
@@ -310,6 +409,28 @@ export function sendPrivateMessage() {
     
     // 监听确认事件（一次性）
     const privateMessageSentHandler = (data) => {
+      // 检查是否是速率限制错误
+      if (data.success === false && data.error) {
+        // 清除超时定时器
+        const timeout = window._messageSendTimeouts[timeoutKey];
+        if (timeout) {
+          clearTimeout(timeout);
+          delete window._messageSendTimeouts[timeoutKey];
+        }
+        // 移除事件监听
+        window.chatSocket.off('private-message-sent', privateMessageSentHandler);
+        
+        // 将消息内容填充回输入框
+        const input = document.getElementById('privateMessageInput');
+        if (input) {
+          input.innerHTML = failedContent;
+        }
+        // 显示速率限制提示
+        toast.error(data.error.message);
+        return;
+      }
+      
+      // 正常消息确认
       if (data.message && data.messageId) {
         // 清除超时定时器
         const timeout = window._messageSendTimeouts[timeoutKey];

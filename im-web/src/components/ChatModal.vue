@@ -13,7 +13,7 @@
             <!-- 群头像和上传按钮 -->
             <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 20px;">
               <div style="width: 100px; height: 100px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                <img v-if="chatStore.modalData.groupInfo.avatar_url" :src="getFullAvatarUrl(chatStore.modalData.groupInfo.avatar_url)" :alt="groupInfoName" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
+                <img v-if="groupInfoAvatarUrl" :src="groupInfoAvatarUrl" :alt="groupInfoName" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" @error="handleGroupInfoAvatarError">
                 <span v-else style="font-size: 40px; color: white; font-weight: bold;">{{ groupInfoInitials }}</span>
               </div>
               <div v-if="isCurrentUserGroupOwner">
@@ -188,7 +188,42 @@
         <div class="modal-body">
           <p>选择要发送的群名片：</p>
           <div class="send-group-card-container" style="max-height: 300px; overflow-y: auto; margin: 15px 0;">
-            <div id="sendGroupCardList"></div>
+            <div v-if="loadingSendGroupCardList" style="text-align: center; color: #666; padding: 20px;">加载中...</div>
+            <div v-else-if="sendGroupCardList.length === 0" style="text-align: center; color: #666; padding: 20px;">你还没有加入任何群组</div>
+            <div v-else>
+              <div 
+                v-for="group in sendGroupCardList" 
+                :key="group.id"
+                class="send-group-card-item"
+                :style="{
+                  display: 'flex',
+                  alignItems: 'center',
+                  margin: '10px 0',
+                  padding: '10px',
+                  borderRadius: '5px',
+                  cursor: 'pointer',
+                  border: '1px solid',
+                  borderColor: selectedGroupIdForSendCard === group.id ? '#3498db' : '#ddd',
+                  backgroundColor: selectedGroupIdForSendCard === group.id ? '#e8f5e8' : 'transparent',
+                  transition: 'background-color 0.3s'
+                }"
+                @click="selectGroupForSendCard(group.id)"
+              >
+                <input 
+                  type="radio" 
+                  name="selectedGroup" 
+                  :value="group.id" 
+                  :id="`group-${group.id}`"
+                  class="send-group-card-radio"
+                  :checked="selectedGroupIdForSendCard === group.id"
+                  @click.stop
+                >
+                <label 
+                  :for="`group-${group.id}`"
+                  style="margin-left: 10px; cursor: pointer; flex: 1;"
+                >{{ unescapeHtml(group.group_name || group.name || '未命名群组') }}</label>
+              </div>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -210,7 +245,7 @@
         <div class="modal-body">
           <div v-if="chatStore.modalData.userProfile" class="user-profile-container">
             <div class="user-profile-avatar" style="width: 80px; height: 80px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-              <img v-if="chatStore.modalData.userProfile.avatarUrl" :src="getFullAvatarUrl(chatStore.modalData.userProfile.avatarUrl)" alt="用户头像" class="user-avatar-img" loading="lazy" width="80" height="80" style="aspect-ratio: 1/1; object-fit: cover; border-radius: 50%;">
+              <img v-if="userProfileAvatarUrl" :src="userProfileAvatarUrl" alt="用户头像" class="user-avatar-img" loading="lazy" width="80" height="80" style="aspect-ratio: 1/1; object-fit: cover; border-radius: 50%;" @error="handleUserProfileAvatarError">
               <span v-else class="user-initials" style="font-size: 32px; color: white; font-weight: bold;">{{ getUserInitials(chatStore.modalData.userProfile.nickname) }}</span>
             </div>
             <div class="user-profile-info">
@@ -326,8 +361,8 @@
           <div id="addMembersMessage" style="margin-top: 10px;"></div>
         </div>
         <div class="modal-footer" style="flex-shrink: 0; gap: 12px;">
-          <button class="cancel-btn" @click="showAddGroupMembersModal = false" style="background: #ff4757; color: white; border: none; padding: 12px 30px; border-radius: 8px; font-size: 16px; cursor: pointer;">取消</button>
-          <button class="save-btn" @click="confirmAddGroupMembers" style="background: #2ed573; color: white; border: none; padding: 12px 30px; border-radius: 8px; font-size: 16px; cursor: pointer;">添加成员</button>
+          <button class="cancel-btn" @click="showAddGroupMembersModal = false" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer;">取消</button>
+          <button class="save-btn" @click="confirmAddGroupMembers" style="background: #2ed573; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer;">添加成员</button>
         </div>
       </div>
     </div>
@@ -336,13 +371,14 @@
   <!-- 用户头像小弹窗 -->
   <Teleport to="body" v-if="chatStore.showUserAvatarPopup">
     <div 
-      style="position: fixed; left: 0; top: 0; width: 100%; height: 100%; z-index: 9999;"
+      style="position: fixed; left: 0; top: 0; width: 100%; height: 100%; z-index: 9999; pointer-events: none;"
       @click="chatStore.closeModal('userAvatarPopup')"
     >
       <div 
         id="userAvatarPopup" 
         :style="userAvatarPopupStyle"
         @click.stop
+        style="pointer-events: auto;"
       >
         <div class="popup-header">
           <div class="popup-avatar">
@@ -352,6 +388,7 @@
               alt="用户头像"
               :style="{ display: userAvatarPopupAvatarUrl ? 'block' : 'none' }"
               @click="openUserAvatarPopupAvatarPreview"
+              @error="handleUserAvatarPopupAvatarError"
             >
             <span 
               id="popupInitials" 
@@ -391,6 +428,60 @@
             @click="handleUserAvatarPopupAddFriend"
             v-if="userAvatarPopupAddFriendButtonText !== '已添加'"
           >{{ userAvatarPopupAddFriendButtonText }}</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- 群名片小弹窗 -->
+  <Teleport to="body" v-if="chatStore.showGroupCardPopup">
+    <div 
+      style="position: fixed; left: 0; top: 0; width: 100%; height: 100%; z-index: 9999; pointer-events: none;"
+      @click="closeGroupCardPopup"
+    >
+      <div 
+        id="groupCardPopup" 
+        :style="groupCardPopupStyle"
+        @click.stop
+        style="pointer-events: auto;"
+      >
+        <div class="popup-header">
+          <div class="popup-avatar">
+            <img 
+              v-if="groupCardPopupAvatarUrl" 
+              :src="groupCardPopupAvatarUrl" 
+              :alt="groupCardPopupData?.group_name"
+              :style="{ display: groupCardPopupAvatarUrl ? 'block' : 'none' }"
+              @click="openGroupCardPopupAvatarPreview"
+              @error="handleGroupCardPopupAvatarError"
+            >
+            <span 
+              :style="{ display: groupCardPopupAvatarUrl ? 'none' : 'block' }"
+            >{{ groupCardPopupInitials }}</span>
+          </div>
+          <div class="popup-info">
+            <div class="popup-info-top">
+              <div class="popup-nickname">{{ unescapeHtml(groupCardPopupData?.group_name || '未知群组') }}</div>
+            </div>
+            <div class="popup-username">ID: {{ groupCardPopupData?.group_id || '未知' }}</div>
+          </div>
+        </div>
+        <div v-if="groupCardPopupData?.group_description" class="popup-signature-section">
+          <div class="signature-label">公告</div>
+          <div class="signature-content">{{ unescapeHtml(groupCardPopupData.group_description) }}</div>
+        </div>
+        <div class="popup-actions">
+          <button 
+            v-if="groupCardPopupIsInGroup"
+            class="add-friend-btn"
+            @click="handleGroupCardPopupSendMessage"
+          >发消息</button>
+          <button 
+            v-else
+            class="add-friend-btn"
+            @click="handleGroupCardPopupJoinGroup"
+            :disabled="!groupCardPopupData?.invite_token"
+          >加入群组</button>
         </div>
       </div>
     </div>
@@ -510,6 +601,131 @@
   color: #666;
   word-break: break-word;
 }
+
+#groupCardPopup {
+  position: fixed;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 15px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  z-index: 10001;
+  min-width: 250px;
+  max-width: 300px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+#groupCardPopup.visible {
+  opacity: 1;
+}
+
+#groupCardPopup .popup-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+#groupCardPopup .popup-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #3498db;
+  color: white;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+#groupCardPopup .popup-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  cursor: pointer;
+}
+
+#groupCardPopup .popup-avatar span {
+  font-size: 18px;
+}
+
+#groupCardPopup .popup-info {
+  flex: 1;
+  min-width: 0;
+}
+
+#groupCardPopup .popup-info-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+#groupCardPopup .popup-nickname {
+  font-weight: bold;
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#groupCardPopup .popup-username {
+  font-size: 13px;
+  color: #666;
+}
+
+#groupCardPopup .popup-signature-section {
+  margin: 10px 0;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+}
+
+#groupCardPopup .signature-label {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 4px;
+}
+
+#groupCardPopup .signature-content {
+  font-size: 13px;
+  color: #666;
+  word-break: break-word;
+  max-height: 60px;
+  overflow-y: auto;
+}
+
+#groupCardPopup .popup-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+}
+
+#groupCardPopup .add-friend-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #3498db;
+  color: white;
+  transition: background-color 0.2s;
+}
+
+#groupCardPopup .add-friend-btn:hover {
+  background: #2980b9;
+}
+
+#groupCardPopup .add-friend-btn:disabled {
+  background: #bdc3c7;
+  cursor: not-allowed;
+}
 </style>
 
 <script setup>
@@ -517,6 +733,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { ref, computed, watch, onMounted } from "vue";
 import { addFriend } from "@/utils/chat";
 import toast from "@/utils/toast";
+import modal from "@/utils/modal";
 
 const SERVER_URL = process.env.VUE_APP_SERVER_URL || 'https://back.hs.airoe.cn';
 
@@ -527,6 +744,8 @@ const searching = ref(false);
 const hasSearched = ref(false);
 const searchResults = ref([]);
 const selectedGroupIdForSendCard = ref(null);
+const sendGroupCardList = ref([]);
+const loadingSendGroupCardList = ref(false);
 const groupMembers = ref([]);
 const loadingMembers = ref(false);
 const availableMembers = ref([]);
@@ -550,6 +769,9 @@ const userAvatarPopupLeft = ref(0);
 const userAvatarPopupTop = ref(0);
 const userAvatarPopupUserId = ref(null);
 const userAvatarPopupEvent = ref(null);
+const userAvatarPopupAvatarLoadFailed = ref(false);
+const userProfileAvatarLoadFailed = ref(false);
+const groupInfoAvatarLoadFailed = ref(false);
 
 const modalStyle = computed(() => ({
   display: 'flex',
@@ -600,6 +822,18 @@ const userAvatarPopupStyle = computed(() => ({
   maxWidth: '300px',
 }));
 
+const groupCardPopupLeft = ref(0);
+const groupCardPopupTop = ref(0);
+const groupCardPopupEvent = ref(null);
+
+const groupCardPopupStyle = computed(() => ({
+  left: groupCardPopupLeft.value + 'px',
+  top: groupCardPopupTop.value + 'px',
+  position: 'fixed',
+  zIndex: '10001',
+  maxWidth: '300px',
+}));
+
 function unescapeHtml(html) {
   if (!html || typeof html !== 'string') return html;
   const text = document.createElement('textarea');
@@ -631,7 +865,43 @@ const userAvatarPopupInitials = computed(() => {
 });
 
 const userAvatarPopupAvatarUrl = computed(() => {
+  // 如果头像加载失败，返回空字符串
+  if (userAvatarPopupAvatarLoadFailed.value) return '';
+  
   const user = chatStore.modalData.userAvatarPopup;
+  if (!user) return '';
+  
+  let url = '';
+  if (user.avatarUrl && typeof user.avatarUrl === 'string') {
+    url = user.avatarUrl.trim();
+  } else if (user.avatar_url && typeof user.avatar_url === 'string') {
+    url = user.avatar_url.trim();
+  } else if (user.avatar && typeof user.avatar === 'string') {
+    url = user.avatar.trim();
+  }
+  
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  return `${SERVER_URL}${url}`;
+});
+
+function handleUserAvatarPopupAvatarError() {
+  userAvatarPopupAvatarLoadFailed.value = true;
+}
+
+function handleUserProfileAvatarError() {
+  userProfileAvatarLoadFailed.value = true;
+}
+
+function handleGroupInfoAvatarError() {
+  groupInfoAvatarLoadFailed.value = true;
+}
+
+const userProfileAvatarUrl = computed(() => {
+  // 如果头像加载失败，返回空字符串
+  if (userProfileAvatarLoadFailed.value) return '';
+  
+  const user = chatStore.modalData.userProfile;
   if (!user) return '';
   
   let url = '';
@@ -709,6 +979,158 @@ const groupInfoDescription = computed(() => {
 const groupInfoInitials = computed(() => {
   const name = groupInfoName.value;
   return name ? name.charAt(0).toUpperCase() : 'G';
+});
+
+const groupCardPopupData = computed(() => {
+  return chatStore.modalData.groupCardPopup;
+});
+
+const groupCardPopupInitials = computed(() => {
+  const name = groupCardPopupData.value?.group_name || '';
+  const unescapedName = unescapeHtml(name);
+  return unescapedName ? unescapedName.charAt(0).toUpperCase() : 'G';
+});
+
+const groupCardPopupAvatarLoadFailed = ref(false);
+
+const groupCardPopupAvatarUrl = computed(() => {
+  if (groupCardPopupAvatarLoadFailed.value) return '';
+  
+  const data = groupCardPopupData.value;
+  if (!data) return '';
+  
+  let url = data.avatar_url || data.avatarUrl || '';
+  if (!url) return '';
+  
+  if (url.startsWith('http')) return url;
+  return `${SERVER_URL}${url}`;
+});
+
+const groupCardPopupIsInGroup = computed(() => {
+  const store = chatStore;
+  return store && store.groupsList && store.groupsList.some(g => String(g.id) === String(groupCardPopupData.value?.group_id));
+});
+
+function closeGroupCardPopup() {
+  chatStore.closeModal('groupCardPopup');
+  document.removeEventListener('click', closeGroupCardPopup);
+  document.removeEventListener('contextmenu', closeGroupCardPopup);
+  window.removeEventListener('scroll', closeGroupCardPopup);
+}
+
+function handleGroupCardPopupAvatarError() {
+  groupCardPopupAvatarLoadFailed.value = true;
+}
+
+function openGroupCardPopupAvatarPreview() {
+  if (groupCardPopupAvatarUrl.value) {
+    chatStore.openModal('imagePreview', groupCardPopupAvatarUrl.value);
+  }
+}
+
+function updateGroupCardPopupPosition(event) {
+  const popup = document.getElementById('groupCardPopup');
+  if (!popup) return;
+  
+  const popupRect = popup.getBoundingClientRect();
+  const popupWidth = popupRect.width || 250;
+  const popupHeight = popupRect.height || 150;
+  
+  let left = event.clientX;
+  let top = event.clientY;
+  
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  
+  if (left + popupWidth > viewportWidth) {
+    left = viewportWidth - popupWidth - 10;
+  }
+  
+  if (top + popupHeight > viewportHeight) {
+    top = event.clientY - popupHeight - 10;
+  }
+  
+  if (left < 0) {
+    left = 10;
+  }
+  
+  if (top < 0) {
+    top = 10;
+  }
+  
+  groupCardPopupLeft.value = left;
+  groupCardPopupTop.value = top;
+}
+
+async function showGroupCardPopupVue(event, groupData) {
+  event.stopPropagation();
+  
+  groupCardPopupEvent.value = event;
+  groupCardPopupLeft.value = event.clientX;
+  groupCardPopupTop.value = event.clientY;
+  
+  chatStore.openModal('groupCardPopup', groupData);
+  
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  
+  updateGroupCardPopupPosition(event);
+  
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  
+  const popup = document.getElementById('groupCardPopup');
+  if (popup) {
+    popup.classList.add('visible');
+  }
+  
+  setTimeout(() => {
+    document.addEventListener('click', closeGroupCardPopup);
+    document.addEventListener('contextmenu', closeGroupCardPopup);
+    window.addEventListener('scroll', closeGroupCardPopup);
+  }, 0);
+}
+
+function handleGroupCardPopupSendMessage() {
+  const data = groupCardPopupData.value;
+  if (data && window.switchToGroupChat) {
+    window.switchToGroupChat(data.group_id, data.group_name, data.avatar_url || data.avatarUrl || '');
+    // 将群组移到列表顶端
+    setTimeout(() => {
+      if (chatStore.moveGroupToTop) {
+        chatStore.moveGroupToTop(data.group_id);
+      }
+    }, 200);
+  }
+  closeGroupCardPopup();
+}
+
+function handleGroupCardPopupJoinGroup() {
+  const data = groupCardPopupData.value;
+  if (data && data.invite_token && window.joinGroupWithToken) {
+    window.joinGroupWithToken(data.invite_token, data.group_id, data.group_name, null);
+  }
+  closeGroupCardPopup();
+}
+
+const groupInfoAvatarUrl = computed(() => {
+  // 如果头像加载失败，返回空字符串
+  if (groupInfoAvatarLoadFailed.value) return '';
+  
+  const group = chatStore.modalData.groupInfo;
+  if (!group) return '';
+  
+  let url = '';
+  if (group.avatar_url && typeof group.avatar_url === 'string') {
+    url = group.avatar_url.trim();
+  } else if (group.avatarUrl && typeof group.avatarUrl === 'string') {
+    url = group.avatarUrl.trim();
+  } else if (group.avatar && typeof group.avatar === 'string') {
+    url = group.avatar.trim();
+  }
+  
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  return `${SERVER_URL}${url}`;
 });
 
 function getFullAvatarUrl(url) {
@@ -799,19 +1221,55 @@ function handleSendGroupCard() {
   }
 }
 
-watch(() => chatStore.showSendGroupCardModal, (newVal) => {
+watch(() => chatStore.showSendGroupCardModal, async (newVal) => {
   if (newVal) {
     selectedGroupIdForSendCard.value = null;
+    sendGroupCardList.value = [];
+    loadingSendGroupCardList.value = true;
+    
+    try {
+      const response = await fetch(`${SERVER_URL}/user-groups/${chatStore.currentUser?.id}`, {
+        headers: {
+          'user-id': chatStore.currentUser?.id,
+          'session-token': chatStore.currentSessionToken
+        }
+      });
+      const data = await response.json();
+      if (data.status === 'success') {
+        sendGroupCardList.value = data.groups || [];
+      }
+    } catch (error) {
+      console.error('加载群组列表失败:', error);
+    } finally {
+      loadingSendGroupCardList.value = false;
+    }
   }
 });
 
-window.selectGroupForCard = function(groupId) {
-  // console.log('[发送群名片] 选择群组 ID:', groupId);
+watch(() => chatStore.showUserAvatarPopup, (newVal) => {
+  if (newVal) {
+    userAvatarPopupAvatarLoadFailed.value = false;
+  }
+});
+
+watch(() => chatStore.showUserProfileModal, (newVal) => {
+  if (newVal) {
+    userProfileAvatarLoadFailed.value = false;
+  }
+});
+
+watch(() => chatStore.showGroupInfoModal, (newVal) => {
+  if (newVal) {
+    groupInfoAvatarLoadFailed.value = false;
+  }
+});
+
+function selectGroupForSendCard(groupId) {
   selectedGroupIdForSendCard.value = groupId;
   if (chatStore) {
     chatStore.selectedGroupIdForCard = groupId;
   }
-};
+}
 
 async function loadGroupMembers(groupId) {
   if (!groupId) return;
@@ -969,6 +1427,12 @@ watch(() => chatStore.showGroupInfoModal, (newVal) => {
   }
 });
 
+watch(() => chatStore.showGroupCardPopup, (newVal) => {
+  if (newVal) {
+    groupCardPopupAvatarLoadFailed.value = false;
+  }
+});
+
 function startEditGroupName() {
   tempGroupName.value = chatStore.modalData.groupInfo.name || '';
   editingGroupName.value = true;
@@ -1055,7 +1519,8 @@ async function saveGroupNotice() {
 }
 
 async function handleRemoveGroupMember(member) {
-  if (!confirm(`确定要踢出成员 ${member.nickname || member.username} 吗？`)) {
+  const confirmed = await modal.confirm(`确定要踢出成员 ${member.nickname || member.username} 吗？`, '踢出成员');
+  if (!confirmed) {
     return;
   }
   
@@ -1094,7 +1559,8 @@ async function handleDissolveGroup() {
     return;
   }
   
-  if (!confirm('确定要解散这个群组吗？此操作不可撤销！')) {
+  const confirmed = await modal.confirm('确定要解散这个群组吗？此操作不可撤销！', '解散群组', 'error');
+  if (!confirmed) {
     return;
   }
   
@@ -1133,7 +1599,8 @@ async function handleLeaveGroup() {
     return;
   }
   
-  if (!confirm('确定要退出这个群组吗？')) {
+  const confirmed = await modal.confirm('确定要退出这个群组吗？', '退出群组');
+  if (!confirmed) {
     return;
   }
   
@@ -1172,7 +1639,8 @@ async function handleDeleteFriend() {
     return;
   }
   
-  if (!confirm('确定要删除这个好友吗？')) {
+  const confirmed = await modal.confirm('确定要删除这个好友吗？', '删除好友');
+  if (!confirmed) {
     return;
   }
   
@@ -1385,6 +1853,17 @@ function updateUserAvatarPopupPosition(event) {
   userAvatarPopupTop.value = top;
 }
 
+function hideUserAvatarPopupVue() {
+  const popup = document.getElementById('userAvatarPopup');
+  if (popup) {
+    popup.classList.remove('visible');
+  }
+  chatStore.closeModal('userAvatarPopup');
+  document.removeEventListener('click', hideUserAvatarPopupVue);
+  document.removeEventListener('contextmenu', hideUserAvatarPopupVue);
+  window.removeEventListener('scroll', hideUserAvatarPopupVue);
+}
+
 async function showUserAvatarPopupVue(event, user) {
   event.stopPropagation();
   
@@ -1408,6 +1887,12 @@ async function showUserAvatarPopupVue(event, user) {
     if (popup) {
       popup.classList.add('visible');
     }
+    
+    setTimeout(() => {
+      document.addEventListener('click', hideUserAvatarPopupVue);
+      document.addEventListener('contextmenu', hideUserAvatarPopupVue);
+      window.addEventListener('scroll', hideUserAvatarPopupVue);
+    }, 0);
   };
   
   if (user.id && user.username) {
@@ -1420,14 +1905,6 @@ async function showUserAvatarPopupVue(event, user) {
       await displayPopup(user);
     }
   }
-}
-
-function hideUserAvatarPopupVue() {
-  const popup = document.getElementById('userAvatarPopup');
-  if (popup) {
-    popup.classList.remove('visible');
-  }
-  chatStore.closeModal('userAvatarPopup');
 }
 
 function openUserAvatarPopupAvatarPreview() {
@@ -1468,6 +1945,7 @@ function handleUserAvatarPopupAddFriend() {
 onMounted(() => {
   window.showUserAvatarPopupVue = showUserAvatarPopupVue;
   window.hideUserAvatarPopupVue = hideUserAvatarPopupVue;
+  window.showGroupCardPopupVue = showGroupCardPopupVue;
 });
 </script>
 

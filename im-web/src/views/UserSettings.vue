@@ -4,6 +4,7 @@ import {currentUser, currentSessionToken, unescapeHtml} from "@/utils/chat";
 import VueTurnstile from 'vue-turnstile';
 
 const SERVER_URL = process.env.VUE_APP_SERVER_URL || 'https://back.hs.airoe.cn'
+const TURNSTILE_SITE_KEY = process.env.VUE_APP_TURNSTILE_SITE_KEY || ''
 
 // 当前显示的设置项
 const currentSetting = ref('')
@@ -57,6 +58,7 @@ const selectedAvatarFile = ref(null)
 const avatarMessage = ref('')
 const avatarMessageClass = ref('')
 const avatarInputRef = ref(null)
+const avatarLoadFailed = ref(false)
 
 // 用户首字母
 const userInitials = computed(() => {
@@ -79,7 +81,7 @@ function getCurrentSessionToken() {
   if (currentSessionToken) {
     return currentSessionToken
   }
-  return localStorage.getItem('currentSessionToken') || localStorage.getItem('sessionToken') || ''
+  return localStorage.getItem('currentSessionToken') || ''
 }
 
 // 重置 Turnstile
@@ -105,6 +107,7 @@ function handleSettingClick(setting) {
     signatureForm.value.newSignature = user.signature || ''
   } else if (setting === 'upload-avatar') {
     const user = JSON.parse(localStorage.getItem('currentUser') || '{}')
+    avatarLoadFailed.value = false
     if (user.avatarUrl) {
       avatarPreview.value = SERVER_URL + user.avatarUrl
     }
@@ -298,6 +301,11 @@ async function handleChangeGender() {
 }
 
 // 头像上传处理
+function handleAvatarPreviewError() {
+  avatarLoadFailed.value = true
+  avatarPreview.value = ''
+}
+
 function handleAvatarChange(event) {
   const file = event.target.files[0]
   if (!file) return
@@ -413,7 +421,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 设置详情容器 - 选择设置项后显示 -->
-    <div v-if="currentSetting" class="settings-container" style="display: flex; flex-direction: column;">
+    <div v-else class="settings-container" style="display: flex; flex-direction: column;">
       <!-- 修改密码 -->
       <div v-if="currentSetting === 'change-password'" class="settings-detail">
         <h2>修改密码</h2>
@@ -435,7 +443,7 @@ onUnmounted(() => {
             <div class="turnstile-container">
               <VueTurnstile 
                 ref="turnstileRef"
-                site-key="0x4AAAAAACmJCFDcKhJ4p3Ua"
+                :site-key="TURNSTILE_SITE_KEY"
                 v-model="turnstileToken"
                 theme="light"
               />
@@ -515,7 +523,7 @@ onUnmounted(() => {
         <h2>上传头像</h2>
         <div class="avatar-upload-section">
           <div class="avatar-preview" id="avatarPreview">
-            <img v-if="avatarPreview" :src="avatarPreview" alt="头像预览" style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover;">
+            <img v-if="avatarPreview && avatarPreview !== ''" :src="avatarPreview" alt="头像预览" style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover;" @error="handleAvatarPreviewError">
             <span v-else class="user-initials" style="width: 120px; height: 120px; font-size: 48px;">{{ userInitials }}</span>
           </div>
           <div class="avatar-upload-buttons">
@@ -555,11 +563,11 @@ onUnmounted(() => {
         <div class="version-info">
           <div class="version-item">
             <div class="version-label">当前版本</div>
-            <div class="version-value">2.3.1</div>
+            <div class="version-value">2.4.1</div>
           </div>
           <div class="version-item">
             <div class="version-label">最后更新</div>
-            <div class="version-value">2026.02.22</div>
+            <div class="version-value">2026.03.10</div>
           </div>
           <div class="version-item">
             <div class="version-label">开发者</div>

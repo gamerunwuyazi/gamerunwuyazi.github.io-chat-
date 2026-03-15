@@ -40,13 +40,7 @@
         </div>
       </div>
       <div class="input-area">
-        <div v-if="chatStore.quotedMessage" class="quoted-message-preview" style="display: flex; align-items: center; padding: 8px 12px; background: #f5f5f5; border-left: 3px solid #4CAF50; margin-bottom: 8px; border-radius: 4px;">
-          <div style="flex: 1;">
-            <div style="font-size: 12px; color: #666;">引用: <strong>{{ chatStore.quotedMessage.nickname }}</strong></div>
-            <div style="font-size: 13px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ chatStore.quotedMessage.content }}</div>
-          </div>
-          <button @click="chatStore.clearQuotedMessage()" style="background: none; border: none; color: #999; font-size: 18px; cursor: pointer; padding: 0 5px;">×</button>
-        </div>
+        <QuotedMessagePreview v-if="chatStore.quotedMessage" :quoted-message="chatStore.quotedMessage" @close="chatStore.clearQuotedMessage()" />
         <div class="input-container"
           @drop="handleGroupDrop"
           @dragover="handleGroupDragOver"
@@ -58,9 +52,24 @@
             @paste="handleGroupPaste"
             ref="groupMessageInputRef"
             contenteditable="true"
-            placeholder="发送消息（Ctrl+Enter或Shift+Enter换行  支持Markdown语法）"
+            placeholder="发送消息（Ctrl+Enter或Shift+Enter换行  打开md工具栏即可支持Markdown语法）"
             @input="handleGroupMessageInput"
+            @compositionstart="isComposing = true"
+            @compositionend="handleGroupCompositionEnd"
           ></div>
+          <!-- @ 提示选择器 -->
+          <div v-if="showAtPicker" class="at-picker" :style="{ top: atPickerPosition.top + 'px', left: atPickerPosition.left + 'px' }">
+            <div 
+              v-for="(user, index) in filteredAtSuggestions" 
+              :key="user.id"
+              class="at-picker-item"
+              :class="{ selected: index === selectedAtIndex }"
+              @click="selectGroupAtUser(user)"
+            >
+              <span class="at-picker-nickname">{{ user.nickname }}</span>
+            </div>
+            <div v-if="filteredAtSuggestions.length === 0" class="at-picker-empty">暂无群成员</div>
+          </div>
           <div v-if="isDragOver" class="drop-overlay">
             <div class="drop-content">
               <i class="fas fa-cloud-upload-alt"></i>
@@ -91,6 +100,9 @@
           <button id="sendGroupCardButtonGroup" title="发送群名片" @click="handleSendGroupCard">
             📱 <span class="button-text">发送群名片</span>
           </button>
+          <button id="groupSearchMessageButton" title="查找消息" @click="openSearchModal">
+            🔍 <span class="button-text">查找消息</span>
+          </button>
         </div>
         <input v-if="showImageInput" type="file" ref="groupImageInputRef" id="groupImageInput" style="display: none;" accept="image/*" @change="handleGroupImageUpload" @cancel="handleGroupImageCancel">
         <input v-if="showFileInput" type="file" ref="groupFileInputRef" id="groupFileInput" style="display: none;" @change="handleGroupFileUpload" @cancel="handleGroupFileCancel">
@@ -99,6 +111,52 @@
       <div v-if="chatStore.showUploadProgress" class="upload-progress" id="groupUploadProgress">
         <div class="upload-progress-bar" id="groupUploadProgressBar" :style="{ width: chatStore.uploadProgress + '%' }"></div>
       </div>
+
+      <!-- 查找消息模态框 -->
+      <Teleport to="body" v-if="showSearchModal">
+        <div class="search-modal-overlay" @click.self="closeSearchModal">
+          <div class="search-modal">
+            <div class="search-modal-header">
+              <h3>查找消息</h3>
+              <button class="close-btn" @click="closeSearchModal">×</button>
+            </div>
+            <div class="search-modal-body">
+              <div class="search-input-container">
+                <input 
+                  v-model="searchKeyword" 
+                  type="text" 
+                  placeholder="输入搜索内容..." 
+                  @keyup.enter="executeSearch"
+                  ref="searchInputRef"
+                />
+                <button class="search-btn" @click="executeSearch" :disabled="isSearching || !searchKeyword.trim()">
+                  {{ isSearching ? '搜索中...' : '搜索' }}
+                </button>
+              </div>
+              <div v-if="searchResults.length > 0" class="search-results">
+                <div class="search-results-count">找到 {{ searchResults.length }} 条消息</div>
+                <div class="search-results-list">
+                  <div 
+                    v-for="result in searchResults" 
+                    :key="result.id" 
+                    class="search-result-item"
+                    @click="scrollToMessage(result)"
+                  >
+                    <div class="result-header">
+                      <span class="result-nickname">{{ result.nickname }}</span>
+                      <span class="result-time">{{ formatTime(result.timestamp) }}</span>
+                    </div>
+                    <div class="result-content" v-html="highlightKeyword(result.content)"></div>
+                  </div>
+                </div>
+              </div>
+              <div v-else-if="searchKeyword && hasSearched && !isSearching" class="no-results">
+                未找到匹配的消息
+              </div>
+            </div>
+          </div>
+        </div>
+      </Teleport>
     </div>
   </div>
 </template>
@@ -106,11 +164,55 @@
 <style src="@/css/index.css"></style>
 <style src="@/css/code-highlight.css"></style>
 
+<style scoped>
+.at-picker {
+  position: fixed;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: 250px;
+  overflow-y: auto;
+  z-index: 10000;
+  min-width: 200px;
+}
+
+.at-picker-item {
+  padding: 10px 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.at-picker-item:last-child {
+  border-bottom: none;
+}
+
+.at-picker-item:hover,
+.at-picker-item.selected {
+  background: #f5f5f5;
+}
+
+.at-picker-nickname {
+  font-weight: 500;
+  color: #333;
+}
+
+.at-picker-empty {
+  padding: 15px;
+  text-align: center;
+  color: #999;
+}
+</style>
+
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useChatStore } from "@/stores/chatStore";
 import { useRoute } from "vue-router";
 import GroupMessageItem from "@/components/MessageItem/GroupMessageItem.vue";
+import QuotedMessagePreview from "@/components/MessageItem/QuotedMessagePreview.vue";
 import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile, clearContentEditable, unescapeHtml } from "@/utils/chat";
 import toast from "@/utils/toast";
 
@@ -129,8 +231,16 @@ let previousGroupMessageLength = 0;
 const isGroupChatVisible = ref(false);
 const currentGroupName = ref('群组名称');
 const showMarkdownToolbar = ref(false);
+const showAtPicker = ref(false);
+const atPickerPosition = ref({ top: 0, left: 0 });
+const atSuggestions = ref([]);
+const filteredAtSuggestions = ref([]);
+const selectedAtIndex = ref(0);
+const atTriggerPosition = ref(0);
+const isComposing = ref(false);
 const showMoreFunctions = ref(false);
 const currentGroupInfo = ref(null);
+const groupMembers = ref([]);
 
 const displayGroupName = computed(() => {
   const name = currentGroupName.value || '群组名称';
@@ -169,18 +279,28 @@ function refreshScrollPos() {
   // console.log('[GroupChat] refreshScrollPos - window.prevGroupScrollHeight:', window.prevGroupScrollHeight);
   // console.log('[GroupChat] refreshScrollPos - window.prevGroupScrollTop:', window.prevGroupScrollTop);
   
+  if (window.prevGroupScrollHeight === undefined || window.prevGroupScrollTop === undefined) {
+    // console.log('[GroupChat] refreshScrollPos - 没有保存的滚动位置，跳过');
+    return;
+  }
+  
   nextTick(() => {
-    if (groupMessageContainerRef.value && window.prevGroupScrollHeight !== undefined && window.prevGroupScrollTop !== undefined) {
+    if (groupMessageContainerRef.value) {
       const scrollWrap = groupMessageContainerRef.value;
       const newScrollHeight = scrollWrap.scrollHeight;
       const offsetTop = newScrollHeight - window.prevGroupScrollHeight;
-      const newScrollTop = window.prevGroupScrollTop + offsetTop;
       
-      // console.log('[GroupChat] refreshScrollPos - newScrollHeight:', newScrollHeight);
-      // console.log('[GroupChat] refreshScrollPos - offsetTop:', offsetTop);
-      // console.log('[GroupChat] refreshScrollPos - 新scrollTop:', newScrollTop);
-      
-      scrollWrap.scrollTop = newScrollTop;
+      // 只有当 scrollHeight 真的发生变化时才调整滚动位置
+      // 如果没有变化，说明没有加载到新消息，保持当前滚动位置
+      if (offsetTop !== 0) {
+        const newScrollTop = window.prevGroupScrollTop + offsetTop;
+        
+        // console.log('[GroupChat] refreshScrollPos - newScrollHeight:', newScrollHeight);
+        // console.log('[GroupChat] refreshScrollPos - offsetTop:', offsetTop);
+        // console.log('[GroupChat] refreshScrollPos - 新scrollTop:', newScrollTop);
+        
+        scrollWrap.scrollTop = newScrollTop;
+      }
       
       window.prevGroupScrollHeight = undefined;
       window.prevGroupScrollTop = undefined;
@@ -190,8 +310,6 @@ function refreshScrollPos() {
     }
   });
 }
-
-window.groupRefreshScrollPos = refreshScrollPos;
 
 function applySavedGroupState() {
   if (chatStore.currentGroupId) {
@@ -215,6 +333,7 @@ function loadCurrentGroupInfo() {
   
   if (!user || !sessionToken) return;
   
+  // 加载群组基本信息
   fetch(`${chatStore.SERVER_URL}/group-info/${chatStore.currentGroupId}`, {
     headers: {
       'user-id': user.id,
@@ -227,6 +346,24 @@ function loadCurrentGroupInfo() {
         currentGroupInfo.value = data.group;
       }
     });
+    
+  // 加载群组成员列表
+  fetch(`${chatStore.SERVER_URL}/group-members/${chatStore.currentGroupId}`, {
+    headers: {
+      'user-id': user.id,
+      'session-token': sessionToken
+    }
+  })
+    .then(response => response.json())
+    .then(data => {
+      if (data.status === 'success') {
+        groupMembers.value = data.members || [];
+      }
+    })
+    .catch(err => {
+      console.error('加载群组成员失败:', err);
+      groupMembers.value = [];
+    });
 }
 
 function toggleMarkdownToolbar() {
@@ -238,6 +375,28 @@ function toggleMoreFunctions() {
 }
 
 function handleGroupMessageInputKeydown(e) {
+  if (showAtPicker.value) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedAtIndex.value = (selectedAtIndex.value + 1) % filteredAtSuggestions.value.length;
+      return;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedAtIndex.value = (selectedAtIndex.value - 1 + filteredAtSuggestions.value.length) % filteredAtSuggestions.value.length;
+      return;
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      if (filteredAtSuggestions.value.length > 0) {
+        selectGroupAtUser(filteredAtSuggestions.value[selectedAtIndex.value]);
+      }
+      return;
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      showAtPicker.value = false;
+      return;
+    }
+  }
+  
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
     e.preventDefault();
     handleSendGroupMessage();
@@ -357,9 +516,22 @@ function handleGroupDrop(e) {
 
 function handleGroupMessageInput() {
   if (groupMessageInputRef.value) {
-    chatStore.groupMessageInput = groupMessageInputRef.value.innerHTML;
-    
     const input = groupMessageInputRef.value;
+    
+    // 清理只包含br标签的空内容（但不清理包含空格的内容）
+    const textContent = input.textContent;
+    const htmlContent = input.innerHTML;
+    
+    // 只有当内容真的为空或只有br标签时才清空
+    // 注意：textContent 包含空格时长度不为0，所以不会误清空
+    if (textContent === '' && (!htmlContent || htmlContent === '<br>' || htmlContent === '<br/>' || htmlContent === '<br />')) {
+      input.innerHTML = '';
+      showAtPicker.value = false;
+      return;
+    }
+    
+    chatStore.groupMessageInput = input.innerHTML;
+    
     const maxHeight = 180;
     if (input.scrollHeight > maxHeight) {
       input.style.overflowY = 'auto';
@@ -367,14 +539,95 @@ function handleGroupMessageInput() {
       input.style.overflowY = 'hidden';
     }
     
-    const textContent = input.textContent.trim();
-    const htmlContent = input.innerHTML.trim();
-    if (!textContent && (!htmlContent || htmlContent === '<br>' || htmlContent === '<br/>' || htmlContent === '<br />')) {
-      input.innerHTML = '';
+    // 如果正在输入中文，不处理
+    if (isComposing.value) {
+      return;
+    }
+    
+    // @ 提示功能 - 获取群组成员
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const textNode = range.startContainer;
+      
+      if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+        const text = textNode.textContent;
+        const cursorPos = range.startOffset;
+        
+        const textBeforeCursor = text.substring(0, cursorPos);
+        const atIndex = textBeforeCursor.lastIndexOf('@');
+        
+        if (atIndex !== -1) {
+          const textAfterAt = textBeforeCursor.substring(atIndex + 1);
+          if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
+            atTriggerPosition.value = atIndex;
+            
+            // 获取群组成员列表
+            const members = groupMembers.value || [];
+            atSuggestions.value = members
+              .filter(member => member)
+              .map(member => ({
+                id: member.userId || member.id,
+                nickname: unescapeHtml(member.nickname || member.name || '未知成员'),
+                username: unescapeHtml(member.nickname || member.name || String(member.userId || member.id))
+              }))
+              .filter(u => u.username);
+            
+            const inputRect = groupMessageInputRef.value.getBoundingClientRect();
+            atPickerPosition.value = {
+              top: inputRect.top - 260,
+              left: inputRect.left
+            };
+            
+            // 过滤建议 - 根据输入的文字匹配
+            const searchText = textAfterAt.toLowerCase();
+            if (searchText) {
+              filteredAtSuggestions.value = atSuggestions.value
+                .map(user => {
+                  const nicknameLower = (user.nickname || '').toLowerCase();
+                  const usernameLower = (user.username || '').toLowerCase();
+                  
+                  // 计算匹配分数
+                  let score = 0;
+                  if (nicknameLower === searchText || usernameLower === searchText) {
+                    score = 100; // 完全匹配
+                  } else if (nicknameLower.startsWith(searchText) || usernameLower.startsWith(searchText)) {
+                    score = 80; // 开头匹配
+                  } else if (nicknameLower.includes(searchText) || usernameLower.includes(searchText)) {
+                    score = 60; // 包含匹配
+                  } else {
+                    score = 0; // 不匹配
+                  }
+                  
+                  return { ...user, score };
+                })
+                .filter(user => user.score > 0)
+                .sort((a, b) => b.score - a.score);
+            } else {
+              filteredAtSuggestions.value = [...atSuggestions.value];
+            }
+            
+            selectedAtIndex.value = 0;
+            showAtPicker.value = filteredAtSuggestions.value.length > 0;
+          } else {
+            showAtPicker.value = false;
+          }
+        } else {
+          showAtPicker.value = false;
+        }
+      } else {
+        showAtPicker.value = false;
+      }
     }
     
     input.scrollTop = input.scrollHeight;
   }
+}
+
+function handleGroupCompositionEnd() {
+  isComposing.value = false;
+  // 中文输入结束后重新处理输入
+  handleGroupMessageInput();
 }
 
 function handleSendGroupMessage() {
@@ -393,6 +646,8 @@ function handleSendGroupMessage() {
         window.chatSocket.emit('send-message', messageData);
         clearContentEditable(groupMessageInputRef.value);
       }
+      // 发送消息后滚动到底部
+      scrollToBottom();
     }
   }
 }
@@ -429,6 +684,48 @@ function handleGroupInfoClick() {
         chatStore.openModal('groupInfo', data.group);
       }
     });
+}
+
+function selectGroupAtUser(user) {
+  if (!groupMessageInputRef.value) return;
+  
+  const input = groupMessageInputRef.value;
+  
+  // 从输入框文本中查找 @ 位置
+  const text = input.textContent || '';
+  const atIndex = text.lastIndexOf('@');
+  
+  if (atIndex !== -1) {
+    // 找到 @ 位置，替换为 @username 
+    const textBeforeAt = text.substring(0, atIndex);
+    const textAfterAt = text.substring(atIndex + 1);
+    
+    // 找到第一个空格或换行符的位置
+    let textAfterUsername = textAfterAt;
+    const spaceMatch = textAfterAt.match(/^(\S+)/);
+    if (spaceMatch) {
+      textAfterUsername = textAfterAt.substring(spaceMatch[1].length);
+    }
+    
+    const replaceText = `@${user.username} `    
+    input.textContent = textBeforeAt + replaceText + textAfterUsername;
+    
+    // 设置光标位置到替换文本之后
+    const newCursorPos = atIndex + replaceText.length;
+    const newRange = document.createRange();
+    const textNode = input.firstChild;
+    if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+      newRange.setStart(textNode, Math.min(newCursorPos, textNode.textContent.length));
+      newRange.collapse(true);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+    }
+  }
+  
+  showAtPicker.value = false;
+  chatStore.groupMessageInput = input.innerHTML;
+  input.focus();
 }
 
 function insertMarkdown(prefix, suffix, sample) {
@@ -514,6 +811,152 @@ function handleGroupFileCancel() {
   showFileInput.value = false;
 }
 
+// 查找消息功能
+const showSearchModal = ref(false);
+const searchKeyword = ref('');
+const searchResults = ref([]);
+const isSearching = ref(false);
+const hasSearched = ref(false);
+const searchInputRef = ref(null);
+
+function openSearchModal() {
+  showSearchModal.value = true;
+  showMoreFunctions.value = false;
+  nextTick(() => {
+    if (searchInputRef.value) {
+      searchInputRef.value.focus();
+    }
+  });
+}
+
+function closeSearchModal() {
+  showSearchModal.value = false;
+  searchKeyword.value = '';
+  searchResults.value = [];
+  hasSearched.value = false;
+}
+
+async function executeSearch() {
+  if (!searchKeyword.value.trim()) return;
+  
+  isSearching.value = true;
+  hasSearched.value = false;
+  searchResults.value = [];
+  
+  try {
+    const groupId = chatStore.currentGroupId;
+    const messages = chatStore.groupMessages[groupId] || [];
+    
+    // 如果消息数量不足，发送加载更多事件
+    if (messages.length < 200) {
+      for (let i = 0; i < 10; i++) {
+        if (chatStore.groupMessages[groupId]?.length >= 200) break;
+        
+        const currentMessages = chatStore.groupMessages[groupId] || [];
+        const oldestMessage = currentMessages[0];
+        if (!oldestMessage) break;
+        
+        if (window.chatSocket && window.chatSocket.connected) {
+          await new Promise((resolve) => {
+            let resolved = false;
+            const handler = () => {
+              if (resolved) return;
+              resolved = true;
+              window.chatSocket.off('group-chat-history', handler);
+              setTimeout(resolve, 100);
+            };
+            window.chatSocket.on('group-chat-history', handler);
+            
+            window.chatSocket.emit('get-group-chat-history', {
+              groupId: groupId,
+              userId: chatStore.currentUser?.id,
+              sessionToken: chatStore.currentSessionToken,
+              limit: 20,
+              loadMore: true,
+              olderThan: oldestMessage.id
+            });
+            
+            setTimeout(() => {
+              if (!resolved) {
+                resolved = true;
+                window.chatSocket.off('group-chat-history', handler);
+                resolve();
+              }
+            }, 3000);
+          });
+        }
+      }
+    }
+    
+    const allMessages = chatStore.groupMessages[groupId] || [];
+    const keyword = searchKeyword.value.trim().toLowerCase();
+    
+    searchResults.value = allMessages
+      .filter(msg => {
+        const content = msg.content?.toLowerCase() || '';
+        const nickname = msg.nickname?.toLowerCase() || '';
+        return content.includes(keyword) || nickname.includes(keyword);
+      })
+      .reverse();
+    
+    hasSearched.value = true;
+  } catch (err) {
+    console.error('搜索失败:', err);
+  } finally {
+    isSearching.value = false;
+  }
+}
+
+function highlightKeyword(content) {
+  if (!content || !searchKeyword.value) return content;
+  
+  const keyword = searchKeyword.value.trim();
+  const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return content.replace(regex, '<mark class="search-highlight">$1</mark>');
+}
+
+function formatTime(timestamp) {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  
+  if (isToday) {
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  } else {
+    return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+}
+
+function scrollToMessage(message) {
+  closeSearchModal();
+  
+  const groupId = chatStore.currentGroupId;
+  const messages = chatStore.groupMessages[groupId] || [];
+  const messageIndex = messages.findIndex(m => m.id === message.id);
+  
+  if (messageIndex !== -1 && groupMessageContainerRef.value) {
+    const container = groupMessageContainerRef.value;
+    const messageElements = container.querySelectorAll('.message');
+    const targetElement = messageElements[messageIndex];
+    
+    if (targetElement) {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => {
+        const isOwn = targetElement.classList.contains('own-message');
+        const originalBg = isOwn ? '#E8F5E8' : '#FFFFFF';
+        targetElement.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
+        targetElement.classList.add('active');
+        setTimeout(() => {
+          targetElement.style.backgroundColor = originalBg;
+          setTimeout(() => {
+            targetElement.classList.remove('active');
+          }, 500);
+        }, 3000);
+      }, 500);
+    }
+  }
+}
+
 function handleGroupSwitched() {
   if (chatStore.currentGroupId) {
     isGroupChatVisible.value = true;
@@ -531,26 +974,28 @@ watch(
   () => chatStore.currentGroupId,
   (newGroupId, oldGroupId) => {
     if (newGroupId && newGroupId !== oldGroupId) {
+      window.prevGroupScrollHeight = undefined;
+      window.prevGroupScrollTop = undefined;
+      window.isLoadingMoreMessages = false;
+      if (window.scrollingInitialized) {
+        window.scrollingInitialized.group = false;
+      }
+      
       nextTick(() => {
         if (groupMessageContainerRef.value) {
           groupMessageContainerRef.value.scrollTop = 0;
         }
-        // 切换群组后，等待消息加载完成后再滚动到底部
         scrollToBottom();
-        // 多次尝试滚动，确保消息加载后也能滚动
-        setTimeout(() => {
-          scrollToBottom();
-        }, 200);
-        setTimeout(() => {
-          scrollToBottom();
-        }, 500);
-        // 切换群组后，重新初始化滚动监听器
         setTimeout(() => {
           initializeScrollLoading(true);
         }, 100);
+        setTimeout(() => {
+          if (window.scrollingInitialized) {
+            window.scrollingInitialized.group = true;
+          }
+        }, 600);
       });
     }
-    // 当群组 ID 变为 null 时（群组解散或退出），隐藏群组聊天界面
     if (!newGroupId) {
       isGroupChatVisible.value = false;
       currentGroupInfo.value = null;
@@ -582,7 +1027,37 @@ watch(
   () => route.path,
   (newPath) => {
     if (newPath.startsWith('/chat/group')) {
-      scrollToBottom();
+      window.prevGroupScrollHeight = undefined;
+      window.prevGroupScrollTop = undefined;
+      window.isLoadingMoreMessages = false;
+      if (window.scrollingInitialized) {
+        window.scrollingInitialized.group = false;
+      }
+      
+      if (window.switchingGroupWithExistingMessages) {
+        // 如果是切换到已有消息的群组，先不滚动到底部，让用户自己滚动
+        delete window.switchingGroupWithExistingMessages;
+        nextTick(() => {
+          initializeScrollLoading(true);
+        });
+        setTimeout(() => {
+          if (window.scrollingInitialized) {
+            window.scrollingInitialized.group = true;
+          }
+        }, 1000);
+      } else {
+        // 如果是新群组或没有消息，则滚动到底部
+        scrollToBottom();
+        nextTick(() => {
+          initializeScrollLoading(true);
+        });
+        setTimeout(() => {
+          if (window.scrollingInitialized) {
+            window.scrollingInitialized.group = true;
+          }
+        }, 600);
+      }
+      
       // 切换到群组聊天时清除引用消息
       if (chatStore.clearQuotedMessage) {
         chatStore.clearQuotedMessage();
@@ -597,15 +1072,18 @@ watch(
       if (chatStore.clearPublicMessagesExceptRecent) {
         chatStore.clearPublicMessagesExceptRecent();
       }
-      nextTick(() => {
-        initializeScrollLoading(true);
-      });
     }
   }
 );
 
+function handleGroupMembersChanged(event) {
+  console.log('📥 [GroupChat] 收到群组成员变更事件:', event.detail);
+  loadCurrentGroupInfo();
+}
+
 onMounted(() => {
   window.addEventListener('group-switched', handleGroupSwitched);
+  window.addEventListener('group-members-changed', handleGroupMembersChanged);
   
   // 恢复之前保存的群组会话
   if (chatStore.currentGroupId) {
@@ -646,5 +1124,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('group-switched', handleGroupSwitched);
+  window.removeEventListener('group-members-changed', handleGroupMembersChanged);
 });
 </script>

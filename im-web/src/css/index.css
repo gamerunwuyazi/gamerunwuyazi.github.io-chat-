@@ -5,6 +5,31 @@ body {
     background-color: #f0f2f5;
 }
 
+/* 全局滚动条样式 - 与 messageContainer 完全一致 */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+}
+
+/* 全局强制自动换行 */
+* {
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
 h1, h2, h3, h4, h5, h6, ul {
     margin: 0;
 }
@@ -405,16 +430,8 @@ h1, h2, h3, h4, h5, h6, ul {
     background-color: #2980b9;
 }
 
-/* 消息容器样式，限制最大大小 */
-#messageContainer,
-#groupMessageContainer,
-#privateMessageContainer {
-    max-height: calc(100vh - 200px);
-    overflow-y: auto;
-    overflow-x: hidden;
-    word-break: break-word;
-    hyphens: auto;
-}
+/* 消息容器样式 - 使用 flex 布局自动填充空间 */
+/* 已移除固定的 max-height，让 flex 布局自动调整 */
 
 /* 文件链接容器样式，确保文件样式正确 */
 .file-link-container {
@@ -443,7 +460,7 @@ h1, h2, h3, h4, h5, h6, ul {
     width: 100vw;
     height: 100vh;
     display: flex;
-    overflow: auto;
+    overflow: hidden; /* 防止整个主容器滚动，只让子容器滚动 */
     min-width: 800px; /* 设置最小宽度，确保聊天室内容完整显示 */
 }
 
@@ -699,7 +716,6 @@ h1, h2, h3, h4, h5, h6, ul {
 /* 确保输入区域紧贴底部 */
 .input-area {
     flex: 0 0 auto; /* 输入区域高度自适应，不占用额外空间 */
-    margin-top: auto; /* 确保输入区域紧贴底部 */
 }
 
 /* 空白聊天状态样式 */
@@ -2188,7 +2204,8 @@ h1, h2, h3, h4, h5, h6, ul {
 /* 可编辑div的placeholder样式 - 使用更高优先级的选择器 */
 #messageInput[placeholder]:empty:before, 
 #groupMessageInput[placeholder]:empty:before,
-#privateMessageInput[placeholder]:empty:before {
+#privateMessageInput[placeholder]:empty:before,
+.editable-div[placeholder]:empty:before {
     content: attr(placeholder);
     color: #95a5a6 !important;
     pointer-events: none !important;
@@ -2202,10 +2219,47 @@ h1, h2, h3, h4, h5, h6, ul {
 /* 确保placeholder在聚焦时也能显示 */
 #messageInput[placeholder]:empty:focus:before, 
 #groupMessageInput[placeholder]:empty:focus:before,
-#privateMessageInput[placeholder]:empty:focus:before {
+#privateMessageInput[placeholder]:empty:focus:before,
+.editable-div[placeholder]:empty:focus:before {
     content: attr(placeholder);
     color: #95a5a6 !important;
     pointer-events: none !important;
+    display: inline-block !important;
+}
+
+/* 处理只包含br标签的情况 - 也显示placeholder */
+.editable-div[placeholder]:before,
+#messageInput[placeholder]:before,
+#groupMessageInput[placeholder]:before,
+#privateMessageInput[placeholder]:before {
+    content: attr(placeholder);
+    color: #95a5a6 !important;
+    pointer-events: none !important;
+    display: inline-block !important;
+    font-style: normal !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    line-height: 1.5 !important;
+    position: absolute;
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+
+/* 当有内容时隐藏placeholder */
+.editable-div:not(:empty):before,
+#messageInput:not(:empty):before,
+#groupMessageInput:not(:empty):before,
+#privateMessageInput:not(:empty):before {
+    opacity: 0 !important;
+    display: none !important;
+}
+
+/* 当为空时显示placeholder */
+.editable-div:empty:before,
+#messageInput:empty:before,
+#groupMessageInput:empty:before,
+#privateMessageInput:empty:before {
+    opacity: 1 !important;
     display: inline-block !important;
 }
 
@@ -2692,4 +2746,191 @@ h1, h2, h3, h4, h5, h6, ul {
     color: #666;
     word-break: break-word;
     line-height: 1.4;
+}
+
+/* 查找消息模态框样式 */
+.search-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 100px;
+    z-index: 10000;
+}
+
+.search-modal {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.search-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.search-modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    color: #333;
+}
+
+.search-modal-header .close-btn {
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: #999;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s;
+}
+
+.search-modal-header .close-btn:hover {
+    background-color: #f0f0f0;
+    color: #333;
+}
+
+.search-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.search-input-container {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.search-input-container input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.search-input-container input:focus {
+    border-color: #4CAF50;
+}
+
+.search-input-container .search-btn {
+    padding: 10px 20px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.search-input-container .search-btn:hover:not(:disabled) {
+    background-color: #45a049;
+}
+
+.search-input-container .search-btn:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+.search-results-count {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.search-results-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.search-result-item {
+    padding: 12px;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+}
+
+.search-result-item:hover {
+    background-color: #f0f0f0;
+    border-color: #4CAF50;
+}
+
+.result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.result-nickname {
+    font-weight: 600;
+    color: #333;
+    font-size: 14px;
+}
+
+.result-time {
+    font-size: 12px;
+    color: #999;
+}
+
+.result-content {
+    font-size: 13px;
+    color: #666;
+    word-break: break-word;
+    line-height: 1.5;
+}
+
+.search-highlight {
+    background-color: #ffeb3b;
+    padding: 1px 2px;
+    border-radius: 2px;
+}
+
+.no-results {
+    text-align: center;
+    color: #999;
+    padding: 30px 0;
+    font-size: 14px;
+}
+
+/* 消息高亮样式 */
+.highlight-message {
+    animation: highlight-fade 3s ease-out;
+}
+
+@keyframes highlight-fade {
+    0% {
+        background-color: rgba(76, 175, 80, 0.3);
+    }
+    100% {
+        background-color: transparent;
+    }
 }

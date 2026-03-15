@@ -12,13 +12,13 @@ onMounted(() => {
   if (window.loadGroupList) {
     window.loadGroupList();
   }
-  
-  // 添加全局点击事件监听，关闭右键菜单
-  document.addEventListener('click', hideContextMenu);
 });
 
 onUnmounted(() => {
+  // 清理所有事件监听器
   document.removeEventListener('click', hideContextMenu);
+  document.removeEventListener('contextmenu', hideContextMenu);
+  window.removeEventListener('scroll', hideContextMenu, true);
 });
 
 // 右键菜单相关
@@ -29,7 +29,7 @@ const currentContextMenuGroup = ref(null);
 // 群组搜索状态
 const groupSearchKeyword = ref('');
 
-// 工具函数：HTML反转义
+// 工具函数：HTML 反转义
 function unescapeHtml(html) {
   if (typeof html !== 'string') return html;
   const text = document.createElement('textarea');
@@ -37,7 +37,26 @@ function unescapeHtml(html) {
   return text.value;
 }
 
-// 工具函数：检查是否为SVG格式
+// 工具函数：获取群组头像 URL（带版本号参数）
+function getGroupAvatarUrl(group) {
+  let avatarUrl = '';
+  if (group.avatarUrl && typeof group.avatarUrl === 'string') {
+    avatarUrl = group.avatarUrl.trim();
+  } else if (group.avatar_url && typeof group.avatar_url === 'string') {
+    avatarUrl = group.avatar_url.trim();
+  } else if (group.avatar && typeof group.avatar === 'string') {
+    avatarUrl = group.avatar.trim();
+  }
+  
+  // 如果有版本号，添加?v=参数
+  if (avatarUrl && group.avatarVersion) {
+    return `${avatarUrl}?v=${group.avatarVersion}`;
+  }
+  
+  return avatarUrl;
+}
+
+// 工具函数：检查是否为 SVG 格式
 function isSvgAvatar(url) {
   return url && /\.svg$/i.test(url);
 }
@@ -106,18 +125,33 @@ function handleGroupRightClick(event, group) {
   event.preventDefault();
   event.stopPropagation();
   
+  // 先隐藏现有菜单
+  hideContextMenu();
+  
   currentContextMenuGroup.value = group;
   contextMenuPosition.value = {
     x: event.clientX,
     y: event.clientY
   };
   showContextMenu.value = true;
+  
+  // 延迟添加事件监听器，避免立即触发
+  setTimeout(() => {
+    document.addEventListener('click', hideContextMenu);
+    document.addEventListener('contextmenu', hideContextMenu);
+    window.addEventListener('scroll', hideContextMenu, true);
+  }, 0);
 }
 
 // 隐藏右键菜单
 function hideContextMenu() {
   showContextMenu.value = false;
   currentContextMenuGroup.value = null;
+  
+  // 移除事件监听器
+  document.removeEventListener('click', hideContextMenu);
+  document.removeEventListener('contextmenu', hideContextMenu);
+  window.removeEventListener('scroll', hideContextMenu, true);
 }
 
 // 处理群组头像点击
@@ -138,6 +172,14 @@ function handleCreateGroupClick() {
       window.ModalManager.loadAvailableMembers();
     }
   }
+}
+
+// 处理头像加载失败
+function handleGroupAvatarError(event, group) {
+  // 将头像 URL 设为空字符串，显示默认头像
+  group.avatarUrl = '';
+  group.avatar_url = '';
+  group.avatar = '';
 }
 </script>
 
@@ -164,8 +206,8 @@ function handleCreateGroupClick() {
                     :data-group-name="unescapeHtml(group.name)"
                     @click="handleGroupClick(group)"
                     @contextmenu.prevent="handleGroupRightClick($event, group)">
-                    <span v-if="(group.avatar_url || group.avatarUrl) && !isSvgAvatar(group.avatar_url || group.avatarUrl)" class="group-avatar" @click.stop="handleGroupAvatarClick($event, group)">
-                        <img :src="`${chatStore.SERVER_URL}${group.avatar_url || group.avatarUrl}`" :alt="unescapeHtml(group.name)">
+                    <span v-if="getGroupAvatarUrl(group) && !isSvgAvatar(getGroupAvatarUrl(group))" class="group-avatar" @click.stop="handleGroupAvatarClick($event, group)">
+                        <img :src="`${chatStore.SERVER_URL}${getGroupAvatarUrl(group)}`" :alt="unescapeHtml(group.name)" @error="handleGroupAvatarError($event, group)">
                     </span>
                     <span v-else class="group-avatar" @click.stop="handleGroupAvatarClick($event, group)">
                         {{ unescapeHtml(group.name).charAt(0).toUpperCase() }}

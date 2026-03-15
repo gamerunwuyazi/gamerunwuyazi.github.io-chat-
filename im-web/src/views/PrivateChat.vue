@@ -52,13 +52,7 @@
       </div>
 
       <div class="input-area">
-        <div v-if="chatStore.quotedMessage" class="quoted-message-preview" style="display: flex; align-items: center; padding: 8px 12px; background: #f5f5f5; border-left: 3px solid #4CAF50; margin-bottom: 8px; border-radius: 4px;">
-          <div style="flex: 1;">
-            <div style="font-size: 12px; color: #666;">引用: <strong>{{ chatStore.quotedMessage.nickname }}</strong></div>
-            <div style="font-size: 13px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ chatStore.quotedMessage.content }}</div>
-          </div>
-          <button @click="chatStore.clearQuotedMessage()" style="background: none; border: none; color: #999; font-size: 18px; cursor: pointer; padding: 0 5px;">×</button>
-        </div>
+        <QuotedMessagePreview v-if="chatStore.quotedMessage" :quoted-message="chatStore.quotedMessage" @close="chatStore.clearQuotedMessage()" />
         <div class="input-container" id="privateInputContainer"
           @drop="handlePrivateDrop"
           @dragover="handlePrivateDragOver"
@@ -68,7 +62,7 @@
             ref="privateMessageInputRef"
             id="privateMessageInput" 
             class="editable-div" 
-            placeholder="发送消息（Ctrl+Enter或Shift+Enter换行  支持Markdown语法）" 
+            placeholder="发送消息（Ctrl+Enter或Shift+Enter换行  打开md工具栏即可支持Markdown语法）" 
             contenteditable="true"
             @keydown="handlePrivateMessageInputKeydown"
             @input="handlePrivateMessageInput"
@@ -104,6 +98,9 @@
           <button id="privateSendGroupCardButton" title="发送群名片" @click="handleSendGroupCard">
             📱 <span class="button-text">发送群名片</span>
           </button>
+          <button id="privateSearchMessageButton" title="查找消息" @click="openSearchModal">
+            🔍 <span class="button-text">查找消息</span>
+          </button>
         </div>
         <input v-if="showImageInput" type="file" ref="privateImageInputRef" id="privateImageInput" style="display: none;" accept="image/*" @change="handlePrivateImageUpload" @cancel="handlePrivateImageCancel">
         <input v-if="showFileInput" type="file" ref="privateFileInputRef" id="privateFileInput" style="display: none;" @change="handlePrivateFileUpload" @cancel="handlePrivateFileCancel">
@@ -112,6 +109,52 @@
       <div v-if="chatStore.showUploadProgress" class="upload-progress" id="privateUploadProgress">
         <div class="upload-progress-bar" id="privateUploadProgressBar" :style="{ width: chatStore.uploadProgress + '%' }"></div>
       </div>
+
+      <!-- 查找消息模态框 -->
+      <Teleport to="body" v-if="showSearchModal">
+        <div class="search-modal-overlay" @click.self="closeSearchModal">
+          <div class="search-modal">
+            <div class="search-modal-header">
+              <h3>查找消息</h3>
+              <button class="close-btn" @click="closeSearchModal">×</button>
+            </div>
+            <div class="search-modal-body">
+              <div class="search-input-container">
+                <input 
+                  v-model="searchKeyword" 
+                  type="text" 
+                  placeholder="输入搜索内容..." 
+                  @keyup.enter="executeSearch"
+                  ref="searchInputRef"
+                />
+                <button class="search-btn" @click="executeSearch" :disabled="isSearching || !searchKeyword.trim()">
+                  {{ isSearching ? '搜索中...' : '搜索' }}
+                </button>
+              </div>
+              <div v-if="searchResults.length > 0" class="search-results">
+                <div class="search-results-count">找到 {{ searchResults.length }} 条消息</div>
+                <div class="search-results-list">
+                  <div 
+                    v-for="result in searchResults" 
+                    :key="result.id" 
+                    class="search-result-item"
+                    @click="scrollToMessage(result)"
+                  >
+                    <div class="result-header">
+                      <span class="result-nickname">{{ result.senderId === chatStore.currentUser?.id ? '我' : chatStore.currentPrivateChatNickname }}</span>
+                      <span class="result-time">{{ formatTime(result.timestamp) }}</span>
+                    </div>
+                    <div class="result-content" v-html="highlightKeyword(result.content)"></div>
+                  </div>
+                </div>
+              </div>
+              <div v-else-if="searchKeyword && hasSearched && !isSearching" class="no-results">
+                未找到匹配的消息
+              </div>
+            </div>
+          </div>
+        </div>
+      </Teleport>
     </div>
   </div>
 </template>
@@ -123,6 +166,8 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useChatStore } from "@/stores/chatStore";
 import { useRoute } from "vue-router";
 import PrivateMessageItem from "@/components/MessageItem/PrivateMessageItem.vue";
+import QuotedMessagePreview from "@/components/MessageItem/QuotedMessagePreview.vue";
+
 import {
   setActiveChat,
   loadPrivateChatHistory,
@@ -135,6 +180,8 @@ import {
 } from "@/utils/chat";
 
 const chatStore = useChatStore();
+const SERVER_URL = chatStore.SERVER_URL || process.env.VUE_APP_SERVER_URL || '';
+
 const route = useRoute();
 const privateMessageInputRef = ref(null);
 const privateImageInputRef = ref(null);
@@ -179,18 +226,28 @@ function refreshScrollPos() {
   // console.log('[PrivateChat] refreshScrollPos - window.prevPrivateScrollHeight:', window.prevPrivateScrollHeight);
   // console.log('[PrivateChat] refreshScrollPos - window.prevPrivateScrollTop:', window.prevPrivateScrollTop);
   
+  if (window.prevPrivateScrollHeight === undefined || window.prevPrivateScrollTop === undefined) {
+    // console.log('[PrivateChat] refreshScrollPos - 没有保存的滚动位置，跳过');
+    return;
+  }
+  
   nextTick(() => {
-    if (privateMessageContainerRef.value && window.prevPrivateScrollHeight !== undefined && window.prevPrivateScrollTop !== undefined) {
+    if (privateMessageContainerRef.value) {
       const scrollWrap = privateMessageContainerRef.value;
       const newScrollHeight = scrollWrap.scrollHeight;
       const offsetTop = newScrollHeight - window.prevPrivateScrollHeight;
-      const newScrollTop = window.prevPrivateScrollTop + offsetTop;
       
-      // console.log('[PrivateChat] refreshScrollPos - newScrollHeight:', newScrollHeight);
-      // console.log('[PrivateChat] refreshScrollPos - offsetTop:', offsetTop);
-      // console.log('[PrivateChat] refreshScrollPos - 新scrollTop:', newScrollTop);
-      
-      scrollWrap.scrollTop = newScrollTop;
+      // 只有当 scrollHeight 真的发生变化时才调整滚动位置
+      // 如果没有变化，说明没有加载到新消息，保持当前滚动位置
+      if (offsetTop !== 0) {
+        const newScrollTop = window.prevPrivateScrollTop + offsetTop;
+        
+        // console.log('[PrivateChat] refreshScrollPos - newScrollHeight:', newScrollHeight);
+        // console.log('[PrivateChat] refreshScrollPos - offsetTop:', offsetTop);
+        // console.log('[PrivateChat] refreshScrollPos - 新scrollTop:', newScrollTop);
+        
+        scrollWrap.scrollTop = newScrollTop;
+      }
       
       window.prevPrivateScrollHeight = undefined;
       window.prevPrivateScrollTop = undefined;
@@ -200,8 +257,6 @@ function refreshScrollPos() {
     }
   });
 }
-
-window.privateRefreshScrollPos = refreshScrollPos;
 
 const isPrivateChatVisible = ref(false);
 const currentUserName = ref('好友昵称');
@@ -222,7 +277,7 @@ function applySavedPrivateState() {
     
     const avatarUrl = chatStore.currentPrivateChatAvatarUrl;
     if (avatarUrl) {
-      currentUserAvatarUrl.value = `https://back.hs.airoe.cn${avatarUrl}`;
+      currentUserAvatarUrl.value = avatarUrl.startsWith('http') ? avatarUrl : `${SERVER_URL}${avatarUrl}`;
     } else {
       currentUserAvatarUrl.value = '';
       const unescapedNickname = unescapeHtml(chatStore.currentPrivateChatNickname || '');
@@ -249,20 +304,26 @@ function toggleMoreFunctions() {
 
 function handlePrivateMessageInput() {
   if (privateMessageInputRef.value) {
-    chatStore.privateMessageInput = privateMessageInputRef.value.textContent || privateMessageInputRef.value.innerHTML;
-    
     const input = privateMessageInputRef.value;
+    
+    // 清理只包含br标签的空内容（但不清理包含空格的内容）
+    const textContent = input.textContent;
+    const htmlContent = input.innerHTML;
+    
+    // 只有当内容真的为空或只有br标签时才清空
+    // 注意：textContent 包含空格时长度不为0，所以不会误清空
+    if (textContent === '' && (!htmlContent || htmlContent === '<br>' || htmlContent === '<br/>' || htmlContent === '<br />')) {
+      input.innerHTML = '';
+      return;
+    }
+    
+    chatStore.privateMessageInput = input.textContent || input.innerHTML;
+    
     const maxHeight = 180;
     if (input.scrollHeight > maxHeight) {
       input.style.overflowY = 'auto';
     } else {
       input.style.overflowY = 'hidden';
-    }
-    
-    const textContent = input.textContent.trim();
-    const htmlContent = input.innerHTML.trim();
-    if (!textContent && (!htmlContent || htmlContent === '<br>' || htmlContent === '<br/>' || htmlContent === '<br />')) {
-      input.innerHTML = '';
     }
     
     input.scrollTop = input.scrollHeight;
@@ -282,6 +343,8 @@ function handlePrivateMessageInputKeydown(e) {
 function handleSendPrivateMessage() {
   if (window.sendPrivateMessage) {
     window.sendPrivateMessage();
+    // 发送消息后滚动到底部
+    scrollToBottom();
   }
 }
 
@@ -484,6 +547,151 @@ function handlePrivateFileCancel() {
   showFileInput.value = false;
 }
 
+// 查找消息功能
+const showSearchModal = ref(false);
+const searchKeyword = ref('');
+const searchResults = ref([]);
+const isSearching = ref(false);
+const hasSearched = ref(false);
+const searchInputRef = ref(null);
+
+function openSearchModal() {
+  showSearchModal.value = true;
+  showMoreFunctions.value = false;
+  nextTick(() => {
+    if (searchInputRef.value) {
+      searchInputRef.value.focus();
+    }
+  });
+}
+
+function closeSearchModal() {
+  showSearchModal.value = false;
+  searchKeyword.value = '';
+  searchResults.value = [];
+  hasSearched.value = false;
+}
+
+async function executeSearch() {
+  if (!searchKeyword.value.trim()) return;
+  
+  isSearching.value = true;
+  hasSearched.value = false;
+  searchResults.value = [];
+  
+  try {
+    const friendId = chatStore.currentPrivateChatUserId;
+    const messages = chatStore.privateMessages[friendId] || [];
+    
+    // 如果消息数量不足，发送加载更多事件
+    if (messages.length < 200) {
+      for (let i = 0; i < 10; i++) {
+        if (chatStore.privateMessages[friendId]?.length >= 200) break;
+        
+        const currentMessages = chatStore.privateMessages[friendId] || [];
+        const oldestMessage = currentMessages[0];
+        if (!oldestMessage) break;
+        
+        if (window.chatSocket && window.chatSocket.connected) {
+          await new Promise((resolve) => {
+            let resolved = false;
+            const handler = () => {
+              if (resolved) return;
+              resolved = true;
+              window.chatSocket.off('private-chat-history', handler);
+              setTimeout(resolve, 100);
+            };
+            window.chatSocket.on('private-chat-history', handler);
+            
+            window.chatSocket.emit('get-private-chat-history', {
+              userId: chatStore.currentUser?.id,
+              friendId: friendId,
+              sessionToken: chatStore.currentSessionToken,
+              limit: 20,
+              loadMore: true,
+              olderThan: oldestMessage.id
+            });
+            
+            setTimeout(() => {
+              if (!resolved) {
+                resolved = true;
+                window.chatSocket.off('private-chat-history', handler);
+                resolve();
+              }
+            }, 3000);
+          });
+        }
+      }
+    }
+    
+    const allMessages = chatStore.privateMessages[friendId] || [];
+    const keyword = searchKeyword.value.trim().toLowerCase();
+    
+    searchResults.value = allMessages
+      .filter(msg => {
+        const content = msg.content?.toLowerCase() || '';
+        return content.includes(keyword);
+      })
+      .reverse();
+    
+    hasSearched.value = true;
+  } catch (err) {
+    console.error('搜索失败:', err);
+  } finally {
+    isSearching.value = false;
+  }
+}
+
+function highlightKeyword(content) {
+  if (!content || !searchKeyword.value) return content;
+  
+  const keyword = searchKeyword.value.trim();
+  const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return content.replace(regex, '<mark class="search-highlight">$1</mark>');
+}
+
+function formatTime(timestamp) {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  
+  if (isToday) {
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  } else {
+    return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+}
+
+function scrollToMessage(message) {
+  closeSearchModal();
+  
+  const friendId = chatStore.currentPrivateChatUserId;
+  const messages = chatStore.privateMessages[friendId] || [];
+  const messageIndex = messages.findIndex(m => m.id === message.id);
+  
+  if (messageIndex !== -1 && privateMessageContainerRef.value) {
+    const container = privateMessageContainerRef.value;
+    const messageElements = container.querySelectorAll('.message');
+    const targetElement = messageElements[messageIndex];
+    
+    if (targetElement) {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => {
+        const isOwn = targetElement.classList.contains('own-message');
+        const originalBg = isOwn ? '#E8F5E8' : '#FFFFFF';
+        targetElement.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
+        targetElement.classList.add('active');
+        setTimeout(() => {
+          targetElement.style.backgroundColor = originalBg;
+          setTimeout(() => {
+            targetElement.classList.remove('active');
+          }, 500);
+        }, 3000);
+      }, 500);
+    }
+  }
+}
+
 function isUserOnline(userId) {
   return chatStore.onlineUsers.some(user => String(user.id) === String(userId));
 }
@@ -495,7 +703,7 @@ function handlePrivateSwitched() {
     
     const avatarUrl = chatStore.currentPrivateChatAvatarUrl;
     if (avatarUrl) {
-      currentUserAvatarUrl.value = `https://back.hs.airoe.cn${avatarUrl}`;
+      currentUserAvatarUrl.value = avatarUrl.startsWith('http') ? avatarUrl : `${SERVER_URL}${avatarUrl}`;
     } else {
       currentUserAvatarUrl.value = '';
       const unescapedNickname = unescapeHtml(chatStore.currentPrivateChatNickname || '');
@@ -561,26 +769,31 @@ watch(
   () => chatStore.currentPrivateChatUserId,
   (newUserId, oldUserId) => {
     if (newUserId && newUserId !== oldUserId) {
+      window.prevPrivateScrollHeight = undefined;
+      window.prevPrivateScrollTop = undefined;
+      window.isLoadingMoreMessages = false;
+      if (window.scrollingInitialized) {
+        window.scrollingInitialized.private = false;
+      }
+      if (window.privateChatAllLoaded && window.privateChatAllLoaded[newUserId] === undefined) {
+        window.privateChatAllLoaded[newUserId] = false;
+      }
+      
       nextTick(() => {
         if (privateMessageContainerRef.value) {
           privateMessageContainerRef.value.scrollTop = 0;
         }
-        // 切换私信后，等待消息加载完成后再滚动到底部
         scrollToBottom();
-        // 多次尝试滚动，确保消息加载后也能滚动
-        setTimeout(() => {
-          scrollToBottom();
-        }, 200);
-        setTimeout(() => {
-          scrollToBottom();
-        }, 500);
-        // 切换私信后，重新初始化滚动监听器
         setTimeout(() => {
           initializeScrollLoading(true);
         }, 100);
+        setTimeout(() => {
+          if (window.scrollingInitialized) {
+            window.scrollingInitialized.private = true;
+          }
+        }, 600);
       });
     }
-    // 当用户 ID 变为 null 时（好友删除或退出），隐藏私信聊天界面
     if (!newUserId) {
       isPrivateChatVisible.value = false;
     }
@@ -611,6 +824,13 @@ watch(
   () => route.path,
   (newPath) => {
     if (newPath.startsWith('/chat/private')) {
+      window.prevPrivateScrollHeight = undefined;
+      window.prevPrivateScrollTop = undefined;
+      window.isLoadingMoreMessages = false;
+      if (window.scrollingInitialized) {
+        window.scrollingInitialized.private = false;
+      }
+      
       scrollToBottom();
       // 切换到私信聊天时清除引用消息
       if (chatStore.clearQuotedMessage) {
@@ -629,6 +849,11 @@ watch(
       nextTick(() => {
         initializeScrollLoading(true);
       });
+      setTimeout(() => {
+        if (window.scrollingInitialized) {
+          window.scrollingInitialized.private = true;
+        }
+      }, 600);
     }
   }
 );

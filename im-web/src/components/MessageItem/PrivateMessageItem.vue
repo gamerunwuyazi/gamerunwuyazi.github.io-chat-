@@ -8,7 +8,12 @@
   >
     <div class="message-header" style="display: flex; align-items: center; margin-bottom: 5px;">
       <div style="flex: 1;">
-        <span class="message-time" :style="isOwn ? 'float: right;' : 'float: left;'" style="color: #999; font-size: 12px;">{{ messageTime }}</span>
+        <span class="message-time" :style="isOwn ? 'float: right;' : 'float: left;'" style="color: #999; font-size: 12px;">
+          {{ messageTime }}
+          <span v-if="isOwn" class="read-status" :class="isRead ? 'read' : 'unread'">
+            {{ isRead ? '已读' : '未读' }}
+          </span>
+        </span>
       </div>
     </div>
     <div class="message-content" style="position: relative;">
@@ -43,11 +48,12 @@
       >
         <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px; display: flex; align-items: center; gap: 8px;">
           <img 
-            v-if="groupCardData.avatar_url"
+            v-if="groupCardAvatarUrl"
             :src="groupCardAvatarUrl"
             :alt="groupCardData.group_name"
             style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover; cursor: pointer;"
             @click.stop="handleImageClick(groupCardAvatarUrl)"
+            @error="handleGroupCardAvatarError"
           >
           <div 
         v-else
@@ -64,11 +70,14 @@
           点击查看群组详情
         </div>
       </div>
-      <div v-else-if="parsedContent && !(imageUrl || fileUrl || groupCardData)" v-html="parsedContent" class="message-text"></div>
-      <div v-if="quotedMessageData" class="quoted-message-display" style="border-left: 3px solid #4CAF50; padding-left: 10px; margin-bottom: 8px; background: #f5f5f5; border-radius: 4px; padding: 8px; cursor: pointer;" @click="handleQuotedMessageClick">
-        <div style="font-size: 12px; color: #666;">引用: <strong>{{ quotedMessageData.nickname }}</strong></div>
-        <div style="font-size: 13px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ quotedMessageData.content }}</div>
-      </div>
+      <div v-else-if="parsedContent && !(imageUrl || fileUrl || groupCardData || quotedMessageData)" v-html="parsedContent" class="message-text"></div>
+      <template v-else-if="quotedMessageData">
+        <div v-if="quotedMessageData.text" class="message-text">
+          <p v-if="!quotedMessageData.markdone">{{ quotedMessageData.text }}</p>
+          <div v-else v-html="quotedMessageParsedContent"></div>
+        </div>
+        <QuotedMessage :quoted-message-data="quotedMessageData.quoted" />
+      </template>
     </div>
   </div>
 </template>
@@ -78,7 +87,7 @@ import { computed, ref, onMounted } from 'vue';
 import { useChatStore } from '@/stores/chatStore';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import toast from '@/utils/toast';
+import QuotedMessage from './QuotedMessage.vue';
 
 const props = defineProps({
   message: {
@@ -94,6 +103,7 @@ const props = defineProps({
 const chatStore = useChatStore();
 
 const isActive = ref(false);
+const groupCardAvatarLoadFailed = ref(false);
 
 onMounted(() => {
   const messageEl = document.querySelector(`[data-id="${props.message.id}"]`);
@@ -111,20 +121,15 @@ onMounted(() => {
   }
 });
 
-const messageUser = computed(() => {
-  if (props.message.user) {
-    return props.message.user;
-  }
-  return {
-    id: props.message.senderId || props.message.userId,
-    nickname: props.message.senderNickname || props.message.nickname,
-    avatarUrl: props.message.senderAvatarUrl || props.message.avatarUrl
-  };
-});
+
 
 const messageTime = computed(() => {
   const timestamp = props.message.timestampISO || props.message.created_at || props.message.timestamp;
   return new Date(timestamp).toLocaleTimeString();
+});
+
+const isRead = computed(() => {
+  return props.message.isRead === 1;
 });
 
 const messageIdentifier = computed(() => {
@@ -232,16 +237,11 @@ const messageData = computed(() => {
         try {
           const quotedData = JSON.parse(props.message.content);
           if (quotedData.type === 'quoted' && quotedData.quoted) {
-            quotedMessageData = quotedData.quoted;
-            if (quotedMessageData.messageType === 1) {
-              quotedMessageData.content = '[图片]';
-            } else if (quotedMessageData.messageType === 2) {
-              quotedMessageData.content = '[文件]';
-            } else if (quotedMessageData.messageType === 3) {
-              quotedMessageData.content = '[群名片]';
-            } else if (quotedMessageData.messageType === 4) {
-              quotedMessageData.content = '[引用消息]';
-            }
+            quotedMessageData = {
+              quoted: quotedData.quoted,
+              text: quotedData.text || '',
+              markdone: quotedData.markdone || false
+            };
             textContent = quotedData.text || '';
           }
         } catch (error) {
@@ -264,6 +264,97 @@ const groupCardData = computed(() => messageData.value.groupCardData);
 const quotedMessageData = computed(() => messageData.value.quotedMessageData);
 const imageWidth = computed(() => messageData.value.width);
 const imageHeight = computed(() => messageData.value.height);
+
+const quotedMessageParsedContent = computed(() => {
+  if (!quotedMessageData.value?.text || !quotedMessageData.value?.markdone) return '';
+  
+  let contentToParse = escapeHtml(quotedMessageData.value.text);
+  
+  if (chatStore.SERVER_URL) {
+    contentToParse = contentToParse.replace(/!\[([^\]]+)\]\(([^)]+)\)/g, (match, alt, url) => {
+      const trimmedUrl = url.trim();
+      if (trimmedUrl && !trimmedUrl.startsWith('http') && !trimmedUrl.startsWith('//')) {
+        return `![${alt}](${chatStore.SERVER_URL}${trimmedUrl})`;
+      }
+      return match;
+    });
+
+    contentToParse = contentToParse.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+      const trimmedUrl = url.trim();
+      if (trimmedUrl && !trimmedUrl.startsWith('http') && !trimmedUrl.startsWith('//')) {
+        if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})?(:\d+)?/.test(trimmedUrl)) {
+          return `[${text}](https://${trimmedUrl})`;
+        } else {
+          return `[${text}](${chatStore.SERVER_URL}${trimmedUrl})`;
+        }
+      }
+      return match;
+    });
+
+    const urlRegex = /(?<!\]\()(?<!\[)(?<!https?:\/\/[^?&"'<>\s]+\?.*)(?<!https?:\/\/[^?&"'<>\s]+&.*)(https?:\/\/(?:[^\s"'<>]+))/g;
+    contentToParse = contentToParse.replace(urlRegex, '[$1]($1)');
+  }
+
+  const renderer = new marked.Renderer();
+  renderer.code = function({ text, lang }) {
+    const language = lang || 'text';
+    const code = text;
+    const encodedCode = encodeURIComponent(code);
+    
+    const lines = code.split('\n');
+    let lineNumbers = '';
+    let codeLines = '';
+    lines.forEach((line, index) => {
+      lineNumbers += `<pre><span class="line">${index + 1}</span></pre>`;
+      codeLines += `<pre><code>${line}</code></pre>`;
+    });
+    
+    return `<figure class="highlight">
+      <div class="highlight-tools">
+        <div class="macStyle">
+          <div class="mac-close"></div>
+          <div class="mac-minimize"></div>
+          <div class="mac-maximize"></div>
+        </div>
+        <div class="code-lang">${language}</div>
+        <div class="copy-notice"></div>
+        <i class="fas fa-paste copy-button" data-code="${encodedCode}"></i>
+        <i class="fa-solid fa-up-right-and-down-left-from-center fullpage-button"></i>
+      </div>
+      <table>
+        <tbody>
+          <tr>
+            <td class="gutter">
+              ${lineNumbers}
+            </td>
+            <td class="code">
+              ${codeLines}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </figure>`;
+  };
+
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+    renderer: renderer
+  });
+
+  let parsed = marked.parse(contentToParse).trim();
+  parsed = parsed.replace(/<svg[^>]*>.*?<\/svg>/gi, '[SVG图片]');
+  parsed = parsed.replace(/<(?!\/?(a|img|div|span|br|p|h[1-6]|strong|em|code|pre|ul|ol|li|blockquote|figure|table|tbody|tr|td|i)\b)[^>]*>/gi, '');
+
+  parsed = parsed.replace(/<img/g, '<img class="message-image" style="max-width: 100%; height: auto; cursor: pointer;"');
+  parsed = parsed.replace(/<a/g, '<a class="message-link" target="_blank" rel="noopener noreferrer" style="color: #3498db; text-decoration: none;"');
+
+  return DOMPurify.sanitize(parsed);
+});
+
+
+
+
 
 const fullImageUrl = computed(() => {
   if (!imageUrl.value) return '';
@@ -304,9 +395,16 @@ const fileIcon = computed(() => {
 });
 
 const groupCardAvatarUrl = computed(() => {
+  // 如果头像加载失败，返回空字符串
+  if (groupCardAvatarLoadFailed.value) return '';
+  
   if (!groupCardData.value || !groupCardData.value.avatar_url) return '';
   return `${chatStore.SERVER_URL}${groupCardData.value.avatar_url}`;
 });
+
+function handleGroupCardAvatarError() {
+  groupCardAvatarLoadFailed.value = true;
+}
 
 const groupCardGroupName = computed(() => {
   if (!groupCardData.value || !groupCardData.value.group_name) return '';
@@ -336,6 +434,20 @@ function escapeHtml(text) {
 
 const parsedContent = computed(() => {
   if (!textContent.value) return '';
+
+  // 只有 messageType === 5 时才进行 Markdown 渲染
+  const isMarkdown = props.message.messageType === 5;
+  
+  if (!isMarkdown) {
+    // 非 Markdown 消息，用 <p> 标签包裹显示纯文本，并自动识别链接
+    let escapedContent = escapeHtml(textContent.value);
+    // 使用正则表达式识别 URL 并转换为可点击链接
+    const urlRegex = /(https?:\/\/[^\s<>"']+)/g;
+    escapedContent = escapedContent.replace(urlRegex, (url) => {
+      return `<a href="${url}" class="message-link" target="_blank" rel="noopener noreferrer" style="color: #3498db; text-decoration: none;">${url}</a>`;
+    });
+    return `<p>${escapedContent}</p>`;
+  }
 
   let contentToParse = textContent.value;
   contentToParse = escapeHtml(contentToParse);
@@ -473,201 +585,7 @@ function handleGroupCardClick(event) {
   }
 }
 
-function handleWithdrawClick(event) {
-  event.stopPropagation();
-  const messageId = props.message.id;
-  if (messageId) {
-    window.chatSocket.emit('withdraw-private-message', {
-      messageId: messageId,
-      sessionToken: chatStore.currentSessionToken,
-      userId: messageUser.value.id
-    });
-  }
-}
 
-async function handleQuotedMessageClick() {
-  const quotedId = quotedMessageData.value?.id;
-  if (!quotedId) return;
-  
-  const currentActiveChat = window.currentActiveChat || 'main';
-  let chatType = 'public';
-  let groupId = null;
-  let privateUserId = null;
-  
-  if (currentActiveChat === 'main') {
-    chatType = 'public';
-  } else if (currentActiveChat.startsWith('group_')) {
-    chatType = 'group';
-    groupId = currentActiveChat.replace('group_', '');
-  } else {
-    chatType = 'private';
-    privateUserId = currentActiveChat;
-  }
-  
-  const checkMessageExists = () => {
-    let checkMessages = [];
-    let chatContainerId = '';
-    if (chatType === 'public') {
-      checkMessages = chatStore.publicMessages;
-      chatContainerId = 'messageContainer';
-    } else if (chatType === 'group' && groupId) {
-      checkMessages = chatStore.groupMessages[groupId] || [];
-      chatContainerId = 'groupMessageContainer';
-    } else if (chatType === 'private' && privateUserId) {
-      const storeKey = privateUserId.startsWith('private_') ? privateUserId.replace('private_', '') : privateUserId;
-      checkMessages = chatStore.privateMessages[storeKey] || [];
-      chatContainerId = 'privateMessageContainer';
-    }
-    return { messages: checkMessages, containerId: chatContainerId };
-  };
-  
-  const result = checkMessageExists();
-  const targetMsg = result.messages.find(m => m.id == quotedId);
-  if (targetMsg) {
-    scrollToMessage(quotedId);
-    return;
-  }
-  
-  if (!window.chatSocket) return;
-  
-  let found = false;
-  let attempts = 0;
-  const maxAttempts = 10;
-  
-  const loadMoreAndSearch = async () => {
-    if (attempts >= maxAttempts) {
-      toast.error('无法定位该引用消息');
-      return;
-    }
-    
-    attempts++;
-    
-    await new Promise((resolve) => {
-      const chatContainer = document.getElementById(result.containerId);
-      let prevScrollHeight = 0;
-      let prevScrollTop = 0;
-      
-      if (chatContainer) {
-        prevScrollHeight = chatContainer.scrollHeight;
-        prevScrollTop = chatContainer.scrollTop;
-      }
-      
-      window.isLoadingMoreMessages = true;
-      
-      const eventName = chatType === 'private' ? 'private-chat-history' : 
-                      chatType === 'group' ? 'group-chat-history' : 'chat-history';
-      
-      const eventHandler = () => {
-        setTimeout(() => {
-          const checkResult = checkMessageExists();
-          const msg = checkResult.messages.find(m => m.id == quotedId);
-          if (msg) {
-            found = true;
-            if (chatContainer) {
-              const newScrollHeight = chatContainer.scrollHeight;
-              const heightDifference = newScrollHeight - prevScrollHeight;
-              chatContainer.scrollTop = prevScrollTop + heightDifference;
-            }
-            scrollToMessage(quotedId);
-          }
-          resolve();
-        }, 200);
-      };
-      
-      window.chatSocket.once(eventName, eventHandler);
-      
-      if (chatType === 'public') {
-        const publicMsgs = chatStore.publicMessages;
-        if (publicMsgs.length > 0) {
-          const oldestPublicMsg = publicMsgs[0];
-          window.getChatHistory({
-            loadMore: true,
-            olderThan: oldestPublicMsg.id,
-            limit: 100
-          });
-        } else {
-          window.getChatHistory({
-            loadMore: false,
-            limit: 100
-          });
-        }
-      } else if (chatType === 'group' && groupId) {
-        const groupMsgs = chatStore.groupMessages[groupId] || [];
-        if (groupMsgs.length > 0) {
-          const oldestGroupMsg = groupMsgs[0];
-          window.getGroupChatHistory(groupId, {
-            loadMore: true,
-            olderThan: oldestGroupMsg.id,
-            limit: 100
-          });
-        } else {
-          window.getGroupChatHistory(groupId, {
-            loadMore: false,
-            limit: 100
-          });
-        }
-      } else if (chatType === 'private' && privateUserId) {
-        const storeKey = privateUserId.startsWith('private_') ? privateUserId.replace('private_', '') : privateUserId;
-        const privateMsgs = chatStore.privateMessages[storeKey] || [];
-        const friendId = storeKey;
-        if (privateMsgs.length > 0) {
-          const oldestPrivateMsg = privateMsgs[0];
-          window.chatSocket.emit('get-private-chat-history', {
-            userId: chatStore.currentUser?.id,
-            sessionToken: chatStore.currentSessionToken,
-            friendId: friendId,
-            loadMore: true,
-            olderThan: oldestPrivateMsg.id,
-            limit: 100
-          });
-        } else {
-          window.chatSocket.emit('get-private-chat-history', {
-            userId: chatStore.currentUser?.id,
-            sessionToken: chatStore.currentSessionToken,
-            friendId: friendId,
-            loadMore: false,
-            limit: 100
-          });
-        }
-      }
-      
-      setTimeout(() => {
-        resolve();
-      }, 3000);
-    });
-    
-    if (found) {
-      return;
-    }
-    
-    if (attempts < maxAttempts) {
-      await loadMoreAndSearch();
-    } else if (!found) {
-      toast.error('无法定位该引用消息');
-    }
-  };
-  
-  await loadMoreAndSearch();
-}
-
-function scrollToMessage(messageId) {
-  const messageEl = document.querySelector(`[data-id="${messageId}"]`);
-  if (messageEl) {
-    messageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setTimeout(() => {
-      const isOwn = messageEl.classList.contains('own-message');
-      const originalBg = isOwn ? '#E8F5E8' : '#FFFFFF';
-      messageEl.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
-      messageEl.classList.add('active');
-      setTimeout(() => {
-        messageEl.style.backgroundColor = originalBg;
-        setTimeout(() => {
-          messageEl.classList.remove('active');
-        }, 500);
-      }, 3000);
-    }, 500);
-  }
-}
 
 function handleContextMenu(event) {
   event.preventDefault();
@@ -679,14 +597,16 @@ function handleContextMenu(event) {
   const messageType = props.message.messageType || 0;
   
   let messageContentValue = '';
-  if (messageType === 1) {
-    messageContentValue = '[图片]';
-  } else if (messageType === 2) {
-    messageContentValue = '[文件]';
-  } else if (messageType === 3) {
-    messageContentValue = '[群名片]';
+  if (messageType === 1 || messageType === 2 || messageType === 3) {
+    // 图片、文件、群名片消息：保留原始 JSON 内容
+    messageContentValue = props.message.content || '';
   } else if (messageType === 4) {
-    messageContentValue = '[引用消息]';
+    // 引用消息：获取实际被引用的内容
+    if (quotedMessageData.value && quotedMessageData.value.content) {
+      messageContentValue = quotedMessageData.value.content;
+    } else {
+      messageContentValue = '[引用消息]';
+    }
   } else {
     const originalContent = props.message.content || '';
     if (originalContent) {
@@ -722,13 +642,20 @@ function handleContextMenu(event) {
   const userId = chatStore.currentPrivateChatUserId;
   
   quoteMenuItem.addEventListener('click', () => {
-    chatStore.setQuotedMessage({
+    const quotedMsgData = {
       id: messageId,
       userId: userId,
       nickname: senderNicknameValue,
       content: messageContentValue,
       messageType: messageType
-    });
+    };
+    
+    // 如果当前消息是引用消息，传递嵌套的引用数据
+    if (messageType === 4 && quotedMessageData.value) {
+      quotedMsgData.quotedMessage = quotedMessageData.value;
+    }
+    
+    chatStore.setQuotedMessage(quotedMsgData);
     hideContextMenu();
   });
   
@@ -789,5 +716,18 @@ function hideContextMenu() {
   max-width: 100%;
   height: auto;
   cursor: pointer;
+}
+
+.read-status {
+  margin-left: 5px;
+  font-size: 10px;
+}
+
+.read-status.unread {
+  color: #e74c3c;
+}
+
+.read-status.read {
+  color: #999;
 }
 </style>

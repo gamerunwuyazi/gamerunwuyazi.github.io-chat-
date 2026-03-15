@@ -1,4 +1,4 @@
-import { SERVER_URL, toast } from './config.js';
+import { SERVER_URL } from './config.js';
 import { 
   getStore, 
   getCurrentUser, 
@@ -19,14 +19,6 @@ function showSuccess(message) {
   }
 }
 
-// ============================================
-// 文件上传功能模块
-// 包含图片/文件上传、滚动加载、图片点击事件、事件委托等
-// ============================================
-
-/**
- * 使用 XMLHttpRequest 上传文件（支持进度显示）
- */
 function uploadWithProgress(url, formData, store, onSuccess, onError) {
   const xhr = new XMLHttpRequest();
   
@@ -81,10 +73,6 @@ function uploadWithProgress(url, formData, store, onSuccess, onError) {
   xhr.send(formData);
 }
 
-/**
- * 上传图片到当前聊天（公共或群组）
- * @param {File} file - 要上传的图片文件
- */
 function uploadImage(file) {
   syncCurrentActiveChat();
   
@@ -95,9 +83,10 @@ function uploadImage(file) {
     return;
   }
   
-  if (!currentUser || !currentSessionToken) {
-    currentUser = getCurrentUser();
-    currentSessionToken = getCurrentSessionToken();
+  const user = currentUser || getCurrentUser();
+  const token = currentSessionToken || getCurrentSessionToken();
+  if (!user || !token) {
+    return;
   }
   const store = getStore();
   
@@ -110,7 +99,7 @@ function uploadImage(file) {
 
       const formData = new FormData();
       formData.append('image', file);
-      formData.append('userId', currentUser.id);
+      formData.append('userId', user.id);
       formData.append('width', width);
       formData.append('height', height);
 
@@ -133,14 +122,14 @@ function uploadImage(file) {
         formData,
         store,
         () => {},
-        (error) => showError(error)
+        () => showError('上传失败')
       );
     };
 
     img.onerror = function() {
       const formData = new FormData();
       formData.append('image', file);
-      formData.append('userId', currentUser.id);
+      formData.append('userId', user.id);
 
       const isGroupChat = chat !== 'main';
       if (isGroupChat) {
@@ -161,7 +150,7 @@ function uploadImage(file) {
         formData,
         store,
         () => {},
-        (error) => showError(error)
+        () => showError('上传失败')
       );
     };
 
@@ -171,10 +160,6 @@ function uploadImage(file) {
   reader.readAsDataURL(file);
 }
 
-/**
- * 上传文件到当前聊天（公共或群组）
- * @param {File} file - 要上传的文件
- */
 function uploadFile(file) {
   syncCurrentActiveChat();
   
@@ -185,15 +170,16 @@ function uploadFile(file) {
     return;
   }
   
-  if (!currentUser || !currentSessionToken) {
-    currentUser = getCurrentUser();
-    currentSessionToken = getCurrentSessionToken();
+  const user = currentUser || getCurrentUser();
+  const token = currentSessionToken || getCurrentSessionToken();
+  if (!user || !token) {
+    return;
   }
   const store = getStore();
   
   const formData = new FormData();
   formData.append('image', file);
-  formData.append('userId', currentUser.id);
+  formData.append('userId', user.id);
 
   const isGroupChat = chat !== 'main';
   if (isGroupChat) {
@@ -214,21 +200,15 @@ function uploadFile(file) {
     formData,
     store,
     () => {},
-    (error) => showError(error)
+    () => showError('上传失败')
   );
 }
 
-/**
- * 上传私信图片
- * @param {File} file - 图片文件
- */
 function uploadPrivateImage(file) {
-  if (!currentUser || !currentSessionToken) {
-    currentUser = getCurrentUser();
-    currentSessionToken = getCurrentSessionToken();
-  }
+  const user = currentUser || getCurrentUser();
+  const token = currentSessionToken || getCurrentSessionToken();
   
-  if (!currentUser || !currentSessionToken) return;
+  if (!user || !token) return;
 
   const privateChatUserId = window.currentPrivateChatUserId;
   if (!privateChatUserId) return;
@@ -243,7 +223,7 @@ function uploadPrivateImage(file) {
 
   const formData = new FormData();
   formData.append('image', file);
-  formData.append('userId', currentUser.id);
+  formData.append('userId', user.id);
   formData.append('privateChat', true);
 
   if (store) {
@@ -257,10 +237,10 @@ function uploadPrivateImage(file) {
     store,
     (data) => {
       const messageData = {
-        userId: currentUser.id,
+        userId: user.id,
         content: JSON.stringify({ url: data.url, name: file.name }),
         receiverId: privateChatUserId,
-        sessionToken: currentSessionToken,
+        sessionToken: token,
         messageType: 1
       };
 
@@ -268,21 +248,15 @@ function uploadPrivateImage(file) {
         window.chatSocket.emit('private-message', messageData);
       }
     },
-    (error) => showError(error)
+    () => showError('上传失败')
   );
 }
 
-/**
- * 上传私信文件
- * @param {File} file - 文件
- */
 function uploadPrivateFile(file) {
-  if (!currentUser || !currentSessionToken) {
-    currentUser = getCurrentUser();
-    currentSessionToken = getCurrentSessionToken();
-  }
+  const user = currentUser || getCurrentUser();
+  const token = currentSessionToken || getCurrentSessionToken();
   
-  if (!currentUser || !currentSessionToken) return;
+  if (!user || !token) return;
 
   const privateChatUserId = window.currentPrivateChatUserId;
   if (!privateChatUserId) return;
@@ -297,7 +271,7 @@ function uploadPrivateFile(file) {
 
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('userId', currentUser.id);
+  formData.append('userId', user.id);
   formData.append('privateChat', true);
 
   if (store) {
@@ -311,10 +285,10 @@ function uploadPrivateFile(file) {
     store,
     (data) => {
       const messageData = {
-        userId: currentUser.id,
+        userId: user.id,
         content: JSON.stringify({ url: data.url, name: file.name, size: file.size }),
         receiverId: privateChatUserId,
-        sessionToken: currentSessionToken,
+        sessionToken: token,
         messageType: 2
       };
 
@@ -322,31 +296,25 @@ function uploadPrivateFile(file) {
         window.chatSocket.emit('private-message', messageData);
       }
     },
-    (error) => showError(error)
+    () => showError('上传失败')
   );
 }
 
-/**
- * 上传用户头像
- * @param {File} file - 头像文件
- */
 function uploadUserAvatar(file) {
-  if (!currentUser || !currentSessionToken) {
-    currentUser = getCurrentUser();
-    currentSessionToken = getCurrentSessionToken();
-  }
+  const user = currentUser || getCurrentUser();
+  const token = currentSessionToken || getCurrentSessionToken();
   
-  if (!currentUser || !currentSessionToken) return;
+  if (!user || !token) return;
   
   const formData = new FormData();
   formData.append('avatar', file);
-  formData.append('userId', currentUser.id);
+  formData.append('userId', user.id);
 
   fetch(`${SERVER_URL}/upload-avatar`, {
     method: 'POST',
     headers: {
-      'session-token': currentSessionToken,
-      'user-id': currentUser.id
+      'session-token': token,
+      'user-id': user.id
     },
     body: formData
   })
@@ -355,26 +323,22 @@ function uploadUserAvatar(file) {
       if (data.status === 'success') {
         showSuccess('头像上传成功');
 
-        // 更新本地用户信息
         if (data.avatarUrl) {
-          currentUser.avatarUrl = data.avatarUrl;
-          localStorage.setItem('currentUser', JSON.stringify(currentUser));
+          const updatedUser = { ...user, avatarUrl: data.avatarUrl };
+          localStorage.setItem('currentUser', JSON.stringify(updatedUser));
 
-          // 更新UI中的头像
           const currentUserAvatar = document.getElementById('currentUserAvatar');
           if (currentUserAvatar) {
             currentUserAvatar.src = `${SERVER_URL}${data.avatarUrl}`;
             currentUserAvatar.style.display = 'block';
           }
 
-          // 更新头像预览
           const currentAvatarImg = document.getElementById('currentAvatarImg');
           if (currentAvatarImg) {
             currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
           }
         }
 
-        // 重置上传按钮状态
         const uploadAvatarButton = document.getElementById('uploadAvatarButton');
         if (uploadAvatarButton) {
           uploadAvatarButton.disabled = true;
@@ -383,14 +347,11 @@ function uploadUserAvatar(file) {
         showError(data.message || '头像上传失败');
       }
     })
-    .catch(error => {
+    .catch(() => {
       showError('头像上传失败，请重试');
     });
 }
 
-/**
- * 初始化上传功能（绑定文件选择输入框事件）
- */
 function initializeUpload() {
   const imageInput = document.getElementById('imageInput');
   if (imageInput) {
@@ -435,16 +396,10 @@ function initializeUpload() {
   }
 }
 
-/**
- * 初始化滚动加载历史消息
- * @param {boolean} force - 是否强制重新绑定滚动监听
- */
 function initializeScrollLoading(force = false) {
   const messageContainer = document.getElementById('messageContainer');
   const groupMessageContainer = document.getElementById('groupMessageContainer');
   const privateMessageContainer = document.getElementById('privateMessageContainer');
-
-  // console.log('[ScrollLoading] initializeScrollLoading被调用 - force:', force);
 
   if (window.isLoadingMoreMessages === undefined) {
     window.isLoadingMoreMessages = false;
@@ -452,15 +407,24 @@ function initializeScrollLoading(force = false) {
   if (window.loadingIndicatorTimeout === undefined) {
     window.loadingIndicatorTimeout = null;
   }
+  if (window.scrollingInitialized === undefined) {
+    window.scrollingInitialized = {};
+  }
+  if (window.privateChatAllLoaded === undefined) {
+    window.privateChatAllLoaded = {};
+  }
 
   function handleScroll(e, container, isGroup, isPrivate = false) {
-    const chatType = isPrivate ? '私信' : (isGroup ? '群组' : '主聊天室');
-    
-    // console.log(`[ScrollLoading] [${chatType}] 滚动事件触发 - scrollTop: ${container.scrollTop}`);
+    const containerId = isPrivate ? 'private' : (isGroup ? 'group' : 'public');
     
     if (container.scrollTop < 50) {
-      if (!window.isLoadingMoreMessages) {
-        // console.log(`[ScrollLoading] [${chatType}] 检测到滚动到顶部附近，开始加载更多历史消息`);
+      if (isPrivate && window.currentPrivateChatUserId) {
+        if (window.privateChatAllLoaded[window.currentPrivateChatUserId]) {
+          return;
+        }
+      }
+      
+      if (!window.isLoadingMoreMessages && window.scrollingInitialized[containerId]) {
         window.isLoadingMoreMessages = true;
 
         const prevScrollHeight = container.scrollHeight;
@@ -490,41 +454,32 @@ function initializeScrollLoading(force = false) {
         }
 
         if (messages.length > 0) {
-          // 消息已反转，第一条消息就是最早的消息
           olderThan = messages[0].id;
         }
 
-        if (!currentUser || !currentSessionToken) {
-          currentUser = getCurrentUser();
-          currentSessionToken = getCurrentSessionToken();
-        }
+        const user = currentUser || getCurrentUser();
+        const token = currentSessionToken || getCurrentSessionToken();
 
-        if (currentUser && currentSessionToken) {
+        if (user && token && window.loadMessages) {
           if (isGroup && window.currentGroupId) {
-            window.chatSocket.emit('get-group-chat-history', {
+            window.loadMessages('group', {
               groupId: window.currentGroupId,
-              sessionToken: currentSessionToken,
-              userId: currentUser.id,
               limit: 20,
-              loadMore: true,
-              olderThan: olderThan
+              olderThan: olderThan,
+              loadMore: true
             });
           } else if (isPrivate && window.currentPrivateChatUserId) {
-            window.chatSocket.emit('get-private-chat-history', {
-              userId: currentUser.id,
+            window.loadMessages('private', {
               friendId: window.currentPrivateChatUserId,
-              sessionToken: currentSessionToken,
               limit: 20,
-              loadMore: true,
-              olderThan: olderThan
+              olderThan: olderThan,
+              loadMore: true
             });
           } else {
-            window.chatSocket.emit('get-chat-history', {
-              userId: currentUser.id,
-              sessionToken: currentSessionToken,
+            window.loadMessages('global', {
               limit: 20,
-              loadMore: true,
-              olderThan: olderThan
+              olderThan: olderThan,
+              loadMore: true
             });
           }
 
@@ -573,6 +528,14 @@ function initializeScrollLoading(force = false) {
   addScrollListener(groupMessageContainer, true, false);
   addScrollListener(privateMessageContainer, false, true);
 
+  setTimeout(() => {
+    window.scrollingInitialized = {
+      public: true,
+      group: true,
+      private: true
+    };
+  }, 500);
+
   window.resetLoadingState = function() {
     window.isLoadingMoreMessages = false;
     if (window.loadingIndicatorTimeout) {
@@ -585,9 +548,6 @@ function initializeScrollLoading(force = false) {
   };
 }
 
-/**
- * 初始化图片点击事件（预览图片）
- */
 function initializeImageClickEvents() {
   const messageImages = document.querySelectorAll('.message-image');
   messageImages.forEach(img => {
@@ -611,9 +571,6 @@ function initializeImageClickEvents() {
   });
 }
 
-/**
- * 初始化事件委托（头像点击、图片预览）
- */
 function initializeEventDelegation() {
   const messageContainer = document.getElementById('messageContainer');
   const groupMessageContainer = document.getElementById('groupMessageContainer');

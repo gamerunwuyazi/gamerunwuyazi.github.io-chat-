@@ -25,7 +25,7 @@ function unescapeHtml(html) {
   return text.value;
 }
 
-// 工具函数：获取用户头像URL
+// 工具函数：获取用户头像 URL（带版本号参数）
 function getAvatarUrl(user) {
   let avatarUrl = '';
   if (user.avatarUrl && typeof user.avatarUrl === 'string') {
@@ -35,6 +35,12 @@ function getAvatarUrl(user) {
   } else if (user.avatar && typeof user.avatar === 'string') {
     avatarUrl = user.avatar.trim();
   }
+  
+  // 如果有版本号，添加?v=参数
+  if (avatarUrl && user.avatarVersion) {
+    return `${avatarUrl}?v=${user.avatarVersion}`;
+  }
+  
   return avatarUrl;
 }
 
@@ -88,6 +94,14 @@ function handleUserAvatarClick(event, user) {
   }
 }
 
+// 处理头像加载失败
+function handleAvatarError(event, friend) {
+  // 将头像 URL 设为空字符串，显示默认头像
+  friend.avatarUrl = '';
+  friend.avatar_url = '';
+  friend.avatar = '';
+}
+
 // 处理搜索用户按钮点击
 function handleSearchUserClick() {
   if (typeof window.openModal === 'function') {
@@ -115,7 +129,7 @@ function handleSearchUserClick() {
                     :data-user-nickname="unescapeHtml(friend.nickname)"
                     @click="handleFriendClick(friend)">
                     <span v-if="getAvatarUrl(friend) && !isSvgAvatar(getAvatarUrl(friend))" class="user-avatar" @click.stop="handleUserAvatarClick($event, friend)">
-                        <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(friend)}`" :alt="unescapeHtml(friend.nickname)">
+                        <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(friend)}`" :alt="unescapeHtml(friend.nickname)" @error="handleAvatarError($event, friend)">
                     </span>
                     <span v-else class="user-avatar" @click.stop="handleUserAvatarClick($event, friend)">
                         {{ unescapeHtml(friend.nickname) ? unescapeHtml(friend.nickname).charAt(0).toUpperCase() : 'U' }}

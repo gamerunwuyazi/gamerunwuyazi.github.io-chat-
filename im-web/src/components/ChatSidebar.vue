@@ -4,15 +4,20 @@ import { useRouter, useRoute } from 'vue-router';
 import { useChatStore } from '@/stores/chatStore';
 import { logout } from '@/utils/chat/ui';
 import { unescapeHtml } from '@/utils/chat';
+import modal from '@/utils/modal';
+
+const chatStore = useChatStore();
+const SERVER_URL = chatStore.SERVER_URL || process.env.VUE_APP_SERVER_URL || '';
 
 const router = useRouter();
 const route = useRoute();
-const chatStore = useChatStore();
 
 const avatarVersion = ref(Date.now())
+const avatarLoadFailed = ref(false);
 
 function handleUserAvatarUpdate() {
   avatarVersion.value = Date.now()
+  avatarLoadFailed.value = false;
 }
 
 onMounted(() => {
@@ -97,12 +102,16 @@ const currentUser = computed(() => {
 });
 
 const userAvatarUrl = computed(() => {
+  // 如果头像加载失败，返回空字符串
+  if (avatarLoadFailed.value) return '';
+  
   const user = currentUser.value;
   if (!user) return '';
   
   let url = user.avatar || user.avatarUrl || '';
   if (url && !/\.svg$/i.test(url)) {
-    return `https://back.hs.airoe.cn${url}?v=${avatarVersion.value}`;
+    const baseUrl = url.startsWith('http') ? '' : SERVER_URL;
+    return `${baseUrl}${url}?v=${avatarVersion.value}`;
   }
   return '';
 });
@@ -115,12 +124,18 @@ const userInitials = computed(() => {
 });
 
 const showAvatarImage = computed(() => {
-  return userAvatarUrl.value !== '';
+  return userAvatarUrl.value !== '' && !avatarLoadFailed.value;
 });
 
-function handleMenuClick(section) {
+function handleAvatarError() {
+  // 设置头像加载失败标志，显示默认头像
+  avatarLoadFailed.value = true;
+}
+
+async function handleMenuClick(section) {
   if (section === 'logout') {
-    if (confirm('确定要退出登录吗？')) {
+    const confirmed = await modal.confirm('确定要退出登录吗？', '退出登录');
+    if (confirmed) {
       logout();
     }
     return;
@@ -148,7 +163,7 @@ function handleMenuClick(section) {
     <div class="sidebar-header">
         <div id="userProfile" class="user-profile">
             <div id="userAvatar" class="user-avatar">
-                <img v-if="showAvatarImage" :src="userAvatarUrl" alt="用户头像" class="user-avatar-img" loading="lazy" width="60" height="60" style="aspect-ratio: 1/1; object-fit: cover;">
+                <img v-if="showAvatarImage" :src="userAvatarUrl" alt="用户头像" class="user-avatar-img" loading="lazy" width="60" height="60" style="aspect-ratio: 1/1; object-fit: cover;" @error="handleAvatarError">
                 <span v-else id="userInitials" class="user-initials">{{ userInitials }}</span>
             </div>
         </div>

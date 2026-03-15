@@ -106,7 +106,7 @@
           <div class="turnstile-container">
             <VueTurnstile 
               ref="turnstileRef"
-              site-key="0x4AAAAAACmJCFDcKhJ4p3Ua"
+              :site-key="TURNSTILE_SITE_KEY"
               v-model="turnstileToken"
               theme="light"
             />
@@ -130,6 +130,9 @@ import { useRouter } from 'vue-router';
 import { debounce } from 'lodash';
 import { login } from '@/utils/chat';
 import VueTurnstile from 'vue-turnstile';
+
+const SERVER_URL = process.env.VUE_APP_SERVER_URL || '';
+const TURNSTILE_SITE_KEY = process.env.VUE_APP_TURNSTILE_SITE_KEY || '';
 
 const router = useRouter();
 
@@ -204,7 +207,7 @@ async function validateUsername() {
   validation.usernameClass = '';
 
   try {
-    const response = await fetch(`https://back.hs.airoe.cn/check-username?username=${encodeURIComponent(username)}`);
+    const response = await fetch(`${SERVER_URL}/check-username?username=${encodeURIComponent(username)}`);
     const data = await response.json();
 
     if (data.status === 'success') {
@@ -338,7 +341,7 @@ async function handleRegister() {
   isSubmitting.value = true;
 
   try {
-    const registerResponse = await fetch('https://back.hs.airoe.cn/register', {
+    const registerResponse = await fetch(`${SERVER_URL}/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -374,7 +377,7 @@ async function handleRegister() {
 
     showMessage('注册成功，正在自动登录...', 'success');
     
-    const loginResponse = await fetch('https://back.hs.airoe.cn/login', {
+    const loginResponse = await fetch(`${SERVER_URL}/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -404,6 +407,7 @@ async function handleRegister() {
       const avatarUrl = loginData.avatarUrl || (loginData.user && loginData.user.avatarUrl) || (loginData.data && loginData.data.avatarUrl) || (loginData.user && loginData.user.avatar) || (loginData.data && loginData.data.avatar) || null;
       const gender = loginData.gender || (loginData.user && loginData.user.gender) || (loginData.data && loginData.data.gender) || 0;
       const sessionToken = loginData.sessionToken || loginData.token || loginData.session_token;
+      const refreshToken = loginData.refreshToken || loginData.refresh_token;
 
       if (!userId || !sessionToken) {
         showMessage('注册成功，但登录响应数据不完整，请手动登录', 'success');
@@ -423,10 +427,14 @@ async function handleRegister() {
 
       localStorage.setItem('currentUser', JSON.stringify(userData));
       localStorage.setItem('currentSessionToken', sessionToken);
+      localStorage.setItem('userId', userData.id);
       localStorage.setItem('chatUserId', userData.id);
       localStorage.setItem('chatUserNickname', userData.nickname);
-      localStorage.setItem('chatSessionToken', sessionToken);
       localStorage.setItem('chatUserGender', String(userData.gender || 0));
+      
+      if (refreshToken) {
+        localStorage.setItem('refreshToken', refreshToken);
+      }
 
       showMessage('登录成功，正在跳转...', 'success');
       setTimeout(() => {

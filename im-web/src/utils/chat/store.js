@@ -1,5 +1,6 @@
 let internalCurrentUser = null;
 let internalCurrentSessionToken = localStorage.getItem('currentSessionToken') || null;
+let internalRefreshToken = localStorage.getItem('refreshToken') || null;
 
 export function initChatStore(store) {
   window.chatStore = store;
@@ -54,10 +55,41 @@ export function setCurrentSessionToken(token) {
   
   if (token) {
     localStorage.setItem('currentSessionToken', token);
-    localStorage.setItem('sessionToken', token);
   } else {
     localStorage.removeItem('currentSessionToken');
-    localStorage.removeItem('sessionToken');
+  }
+}
+
+export function getRefreshToken() {
+  const token = internalRefreshToken || localStorage.getItem('refreshToken');
+  
+  // 如果用户已登录但没有 refreshToken，跳转到登录页面
+  const currentUser = getCurrentUser();
+  const hasSession = localStorage.getItem('currentSessionToken');
+  
+  if (!token && (currentUser || hasSession)) {
+    console.warn('用户已登录但未找到 refreshToken，即将跳转到登录页面');
+    localStorage.removeItem('currentUser');
+    localStorage.removeItem('currentSessionToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('chatUserId');
+    localStorage.removeItem('chatUserNickname');
+    localStorage.removeItem('chatUserGender');
+    window.location.href = '/login';
+    return null;
+  }
+  
+  return token;
+}
+
+export function setRefreshToken(token) {
+  internalRefreshToken = token;
+  
+  if (token) {
+    localStorage.setItem('refreshToken', token);
+  } else {
+    localStorage.removeItem('refreshToken');
   }
 }
 

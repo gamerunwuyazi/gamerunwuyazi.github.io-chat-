@@ -57,10 +57,12 @@ export const useChatStore = defineStore('chat', () => {
   const showImagePreviewModal = ref(false);
   const showAvatarPreviewModal = ref(false);
   const showUserAvatarPopup = ref(false);
+  const showGroupCardPopup = ref(false);
   
   // 模态框数据
   const modalData = ref({
     groupInfo: null,
+    groupCardPopup: null,
     shareGroupCardTargets: [],
     userProfile: null,
     imagePreviewUrl: '',
@@ -163,6 +165,10 @@ export const useChatStore = defineStore('chat', () => {
         showUserAvatarPopup.value = true;
         if (data) modalData.value.userAvatarPopup = data;
         break;
+      case 'groupCardPopup':
+        showGroupCardPopup.value = true;
+        if (data) modalData.value.groupCardPopup = data;
+        break;
     }
     // 清除模态框可能存在的内联样式
     setTimeout(() => {
@@ -220,6 +226,9 @@ export const useChatStore = defineStore('chat', () => {
       case 'userAvatarPopup':
         showUserAvatarPopup.value = false;
         break;
+      case 'groupCardPopup':
+        showGroupCardPopup.value = false;
+        break;
       default:
         // 关闭所有模态框
         showGroupInfoModal.value = false;
@@ -231,6 +240,7 @@ export const useChatStore = defineStore('chat', () => {
         showImagePreviewModal.value = false;
         showAvatarPreviewModal.value = false;
         showUserAvatarPopup.value = false;
+        showGroupCardPopup.value = false;
     }
   }
 
@@ -347,6 +357,83 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function updateUserInfoInMessages(userId, updates) {
+    const userIdStr = String(userId);
+    
+    const updateMessage = (message) => {
+      if (String(message.sender_id) === userIdStr || String(message.userId) === userIdStr || String(message.user_id) === userIdStr) {
+        if (updates.nickname !== undefined) {
+          message.nickname = updates.nickname;
+          message.sender_nickname = updates.nickname;
+          message.user_nickname = updates.nickname;
+        }
+        if (updates.avatarUrl !== undefined) {
+          message.avatarUrl = updates.avatarUrl;
+          message.avatar_url = updates.avatarUrl;
+          message.sender_avatar = updates.avatarUrl;
+          message.user_avatar = updates.avatarUrl;
+        }
+      }
+      if (message.quoted_message && String(message.quoted_message.sender_id) === userIdStr) {
+        if (updates.nickname !== undefined) {
+          message.quoted_message.sender_nickname = updates.nickname;
+        }
+        if (updates.avatarUrl !== undefined) {
+          message.quoted_message.sender_avatar = updates.avatarUrl;
+        }
+      }
+    };
+    
+    publicMessages.value.forEach(updateMessage);
+    
+    Object.values(groupMessages.value).forEach(messages => {
+      messages.forEach(updateMessage);
+    });
+    
+    Object.values(privateMessages.value).forEach(messages => {
+      messages.forEach(updateMessage);
+    });
+  }
+
+  function updateGroupInfoInMessages(groupId, updates) {
+    const groupIdStr = String(groupId);
+    
+    const updateMessage = (message) => {
+      if (message.group_card && String(message.group_card.group_id) === groupIdStr) {
+        if (updates.avatarUrl !== undefined) {
+          message.group_card.avatar_url = updates.avatarUrl;
+          message.group_card.avatarUrl = updates.avatarUrl;
+        }
+        if (updates.groupName !== undefined) {
+          message.group_card.group_name = updates.groupName;
+        }
+        if (updates.groupDescription !== undefined) {
+          message.group_card.group_description = updates.groupDescription;
+        }
+      }
+      if (message.quoted_message && message.quoted_message.group_card && 
+          String(message.quoted_message.group_card.group_id) === groupIdStr) {
+        if (updates.avatarUrl !== undefined) {
+          message.quoted_message.group_card.avatar_url = updates.avatarUrl;
+          message.quoted_message.group_card.avatarUrl = updates.avatarUrl;
+        }
+        if (updates.groupName !== undefined) {
+          message.quoted_message.group_card.group_name = updates.groupName;
+        }
+      }
+    };
+    
+    publicMessages.value.forEach(updateMessage);
+    
+    Object.values(groupMessages.value).forEach(messages => {
+      messages.forEach(updateMessage);
+    });
+    
+    Object.values(privateMessages.value).forEach(messages => {
+      messages.forEach(updateMessage);
+    });
+  }
+
   function moveGroupToTop(groupId) {
     const index = groupsList.value.findIndex(g => String(g.id) === String(groupId));
     if (index > 0) {
@@ -446,6 +533,20 @@ export const useChatStore = defineStore('chat', () => {
       localStorage.setItem(key, JSON.stringify(data));
     } catch (err) {
       console.error('删除好友最后消息时间失败:', err);
+    }
+  }
+
+  // 清除群组未读消息
+  function clearGroupUnread(groupId) {
+    if (unreadMessages.value.groups && unreadMessages.value.groups[groupId]) {
+      delete unreadMessages.value.groups[groupId];
+    }
+  }
+
+  // 清除私信未读消息
+  function clearPrivateUnread(userId) {
+    if (unreadMessages.value.private && unreadMessages.value.private[userId]) {
+      delete unreadMessages.value.private[userId];
     }
   }
 
@@ -577,6 +678,7 @@ export const useChatStore = defineStore('chat', () => {
     showImagePreviewModal,
     showAvatarPreviewModal,
     showUserAvatarPopup,
+    showGroupCardPopup,
     modalData,
     SERVER_URL,
     setCurrentUser,
@@ -601,6 +703,8 @@ export const useChatStore = defineStore('chat', () => {
     deletePublicMessage,
     deleteGroupMessage,
     deletePrivateMessage,
+    updateUserInfoInMessages,
+    updateGroupInfoInMessages,
     moveGroupToTop,
     moveFriendToTop,
     saveGroupLastMessageTime,
@@ -609,6 +713,8 @@ export const useChatStore = defineStore('chat', () => {
     getFriendLastMessageTime,
     deleteGroupLastMessageTime,
     deleteFriendLastMessageTime,
+    clearGroupUnread,
+    clearPrivateUnread,
     saveGroupLastMessageTimes,
     saveFriendLastMessageTimes,
     sortFriendsByLastMessageTime,

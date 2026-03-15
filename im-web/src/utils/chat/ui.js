@@ -6,7 +6,22 @@ import {
 } from './store.js';
 import { unescapeHtml } from './message.js';
 import { websocketModule } from './index.js';
-import { loadFriendsList } from './private.js';
+import { loadFriendsList, showUserAvatarPopup } from './private.js';
+import { 
+  showSendGroupCardModal, 
+  sendGroupCard, 
+  loadGroupList, 
+  updateGroupList, 
+  loadGroupMessages, 
+  isGroupMuted, 
+  toggleGroupMute 
+} from './group.js';
+import { 
+  initializeWebSocket, 
+  enableMessageSending, 
+  isConnected 
+} from './websocket.js';
+import modal from '../modal.js';
 
 let originalTitle = document.title;
 let isPageVisible = !document.hidden;
@@ -21,6 +36,7 @@ function logout() {
   
   localStorage.removeItem('currentUser');
   localStorage.removeItem('currentSessionToken');
+  localStorage.removeItem('refreshToken');
   localStorage.removeItem('chatUserId');
   localStorage.removeItem('chatUserNickname');
   localStorage.removeItem('chatUserGender');
@@ -44,6 +60,60 @@ let selectedGroupIdForCard = null;
 // ============================================
 
 // 优先从其他文件提取，若不存在则从 chat.js 中提取
+
+async function refreshToken() {
+    // 直接从 localStorage 获取，避免调用 getRefreshToken 时自动跳转
+    const refreshTokenValue = localStorage.getItem('refreshToken');
+    const userId = localStorage.getItem('userId') || (currentUser && currentUser.id);
+    
+    if (!userId || !refreshTokenValue) {
+        console.log('没有 refresh token，无法刷新');
+        return false;
+    }
+    
+    try {
+        const response = await fetch(`${SERVER_URL}/refresh-token`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                userId: parseInt(userId),
+                refreshToken: refreshTokenValue
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            // 更新 localStorage 中的 token
+            localStorage.setItem('currentSessionToken', data.token);
+            localStorage.setItem('refreshToken', data.refreshToken);
+            
+            // 更新内存中的 token
+            currentSessionToken = data.token;
+            window.currentSessionToken = data.token;
+            
+            // 更新 store 中的 token
+            const store = getStore();
+            if (store && store.setCurrentSessionToken) {
+                store.setCurrentSessionToken(data.token);
+            }
+            
+            console.log('Token 刷新成功');
+            return true;
+        } else {
+            // 刷新失败，提示会话过期
+            console.error('Token 刷新失败:', data.message);
+            await modal.error('会话已过期，请重新登录', '登录过期');
+            logout();
+            return false;
+        }
+    } catch (err) {
+        console.error('刷新 Token 请求失败:', err);
+        return false;
+    }
+}
 
 // ---------- 图片预览 ----------
 // 来源: const io = require('socket.io-client).txt
@@ -425,12 +495,13 @@ function initSidebarToggle() {
   }
 
   menuItems.forEach(item => {
-    item.addEventListener('click', () => {
+    item.addEventListener('click', async () => {
       const targetSection = item.getAttribute('data-section');
 
       // 处理退出登录 - 先检查，避免移除active类
       if (targetSection === 'logout') {
-        if (confirm('确定要退出登录吗？')) {
+        const confirmed = await modal.confirm('确定要退出登录吗？', '退出登录');
+        if (confirmed) {
           logout();
         }
         return;
@@ -508,8 +579,6 @@ function initSidebarToggle() {
       if (targetSection === 'public-chat') {
         // 设置活动聊天状态为main，并清除未读计数（因为用户真正进入了主聊天室）
         setActiveChat('main', null, true);
-        // 只重新初始化头像点击事件，不需要重新加载用户列表
-        initAllFunctions();
         // 不再重置当前群组信息，以便切换回群组聊天时能恢复
       } else if (targetSection === 'group-chat') {
         // 切换到群组聊天页面时，刷新群组列表
@@ -561,11 +630,13 @@ function initSidebarToggle() {
 
                   // 加载群组聊天记录
                   // 从其他页面切换到群组页面时，不清空消息列表，只添加新消息
-                  loadGroupMessages(currentGroupId, false);
+                  const store = getStore();
+                  const hasMessages = store && store.groupMessages && store.groupMessages[currentGroupId] && store.groupMessages[currentGroupId].length > 0;
+                  loadGroupMessages(currentGroupId, !hasMessages);
                 }
               }
             })
-            .catch(error => {
+            .catch(() => {
               const groupList = document.getElementById('groupList');
               if (groupList) {
                 groupList.innerHTML = '<li>加载失败: 网络错误</li>';
@@ -637,23 +708,46 @@ function handlePageVisibilityChange() {
       return;
     }
 
+    // 检查当前路由，确保只在对应页面清除未读消息
+    const path = window.location.pathname;
+    const isMainChat = path === '/chat' || path === '/chat/';
+    const isGroupChat = path.startsWith('/chat/group');
+    const isPrivateChat = path.startsWith('/chat/private');
+
     // 清除当前活动会话的未读计数
-    if (chat === 'main') {
+    // 注意：只有当 currentActiveChat 和路由都匹配时才清除
+    if (chat === 'main' && isMainChat) {
       // 公共聊天室
       if (unreadMessages.global > 0) {
         unreadMessages.global = 0;
       }
-    } else if (chat.startsWith('group_')) {
+    } else if (chat.startsWith('group_') && isGroupChat) {
       // 群组聊天室
       const groupId = chat.replace('group_', '');
       if (unreadMessages.groups[groupId] > 0) {
         unreadMessages.groups[groupId] = 0;
+        // 只有有未读消息时才发送清除事件
+        if (window.chatSocket && currentUser && currentSessionToken) {
+          window.chatSocket.emit('clear-unread-messages', {
+            userId: currentUser.id,
+            sessionToken: currentSessionToken,
+            groupId: groupId
+          });
+        }
       }
-    } else if (chat.startsWith('private_')) {
+    } else if (chat.startsWith('private_') && isPrivateChat) {
       // 私信聊天室
       const userId = chat.replace('private_', '');
       if (unreadMessages.private[userId] > 0) {
         unreadMessages.private[userId] = 0;
+        // 只有有未读消息时才发送清除事件
+        if (window.chatSocket && currentUser && currentSessionToken) {
+          window.chatSocket.emit('clear-unread-messages', {
+            userId: currentUser.id,
+            sessionToken: currentSessionToken,
+            friendId: userId
+          });
+        }
       }
     }
     
@@ -673,23 +767,46 @@ function handleFocusChange() {
       return;
     }
 
+    // 检查当前路由，确保只在对应页面清除未读消息
+    const path = window.location.pathname;
+    const isMainChat = path === '/chat' || path === '/chat/';
+    const isGroupChat = path.startsWith('/chat/group');
+    const isPrivateChat = path.startsWith('/chat/private');
+
     // 清除当前活动会话的未读计数
-    if (chat === 'main') {
+    // 注意：只有当 currentActiveChat 和路由都匹配时才清除
+    if (chat === 'main' && isMainChat) {
       // 公共聊天室
       if (unreadMessages.global > 0) {
         unreadMessages.global = 0;
       }
-    } else if (chat.startsWith('group_')) {
+    } else if (chat.startsWith('group_') && isGroupChat) {
       // 群组聊天室
       const groupId = chat.replace('group_', '');
       if (unreadMessages.groups[groupId] > 0) {
         unreadMessages.groups[groupId] = 0;
+        // 只有有未读消息时才发送清除事件
+        if (window.chatSocket && currentUser && currentSessionToken) {
+          window.chatSocket.emit('clear-unread-messages', {
+            userId: currentUser.id,
+            sessionToken: currentSessionToken,
+            groupId: groupId
+          });
+        }
       }
-    } else if (chat.startsWith('private_')) {
+    } else if (chat.startsWith('private_') && isPrivateChat) {
       // 私信聊天室
       const userId = chat.replace('private_', '');
       if (unreadMessages.private[userId] > 0) {
         unreadMessages.private[userId] = 0;
+        // 只有有未读消息时才发送清除事件
+        if (window.chatSocket && currentUser && currentSessionToken) {
+          window.chatSocket.emit('clear-unread-messages', {
+            userId: currentUser.id,
+            sessionToken: currentSessionToken,
+            friendId: userId
+          });
+        }
       }
     }
     
@@ -967,7 +1084,7 @@ function addGroupAvatarClickEvents() {
 
 // ---------- 初始化聊天 ----------
 // 来源: chat.txt
-function initializeChat() {
+async function initializeChat() {
         // 首先尝试从 store 中获取用户信息
         const store = window.chatStore;
         if (store && store.currentUser && store.currentSessionToken) {
@@ -977,13 +1094,11 @@ function initializeChat() {
         }
         // 如果 store 中没有，再尝试从 localStorage 获取
         else if (!currentUser || !currentSessionToken) {
-            // 尝试从localStorage获取 - 支持多种格式
+            // 尝试从localStorage获取
             let userId = localStorage.getItem('chatUserId') || 
                         localStorage.getItem('userId') ||
                         localStorage.getItem('currentUserId');
-            let sessionToken = localStorage.getItem('chatSessionToken') ||
-                              localStorage.getItem('currentSessionToken') ||
-                              localStorage.getItem('sessionToken');
+            let sessionToken = localStorage.getItem('currentSessionToken');
             let nickname = localStorage.getItem('chatUserNickname') ||
                           localStorage.getItem('nickname') ||
                           localStorage.getItem('currentUserNickname');
@@ -1014,6 +1129,13 @@ function initializeChat() {
         }
         // 执行初始化逻辑
         try {
+          if (typeof refreshToken === 'function') {
+            const refreshSuccess = await refreshToken();
+            if (!refreshSuccess) {
+                console.warn('刷新 Token 失败');
+                return;
+            }
+          } else console.warn('刷新 Token 函数不存在');
           if (typeof initializeWebSocket === 'function') initializeWebSocket(); else console.warn('初始化 WebSocket 失败');
           if (typeof enableMessageSending === 'function') enableMessageSending(); else console.warn('启用消息发送失败');
           if (typeof initializeFocusListeners === 'function') initializeFocusListeners(); else console.warn('初始化焦点监听失败');
@@ -1128,7 +1250,20 @@ function adjustChatLayout() {
 
 // ---------- 右键菜单 ----------
 // 来源: function initializeGroupFunctions().txt
-function showContextMenu(e, groupId, groupName) {
+function hideContextMenu() {
+    if (window.currentContextMenu) {
+        document.body.removeChild(window.currentContextMenu);
+        window.currentContextMenu = null;
+    }
+    document.removeEventListener('click', hideContextMenu);
+    document.removeEventListener('contextmenu', hideContextMenu);
+    window.removeEventListener('scroll', hideContextMenu);
+}
+
+function showContextMenu(e, groupId) {
+    e.preventDefault();
+    e.stopPropagation();
+    
     // 先隐藏现有的右键菜单
     hideContextMenu();
 
@@ -1142,7 +1277,7 @@ function showContextMenu(e, groupId, groupName) {
     contextMenu.style.border = '1px solid #ddd';
     contextMenu.style.borderRadius = '4px';
     contextMenu.style.boxShadow = '0 2px 10px rgba(0,0,0,0.1)';
-    contextMenu.style.zIndex = '1000';
+    contextMenu.style.zIndex = '10000';
     contextMenu.style.padding = '5px 0';
 
     // 添加菜单项
@@ -1155,7 +1290,8 @@ function showContextMenu(e, groupId, groupName) {
     menuItem.style.fontSize = '14px';
     menuItem.style.whiteSpace = 'nowrap';
 
-    menuItem.addEventListener('click', () => {
+    menuItem.addEventListener('click', (ev) => {
+        ev.stopPropagation();
         toggleGroupMute(groupId);
         hideContextMenu();
     });
@@ -1166,19 +1302,12 @@ function showContextMenu(e, groupId, groupName) {
     // 保存当前菜单引用
     window.currentContextMenu = contextMenu;
 
-    // 添加全局点击事件监听，点击其他地方关闭菜单
+    // 添加全局点击、滚动、右键事件监听
     setTimeout(() => {
-        document.addEventListener('click', hideContextMenu);
+        document.addEventListener('click', hideContextMenu, true);
+        document.addEventListener('contextmenu', hideContextMenu, true);
+        window.addEventListener('scroll', hideContextMenu, true);
     }, 0);
-}
-
-// 隐藏右键菜单
-function hideContextMenu() {
-    if (window.currentContextMenu) {
-        document.body.removeChild(window.currentContextMenu);
-        window.currentContextMenu = null;
-    }
-    document.removeEventListener('click', hideContextMenu);
 }
 
 // ---------- 更新群组免打扰图标 ----------
@@ -1258,5 +1387,6 @@ export {
   currentPrivateChatUsername,
   currentPrivateChatNickname,
   currentSendChatType,
-  selectedGroupIdForCard
+  selectedGroupIdForCard,
+  refreshToken
 };

@@ -50,11 +50,10 @@ function handleChatMainClick() {
     if (groupId && window.chatSocket && sessionToken && userId) {
       const unreadGroup = chatStore.unreadMessages?.groups?.[groupId];
       if (unreadGroup > 0) {
-        window.chatSocket.emit('join-group', {
+        window.chatSocket.emit('clear-unread-messages', {
           groupId: parseInt(groupId),
           sessionToken: sessionToken,
-          userId: userId,
-          noHistory: true
+          userId: userId
         });
         chatStore.unreadMessages.groups[groupId] = 0;
         updateTitleWithUnreadCount();
@@ -65,12 +64,10 @@ function handleChatMainClick() {
     if (friendId && window.chatSocket && sessionToken && userId) {
       const unreadPrivate = chatStore.unreadMessages?.private?.[friendId];
       if (unreadPrivate > 0) {
-        window.chatSocket.emit('join-private-chat', {
+        window.chatSocket.emit('clear-unread-messages', {
           userId: userId,
           friendId: friendId,
-          sessionToken: sessionToken,
-          onlyClearUnread: true,
-          noHistory: true
+          sessionToken: sessionToken
         });
         chatStore.unreadMessages.private[friendId] = 0;
         updateTitleWithUnreadCount();

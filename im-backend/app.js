@@ -10,6 +10,27 @@ const cors = require('cors');
 const crypto = require('crypto');
 const schedule = require('node-schedule');
 const dotenv = require('dotenv');
+const redis = require('redis');
+
+// 创建 Redis 客户端（本地无密码）
+const redisClient = redis.createClient({
+  host: 'localhost',
+  port: 6379
+});
+
+// Redis 连接事件处理
+redisClient.on('error', (err) => {
+  console.error('❌ Redis 连接错误:', err.message);
+});
+
+// 连接 Redis
+(async () => {
+  try {
+    await redisClient.connect();
+  } catch (err) {
+    console.error('❌ Redis 连接失败:', err.message);
+  }
+})();
 
 // 检测并加载环境变量配置
 let envPath;
@@ -50,39 +71,239 @@ const dbConfig = {
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
-// 配置marked安全选项
-// 使用动态import导入marked，因为它是ES模块
-let marked = null;
-(async () => {
+// 消息缓存（使用 Redis）
+// 全局消息存储在 Redis key: scr:message:global (list)
+// 群组消息存储在 Redis key: scr:message:group:{groupId} (list)
+
+// 获取全局消息（从 Redis）
+async function getGlobalMessagesFromCache(limit = 50) {
   try {
-    const markedModule = await import('marked');
-    // 检查markedModule的结构，确保获取正确的marked对象
-    if (markedModule && typeof markedModule === 'object') {
-      // 优先使用default导出，如果没有则直接使用markedModule
-      marked = markedModule.default || markedModule;
-      
-      // 只有在marked对象存在且具有setOptions方法时才调用它
-      if (marked && typeof marked.setOptions === 'function') {
-        // 配置marked安全选项
-        marked.setOptions({
-          sanitize: true,
-          breaks: true,
-          gfm: true
-        });
-      } else {
-
-      }
-    }
-  } catch (error) {
-    console.error('Failed to load marked module:', error);
+    const messages = await redisClient.lRange('scr:message:global', 0, limit - 1);
+    return messages.map(msg => JSON.parse(msg));
+  } catch (err) {
+    console.error('获取全局消息失败:', err.message);
+    return [];
   }
-})();
+}
 
-const messageCache = {
-  global: [],
-  groups: new Map(),
-  lastUpdated: Date.now()
-};
+// 添加全局消息到 Redis（使用 pipeline 确保原子性）
+async function addGlobalMessageToCache(message) {
+  try {
+    // 使用 pipeline 确保原子性
+    const pipeline = redisClient.multi();
+    pipeline.lPush('scr:message:global', JSON.stringify(message));
+    pipeline.lTrim('scr:message:global', 0, 199);
+    await pipeline.exec();
+  } catch (err) {
+    console.error('添加全局消息失败:', err.message);
+  }
+}
+
+// 清空并重新设置全局消息缓存
+async function setGlobalMessagesCache(messages) {
+  try {
+    await redisClient.del('scr:message:global');
+    if (messages && messages.length > 0) {
+      // getGlobalMessages 返回的消息是按 timestamp DESC 排序的，最新的在前面
+      // 使用 lPush 依次添加，这样最后添加的最旧消息会在列表头部（索引0）
+      // 而最新的消息会在列表尾部，然后 lTrim(0, 199) 保留最新的200条
+      for (let i = messages.length - 1; i >= 0; i--) {
+        await redisClient.lPush('scr:message:global', JSON.stringify(messages[i]));
+      }
+      await redisClient.lTrim('scr:message:global', 0, 199);
+    }
+  } catch (err) {
+    console.error('设置全局消息缓存失败:', err.message);
+  }
+}
+
+// 获取群组消息（从 Redis）
+async function getGroupMessagesFromCache(groupId, limit = 50) {
+  try {
+    const key = `scr:message:group:${groupId}`;
+    const messages = await redisClient.lRange(key, 0, limit - 1);
+    return messages.map(msg => JSON.parse(msg));
+  } catch (err) {
+    console.error('获取群组消息失败:', err.message);
+    return [];
+  }
+}
+
+// 添加群组消息到 Redis（使用 pipeline 确保原子性）
+async function addGroupMessageToCache(groupId, message) {
+  try {
+    const key = `scr:message:group:${groupId}`;
+    // 使用 pipeline 确保原子性
+    const pipeline = redisClient.multi();
+    pipeline.lPush(key, JSON.stringify(message));
+    pipeline.lTrim(key, 0, 49);
+    pipeline.expire(key, 86400 * 7); // 7 天过期
+    await pipeline.exec();
+  } catch (err) {
+    console.error('添加群组消息失败:', err.message);
+  }
+}
+
+// 清空并重新设置群组消息缓存
+async function setGroupMessagesCache(groupId, messages) {
+  try {
+    const key = `scr:message:group:${groupId}`;
+    await redisClient.del(key);
+    if (messages && messages.length > 0) {
+      // getGroupMessages 返回的消息是按 timestamp DESC 排序的，最新的在前面
+      // 使用 lPush 依次添加，这样最后添加的最旧消息会在列表头部（索引0）
+      // 而最新的消息会在列表尾部，然后 lTrim(0, 49) 保留最新的50条
+      for (let i = messages.length - 1; i >= 0; i--) {
+        await redisClient.lPush(key, JSON.stringify(messages[i]));
+      }
+      await redisClient.lTrim(key, 0, 49);
+      await redisClient.expire(key, 86400 * 7); // 7 天过期
+    }
+  } catch (err) {
+    console.error('设置群组消息缓存失败:', err.message);
+  }
+}
+
+// 更新全局消息缓存中指定用户的头像和昵称
+async function updateGlobalMessageCacheUserInfo(userId, updates) {
+  try {
+    const messages = await redisClient.lRange('scr:message:global', 0, -1);
+    if (messages.length === 0) return;
+    
+    let hasChanges = false;
+    const updatedMessages = messages.map(msg => {
+      const message = JSON.parse(msg);
+      if (String(message.userId) === String(userId)) {
+        if (updates.nickname !== undefined) {
+          message.nickname = updates.nickname;
+          hasChanges = true;
+        }
+        if (updates.avatarUrl !== undefined) {
+          message.avatarUrl = updates.avatarUrl;
+          hasChanges = true;
+        }
+      }
+      return message;
+    });
+    
+    if (hasChanges) {
+      await redisClient.del('scr:message:global');
+      for (let i = updatedMessages.length - 1; i >= 0; i--) {
+        await redisClient.lPush('scr:message:global', JSON.stringify(updatedMessages[i]));
+      }
+      await redisClient.lTrim('scr:message:global', 0, 199);
+    }
+  } catch (err) {
+    console.error('更新全局消息缓存用户信息失败:', err.message);
+  }
+}
+
+// 更新群组消息缓存中指定用户的头像和昵称
+async function updateGroupMessageCacheUserInfo(groupId, userId, updates) {
+  try {
+    const key = `scr:message:group:${groupId}`;
+    const messages = await redisClient.lRange(key, 0, -1);
+    if (messages.length === 0) return;
+    
+    let hasChanges = false;
+    const updatedMessages = messages.map(msg => {
+      const message = JSON.parse(msg);
+      if (String(message.userId) === String(userId)) {
+        if (updates.nickname !== undefined) {
+          message.nickname = updates.nickname;
+          hasChanges = true;
+        }
+        if (updates.avatarUrl !== undefined) {
+          message.avatarUrl = updates.avatarUrl;
+          hasChanges = true;
+        }
+      }
+      return message;
+    });
+    
+    if (hasChanges) {
+      await redisClient.del(key);
+      for (let i = updatedMessages.length - 1; i >= 0; i--) {
+        await redisClient.lPush(key, JSON.stringify(updatedMessages[i]));
+      }
+      await redisClient.lTrim(key, 0, 49);
+    }
+  } catch (err) {
+    console.error('更新群组消息缓存用户信息失败:', err.message);
+  }
+}
+
+// 更新群组消息缓存中群组的信息（如头像）
+async function updateGroupMessageCacheGroupInfo(groupId, updates) {
+  try {
+    const key = `scr:message:group:${groupId}`;
+    const messages = await redisClient.lRange(key, 0, -1);
+    if (messages.length === 0) return;
+    
+    let hasChanges = false;
+    const updatedMessages = messages.map(msg => {
+      const message = JSON.parse(msg);
+      let changed = false;
+      
+      // 更新群名片中的群组信息
+      if (message.group_card && String(message.group_card.group_id) === String(groupId)) {
+        if (updates.avatarUrl !== undefined) {
+          message.group_card.avatar_url = updates.avatarUrl;
+          message.group_card.avatarUrl = updates.avatarUrl;
+          changed = true;
+        }
+        if (updates.groupName !== undefined) {
+          message.group_card.group_name = updates.groupName;
+          changed = true;
+        }
+        if (updates.groupDescription !== undefined) {
+          message.group_card.group_description = updates.groupDescription;
+          changed = true;
+        }
+      }
+      
+      // 更新引用消息中的群名片信息
+      if (message.quoted_message && message.quoted_message.group_card && 
+          String(message.quoted_message.group_card.group_id) === String(groupId)) {
+        if (updates.avatarUrl !== undefined) {
+          message.quoted_message.group_card.avatar_url = updates.avatarUrl;
+          message.quoted_message.group_card.avatarUrl = updates.avatarUrl;
+          changed = true;
+        }
+        if (updates.groupName !== undefined) {
+          message.quoted_message.group_card.group_name = updates.groupName;
+          changed = true;
+        }
+      }
+      
+      if (changed) {
+        hasChanges = true;
+      }
+      return JSON.stringify(message);
+    });
+    
+    if (hasChanges) {
+      await redisClient.del(key);
+      for (let i = updatedMessages.length - 1; i >= 0; i--) {
+        await redisClient.lPush(key, updatedMessages[i]);
+      }
+      await redisClient.lTrim(key, 0, 199);
+    }
+  } catch (err) {
+    console.error('更新群组消息缓存群组信息失败:', err.message);
+  }
+}
+
+// 获取所有群组 ID 列表
+async function getAllGroupIds() {
+  try {
+    const [groups] = await pool.execute('SELECT id FROM chat_groups');
+    return groups.map(g => g.id);
+  } catch (err) {
+    console.error('获取群组列表失败:', err.message);
+    return [];
+  }
+}
 
 // 速率限制配置
 const RATE_LIMIT_CONFIG = {
@@ -92,59 +313,51 @@ const RATE_LIMIT_CONFIG = {
   LONG_LIMIT: 40              // 40 条消息
 };
 
-// 速率限制数据存储：Map<userId, { shortWindow: number[], longWindow: number[] }>
-const rateLimitStore = new Map();
-
-// 清理过期的速率限制数据（每 5 分钟执行一次）
-setInterval(() => {
+// 速率限制检查（使用 Redis）
+async function checkRateLimit(userId) {
   const now = Date.now();
-  for (const [userId, data] of rateLimitStore.entries()) {
-    // 清理超出时间窗口的记录
-    data.shortWindow = data.shortWindow.filter(timestamp => now - timestamp < RATE_LIMIT_CONFIG.SHORT_WINDOW_MS);
-    data.longWindow = data.longWindow.filter(timestamp => now - timestamp < RATE_LIMIT_CONFIG.LONG_WINDOW_MS);
+  const shortWindowKey = `scr:rate_limit:${userId}:short`;
+  const longWindowKey = `scr:rate_limit:${userId}:long`;
+  
+  try {
+    // 获取短期窗口记录
+    const shortRecords = await redisClient.lRange(shortWindowKey, 0, -1);
+    const shortTimestamps = shortRecords.map(Number).filter(ts => now - ts < RATE_LIMIT_CONFIG.SHORT_WINDOW_MS);
     
-    // 如果两个窗口都为空，删除该用户记录以节省内存
-    if (data.shortWindow.length === 0 && data.longWindow.length === 0) {
-      rateLimitStore.delete(userId);
+    // 获取长期窗口记录
+    const longRecords = await redisClient.lRange(longWindowKey, 0, -1);
+    const longTimestamps = longRecords.map(Number).filter(ts => now - ts < RATE_LIMIT_CONFIG.LONG_WINDOW_MS);
+    
+    // 检查是否超出限制
+    if (shortTimestamps.length >= RATE_LIMIT_CONFIG.SHORT_LIMIT) {
+      const oldestShort = shortTimestamps[0];
+      return {
+        allowed: false,
+        retryAfter: Math.ceil((oldestShort + RATE_LIMIT_CONFIG.SHORT_WINDOW_MS - now) / 1000)
+      };
     }
+    
+    if (longTimestamps.length >= RATE_LIMIT_CONFIG.LONG_LIMIT) {
+      const oldestLong = longTimestamps[0];
+      return {
+        allowed: false,
+        retryAfter: Math.ceil((oldestLong + RATE_LIMIT_CONFIG.LONG_WINDOW_MS - now) / 1000)
+      };
+    }
+    
+    // 记录当前请求（需要转换为字符串）
+    await redisClient.rPush(shortWindowKey, String(now));
+    await redisClient.rPush(longWindowKey, String(now));
+    
+    // 设置过期时间
+    await redisClient.expire(shortWindowKey, Math.ceil(RATE_LIMIT_CONFIG.SHORT_WINDOW_MS / 1000));
+    await redisClient.expire(longWindowKey, Math.ceil(RATE_LIMIT_CONFIG.LONG_WINDOW_MS / 1000));
+    
+    return { allowed: true };
+  } catch (err) {
+    console.error('检查速率限制失败:', err.message);
+    return { allowed: true }; // Redis 失败时允许通过
   }
-}, 5 * 60 * 1000);
-
-// 检查速率限制
-function checkRateLimit(userId) {
-  const now = Date.now();
-  
-  // 获取或创建用户的速率限制数据
-  if (!rateLimitStore.has(userId)) {
-    rateLimitStore.set(userId, { shortWindow: [], longWindow: [] });
-  }
-  
-  const userData = rateLimitStore.get(userId);
-  
-  // 清理过期记录
-  userData.shortWindow = userData.shortWindow.filter(timestamp => now - timestamp < RATE_LIMIT_CONFIG.SHORT_WINDOW_MS);
-  userData.longWindow = userData.longWindow.filter(timestamp => now - timestamp < RATE_LIMIT_CONFIG.LONG_WINDOW_MS);
-  
-  // 检查是否超出限制
-  if (userData.shortWindow.length >= RATE_LIMIT_CONFIG.SHORT_LIMIT) {
-    return {
-      allowed: false,
-      retryAfter: Math.ceil((userData.shortWindow[0] + RATE_LIMIT_CONFIG.SHORT_WINDOW_MS - now) / 1000)
-    };
-  }
-  
-  if (userData.longWindow.length >= RATE_LIMIT_CONFIG.LONG_LIMIT) {
-    return {
-      allowed: false,
-      retryAfter: Math.ceil((userData.longWindow[0] + RATE_LIMIT_CONFIG.LONG_WINDOW_MS - now) / 1000)
-    };
-  }
-  
-  // 记录当前请求
-  userData.shortWindow.push(now);
-  userData.longWindow.push(now);
-  
-  return { allowed: true };
 }
 
 const app = express();
@@ -560,11 +773,112 @@ async function checkFileRequestLimit(req, res, next) {
   }
 }
 
-// 用户会话管理
-const userSessions = new Map();
+// 用户会话管理（使用 Redis）
+// 会话存储在 Redis
+// Token: scr:token:{userId} - 过期时间 20 分钟
+// Refresh Token: scr:refreshToken:{userId} - 过期时间 30 天
+
+// 获取用户会话（从 Redis）
+async function getUserSession(userId) {
+  try {
+    const tokenKey = `scr:token:${userId}`;
+    const refreshTokenKey = `scr:refreshToken:${userId}`;
+    
+    const [tokenData, refreshTokenData] = await Promise.all([
+      redisClient.get(tokenKey),
+      redisClient.get(refreshTokenKey)
+    ]);
+    
+    if (!tokenData && !refreshTokenData) {
+      return null;
+    }
+    
+    return {
+      token: tokenData || null,
+      refreshToken: refreshTokenData || null
+    };
+  } catch (err) {
+    console.error('获取会话失败:', err.message);
+    return null;
+  }
+}
+
+// 设置用户会话（到 Redis）
+// tokenExpires: Token 过期时间（毫秒时间戳）
+// refreshExpires: Refresh Token 过期时间（毫秒时间戳）
+async function setUserSession(userId, session, tokenExpires, refreshExpires) {
+  try {
+    const tokenKey = `scr:token:${userId}`;
+    const refreshTokenKey = `scr:refreshToken:${userId}`;
+    
+    // 存储 Token，设置过期时间
+    if (session.token) {
+      await redisClient.set(tokenKey, session.token);
+      if (tokenExpires) {
+        const tokenTTL = Math.max(1, Math.floor((tokenExpires - Date.now()) / 1000));
+        await redisClient.expire(tokenKey, tokenTTL);
+      }
+    }
+    
+    // 存储 Refresh Token，设置过期时间
+    if (session.refreshToken) {
+      await redisClient.set(refreshTokenKey, session.refreshToken);
+      if (refreshExpires) {
+        const refreshTTL = Math.max(1, Math.floor((refreshExpires - Date.now()) / 1000));
+        await redisClient.expire(refreshTokenKey, refreshTTL);
+      }
+    }
+  } catch (err) {
+    console.error('设置会话失败:', err.message);
+  }
+}
+
+// 删除用户会话（从 Redis）
+async function deleteUserSession(userId) {
+  try {
+    const tokenKey = `scr:token:${userId}`;
+    const refreshTokenKey = `scr:refreshToken:${userId}`;
+    await Promise.all([
+      redisClient.del(tokenKey),
+      redisClient.del(refreshTokenKey)
+    ]);
+  } catch (err) {
+    console.error('删除会话失败:', err.message);
+  }
+}
+
+// 获取所有会话（从 Redis）- 只获取 refreshToken 键
+async function getAllSessions() {
+  try {
+    const keys = await redisClient.keys('scr:refreshToken:*');
+    const sessions = [];
+    for (const key of keys) {
+      const userId = key.replace('scr:refreshToken:', '');
+      const refreshToken = await redisClient.get(key);
+      if (refreshToken) {
+        sessions.push({ userId: parseInt(userId), refreshToken });
+      }
+    }
+    return sessions;
+  } catch (err) {
+    console.error('获取所有会话失败:', err.message);
+    return [];
+  }
+}
+
+// 获取会话数量（从 Redis）
+async function getSessionCount() {
+  try {
+    const keys = await redisClient.keys('scr:refreshToken:*');
+    return keys.length;
+  } catch (err) {
+    console.error('获取会话数量失败:', err.message);
+    return 0;
+  }
+}
 
 // Cloudflare Turnstile 配置
-const TURNSTILE_SECRET_KEY = '0x4AAAAAACmJCFETt3FTq9SzDFaSFBjXVgI';
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
 // 验证 Cloudflare Turnstile Token
 async function verifyTurnstileToken(token, clientIP) {
@@ -589,110 +903,83 @@ function generateSessionToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-// 验证用户会话 - 修改：永不过期
+// 验证用户会话（Token）
 async function validateUserSession(userId, token) {
     if (!userId || !token) {
-        // console.error('会话验证失败: 缺少userId或token');
         return false;
     }
     
     try {
         const userIdNum = parseInt(userId);
-        let session = userSessions.get(userIdNum);
+        const session = await getUserSession(userIdNum);
         
-        // 如果Map中没有会话，尝试从数据库加载
-        if (!session) {
-            // console.log(`🔄 Map中未找到会话，尝试从数据库加载 - 用户ID: ${userIdNum}`);
-            
-            // 从数据库查询该用户的会话
-            const [sessions] = await pool.execute(
-                'SELECT user_id, token, expires, last_active, created_at FROM chat_sessions WHERE user_id = ? AND expires > NOW()',
-                [userIdNum]
-            );
-            
-            if (sessions.length > 0) {
-                // 找到会话，更新到Map中
-                const dbSession = sessions[0];
-                session = {
-                    token: dbSession.token,
-                    expires: new Date(dbSession.expires).getTime(),
-                    userId: parseInt(dbSession.user_id),
-                    lastActive: new Date(dbSession.last_active).getTime(),
-                    createdAt: new Date(dbSession.created_at).getTime()
-                };
-                
-                userSessions.set(userIdNum, session);
-                // console.log(`✅ 从数据库加载会话成功 - 用户ID: ${userIdNum}`);
-            } else {
-                // 数据库中也没有会话
-                return false;
-            }
-        }
-        
-        if (session.token !== token) {
-            // console.error('会话验证失败: token不匹配');
+        if (!session || !session.token) {
             return false;
         }
         
-        // 修改：移除过期检查，会话永不过期
-        return true;
+        if (session.token !== token) {
+            return false;
+        }
         
+        // Token 存在且匹配，Redis key 的 TTL 会自动处理过期
+        return true;
     } catch (error) {
         console.error('会话验证异常:', error);
         return false;
     }
 }
 
-// 创建用户会话 - 修改：永不过期，并添加顶号提示功能
+// 创建用户会话 - Token 20分钟过期，Refresh Token 30天过期
 async function createUserSession(userId) {
     const token = generateSessionToken();
-    // 修改：设置为100年过期，相当于永不过期
-    const expires = Date.now() + (100 * 365 * 24 * 60 * 60 * 1000); // 100年
+    const refreshToken = generateSessionToken();
+    
+    // Token 20分钟过期
+    const expires = Date.now() + (20 * 60 * 1000);
+    // Refresh Token 30天过期
+    const refreshExpires = Date.now() + (30 * 24 * 60 * 60 * 1000);
     
     const session = {
         token,
-        expires,
-        userId: parseInt(userId),
-        lastActive: Date.now(),
-        createdAt: Date.now()
+        refreshToken
     };
     
     // 检查是否已有该用户的会话（顶号检测）
-        const existingSession = userSessions.get(parseInt(userId));
-        if (existingSession) {
+    const existingSession = await getUserSession(parseInt(userId));
+    if (existingSession) {
+        // 向该用户的房间广播顶号通知
+        io.to(`user_${userId}`).emit('account-logged-in-elsewhere', {
+            message: '您的账号在其他设备上登录，请重新登录',
+            timestamp: new Date().toISOString()
+        });
         
-        // 查找该用户的在线socket连接
-        for (let [socketId, user] of onlineUsers.entries()) {
-            if (user.id === parseInt(userId)) {
-                // 向旧连接发送顶号通知
-                const socket = io.sockets.sockets.get(socketId);
-                if (socket) {
-                    socket.emit('account-logged-in-elsewhere', {
-                        message: '您的账号在其他设备上登录，请重新登录',
-                        timestamp: new Date().toISOString()
-                    });
-
-                }
-                break;
-            }
-        }
+        // 断开该用户的所有连接
+        io.to(`user_${userId}`).disconnectSockets(true);
     }
     
-    userSessions.set(parseInt(userId), session);
+    await setUserSession(parseInt(userId), session, expires, refreshExpires);
     
-    // 保存会话到数据库
-    await saveSessionToDatabase(parseInt(userId), token, expires);
+    // 保存会话到数据库（只存 refresh_token）
+    await saveSessionToDatabase(parseInt(userId), refreshToken, refreshExpires);
     
-    return token;
+    return { token, refreshToken };
 }
 
-// 清除过期会话 - 修改：不移除任何会话
-function cleanupExpiredSessions() {
-    // 当前会话永不过期，无需清理
+// 清除过期的 refreshToken（从数据库）
+async function cleanupExpiredSessions() {
+    try {
+        // 删除数据库中过期的 refresh_token
+        const [result] = await pool.execute(
+            'DELETE FROM chat_sessions WHERE refresh_expires < NOW()'
+        );
+        
+        if (result.affectedRows > 0) {
+            console.log(`🧹 已清理 ${result.affectedRows} 个过期的会话`);
+        }
+    } catch (err) {
+        console.error('清理过期会话失败:', err.message);
+    }
 }
-
-// 修改：不再自动清理会话
-// setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
 
 // HTML字符转义函数
 function escapeHtml(text) {
@@ -792,16 +1079,7 @@ app.use(async (req, res, next) => {
     
     try {
       // 尝试从请求头获取用户ID
-      let userId = null;
-      const sessionToken = req.headers['session-token'];
-      if (sessionToken) {
-        for (const [id, session] of userSessions.entries()) {
-          if (session.token === sessionToken) {
-            userId = id;
-            break;
-          }
-        }
-      }
+      let userId = req.headers['user-id'] || req.query.userId;
       
       await pool.execute(
         'INSERT INTO chat_api_logs (user_id, ip_address, api_path, request_method) VALUES (?, ?, ?, ?)',
@@ -816,11 +1094,12 @@ app.use(async (req, res, next) => {
 });
 
 // 健康检查端点
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
+  const sessionCount = await getSessionCount();
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    activeSessions: userSessions.size,
+    activeSessions: sessionCount,
     message: '会话永不过期模式'
   });
 });
@@ -835,12 +1114,13 @@ app.get('/check-status', async (req, res) => {
     // 从请求头中获取会话令牌
     const sessionToken = req.headers['session-token'] || req.query.sessionToken;
     
-    // 如果有会话令牌，根据存储的用户令牌Map找出对应的用户ID
+    // 如果有会话令牌，根据存储的用户令牌找出对应的用户ID
     if (sessionToken) {
-      // 遍历userSessions Map，查找对应的用户ID
-      for (const [id, session] of userSessions.entries()) {
+      // 遍历所有会话，查找对应的用户ID
+      const allSessions = await getAllSessions();
+      for (const session of allSessions) {
         if (session.token === sessionToken) {
-          userId = id.toString();
+          userId = session.userId.toString();
           break;
         }
       }
@@ -1019,7 +1299,7 @@ app.get('/check-username', async (req, res) => {
 });
 
 // 获取所有会话信息（调试用，需要密码验证）
-app.get('/sessions', (req, res) => {
+app.get('/sessions', async (req, res) => {
   try {
     const { password } = req.query;
     
@@ -1028,8 +1308,9 @@ app.get('/sessions', (req, res) => {
       return res.status(401).json({ status: 'error', message: '密码错误，访问被拒绝' });
     }
     
-    const sessionsArray = Array.from(userSessions.entries()).map(([userId, session]) => ({
-      userId,
+    const allSessions = await getAllSessions();
+    const sessionsArray = allSessions.map(session => ({
+      userId: session.userId,
       token: session.token.substring(0, 10) + '...',
       createdAt: new Date(session.createdAt).toISOString(),
       lastActive: new Date(session.lastActive).toISOString(),
@@ -1038,7 +1319,7 @@ app.get('/sessions', (req, res) => {
 
     res.json({
       status: 'success',
-      totalSessions: userSessions.size,
+      totalSessions: sessionsArray.length,
       sessions: sessionsArray
     });
   } catch (err) {
@@ -1099,6 +1380,137 @@ app.get('/admin/api-logs', async (req, res) => {
   } catch (err) {
     console.error('获取接口日志失败:', err.message);
     res.status(500).json({ status: 'error', message: '获取接口日志失败' });
+  }
+});
+
+// 管理员封禁IP接口
+app.post('/admin/ban-ip', async (req, res) => {
+  try {
+    const { password, ipAddress, reason, expiresAt } = req.body;
+    
+    if (!password || password !== ADMIN_PASSWORD) {
+      return res.status(401).json({ status: 'error', message: '密码错误，访问被拒绝' });
+    }
+    
+    if (!ipAddress) {
+      return res.status(400).json({ status: 'error', message: '缺少IP地址参数' });
+    }
+    if (!reason) {
+      return res.status(400).json({ status: 'error', message: '缺少封禁原因参数' });
+    }
+    
+    let expiresDate = null;
+    if (expiresAt) {
+      expiresDate = new Date(expiresAt);
+      if (isNaN(expiresDate.getTime())) {
+        return res.status(400).json({ status: 'error', message: '解封时间格式错误' });
+      }
+    }
+    
+    await pool.execute(
+      'INSERT INTO chat_banned_ips (ip_address, reason, expires_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE reason = VALUES(reason), expires_at = VALUES(expires_at)',
+      [ipAddress, reason, expiresDate]
+    );
+    
+    const banData = {
+      reason: reason || '违反使用规则',
+      expires_at: expiresDate
+    };
+    await redisClient.hSet('scr:banned_ips', ipAddress, JSON.stringify(banData));
+    
+    // 向该 IP 房间广播封禁事件
+    // 发送封禁通知
+    io.to(`ip_${ipAddress}`).emit('ip-banned', {
+      ipAddress: ipAddress,
+      reason: reason || '违反使用规则',
+      expiresAt: expiresDate
+    });
+
+    // 在断开连接前，先从在线用户列表中移除该 IP 下的所有用户
+    const socketsInRoom = await io.in(`ip_${ipAddress}`).fetchSockets();
+    for (const socket of socketsInRoom) {
+      const user = await getOnlineUser(socket.id);
+      if (user) {
+        await removeOnlineUser(socket.id);
+        await removeAuthenticatedUser(user.id);
+        
+        // 更新用户最后在线时间
+        try {
+          await pool.execute(
+            'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+            [user.id]
+          );
+        } catch (err) {
+          // ignore error
+        }
+      }
+    }
+
+    // 断开该 IP 下的所有连接
+    io.to(`ip_${ipAddress}`).disconnectSockets(true);
+    
+    res.json({
+      status: 'success',
+      message: '封禁IP成功',
+      data: { ipAddress, reason, expiresAt: expiresDate }
+    });
+  } catch (err) {
+    console.error('封禁IP失败:', err.message);
+    res.status(500).json({ status: 'error', message: '封禁IP失败' });
+  }
+});
+
+// 管理员解封IP接口
+app.post('/admin/unban-ip', async (req, res) => {
+  try {
+    const { password, ipAddress } = req.body;
+    
+    if (!password || password !== ADMIN_PASSWORD) {
+      return res.status(401).json({ status: 'error', message: '密码错误，访问被拒绝' });
+    }
+    
+    if (!ipAddress) {
+      return res.status(400).json({ status: 'error', message: '缺少IP地址参数' });
+    }
+    
+    await pool.execute(
+      'DELETE FROM chat_banned_ips WHERE ip_address = ?',
+      [ipAddress]
+    );
+    
+    await redisClient.hDel('scr:banned_ips', ipAddress);
+    
+    res.json({
+      status: 'success',
+      message: '解封IP成功'
+    });
+  } catch (err) {
+    console.error('解封IP失败:', err.message);
+    res.status(500).json({ status: 'error', message: '解封IP失败' });
+  }
+});
+
+// 获取已封禁IP列表
+app.get('/admin/banned-ips', async (req, res) => {
+  try {
+    const { password } = req.query;
+    
+    if (!password || password !== ADMIN_PASSWORD) {
+      return res.status(401).json({ status: 'error', message: '密码错误，访问被拒绝' });
+    }
+    
+    const [bannedIps] = await pool.execute(
+      'SELECT id, ip_address, reason, expires_at, banned_at FROM chat_banned_ips ORDER BY banned_at DESC'
+    );
+    
+    res.json({
+      status: 'success',
+      bannedIps: bannedIps,
+      message: '获取已封禁IP列表成功'
+    });
+  } catch (err) {
+    console.error('获取已封禁IP列表失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取已封禁IP列表失败' });
   }
 });
 
@@ -1163,37 +1575,21 @@ app.post('/user/add-friend', validateIPAndSession, async (req, res) => {
     await pool.execute('INSERT INTO chat_friends (user_id, friend_id) VALUES (?, ?)', [userId, friendIdNum]);
     await pool.execute('INSERT INTO chat_friends (user_id, friend_id) VALUES (?, ?)', [friendIdNum, userId]);
     
-    // 向被添加好友的用户发送 WebSocket 事件，通知其更新私信会话列表
-    for (let [socketId, user] of onlineUsers.entries()) {
-      if (user.id === friendIdNum) {
-        const socket = io.sockets.sockets.get(socketId);
-        if (socket) {
-          // 发送好友添加事件，包含好友 ID
-          socket.emit('friend-added', {
-            friendId: userId,
-            timestamp: Date.now()
-          });
-          // 同时发送更新好友列表的事件
-          socket.emit('friend-list-updated', {
-            message: '好友列表已更新',
-            timestamp: Date.now()
-          });
-        }
-        break;
-      }
-    }
+    // 向被添加好友的用户发送 WebSocket 事件
+    io.to(`user_${friendIdNum}`).emit('friend-added', {
+      friendId: userId,
+      timestamp: Date.now()
+    });
+    io.to(`user_${friendIdNum}`).emit('friend-list-updated', {
+      message: '好友列表已更新',
+      timestamp: Date.now()
+    });
     
     // 也给添加好友的人发送事件
-    const requesterSocket = Array.from(onlineUsers.entries()).find(([_, user]) => user.id === userId);
-    if (requesterSocket) {
-      const socket = io.sockets.sockets.get(requesterSocket[0]);
-      if (socket) {
-        socket.emit('friend-added', {
-          friendId: friendIdNum,
-          timestamp: Date.now()
-        });
-      }
-    }
+    io.to(`user_${userId}`).emit('friend-added', {
+      friendId: friendIdNum,
+      timestamp: Date.now()
+    });
     
     res.json({ status: 'success', message: '添加好友成功' });
   } catch (err) {
@@ -1229,16 +1625,10 @@ app.post('/user/remove-friend', validateIPAndSession, async (req, res) => {
         [`$."${userId}"`, friendIdNum]);  // 添加双引号
 
     // 通知被删除的好友刷新好友列表
-    const friendSocket = findSocketByUserId(friendIdNum);
-    if (friendSocket) {
-      friendSocket.emit('friend-removed', { friendId: userId });
-    }
+    io.to(`user_${friendIdNum}`).emit('friend-removed', { friendId: userId });
     
     // 也通知删除好友的人
-    const requesterSocket = findSocketByUserId(userId);
-    if (requesterSocket) {
-      requesterSocket.emit('friend-removed', { friendId: friendIdNum });
-    }
+    io.to(`user_${userId}`).emit('friend-removed', { friendId: friendIdNum });
 
     res.json({ status: 'success', message: '删除好友成功' });
   } catch (err) {
@@ -1290,18 +1680,14 @@ app.get('/refresh-messages', validateIPAndSession, async (req, res) => {
     let messages;
     if (groupId) {
       messages = await getGroupMessages(groupId);
-      const groupCacheSize = messageCache.groups.get(groupId)?.length || 0;
-
     } else {
       messages = await getGlobalMessages();
-
     }
     
     res.json({
       status: 'success',
       messages: messages,
-      lastUpdate: messageCache.lastUpdated,
-      hasNewMessages: lastUpdate && parseInt(lastUpdate) < messageCache.lastUpdated
+      hasNewMessages: messages.length > 0 && lastUpdate && messages[0].timestamp > parseInt(lastUpdate)
     });
   } catch (err) {
     console.error('刷新消息失败:', err.message);
@@ -1472,17 +1858,17 @@ async function initializeDatabase() {
       }
     }
     
-    // 创建会话存储表
+    // 创建会话存储表（只存储 refresh_token）
       await pool.execute(`
         CREATE TABLE IF NOT EXISTS chat_sessions (
           id INT AUTO_INCREMENT PRIMARY KEY,
           user_id INT NOT NULL UNIQUE,
-          token VARCHAR(255) NOT NULL,
-          expires DATETIME NOT NULL,
+          refresh_token VARCHAR(255) NOT NULL,
+          refresh_expires DATETIME NOT NULL,
           last_active DATETIME NOT NULL,
           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (user_id) REFERENCES chat_users(id) ON DELETE CASCADE,
-          INDEX idx_chat_sessions_token (token),
+          INDEX idx_chat_sessions_refresh_token (refresh_token),
           INDEX idx_chat_sessions_user_id (user_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
       `);
@@ -1543,6 +1929,7 @@ async function initializeDatabase() {
           receiver_id INT NOT NULL,
           content TEXT,
           message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件，4代表引用消息',
+          is_read TINYINT NOT NULL DEFAULT 0 COMMENT '0代表未读，1代表已读',
           timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (sender_id) REFERENCES chat_users(id) ON DELETE CASCADE,
           FOREIGN KEY (receiver_id) REFERENCES chat_users(id) ON DELETE CASCADE,
@@ -1584,156 +1971,271 @@ async function initializeDatabase() {
           FOREIGN KEY (user_id) REFERENCES chat_users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
       `);
-
-      // 移除不必要的ALTER TABLE语句，unread_group_messages字段已存在
-
-
   } catch (err) {
     console.error('初始化数据库失败:', err.message);
   }
 }
 
-// 从数据库加载会话到Map
+// 从数据库加载会话到Redis（只加载 refreshToken）- 使用 Pipeline 优化
 async function loadSessionsFromDatabase() {
   try {
-
+    // const startTime = Date.now();
     
-    // 查询所有有效的会话
+    // 查询所有有效的会话（refresh_token未过期）
     const [sessions] = await pool.execute(`
-      SELECT user_id, token, expires, last_active, created_at 
+      SELECT user_id, refresh_token, refresh_expires 
       FROM chat_sessions 
-      WHERE expires > NOW()
+      WHERE refresh_expires > NOW()
     `);
     
-    // 清空现有的会话Map
-    userSessions.clear();
+    if (sessions.length === 0) {
+      return;
+    }
     
-    // 将数据库中的会话加载到Map中
-    sessions.forEach(session => {
-      userSessions.set(parseInt(session.user_id), {
-        token: session.token,
-        expires: new Date(session.expires).getTime(),
-        userId: parseInt(session.user_id),
-        lastActive: new Date(session.last_active).getTime(),
-        createdAt: new Date(session.created_at).getTime()
-      });
-    });
+    // 使用 Pipeline 批量写入 Redis（减少网络往返）
+    const pipeline = redisClient.multi();
     
-
+    for (const session of sessions) {
+      const userId = parseInt(session.user_id);
+      const refreshToken = session.refresh_token;
+      const refreshExpires = new Date(session.refresh_expires).getTime();
+      
+      // 计算 TTL（剩余秒数）
+      const ttlSeconds = Math.max(1, Math.floor((refreshExpires - Date.now()) / 1000));
+      
+      // 添加到 Pipeline
+      const refreshTokenKey = `scr:refreshToken:${userId}`;
+      pipeline.set(refreshTokenKey, refreshToken);
+      pipeline.expire(refreshTokenKey, ttlSeconds);
+    }
+    
+    // 执行 Pipeline（一次网络往返）
+    await pipeline.exec();
+    
+    // const elapsed = Date.now() - startTime;
+    // console.log(`✅ 已从数据库加载 ${sessions.length} 个 refreshToken 到 Redis，耗时 ${elapsed}ms`);
   } catch (err) {
     console.error('❌ 从数据库加载会话失败:', err.message);
   }
 }
 
-// 保存会话到数据库
-async function saveSessionToDatabase(userId, token, expires) {
+// 保存会话到数据库（只存储 refresh_token）
+async function saveSessionToDatabase(userId, refreshToken, refreshExpires) {
   try {
     const now = new Date();
-    const expiresDate = new Date(expires);
+    const refreshExpiresDate = new Date(refreshExpires);
     
     // 插入或更新会话
     await pool.execute(`
-      INSERT INTO chat_sessions (user_id, token, expires, last_active) 
+      INSERT INTO chat_sessions (user_id, refresh_token, refresh_expires, last_active) 
       VALUES (?, ?, ?, ?) 
       ON DUPLICATE KEY UPDATE 
-        token = VALUES(token), 
-        expires = VALUES(expires), 
+        refresh_token = VALUES(refresh_token),
+        refresh_expires = VALUES(refresh_expires),
         last_active = VALUES(last_active)
-    `, [userId, token, expiresDate, now]);
-    
-    // console.log(`💾 会话已保存到数据库 - 用户ID: ${userId}`);
+    `, [userId, refreshToken, refreshExpiresDate, now]);
   } catch (err) {
     console.error(`❌ 保存会话到数据库失败 - 用户ID: ${userId}, 错误:`, err.message);
+  }
+}
+
+// 同步数据库封禁IP记录到Redis - 使用 Pipeline 优化
+async function syncBannedIPsToRedis() {
+  try {
+    // const startTime = Date.now();
+    
+    // 获取所有有效的封禁IP记录
+    const [bannedIPs] = await pool.execute(
+      'SELECT ip_address, reason, expires_at FROM chat_banned_ips WHERE expires_at IS NULL OR expires_at > NOW()'
+    );
+    
+    // 清空Redis中的封禁IP集合
+    await redisClient.del('scr:banned_ips');
+    
+    if (bannedIPs.length === 0) {
+      return;
+    }
+    
+    // 使用 Pipeline 批量写入 Redis（减少网络往返）
+    const pipeline = redisClient.multi();
+    
+    for (const ban of bannedIPs) {
+      const banData = {
+        reason: ban.reason || '违反使用规则',
+        expires_at: ban.expires_at
+      };
+      pipeline.hSet('scr:banned_ips', ban.ip_address, JSON.stringify(banData));
+    }
+    
+    // 执行 Pipeline（一次网络往返）
+    await pipeline.exec();
+    
+    // const elapsed = Date.now() - startTime;
+    // console.log(`✅ 已同步 ${bannedIPs.length} 条封禁IP记录到Redis，耗时 ${elapsed}ms`);
+  } catch (err) {
+    console.error('同步封禁IP到Redis失败:', err.message);
   }
 }
 
 // 检查IP是否被封禁并返回详细信息，同时清理过期封禁记录
 async function isIPBanned(ip) {
   try {
-    // 先检查并删除该IP的过期封禁记录
-    await pool.execute(
-        'DELETE FROM chat_banned_ips WHERE ip_address = ? AND expires_at IS NOT NULL AND expires_at <= NOW()',
-        [ip]
-    );
+    // 首先从Redis检查封禁状态
+    const banDataStr = await redisClient.hGet('scr:banned_ips', ip);
     
-    // 然后查询是否有当前有效的封禁记录
-    const [results] = await pool.execute(
-        'SELECT id, reason, expires_at FROM chat_banned_ips WHERE ip_address = ? AND (expires_at IS NULL OR expires_at > NOW())',
-        [ip]
-    );
-    
-    if (results.length > 0) {
-      // 返回详细信息，包括是否被封禁、封禁原因和剩余封禁时间
-      const { reason, expires_at } = results[0];
-      let remainingTime = null;
+    if (banDataStr) {
+      const banData = JSON.parse(banDataStr);
       
-      if (expires_at) {
+      // 检查是否已过期
+      if (banData.expires_at) {
+        const expireDate = new Date(banData.expires_at);
         const now = new Date();
-        const expireDate = new Date(expires_at);
-        const diff = expireDate - now;
         
-        // 计算剩余时间（天、小时、分钟）
+        if (expireDate <= now) {
+          // 已过期，从Redis删除
+          await redisClient.hDel('scr:banned_ips', ip);
+          // 同时从数据库删除
+          await pool.execute(
+            'DELETE FROM chat_banned_ips WHERE ip_address = ? AND expires_at IS NOT NULL AND expires_at <= NOW()',
+            [ip]
+          );
+          return { isBanned: false, reason: null, remainingTime: null };
+        }
+        
+        // 计算剩余时间
+        const diff = expireDate - now;
         const days = Math.floor(diff / (1000 * 60 * 60 * 24));
         const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
         
-        remainingTime = {
-          days,
-          hours,
-          minutes,
-          totalSeconds: Math.floor(diff / 1000)
+        return {
+          isBanned: true,
+          reason: banData.reason || '违反使用规则',
+          remainingTime: { days, hours, minutes, totalSeconds: Math.floor(diff / 1000) }
         };
       }
       
+      // 永久封禁
       return {
         isBanned: true,
-        reason: reason || '违反使用规则',
-        remainingTime
+        reason: banData.reason || '违反使用规则',
+        remainingTime: null
+      };
+    }
+    
+    // Redis中没有，返回未封禁
+    return { isBanned: false, reason: null, remainingTime: null };
+  } catch (err) {
+    console.error('检查IP封禁失败:', err.message);
+    return { isBanned: false, reason: null, remainingTime: null };
+  }
+}
+
+// 登录接口速率限制 - 1分钟最多15次，1小时最多45次
+async function checkLoginRateLimit(ip) {
+  try {
+    const minuteKey = `scr:rate_limit:login:minute:${ip}`;
+    const hourKey = `scr:rate_limit:login:hour:${ip}`;
+    
+    const minuteCount = await redisClient.incr(minuteKey);
+    const hourCount = await redisClient.incr(hourKey);
+    
+    if (minuteCount === 1) {
+      await redisClient.expire(minuteKey, 60); // 1分钟过期
+    }
+    if (hourCount === 1) {
+      await redisClient.expire(hourKey, 3600); // 1小时过期
+    }
+    
+    const minuteTtl = await redisClient.ttl(minuteKey);
+    const hourTtl = await redisClient.ttl(hourKey);
+    
+    // 先检查分钟限制
+    if (minuteCount > 15) {
+      return {
+        allowed: false,
+        limitType: 'minute',
+        count: minuteCount,
+        waitSeconds: minuteTtl > 0 ? minuteTtl : 60
+      };
+    }
+    
+    // 再检查小时限制
+    if (hourCount > 45) {
+      return {
+        allowed: false,
+        limitType: 'hour',
+        count: hourCount,
+        waitSeconds: hourTtl > 0 ? hourTtl : 3600
       };
     }
     
     return {
-      isBanned: false,
-      reason: null,
-      remainingTime: null
+      allowed: true,
+      limitType: null,
+      minuteCount,
+      hourCount,
+      waitSeconds: 0
     };
   } catch (err) {
-    console.error('检查IP封禁失败:', err.message);
-    return {
-      isBanned: false,
-      reason: null,
-      remainingTime: null
-    };
+    console.error('登录速率限制检查失败:', err.message);
+    return { allowed: true, limitType: null, count: 0, waitSeconds: 0 };
   }
 }
 
-// 记录登录尝试
-async function recordLoginAttempt(ip) {
+// 注册接口速率限制 - 1小时2次，24小时5次，1个月20次
+async function checkRegisterRateLimit(ip) {
   try {
-    const now = Date.now();
-
-    const [attempts] = await pool.execute(
-        'SELECT timestamp FROM chat_ip_logs WHERE ip_address = ? AND action = ? AND timestamp > DATE_SUB(NOW(), INTERVAL 1 HOUR)',
-        [ip, 'login_failed']
-    );
-
-    // 修改：将登录失败次数从10次改为30次
-    if (attempts.length >= 30) {
-      // 修改：设置5天后自动解封
-      const expireTime = new Date();
-      expireTime.setDate(expireTime.getDate() + 5);
-      
-      await pool.execute(
-          'INSERT INTO chat_banned_ips (ip_address, reason, expires_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE reason = ?, expires_at = ?',
-          [ip, '多次登录尝试失败', expireTime, '多次登录尝试失败', expireTime]
-      );
-
+    const now = new Date();
+    const hourKey = `scr:rate_limit:register:hour:${ip}`;
+    const dayKey = `scr:rate_limit:register:day:${ip}`;
+    const monthKey = `scr:rate_limit:register:month:${ip}`;
+    
+    const hourCount = await redisClient.incr(hourKey);
+    const dayCount = await redisClient.incr(dayKey);
+    const monthCount = await redisClient.incr(monthKey);
+    
+    if (hourCount === 1) {
+      await redisClient.expire(hourKey, 3600); // 1小时
     }
-
-    return attempts.length + 1;
+    if (dayCount === 1) {
+      await redisClient.expire(dayKey, 86400); // 24小时
+    }
+    if (monthCount === 1) {
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0);
+      const ttl = Math.ceil((monthEnd - now) / 1000);
+      await redisClient.expire(monthKey, ttl); // 本月剩余时间
+    }
+    
+    let allowed = true;
+    let limitType = '';
+    let waitSeconds = 0;
+    
+    if (hourCount > 2) {
+      allowed = false;
+      limitType = 'hour';
+      waitSeconds = await redisClient.ttl(hourKey);
+    } else if (dayCount > 5) {
+      allowed = false;
+      limitType = 'day';
+      waitSeconds = await redisClient.ttl(dayKey);
+    } else if (monthCount > 20) {
+      allowed = false;
+      limitType = 'month';
+      waitSeconds = await redisClient.ttl(monthKey);
+    }
+    
+    return {
+      allowed,
+      limitType,
+      hourCount,
+      dayCount,
+      monthCount,
+      waitSeconds: waitSeconds > 0 ? waitSeconds : 0
+    };
   } catch (err) {
-    console.error('记录登录尝试失败:', err.message);
-    return 0;
+    console.error('注册速率限制检查失败:', err.message);
+    return { allowed: true, limitType: '', hourCount: 0, dayCount: 0, monthCount: 0, waitSeconds: 0 };
   }
 }
 
@@ -1954,6 +2456,23 @@ app.post('/register', async (req, res) => {
 
     console.log('注册请求 IP:', clientIP);
 
+    // 检查注册速率限制
+    const registerRateLimit = await checkRegisterRateLimit(clientIP);
+    if (!registerRateLimit.allowed) {
+      let message = '注册请求过于频繁';
+      if (registerRateLimit.limitType === 'hour') {
+        message = `1小时内最多注册2次，请${registerRateLimit.waitSeconds}秒后再试`;
+      } else if (registerRateLimit.limitType === 'day') {
+        message = `24小时内最多注册5次，请${registerRateLimit.waitSeconds}秒后再试`;
+      } else if (registerRateLimit.limitType === 'month') {
+        message = `1个月内最多注册20次，请${registerRateLimit.waitSeconds}秒后再试`;
+      }
+      return res.status(429).json({ 
+        status: 'error', 
+        message: message 
+      });
+    }
+
     const banInfo = await isIPBanned(clientIP);
     if (banInfo.isBanned) {
       return res.status(403).json({ status: 'error', message: '您的 IP 已被封禁', isBanned: true, remainingTime: banInfo.remainingTime });
@@ -2009,19 +2528,18 @@ app.post('/register', async (req, res) => {
     await logIPAction(result.insertId, clientIP, 'register');
 
     // 生成一个用于自动登录的临时 token，有效期 5 分钟
-    const autoLoginToken = `auto_${result.insertId}_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+    const autoLoginToken = `${result.insertId}_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
     
-    // 将 token 存储到 Redis 或内存中，设置 5 分钟过期
+    // 将 token 存储到 Redis，键名使用 userId
     const tokenData = {
-      userId: result.insertId,
+      token: autoLoginToken,
       expire: Date.now() + 5 * 60 * 1000  // 5 分钟过期
     };
     
-    // 使用内存存储（生产环境建议使用 Redis）
-    if (!global.autoLoginTokens) {
-      global.autoLoginTokens = new Map();
-    }
-    global.autoLoginTokens.set(autoLoginToken, tokenData);
+    // 使用 Redis 存储自动登录 token，键名为 scr:auto_login_token:{userId}
+    await redisClient.set(`scr:auto_login_token:${result.insertId}`, JSON.stringify(tokenData), {
+      EX: 300  // 5 分钟过期
+    });
 
     res.json({
       status: 'success',
@@ -2162,6 +2680,27 @@ app.post('/user/update-nickname', validateIPAndSession, async (req, res) => {
       [cleanNickname, userId]
     );
 
+    // 更新全局消息缓存中该用户的昵称
+    await updateGlobalMessageCacheUserInfo(userId, { nickname: cleanNickname });
+
+    // 获取用户所在的群组，更新群组消息缓存
+    const [ memberships ] = await pool.execute(
+      'SELECT group_id FROM chat_group_members WHERE user_id = ?',
+      [userId]
+    );
+    for (const membership of memberships) {
+      await updateGroupMessageCacheUserInfo(membership.group_id, userId, { nickname: cleanNickname });
+    }
+
+    // 更新在线用户列表中的昵称
+    await updateOnlineUserByUserId(userId, { nickname: cleanNickname });
+
+    // 广播昵称更新事件
+    io.emit('nickname-updated', {
+      userId: userId,
+      nickname: cleanNickname
+    });
+
     res.json({ status: 'success', message: '昵称修改成功', nickname: cleanNickname });
   } catch (err) {
     console.error('修改昵称失败:', err.message);
@@ -2176,6 +2715,21 @@ app.post('/login', async (req, res) => {
     const clientIP = getClientIP(req);
 
     console.log('登录请求 IP:', clientIP);
+
+    // 检查登录速率限制
+    const loginRateLimit = await checkLoginRateLimit(clientIP);
+    if (!loginRateLimit.allowed) {
+      let message = '登录请求过于频繁';
+      if (loginRateLimit.limitType === 'minute') {
+        message = `登录请求过于频繁，请${loginRateLimit.waitSeconds}秒后再试`;
+      } else if (loginRateLimit.limitType === 'hour') {
+        message = `1小时内登录请求次数已达上限，请${loginRateLimit.waitSeconds}秒后再试`;
+      }
+      return res.status(429).json({ 
+        status: 'error', 
+        message: message
+      });
+    }
 
     // 检查 IP 是否被封禁，并获取封禁详情
     const banInfo = await isIPBanned(clientIP);
@@ -2204,33 +2758,42 @@ app.post('/login', async (req, res) => {
 
     // 检查是否使用自动登录 token
     if (autoLoginToken) {
-      // 验证自动登录 token
-      if (!global.autoLoginTokens) {
-        global.autoLoginTokens = new Map();
+      // 从 token 中提取 userId（格式：{userId}_{timestamp}_{random}）
+      const tokenParts = autoLoginToken.split('_');
+      if (tokenParts.length < 3) {
+        return res.status(400).json({ status: 'error', message: '自动登录 token 格式无效' });
       }
       
-      const tokenData = global.autoLoginTokens.get(autoLoginToken);
+      const userId = tokenParts[0];
       
-      if (!tokenData) {
-        return res.status(400).json({ status: 'error', message: '自动登录 token 无效' });
+      // 从 Redis 获取自动登录 token
+      const tokenDataStr = await redisClient.get(`scr:auto_login_token:${userId}`);
+      
+      if (!tokenDataStr) {
+        return res.status(400).json({ status: 'error', message: '自动登录 token 无效或已过期' });
+      }
+      
+      const tokenData = JSON.parse(tokenDataStr);
+      
+      // 验证 token 是否匹配
+      if (tokenData.token !== autoLoginToken) {
+        return res.status(400).json({ status: 'error', message: '自动登录 token 不匹配' });
       }
       
       // 检查 token 是否过期
       if (Date.now() > tokenData.expire) {
-        global.autoLoginTokens.delete(autoLoginToken);
+        await redisClient.del(`scr:auto_login_token:${userId}`);
         return res.status(400).json({ status: 'error', message: '自动登录 token 已过期，请使用验证码登录' });
       }
       
       // token 有效，获取用户信息
-      const userId = tokenData.userId;
-      
       const [users] = await pool.execute(
         'SELECT id, username, nickname, gender, avatar_url FROM chat_users WHERE id = ?',
         [userId]
       );
       
       if (users.length === 0) {
-        global.autoLoginTokens.delete(autoLoginToken);
+        await redisClient.del(`scr:auto_login_token:${userId}`);
         return res.status(404).json({ status: 'error', message: '用户不存在' });
       }
       
@@ -2243,10 +2806,10 @@ app.post('/login', async (req, res) => {
       );
       
       // 创建会话
-      const sessionToken = await createUserSession(user.id);
+      const { token: sessionToken, refreshToken } = await createUserSession(user.id);
       
       // 删除已使用的 token（只能用一次）
-      global.autoLoginTokens.delete(autoLoginToken);
+      await redisClient.del(`scr:auto_login_token:${userId}`);
       
       await logIPAction(user.id, clientIP, 'login_auto_success');
       
@@ -2258,6 +2821,7 @@ app.post('/login', async (req, res) => {
         gender: user.gender,
         avatarUrl: user.avatar_url,
         sessionToken: sessionToken,
+        refreshToken: refreshToken,
         autoLogin: true  // 标记是自动登录
       });
       
@@ -2292,19 +2856,10 @@ app.post('/login', async (req, res) => {
 
     if (users.length === 0) {
       await logIPAction(null, clientIP, 'login_failed');
-      const currentAttempt = await recordLoginAttempt(clientIP);
-      const maxAttempts = 30;
-      const remainingAttempts = maxAttempts - currentAttempt;
       
-      let message = '用户名或密码错误';
-      if (remainingAttempts <= 5 && remainingAttempts > 0) {
-        message += `，您还剩 ${remainingAttempts} 次登录机会，超过将被封禁`;
-      }
-
       return res.status(400).json({ 
         status: 'error', 
-        message: message,
-        remainingAttempts: remainingAttempts > 0 ? remainingAttempts : 0
+        message: '用户名或密码错误'
       });
     }
 
@@ -2314,19 +2869,10 @@ app.post('/login', async (req, res) => {
 
     if (!isPasswordValid) {
       await logIPAction(null, clientIP, 'login_failed');
-      const currentAttempt = await recordLoginAttempt(clientIP);
-      const maxAttempts = 30;
-      const remainingAttempts = maxAttempts - currentAttempt;
       
-      let message = '用户名或密码错误';
-      if (remainingAttempts <= 5 && remainingAttempts > 0) {
-        message += `，您还剩 ${remainingAttempts} 次登录机会，超过将被封禁`;
-      }
-
       return res.status(400).json({ 
         status: 'error', 
-        message: message,
-        remainingAttempts: remainingAttempts > 0 ? remainingAttempts : 0
+        message: '用户名或密码错误'
       });
     }
 
@@ -2335,22 +2881,76 @@ app.post('/login', async (req, res) => {
         [user.id]
     );
 
-    const sessionToken = await createUserSession(user.id);
+    const { token: sessionToken, refreshToken } = await createUserSession(user.id);
 
     await logIPAction(user.id, clientIP, 'login_success');
 
     res.json({
       status: 'success',
-      message: '登录成功（会话永不过期）',
+      message: '登录成功',
       userId: user.id,
       nickname: user.nickname,
       gender: user.gender,
       avatarUrl: user.avatar_url,
-      sessionToken: sessionToken
+      sessionToken: sessionToken,
+      refreshToken: refreshToken
     });
   } catch (err) {
     console.error('登录失败:', err.message);
     res.status(500).json({ status: 'error', message: '登录失败' });
+  }
+});
+
+// 刷新 Token 接口
+app.post('/refresh-token', async (req, res) => {
+  try {
+    const { userId, refreshToken } = req.body;
+    
+    if (!userId || !refreshToken) {
+      return res.status(400).json({ status: 'error', message: '缺少必要参数' });
+    }
+    
+    // 从 Redis 获取 refreshToken
+    const session = await getUserSession(parseInt(userId));
+    
+    // 如果 Redis 中没有 refreshToken，直接返回错误
+    if (!session || !session.refreshToken) {
+      return res.status(401).json({ status: 'error', message: '会话已过期，请重新登录' });
+    }
+    
+    // 验证 refreshToken
+    if (session.refreshToken !== refreshToken) {
+      return res.status(401).json({ status: 'error', message: 'Refresh Token 无效' });
+    }
+    
+    // 生成新的 Token 和 Refresh Token
+    const newToken = generateSessionToken();
+    const newRefreshToken = generateSessionToken();
+    const newExpires = Date.now() + (20 * 60 * 1000);
+    const newRefreshExpires = Date.now() + (30 * 24 * 60 * 60 * 1000);
+    
+    // 更新 Redis 中的会话
+    const newSession = {
+      token: newToken,
+      refreshToken: newRefreshToken
+    };
+    await setUserSession(parseInt(userId), newSession, newExpires, newRefreshExpires);
+    
+    // 更新数据库中的 refresh_token
+    await pool.execute(
+      'UPDATE chat_sessions SET refresh_token = ?, refresh_expires = ?, last_active = ? WHERE user_id = ?',
+      [newRefreshToken, new Date(newRefreshExpires), new Date(), parseInt(userId)]
+    );
+    
+    res.json({
+      status: 'success',
+      message: 'Token 刷新成功',
+      token: newToken,
+      refreshToken: newRefreshToken
+    });
+  } catch (err) {
+    console.error('刷新 Token 失败:', err.message);
+    res.status(500).json({ status: 'error', message: '刷新 Token 失败' });
   }
 });
 
@@ -2470,19 +3070,53 @@ app.post('/upload-group-avatar/:groupId', validateIPAndSession, groupAvatarUploa
 
     const group = groups[0];
     const avatarPath = `/avatars/${req.file.filename}`;
+    
+    // 清理该群组的旧头像文件
+    // 搜索所有 group_avatar_${groupId}.* 文件
+    const groupAvatarFiles = fs.readdirSync(avatarDir).filter(file => {
+      return file.startsWith(`group_avatar_${groupId}.`);
+    });
 
-    // 更新群组头像URL
+    // 如果头像文件数量大于1，删除除当前头像外的其他文件
+    if (groupAvatarFiles.length > 1) {
+      const currentAvatarFilename = req.file.filename;
+      for (const file of groupAvatarFiles) {
+        if (file !== currentAvatarFilename) {
+          try {
+            const filePath = path.join(avatarDir, file);
+            fs.unlinkSync(filePath);
+          } catch (deleteError) {
+            console.error(`删除旧群头像文件 ${file} 失败:`, deleteError.message);
+          }
+        }
+      }
+    }
+    
+    // 生成带时间戳的头像 URL，确保客户端获取最新资源
+    const timestamp = Date.now();
+    const avatarUrlWithVersion = `${avatarPath}?v=${timestamp}`;
+
+    // 更新群组头像 URL
     await pool.execute(
         'UPDATE chat_groups SET avatar_url = ? WHERE id = ?',
-        [avatarPath, groupId]
+        [avatarUrlWithVersion, groupId]
     );
+
+    // 更新群组消息缓存中该群组的头像
+    await updateGroupMessageCacheGroupInfo(groupId, { avatarUrl: avatarUrlWithVersion });
+
+    // 广播群头像更新事件给所有群组成员（使用群组房间）
+    io.to(`group_${groupId}`).emit('group-avatar-updated', {
+      groupId: groupId,
+      avatarUrl: avatarUrlWithVersion
+    });
 
     res.json({
       status: 'success',
       message: '群头像上传成功',
       groupId: group.id,
       groupName: group.name,
-      avatarUrl: avatarPath
+      avatarUrl: avatarUrlWithVersion
     });
   } catch (err) {
     console.error('上传群头像失败:', err.message);
@@ -2526,31 +3160,62 @@ app.post('/upload-avatar', validateIPAndSession, avatarUpload.single('avatar'), 
     }
 
     const user = users[0];
-    const oldAvatarUrl = user.avatar_url;
     const avatarUrl = `/avatars/${req.file.filename}`;
 
-    // 删除旧头像文件（如果存在且不是默认头像）
-    if (oldAvatarUrl && oldAvatarUrl !== '/avatars/default.png') {
-      try {
-        const oldAvatarPath = path.join(__dirname, 'avatars', path.basename(oldAvatarUrl));
-        if (fs.existsSync(oldAvatarPath)) {
-          fs.unlinkSync(oldAvatarPath);
-          // console.log('已删除旧头像文件:', oldAvatarPath);
+    // 清理该用户的旧头像文件
+    // 搜索所有 avatar_${userId}.* 文件
+    const avatarFiles = fs.readdirSync(avatarDir).filter(file => {
+      return file.startsWith(`avatar_${userId}.`);
+    });
+
+    // 如果头像文件数量大于1，删除除当前头像外的其他文件
+    if (avatarFiles.length > 1) {
+      const currentAvatarFilename = req.file.filename;
+      for (const file of avatarFiles) {
+        if (file !== currentAvatarFilename) {
+          try {
+            const filePath = path.join(avatarDir, file);
+            fs.unlinkSync(filePath);
+          } catch (deleteError) {
+            console.error(`删除旧头像文件 ${file} 失败:`, deleteError.message);
+          }
         }
-      } catch (deleteError) {
-        console.error('删除旧头像文件失败:', deleteError.message);
-        // 即使删除失败，也继续更新数据库，不阻止用户上传新头像
       }
     }
 
+    // 生成带时间戳的头像 URL，确保客户端获取最新资源
+    const timestamp = Date.now();
+    const avatarUrlWithVersion = `${avatarUrl}?v=${timestamp}`;
+
     await pool.execute(
         'UPDATE chat_users SET avatar_url = ? WHERE id = ?',
-        [avatarUrl, userId]
+        [avatarUrlWithVersion, userId]
     );
+
+    // 更新全局消息缓存中该用户的头像
+    await updateGlobalMessageCacheUserInfo(userId, { avatarUrl: avatarUrlWithVersion });
+
+    // 获取用户所在的群组，更新群组消息缓存
+    const [ memberships ] = await pool.execute(
+      'SELECT group_id FROM chat_group_members WHERE user_id = ?',
+      [userId]
+    );
+    for (const membership of memberships) {
+      await updateGroupMessageCacheUserInfo(membership.group_id, userId, { avatarUrl: avatarUrlWithVersion });
+    }
+
+    // 更新在线用户列表中的头像
+    await updateOnlineUserByUserId(userId, { avatarUrl: avatarUrlWithVersion });
+
+    // 广播头像更新事件
+    io.emit('avatar-updated', {
+      userId: userId,
+      avatarUrl: avatarUrlWithVersion
+    });
 
     res.json({
       status: 'success',
-      avatarUrl: avatarUrl,
+      avatarUrl: avatarUrlWithVersion,
       storageInfo: storageStatus
     });
   } catch (err) {
@@ -2695,7 +3360,22 @@ app.post('/create-group', validateIPAndSession, async (req, res) => {
       WHERE gm.group_id = ?
     `, [groupId]);
 
-    io.emit('group-created', {
+    // 让所有在线成员加入群组房间
+    for (const member of groupMembers) {
+      const allOnlineUsers = await getAllOnlineUsers();
+      for (const onlineUser of allOnlineUsers) {
+        if (String(onlineUser.id) === String(member.id)) {
+          const memberSocket = io.sockets.sockets.get(onlineUser.socketId);
+          if (memberSocket) {
+            memberSocket.join(`group_${groupId}`);
+            // console.log(`✅ 成员 ${member.id} 加入新群组房间: group_${groupId}`);
+          }
+        }
+      }
+    }
+      
+    // 向所有群组成员广播群组创建事件（使用群组房间）
+    io.to(`group_${groupId}`).emit('group-created', {
       groupId: groupId,
       groupName: cleanGroupName,
       creatorId: userId,
@@ -2893,11 +3573,17 @@ app.post('/remove-group-member', validateIPAndSession, async (req, res) => {
       [groupId, memberId]
     );
 
-    // 发送Socket.IO通知给群组内的用户
+    // 获取群组所有成员，向他们广播成员移除事件
+    const [allMembers] = await pool.execute(
+      'SELECT user_id FROM chat_group_members WHERE group_id = ?',
+      [groupId]
+    );
+    
+    // 向所有群组成员广播成员被踢出事件（使用群组房间）
     io.to(`group_${groupId}`).emit('member-removed', { groupId, memberId });
     
-    // 发送全局广播，确保所有用户的群组列表都能更新
-    io.emit('member-removed', { groupId, memberId });
+    // 也通知被踢出的成员
+    io.to(`user_${memberId}`).emit('member-removed', { groupId, memberId });
     
     res.json({ success: true, message: '成员已成功踢出' });
   } catch (err) {
@@ -2997,15 +3683,28 @@ app.post('/add-group-members', validateIPAndSession, async (req, res) => {
       newMemberIds
     );
 
-    // 发送Socket.IO通知给群组内的用户
-    io.to(`group_${groupId}`).emit('members-added', {
-      groupId: groupId,
-      newMembers: newMembersInfo,
-      allMembers: updatedMembers
-    });
+    // 让所有在线的新成员加入群组房间
+    const allOnlineUsers = await getAllOnlineUsers();
+    for (const memberId of newMemberIds) {
+      for (const onlineUser of allOnlineUsers) {
+        if (String(onlineUser.id) === String(memberId)) {
+          const memberSocket = io.sockets.sockets.get(onlineUser.socketId);
+          if (memberSocket) {
+            memberSocket.join(`group_${groupId}`);
+            // console.log(`✅ 新成员 ${memberId} 加入群组房间: group_${groupId}`);
+          }
+        }
+      }
+    }
+
+    // 获取群组所有成员，向他们广播成员添加事件
+    const [allMembers] = await pool.execute(
+      'SELECT user_id FROM chat_group_members WHERE group_id = ?',
+      [groupId]
+    );
     
-    // 发送全局广播，确保所有用户的群组列表都能更新
-    io.emit('members-added', {
+    // 向所有群组成员广播成员添加事件（使用群组房间）
+    io.to(`group_${groupId}`).emit('members-added', {
       groupId: groupId,
       newMembers: newMembersInfo,
       allMembers: updatedMembers
@@ -3302,15 +4001,12 @@ app.post('/upload', validateIPAndSession, checkFileRequestLimit, upload.fields([
     if (safeGroupId) {
       io.to(`group_${safeGroupId}`).emit('message-received', newMessage);
       
-      // 确保 groupId 是字符串类型，避免 Map 键类型不一致
-      const groupIdStr = String(safeGroupId);
-      // 直接将新消息添加到群组消息缓存
-      let cachedGroupMessages = messageCache.groups.get(groupIdStr) || [];
-      cachedGroupMessages.unshift(newMessage);
-      // 保留最新的 50 条消息
-      cachedGroupMessages = cachedGroupMessages.slice(0, 50);
-      messageCache.groups.set(groupIdStr, cachedGroupMessages);
-      messageCache.lastUpdated = Date.now();
+      // 将新消息添加到 Redis 群组缓存（即使失败也不影响主流程）
+      try {
+        await addGroupMessageToCache(safeGroupId, newMessage);
+      } catch (cacheErr) {
+        console.error('添加群组消息到Redis缓存失败:', cacheErr.message);
+      }
       
       // 更新群组成员的未读消息计数
       try {
@@ -3339,14 +4035,22 @@ app.post('/upload', validateIPAndSession, checkFileRequestLimit, upload.fields([
         console.error('更新未读消息计数失败:', unreadErr.message);
     }
   } else {
-    io.emit('message-received', newMessage);
-    // 直接将新消息添加到全局消息缓存
-    let cachedGlobalMessages = messageCache.global || [];
-    cachedGlobalMessages.unshift(newMessage);
-    // 保留最新的 50 条消息
-    cachedGlobalMessages = cachedGlobalMessages.slice(0, 50);
-    messageCache.global = cachedGlobalMessages;
-    messageCache.lastUpdated = Date.now();
+    // 只发送给已认证的用户（发送过 user-joined 事件的用户）
+    const allOnlineUsers = await getAllOnlineUsers();
+    for (const onlineUser of allOnlineUsers) {
+      if (await isAuthenticatedUser(onlineUser.id)) {
+        const socket = io.sockets.sockets.get(onlineUser.socketId);
+        if (socket) {
+          socket.emit('message-received', newMessage);
+        }
+      }
+    }
+    // 将新消息添加到 Redis 缓存（即使失败也不影响主流程）
+      try {
+        await addGlobalMessageToCache(newMessage);
+      } catch (cacheErr) {
+        console.error('添加全局消息到Redis缓存失败:', cacheErr.message);
+      }
   }
 
     // 根据文件类型返回正确的URL
@@ -3368,17 +4072,134 @@ app.use('/avatars', (req, res, next) => {
   express.static(avatarDir)(req, res, next);
 });
 
-// 存储在线用户
-const onlineUsers = new Map();
+// 在线用户管理（使用 Redis）
+// 存储在 Redis key: scr:online_users (Hash: socketId -> userData)
 
-// 根据用户ID查找对应的socket连接
-function findSocketByUserId(userId) {
-  for (let [socketId, user] of onlineUsers.entries()) {
-    if (user.id === userId) {
-      return io.sockets.sockets.get(socketId);
-    }
+// 添加在线用户
+async function addOnlineUser(socketId, userData) {
+  try {
+    await redisClient.hSet('scr:online_users', socketId, JSON.stringify(userData));
+  } catch (err) {
+    console.error('添加在线用户失败:', err.message);
   }
-  return null;
+}
+
+// 移除在线用户
+async function removeOnlineUser(socketId) {
+  try {
+    await redisClient.hDel('scr:online_users', socketId);
+  } catch (err) {
+    console.error('移除在线用户失败:', err.message);
+  }
+}
+
+// 获取在线用户
+async function getOnlineUser(socketId) {
+  try {
+    const userData = await redisClient.hGet('scr:online_users', socketId);
+    return userData ? JSON.parse(userData) : null;
+  } catch (err) {
+    console.error('获取在线用户失败:', err.message);
+    return null;
+  }
+}
+
+// 获取所有在线用户
+async function getAllOnlineUsers() {
+  try {
+    const users = await redisClient.hGetAll('scr:online_users');
+    const result = [];
+    for (const socketId in users) {
+      result.push({ socketId, ...JSON.parse(users[socketId]) });
+    }
+    return result;
+  } catch (err) {
+    console.error('获取所有在线用户失败:', err.message);
+    return [];
+  }
+}
+
+// 获取在线用户数量
+async function getOnlineUserCount() {
+  try {
+    return await redisClient.hLen('scr:online_users');
+  } catch (err) {
+    console.error('获取在线用户数量失败:', err.message);
+    return 0;
+  }
+}
+
+// 更新在线用户数据
+async function updateOnlineUser(socketId, updates) {
+  try {
+    const userData = await getOnlineUser(socketId);
+    if (userData) {
+      const updatedUser = { ...userData, ...updates };
+      await redisClient.hSet('scr:online_users', socketId, JSON.stringify(updatedUser));
+      return updatedUser;
+    }
+    return null;
+  } catch (err) {
+    console.error('更新在线用户失败:', err.message);
+    return null;
+  }
+}
+
+// 按用户ID更新所有在线用户数据
+async function updateOnlineUserByUserId(userId, updates) {
+  try {
+    const users = await redisClient.hGetAll('scr:online_users');
+    for (const socketId in users) {
+      const userData = JSON.parse(users[socketId]);
+      if (String(userData.id) === String(userId)) {
+        const updatedUser = { ...userData, ...updates };
+        await redisClient.hSet('scr:online_users', socketId, JSON.stringify(updatedUser));
+      }
+    }
+  } catch (err) {
+    console.error('按用户ID更新在线用户失败:', err.message);
+  }
+}
+
+// 检查用户是否在线
+async function isUserOnline(socketId) {
+  try {
+    return await redisClient.hExists('scr:online_users', socketId);
+  } catch (err) {
+    console.error('检查用户是否在线失败:', err.message);
+    return false;
+  }
+}
+
+// 已认证用户管理（使用 Redis）
+// 存储在 Redis key: scr:authenticated_users (Set)
+
+// 添加已认证用户
+async function addAuthenticatedUser(userId) {
+  try {
+    await redisClient.sAdd('scr:authenticated_users', String(userId));
+  } catch (err) {
+    console.error('添加已认证用户失败:', err.message);
+  }
+}
+
+// 移除已认证用户
+async function removeAuthenticatedUser(userId) {
+  try {
+    await redisClient.sRem('scr:authenticated_users', String(userId));
+  } catch (err) {
+    console.error('移除已认证用户失败:', err.message);
+  }
+}
+
+// 检查用户是否已认证
+async function isAuthenticatedUser(userId) {
+  try {
+    return await redisClient.sIsMember('scr:authenticated_users', String(userId));
+  } catch (err) {
+    console.error('检查已认证用户失败:', err.message);
+    return false;
+  }
 }
 
 // Socket.IO 连接处理 - 修改：移除会话过期检查
@@ -3447,30 +4268,96 @@ async function validateSocketIP(socket, next) {
   }
 }
 
+// 强制断开用户连接并清理
+async function forceDisconnectUser(socket, reason = 'session-expired') {
+  // 从在线用户列表中移除
+  const user = await getOnlineUser(socket.id);
+  if (user) {
+    await removeOnlineUser(socket.id);
+    await removeAuthenticatedUser(user.id);
+    
+    // 更新用户最后在线时间
+    try {
+      await pool.execute(
+        'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+        [user.id]
+      );
+    } catch (err) {
+      console.error('更新用户最后上线时间失败:', err.message);
+    }
+    
+    // 广播更新后的用户列表
+    const onlineUsersList = await getAllOnlineUsers();
+    const onlineUsersArray = onlineUsersList.map(u => ({
+      id: u.id,
+      nickname: u.nickname,
+      avatarUrl: u.avatarUrl,
+      isOnline: true
+    }));
+
+    const onlineUserIds = new Set(onlineUsersArray.map(u => u.id));
+    
+    const [offlineUsersData] = await pool.execute(`
+      SELECT id, nickname, last_online, avatar_url as avatarUrl 
+      FROM chat_users 
+      WHERE last_online IS NOT NULL 
+      AND last_online >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+      ORDER BY last_online DESC
+    `);
+
+    const offlineUsersArray = offlineUsersData
+      .filter(u => !onlineUserIds.has(u.id))
+      .map(u => ({
+        id: u.id,
+        nickname: u.nickname,
+        avatarUrl: u.avatarUrl,
+        isOnline: false,
+        lastOnline: u.last_online
+      }));
+
+    io.emit('users-list', {
+      online: onlineUsersArray,
+      offline: offlineUsersArray
+    });
+  }
+  
+  // 发送事件并断开连接
+  socket.emit(reason);
+  socket.disconnect(true);
+}
+
 // Socket.IO会话验证函数（包含IP验证）
-async function validateSocketSession(socket, userData) {
+async function validateSocketSession(socket, userData, skipAuthCheck = false) {
   // console.log(`🔐 [Socket.IO] 会话验证开始: userId=${userData.userId || 'undefined'}, socketId=${socket.id}`);
   
   // 首先验证IP
   const ipValid = await validateSocketIP(socket);
   if (!ipValid) {
     // console.log(`🚨 [Socket.IO] 会话验证失败: IP验证未通过, userId=${userData.userId || 'undefined'}`);
+    await forceDisconnectUser(socket, 'session-expired');
     return false;
+  }
+  
+  // 检查用户是否在Redis已认证列表中（除非跳过检查）
+  if (!skipAuthCheck) {
+    const isAuth = await isAuthenticatedUser(parseInt(userData.userId));
+    if (!isAuth) {
+      await forceDisconnectUser(socket, 'session-expired');
+      return false;
+    }
   }
   
   // 然后验证会话
   if (!userData.userId || !userData.sessionToken) {
     // console.error(`❌ [Socket.IO] 会话验证失败: 缺少必要参数, userId=${userData.userId || 'undefined'}, sessionToken=${userData.sessionToken ? 'present' : 'missing'}`);
-    socket.emit('session-expired');
-    socket.disconnect();
+    await forceDisconnectUser(socket, 'session-expired');
     return false;
   }
 
-  const session = userSessions.get(parseInt(userData.userId));
+  const session = await getUserSession(parseInt(userData.userId));
   if (!session || session.token !== userData.sessionToken) {
     // console.error(`❌ [Socket.IO] 会话验证失败: token不匹配或会话不存在, userId=${userData.userId}`);
-    socket.emit('session-expired');
-    socket.disconnect();
+    await forceDisconnectUser(socket, 'session-expired');
     return false;
   }
   
@@ -3481,7 +4368,7 @@ async function validateSocketSession(socket, userData) {
 io.on('connection', (socket) => {
 //   console.log('✅ 用户连接:', socket.id);
 
-  // 获取聊天历史（不依赖user-joined事件）
+  // 获取聊天历史（不依赖 user-joined 事件）
   socket.on('get-chat-history', async (data) => {
       try {
         // 会话和IP验证
@@ -3493,30 +4380,27 @@ io.on('connection', (socket) => {
         // 检查是否是加载更多消息的请求
         const loadMore = data.loadMore || false;
         
-        // 发送聊天历史 - 使用缓存
+        // 发送聊天历史 - 使用 Redis 缓存
         const limit = data.limit || 20;
         let messages = [];
         
         if (loadMore && data.olderThan) {
-          // 如果是加载更多消息，并且提供了olderThan参数，获取更早的消息
+          // 如果是加载更多消息，并且提供了 olderThan 参数，获取更早的消息
           messages = await getGlobalMessages(limit, data.olderThan);
         } else {
           // 否则获取最新消息
-          // 优先从缓存中获取消息，如果缓存为空则从数据库中获取
-          if (messageCache.global && messageCache.global.length > 0) {
-            messages = messageCache.global.slice(0, limit);
+          // 优先从 Redis 缓存中获取消息，如果缓存为空则从数据库中获取
+          const cachedMessages = await getGlobalMessagesFromCache(limit);
+          if (cachedMessages && cachedMessages.length > 0) {
+            messages = cachedMessages;
           } else {
             // 缓存为空，从数据库中获取消息
             messages = await getGlobalMessages(limit);
-            // 手动更新缓存，确保后续消息能够被正确添加
-            messageCache.global = messages;
-            messageCache.lastUpdated = Date.now();
           }
         }
         
         socket.emit('chat-history', {
           messages: messages,
-          lastUpdate: messageCache.lastUpdated,
           loadMore: loadMore
         });
       } catch (err) {
@@ -3552,35 +4436,27 @@ io.on('connection', (socket) => {
           return;
         }
         
-        // 发送群组消息历史 - 使用缓存
+        // 发送群组消息历史 - 使用 Redis 缓存
         const limit = data.limit || 20;
         let messages = [];
-        
-        // 检查当前缓存状态
-        const currentCache = messageCache.groups.get(groupIdStr);
         
         if (data.loadMore && data.olderThan) {
           // 如果是加载更多消息，并且提供了olderThan参数，获取更早的消息
           messages = await getGroupMessages(groupId, limit, data.olderThan);
         } else {
           // 否则获取最新消息
-          // 优先从缓存中获取消息，如果缓存为空则从数据库中获取
-          if (messageCache.groups.get(groupIdStr) && messageCache.groups.get(groupIdStr).length > 0) {
-            messages = messageCache.groups.get(groupIdStr).slice(0, limit);
+          // 优先从 Redis 缓存中获取消息，如果缓存为空则从数据库中获取
+          const cachedMessages = await getGroupMessagesFromCache(groupId, limit);
+          if (cachedMessages && cachedMessages.length > 0) {
+            messages = cachedMessages;
           } else {
             messages = await getGroupMessages(groupId, limit);
-            // 手动更新缓存，确保后续消息能够被正确添加
-            messageCache.groups.set(groupIdStr, messages);
-            messageCache.lastUpdated = Date.now();
           }
         }
-        
-        const groupCacheSize = messageCache.groups.get(groupIdStr)?.length || 0;
 
         socket.emit('group-chat-history', {
           groupId: groupId,
           messages: messages,
-          lastUpdate: messageCache.lastUpdated,
           loadMore: data.loadMore || false,
           loadTime: loadTime
         });
@@ -3594,7 +4470,7 @@ io.on('connection', (socket) => {
   socket.on('user-joined', async (userData) => {
       try {
         // 会话和 IP 验证...
-        const isValid = await validateSocketSession(socket, userData);
+        const isValid = await validateSocketSession(socket, userData, true);
         if (!isValid) {
           return;
         }
@@ -3603,8 +4479,49 @@ io.on('connection', (socket) => {
         const userId = parseInt(userData.userId);
         if (isNaN(userId)) {
           console.error('❌ 无效的用户 ID:', userData.userId);
-          socket.emit('error', { message: '无效的用户 ID' });
+          await forceDisconnectUser(socket, 'session-expired');
           return;
+        }
+        
+        // 加入用户自己的房间，用于接收私人和群组通知
+        socket.join(`user_${userId}`);
+        
+        // 加入用户的所有群组房间
+        try {
+          const [userGroups] = await pool.execute(
+            'SELECT group_id FROM chat_group_members WHERE user_id = ?',
+            [userId]
+          );
+          
+          for (const group of userGroups) {
+            socket.join(`group_${group.group_id}`);
+            // console.log(`✅ 用户 ${userId} 加入群组房间: group_${group.group_id}`);
+          }
+        } catch (err) {
+          console.error('❌ 获取用户群组列表失败:', err.message);
+        }
+        
+        // 获取客户端IP并加入IP房间，用于接收IP封禁通知
+        let clientIP = socket.handshake.headers['x-forwarded-for'];
+        if (!clientIP) {
+          clientIP = socket.handshake.headers['x-real-ip'];
+        }
+        if (!clientIP) {
+          clientIP = socket.handshake.address || socket.conn.remoteAddress;
+        }
+        // 取第一个IP（如果有多个）
+        if (clientIP && clientIP.includes(',')) {
+          clientIP = clientIP.split(',')[0].trim();
+        }
+        // 处理IPv6格式
+        let processedIP = clientIP;
+        if (processedIP === '::1') {
+          processedIP = '127.0.0.1';
+        } else if (processedIP && processedIP.startsWith('::ffff:')) {
+          processedIP = processedIP.slice(7);
+        }
+        if (processedIP) {
+          socket.join(`ip_${processedIP}`);
         }
         
         // 从数据库中获取真实的用户信息
@@ -3616,30 +4533,36 @@ io.on('connection', (socket) => {
         if (users.length === 0) {
           console.error('❌ 用户不存在:', userId);
           socket.emit('error', { message: '用户不存在' });
+          socket.emit('session-expired');
+          socket.disconnect(true);
           return;
         }
         
         const user = users[0];
         const { nickname, avatarUrl, unread_group_messages, unread_private_messages } = user;
     
-        // 检查用户是否已经在线
+        // 检查用户是否已经在线，如果在线则移除旧连接
+        const allOnlineUsers = await getAllOnlineUsers();
         let isExistingUser = false;
-        for (let [id, onlineUser] of onlineUsers.entries()) {
-          if (onlineUser.id === userId) {
-            onlineUsers.delete(id);
+        for (const onlineUser of allOnlineUsers) {
+          if (String(onlineUser.id) === String(userId)) {
+            await removeOnlineUser(onlineUser.socketId);
             isExistingUser = true;
             break;
           }
         }
     
         // 存储用户信息（使用数据库中的真实信息）
-        onlineUsers.set(socket.id, {
+        await addOnlineUser(socket.id, {
           id: userId,
           nickname: nickname,
           socketId: socket.id,
           avatarUrl: avatarUrl,
           sessionToken: userData.sessionToken
         });
+    
+        // 将用户添加到已认证集合，只有发送过 user-joined 的用户才能收到主聊天室消息
+        await addAuthenticatedUser(userId);
     
         // 更新用户最后在线时间
         await pool.execute(
@@ -3670,7 +4593,8 @@ io.on('connection', (socket) => {
         }
 
         // 广播更新后的用户列表
-        const onlineUsersArray = Array.from(onlineUsers.values()).map(user => ({
+        const onlineUsersList = await getAllOnlineUsers();
+        const onlineUsersArray = onlineUsersList.map(user => ({
           id: user.id,
           nickname: user.nickname,
           avatarUrl: user.avatarUrl,
@@ -3705,24 +4629,22 @@ io.on('connection', (socket) => {
         // 检查是否是加载更多消息的请求
         const loadMore = userData.loadMore || false;
         
-        // 发送聊天历史 - 使用缓存
+        // 发送聊天历史 - 使用 Redis 缓存
         const limit = userData.limit || 20;
         let messages = [];
         
         if (loadMore && userData.olderThan) {
-          // 如果是加载更多消息，并且提供了olderThan参数，获取更早的消息
+          // 如果是加载更多消息，并且提供了 olderThan 参数，获取更早的消息
           messages = await getGlobalMessages(limit, userData.olderThan);
         } else {
           // 否则获取最新消息
-          // 优先从缓存中获取消息，如果缓存为空则从数据库中获取
-          if (messageCache.global && messageCache.global.length > 0) {
-            messages = messageCache.global.slice(0, limit);
+          // 优先从 Redis 缓存中获取消息，如果缓存为空则从数据库中获取
+          const cachedMessages = await getGlobalMessagesFromCache(limit);
+          if (cachedMessages && cachedMessages.length > 0) {
+            messages = cachedMessages;
           } else {
             // 缓存为空，从数据库中获取消息
             messages = await getGlobalMessages(limit);
-            // 手动更新缓存，确保后续消息能够被正确添加
-            messageCache.global = messages;
-            messageCache.lastUpdated = Date.now();
           }
         }
         
@@ -3800,7 +4722,6 @@ io.on('connection', (socket) => {
         // 发送聊天历史
         socket.emit('chat-history', {
           messages: messages,
-          lastUpdate: messageCache.lastUpdated,
           loadMore: loadMore,
           unreadMessages: unreadMessages,
           unreadPrivateMessages: privateUnreadMessages,
@@ -3836,15 +4757,14 @@ io.on('connection', (socket) => {
       }
       
       // 获取当前用户信息
-      const currentUser = onlineUsers.get(socket.id);
-      if (!currentUser || currentUser.id !== data.userId) {
+      const currentUser = await getOnlineUser(socket.id);
+      if (!currentUser || String(currentUser.id) !== String(data.userId)) {
         console.error('❌ 头像更新失败: 用户身份验证失败');
         return;
       }
       
       // 更新在线用户列表中的头像URL
-      currentUser.avatarUrl = data.avatarUrl;
-      onlineUsers.set(socket.id, currentUser);
+      await updateOnlineUser(socket.id, { avatarUrl: data.avatarUrl });
       
       // 保存头像URL到数据库
       await pool.execute(
@@ -3853,7 +4773,8 @@ io.on('connection', (socket) => {
       );
       
       // 广播更新后的用户列表给所有客户端
-      const onlineUsersArray = Array.from(onlineUsers.values()).map(user => ({
+      const allOnlineUsers = await getAllOnlineUsers();
+      const onlineUsersArray = allOnlineUsers.map(user => ({
         id: user.id,
         nickname: user.nickname,
         avatarUrl: user.avatarUrl,
@@ -3901,16 +4822,7 @@ io.on('connection', (socket) => {
   // 加入群组
   socket.on('join-group', async (data) => {
       try {
-        const { groupId, userId, sessionToken, loadMore = false, onlyClearUnread = false, noHistory = false, loadTime } = data;
-    
-        // console.log('👥 [群组加入] 收到请求:', {
-        //   socketId: socket.id,
-        //   userId: userId,
-        //   groupId: groupId,
-        //   loadMore: loadMore,
-        //   olderThan: data.olderThan,
-        //   limit: data.limit
-        // });
+        const { groupId, userId, sessionToken, loadMore = false, olderThan, limit = 20 } = data;
     
         // 会话和IP验证...
         const isValid = await validateSocketSession(socket, data);
@@ -3918,58 +4830,31 @@ io.on('connection', (socket) => {
           return;
         }
     
-        // 如果不是加载更多，则加入群组频道
-        if (!loadMore) {
-          socket.join(`group_${groupId}`);
-          // console.log(`✅ 用户加入群组: ${groupId}, socket: ${socket.id}`);
-          
-          // 自动已读该群组消息
-          const groupIdStr = String(groupId);
-          await pool.execute(
-            `UPDATE chat_users 
-             SET unread_group_messages = JSON_REMOVE(
-               COALESCE(unread_group_messages, '{}'), 
-               CONCAT('$."', ?, '"')
-             ) 
-             WHERE id = ?`,
-            [groupIdStr, parseInt(userId)]
-          );
-          
-          // 如果只需要清除未读计数，则不返回消息历史
-          if (onlyClearUnread || noHistory) {
-            return;
-          }
-        }
-    
         // 确保groupId是字符串类型，避免Map键类型不一致
         const groupIdStr = String(groupId);
-        // 发送群组消息历史 - 使用缓存
-        const limit = data.limit || 20;
-        let messages = [];
+          
+        // 验证用户是否在群组中
+        const [memberCheck] = await pool.query(
+          'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+          [groupId, userId]
+        );
         
-        // 检查当前缓存状态
-        const currentCache = messageCache.groups.get(groupIdStr);
-        
-        if (loadMore && data.olderThan) {
-          // 如果是加载更多消息，并且提供了olderThan参数，获取更早的消息
-          messages = await getGroupMessages(groupId, limit, data.olderThan);
-        } else {
-          // 否则获取最新消息
-          // 优先从缓存中获取消息，如果缓存为空则从数据库中获取
-          if (messageCache.groups.get(groupIdStr) && messageCache.groups.get(groupIdStr).length > 0) {
-            messages = messageCache.groups.get(groupIdStr).slice(0, limit);
-          } else {
-            messages = await getGroupMessages(groupId, limit);
-            // 手动更新缓存，确保后续消息能够被正确添加
-            messageCache.groups.set(groupIdStr, messages);
-            messageCache.lastUpdated = Date.now();
-          }
+        if (memberCheck.length === 0) {
+          socket.emit('error', { message: '您不在该群组中，无法查看聊天记录' });
+          return;
         }
-
-        // console.log(`📨 [群组加入] 发送群组消息历史给用户: groupId=${groupId}, 消息数量=${messages.length}, 是否加载更多=${loadMore}`);
         
-        const groupCacheSize = messageCache.groups.get(groupId)?.length || 0;
-
+        // 自动已读该群组消息
+        await pool.execute(
+          `UPDATE chat_users 
+           SET unread_group_messages = JSON_REMOVE(
+             COALESCE(unread_group_messages, '{}'), 
+             CONCAT('$."', ?, '"')
+           ) 
+           WHERE id = ?`,
+          [groupIdStr, parseInt(userId)]
+        );
+        
         // 获取用户的未读消息统计
         const [users] = await pool.execute(
           'SELECT unread_group_messages FROM chat_users WHERE id = ?',
@@ -3985,18 +4870,35 @@ io.on('connection', (socket) => {
             totalUnread += parseInt(unreadMessages[gid]) || 0;
           }
         }
-
-        socket.emit('group-chat-history', {
+        
+        // 发送群组消息历史 - 使用 Redis 缓存
+        let messages = [];
+        
+        if (loadMore && olderThan) {
+          // 如果是加载更多消息，并且提供了 olderThan 参数，获取更早的消息
+          messages = await getGroupMessages(groupId, limit, olderThan);
+        } else {
+          // 否则获取最新消息
+          // 优先从 Redis 缓存中获取消息，如果缓存为空则从数据库中获取
+          const cachedMessages = await getGroupMessagesFromCache(groupId, limit);
+          if (cachedMessages && cachedMessages.length > 0) {
+            messages = cachedMessages;
+          } else {
+            messages = await getGroupMessages(groupId, limit);
+          }
+        }
+        
+        socket.emit('messages-loaded', {
+          type: 'group',
           groupId: groupId,
           messages: messages,
-          lastUpdate: messageCache.lastUpdated,
           loadMore: loadMore,
           unreadMessages: unreadMessages,
-          totalUnread: totalUnread,
-          loadTime: loadTime
+          totalUnread: totalUnread
         });
       } catch (err) {
         console.error('❌ 加入群组失败:', err.message);
+        socket.emit('error', { message: '获取群组聊天记录失败' });
       }
     });
 
@@ -4036,12 +4938,16 @@ io.on('connection', (socket) => {
         }
     
         // 速率限制检查
-        const rateLimitResult = checkRateLimit(userId);
+        const rateLimitResult = await checkRateLimit(userId);
         if (!rateLimitResult.allowed) {
-          socket.emit('error', { 
-            message: `发送消息过于频繁，请${rateLimitResult.retryAfter}秒后再试`,
-            code: 'RATE_LIMIT_EXCEEDED',
-            retryAfter: rateLimitResult.retryAfter
+          // 通过 message-sent 事件返回速率限制错误
+          socket.emit('message-sent', { 
+            success: false,
+            error: {
+              code: 'RATE_LIMIT_EXCEEDED',
+              message: `发送消息过于频繁，请${rateLimitResult.retryAfter}秒后再试`,
+              retryAfter: rateLimitResult.retryAfter
+            }
           });
           return;
         }
@@ -4109,12 +5015,14 @@ io.on('connection', (socket) => {
             id: messageData.quotedMessage.id,
             userId: messageData.quotedMessage.userId || messageData.quotedMessage.user_id,
             nickname: messageData.quotedMessage.nickname,
-            content: messageData.quotedMessage.content
+            content: messageData.quotedMessage.content,
+            messageType: messageData.quotedMessage.messageType || messageData.quotedMessage.message_type || 0
           };
           messageContent = JSON.stringify({
             type: 'quoted',
             quoted: quotedData,
-            text: cleanContent
+            text: cleanContent,
+            markdone: messageData.quotedMessage.markdone || false
           });
         }
         
@@ -4158,49 +5066,19 @@ io.on('connection', (socket) => {
           // 确保groupId是字符串类型，避免Map键类型不一致
           const groupIdStr = String(groupId);
           
-          // 群组消息：发送给群组成员
-          // 使用直接发送方式，避免重复发送消息
+          // 群组消息：使用 socket.to() 广播给群组房间，避开发送者
           try {
-            // 获取群组成员列表
-            const [members] = await pool.execute(
-              'SELECT user_id FROM chat_group_members WHERE group_id = ?',
-              [parseInt(groupId)]
-            );
-            
-            // 遍历群组成员，直接发送消息给在线用户（避开发送者）
-            for (const member of members) {
-              const memberId = member.user_id;
-              
-              // 跳过消息发送者
-              if (String(memberId) === String(userId)) {
-                continue;
-              }
-              
-              // 查找该用户的在线 socket 连接
-              for (let [socketId, onlineUser] of onlineUsers.entries()) {
-                if (onlineUser.id === memberId) {
-                  const socket = io.sockets.sockets.get(socketId);
-                  if (socket) {
-                    // 发送消息给其他成员，不包括发送者
-                    socket.emit('message-received', newMessage);
-                  }
-                  break;
-                }
-              }
-            }
+            socket.to(`group_${groupId}`).emit('message-received', newMessage);
           } catch (directSendErr) {
-            console.error('直接发送群组消息失败:', directSendErr.message);
+            console.error('发送群组消息失败:', directSendErr.message);
           }
           
-          // 直接将新消息添加到群组消息缓存
-          let cachedGroupMessages = messageCache.groups.get(groupIdStr) || [];
-          // 将新消息添加到缓存开头
-          cachedGroupMessages.unshift(newMessage);
-          // 保留最新的50条消息
-          cachedGroupMessages = cachedGroupMessages.slice(0, 50);
-          // 更新缓存
-          messageCache.groups.set(groupIdStr, cachedGroupMessages);
-          messageCache.lastUpdated = Date.now();
+          // 直接将新消息添加到 Redis 群组消息缓存（即使失败也不影响主流程）
+          try {
+            await addGroupMessageToCache(groupId, newMessage);
+          } catch (cacheErr) {
+            console.error('添加群组消息到Redis缓存失败:', cacheErr.message);
+          }
           
           // 更新群组成员的未读消息计数
           try {
@@ -4231,25 +5109,23 @@ io.on('connection', (socket) => {
         } else {
           // 全局消息：发送给所有用户（避开发送者）
           // 遍历所有在线用户，跳过发送者
-          for (let [socketId, onlineUser] of onlineUsers.entries()) {
+          const allOnlineUsers = await getAllOnlineUsers();
+          for (const onlineUser of allOnlineUsers) {
             // 跳过消息发送者
             if (String(onlineUser.id) === String(userId)) {
               continue;
             }
-            const socket = io.sockets.sockets.get(socketId);
+            const socket = io.sockets.sockets.get(onlineUser.socketId);
             if (socket) {
               socket.emit('message-received', newMessage);
             }
           }
-          // 直接将新消息添加到全局消息缓存
-          let cachedGlobalMessages = messageCache.global || [];
-          // 将新消息添加到缓存开头
-          cachedGlobalMessages.unshift(newMessage);
-          // 保留最新的 50 条消息
-          cachedGlobalMessages = cachedGlobalMessages.slice(0, 50);
-          // 更新缓存
-          messageCache.global = cachedGlobalMessages;
-          messageCache.lastUpdated = Date.now();
+          // 直接将新消息添加到 Redis 全局消息缓存（即使失败也不影响主流程）
+          try {
+            await addGlobalMessageToCache(newMessage);
+          } catch (cacheErr) {
+            console.error('添加全局消息到Redis缓存失败:', cacheErr.message);
+          }
         }
     
         // 确认消息已发送，只给发送者发送确认事件
@@ -4273,12 +5149,16 @@ io.on('connection', (socket) => {
       }
 
       // 速率限制检查
-      const rateLimitResult = checkRateLimit(userId);
+      const rateLimitResult = await checkRateLimit(userId);
       if (!rateLimitResult.allowed) {
-        socket.emit('error', { 
-          message: `发送消息过于频繁，请${rateLimitResult.retryAfter}秒后再试`,
-          code: 'RATE_LIMIT_EXCEEDED',
-          retryAfter: rateLimitResult.retryAfter
+        // 通过 private-message-sent 事件返回速率限制错误
+        socket.emit('private-message-sent', { 
+          success: false,
+          error: {
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: `发送消息过于频繁，请${rateLimitResult.retryAfter}秒后再试`,
+            retryAfter: rateLimitResult.retryAfter
+          }
         });
         return;
       }
@@ -4321,17 +5201,19 @@ io.on('connection', (socket) => {
           id: messageData.quotedMessage.id,
           userId: messageData.quotedMessage.userId || messageData.quotedMessage.user_id,
           nickname: messageData.quotedMessage.nickname,
-          content: messageData.quotedMessage.content
+          content: messageData.quotedMessage.content,
+          messageType: messageData.quotedMessage.messageType || messageData.quotedMessage.message_type || 0
         };
         messageContent = JSON.stringify({
           type: 'quoted',
           quoted: quotedData,
-          text: cleanContent
+          text: cleanContent,
+          markdone: messageData.quotedMessage.markdone || false
         });
       }
       
       const [result] = await pool.execute(
-          'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
+          'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, is_read, timestamp) VALUES (?, ?, ?, ?, 0, NOW())',
           [userId, receiverId, messageContent, messageType]
       );
 
@@ -4344,6 +5226,7 @@ io.on('connection', (socket) => {
         senderAvatarUrl: user.avatar_url,
         content: messageContent,
         messageType: messageType,
+        isRead: 0,
         timestamp: timestampMs,
         timestampISO: timestamp
       };
@@ -4361,17 +5244,7 @@ io.on('connection', (socket) => {
       }
 
       // 发送私信给接收者
-      let receiverFound = false;
-      for (let [socketId, onlineUser] of onlineUsers.entries()) {
-        if (onlineUser.id === parseInt(receiverId)) {
-          const receiverSocket = io.sockets.sockets.get(socketId);
-          if (receiverSocket) {
-            receiverSocket.emit('private-message-received', newMessage);
-            receiverFound = true;
-          }
-          break;
-        }
-      }
+      io.to(`user_${parseInt(receiverId)}`).emit('private-message-received', newMessage);
 
       // 更新接收者的未读私信计数，无论是否在线
       // 当接收者打开聊天窗口时，会通过 join-private-chat 事件清除未读计数
@@ -4466,18 +5339,10 @@ io.on('connection', (socket) => {
       };
       
       // 发送撤回通知给发送者
-      socket.emit('private-message-withdrawn', withdrawNotification);
+      io.to(`user_${numericUserId}`).emit('private-message-withdrawn', withdrawNotification);
       
       // 发送撤回通知给接收者
-      for (let [socketId, onlineUser] of onlineUsers.entries()) {
-        if (onlineUser.id === message.receiver_id) {
-          const receiverSocket = io.sockets.sockets.get(socketId);
-          if (receiverSocket) {
-            receiverSocket.emit('private-message-withdrawn', withdrawNotification);
-          }
-          break;
-        }
-      }
+      io.to(`user_${message.receiver_id}`).emit('private-message-withdrawn', withdrawNotification);
       
       // console.log('📤 私信消息已撤回:', { messageId: numericMessageId, senderId: message.sender_id, receiverId: message.receiver_id });
       
@@ -4488,10 +5353,10 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 加入私人聊天，获取聊天历史
+  // 加入私人聊天
   socket.on('join-private-chat', async (data) => {
     try {
-      const { userId, friendId, sessionToken, loadMore = false, onlyClearUnread = false, noHistory = false } = data;
+      const { userId, friendId, sessionToken, loadMore = false, olderThan, limit = 20 } = data;
 
       // 会话和IP验证
       const isValid = await validateSocketSession(socket, data);
@@ -4503,40 +5368,93 @@ io.on('connection', (socket) => {
       const numericUserId = parseInt(userId);
       const numericFriendId = parseInt(friendId);
       if (isNaN(numericUserId) || isNaN(numericFriendId)) {
-        // console.error('❌ 无效的用户ID或好友ID:', { userId, friendId, numericUserId, numericFriendId });
         socket.emit('error', { message: '无效的用户ID或好友ID' });
         return;
       }
 
-      // 发送私人聊天历史
-      const limit = data.limit || 20;
+      // 验证对方是否是自己的好友
+      const [friendCheck] = await pool.query(
+        'SELECT id FROM chat_friends WHERE user_id = ? AND friend_id = ?',
+        [numericUserId, numericFriendId]
+      );
+      
+      if (friendCheck.length === 0) {
+        socket.emit('error', { message: '对方不是您的好友，无法查看聊天记录' });
+        return;
+      }
+
+      // 清除该好友的未读私信计数
+      try {
+        const friendIdStr = friendId.toString();
+        await pool.execute(
+          `UPDATE chat_users 
+           SET unread_private_messages = JSON_REMOVE(
+             COALESCE(unread_private_messages, '{}'), 
+             CONCAT('$."', ?, '"')
+           ) 
+           WHERE id = ?`,
+          [friendIdStr, numericUserId]
+        );
+        
+        // 将该好友发来的消息标记为已读
+        await pool.execute(
+          `UPDATE chat_private_messages 
+           SET is_read = 1 
+           WHERE sender_id = ? AND receiver_id = ? AND is_read = 0`,
+          [numericFriendId, numericUserId]
+        );
+        
+        // 通知发送者其消息已被读取
+        const allOnlineUsers = await getAllOnlineUsers();
+        for (const onlineUser of allOnlineUsers) {
+          if (String(onlineUser.id) === String(numericFriendId)) {
+            const senderSocket = io.sockets.sockets.get(onlineUser.socketId);
+            if (senderSocket) {
+              // 发送已读事件给发送者
+              senderSocket.emit('private-message-read', {
+                fromUserId: numericUserId,
+                friendId: numericFriendId
+              });
+            }
+            break;
+          }
+        }
+      } catch (unreadErr) {
+        console.error('清除未读私信计数失败:', unreadErr.message);
+      }
+
+      // 获取私信消息
       let messages = [];
 
       // 从数据库获取私人聊天记录
       let query = `
         SELECT p.id, p.sender_id as senderId, p.receiver_id as receiverId, 
-               p.content, p.message_type as messageType, p.timestamp,
+               p.content, p.message_type as messageType, p.is_read as isRead, p.timestamp,
                u1.nickname as senderNickname, u1.avatar_url as senderAvatarUrl,
                u2.nickname as receiverNickname, u2.avatar_url as receiverAvatarUrl
         FROM chat_private_messages p
         JOIN chat_users u1 ON p.sender_id = u1.id
         JOIN chat_users u2 ON p.receiver_id = u2.id
-        WHERE (p.sender_id = ? AND p.receiver_id = ?) OR (p.sender_id = ? AND p.receiver_id = ?)
+        WHERE ((p.sender_id = ? AND p.receiver_id = ?) OR (p.sender_id = ? AND p.receiver_id = ?))
       `;
       
       const params = [numericUserId, numericFriendId, numericFriendId, numericUserId];
       
-      if (loadMore && data.olderThan) {
-        const olderThan = parseInt(data.olderThan);
-        if (!isNaN(olderThan)) {
+      // 确保limit是有效的数字
+      const safeLimit = parseInt(limit);
+      const finalLimit = isNaN(safeLimit) ? 20 : safeLimit;
+      
+      // 只有在loadMore为true时，才使用olderThan参数
+      if (loadMore) {
+        const olderThanNum = parseInt(olderThan);
+        
+        if (!isNaN(olderThanNum)) {
           query += ` AND p.id < ? `;
-          params.push(olderThan);
+          params.push(olderThanNum);
         }
       }
       
       query += ` ORDER BY p.timestamp DESC, p.id DESC LIMIT ?`;
-      const safeLimit = parseInt(limit);
-      const finalLimit = isNaN(safeLimit) ? 20 : safeLimit;
       params.push(finalLimit);
       
       const [results] = await pool.query(query, params);
@@ -4552,6 +5470,7 @@ io.on('connection', (socket) => {
           receiverAvatarUrl: msg.receiverAvatarUrl,
           content: msg.content,
           messageType: msg.messageType,
+          isRead: msg.isRead || 0,
           timestamp: new Date(msg.timestamp).getTime(),
           timestampISO: new Date(msg.timestamp).toISOString()
         };
@@ -4570,35 +5489,12 @@ io.on('connection', (socket) => {
         
         return message;
       });
-      
-      // 清除该好友的未读私信计数
-      try {
-        const friendIdStr = friendId.toString();
-        await pool.execute(
-          `UPDATE chat_users 
-           SET unread_private_messages = JSON_REMOVE(
-             COALESCE(unread_private_messages, '{}'), 
-             CONCAT('$."', ?, '"')
-           ) 
-           WHERE id = ?`,
-          [friendIdStr, numericUserId]
-        );
-        
-        // 如果只需要清除未读计数，则不返回消息历史
-        if (onlyClearUnread || noHistory) {
-          return;
-        }
-      } catch (unreadErr) {
-        console.error('清除未读私信计数失败:', unreadErr.message);
-      }
 
-      // 发送私人聊天历史给客户端
-      socket.emit('private-chat-history', {
+      socket.emit('messages-loaded', {
+        type: 'private',
         friendId: numericFriendId,
         messages: messages,
-        loadMore: loadMore,
-        total: messages.length,
-        limit: finalLimit
+        loadMore: loadMore
       });
 
     } catch (err) {
@@ -4613,9 +5509,12 @@ io.on('connection', (socket) => {
     try {
       const { userId, friendId, sessionToken, loadMore = true, olderThan, limit = 20 } = data;
       
+      // console.log(`📥 [私信历史] 收到请求 - userId=${userId}, friendId=${friendId}, loadMore=${loadMore}, olderThan=${olderThan}, limit=${limit}`);
+      
       // 会话和IP验证
       const isValid = await validateSocketSession(socket, data);
       if (!isValid) {
+        // console.log(`❌ [私信历史] 会话验证失败`);
         return;
       }
 
@@ -4623,7 +5522,7 @@ io.on('connection', (socket) => {
       const numericUserId = parseInt(userId);
       const numericFriendId = parseInt(friendId);
       if (isNaN(numericUserId) || isNaN(numericFriendId)) {
-        console.error('❌ 无效的用户ID或好友ID');
+        console.error('❌ [私信历史] 无效的用户ID或好友ID');
         socket.emit('error', { message: '无效的用户ID或好友ID' });
         return;
       }
@@ -4635,6 +5534,7 @@ io.on('connection', (socket) => {
       );
       
       if (friendCheck.length === 0) {
+        // console.log(`❌ [私信历史] 对方不是好友`);
         socket.emit('error', { message: '对方不是您的好友，无法查看聊天记录' });
         return;
       }
@@ -4669,6 +5569,7 @@ io.on('connection', (socket) => {
           whereClause += ` AND p.id < ? `;
           params.push(olderThanNum);
         } else {
+          // console.log(`⚠️ [私信历史] olderThan无效，返回空列表`);
           socket.emit('private-chat-history', {
             friendId: numericFriendId,
             messages: [],
@@ -4685,6 +5586,7 @@ io.on('connection', (socket) => {
       query += ` ORDER BY p.timestamp DESC, p.id DESC LIMIT ?`;
       params.push(finalLimit);
       
+      // console.log(`🔍 [私信历史] 执行查询 - 最终SQL: ${query}`);
       const [results] = await pool.query(query, params);
       
       messages = results.map(msg => {
@@ -4733,18 +5635,268 @@ io.on('connection', (socket) => {
         console.error('清除未读私信计数失败:', unreadErr.message);
       }
 
+      // console.log(`✅ [私信历史] 查询完成 - 找到 ${results.length} 条消息`);
+      
       // 发送私人聊天历史给客户端
-      socket.emit('private-chat-history', {
+      const responseData = {
         friendId: numericFriendId,
         messages: messages,
         loadMore: loadMore,
         total: messages.length,
         limit: safeLimit
-      });
+      };
+      
+      // console.log(`📤 [私信历史] 发送响应 - friendId=${numericFriendId}, messages.length=${messages.length}, loadMore=${loadMore}`);
+      socket.emit('private-chat-history', responseData);
 
     } catch (err) {
       console.error('❌ 获取私人聊天历史失败:', err.message);
       socket.emit('error', { message: '获取私人聊天记录失败', error: err.message });
+    }
+  });
+
+  // 统一加载消息事件（支持全局、群组、私信）
+  socket.on('load-messages', async (data) => {
+    try {
+      const { type, userId, sessionToken, limit = 20, olderThan, groupId, friendId, loadMore = false } = data;
+      
+      // 会话和IP验证
+      const isValid = await validateSocketSession(socket, data);
+      if (!isValid) {
+        return;
+      }
+
+      let messages = [];
+      const numericUserId = parseInt(userId);
+      let responseData = { type, messages: [], loadMore: loadMore };
+      
+      if (type === 'global') {
+        // 加载全局聊天室消息 - 完全复刻 chat-history 事件
+        if (olderThan) {
+          messages = await getGlobalMessages(limit, olderThan);
+        } else {
+          const cachedMessages = await getGlobalMessagesFromCache(limit);
+          messages = cachedMessages && cachedMessages.length > 0 ? cachedMessages : await getGlobalMessages(limit);
+        }
+        
+        // 获取用户的未读消息统计
+        const [users] = await pool.execute(
+          'SELECT unread_group_messages, unread_private_messages FROM chat_users WHERE id = ?',
+          [numericUserId]
+        );
+        
+        const unreadMessages = users[0].unread_group_messages || {};
+        const unreadPrivateMessages = users[0].unread_private_messages || {};
+        
+        // 收集群组最后消息时间（从消息表中动态获取）
+        const groupLastMessageTimes = {};
+        const [groupMessages] = await pool.execute(
+          'SELECT group_id, MAX(timestamp) as last_time FROM chat_messages WHERE group_id IS NOT NULL GROUP BY group_id'
+        );
+        groupMessages.forEach(msg => {
+          if (msg.last_time) {
+            groupLastMessageTimes[msg.group_id] = msg.last_time;
+          }
+        });
+        
+        // 收集私信最后消息时间
+        const privateLastMessageTimes = {};
+        const [privateMessages] = await pool.execute(
+          'SELECT sender_id, receiver_id, MAX(timestamp) as last_time FROM chat_private_messages WHERE sender_id = ? OR receiver_id = ? GROUP BY sender_id, receiver_id',
+          [numericUserId, numericUserId]
+        );
+        privateMessages.forEach(msg => {
+          const otherUserId = String(msg.sender_id) === String(numericUserId) ? msg.receiver_id : msg.sender_id;
+          if (!privateLastMessageTimes[otherUserId] || new Date(msg.last_time) > new Date(privateLastMessageTimes[otherUserId])) {
+            privateLastMessageTimes[otherUserId] = msg.last_time;
+          }
+        });
+        
+        responseData.messages = messages;
+        responseData.unreadMessages = {
+          groups: unreadMessages
+        };
+        responseData.unreadPrivateMessages = unreadPrivateMessages;
+        responseData.groupLastMessageTimes = groupLastMessageTimes;
+        responseData.privateLastMessageTimes = privateLastMessageTimes;
+        socket.emit('messages-loaded', responseData);
+      } else if (type === 'group') {
+        // 加载群组消息 - 完全复刻 group-chat-history 事件
+        const numericGroupId = parseInt(groupId);
+        
+        // 验证用户是否在群组中
+        const [memberCheck] = await pool.query(
+          'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+          [numericGroupId, numericUserId]
+        );
+        
+        if (memberCheck.length === 0) {
+          socket.emit('error', { message: '您不在该群组中，无法查看聊天记录' });
+          return;
+        }
+        
+        // 自动已读该群组消息
+        const groupIdStr = String(numericGroupId);
+        await pool.execute(
+          `UPDATE chat_users 
+           SET unread_group_messages = JSON_REMOVE(
+             COALESCE(unread_group_messages, '{}'), 
+             CONCAT('$."', ?, '"')
+           ) 
+           WHERE id = ?`,
+          [groupIdStr, numericUserId]
+        );
+        
+        // 获取用户的未读消息统计
+        const [users] = await pool.execute(
+          'SELECT unread_group_messages, unread_private_messages FROM chat_users WHERE id = ?',
+          [numericUserId]
+        );
+        
+        const unreadMessages = users[0].unread_group_messages || {};
+        
+        // 统计总未读消息数量
+        let totalUnread = 0;
+        for (const gid in unreadMessages) {
+          if (unreadMessages.hasOwnProperty(gid)) {
+            totalUnread += parseInt(unreadMessages[gid]) || 0;
+          }
+        }
+        
+        // 获取群组消息
+        if (loadMore && olderThan) {
+          messages = await getGroupMessages(numericGroupId, limit, olderThan);
+        } else {
+          const cachedMessages = await getGroupMessagesFromCache(numericGroupId, limit);
+          messages = cachedMessages && cachedMessages.length > 0 ? cachedMessages : await getGroupMessages(numericGroupId, limit);
+        }
+        
+        responseData.messages = messages;
+        responseData.groupId = numericGroupId;
+        responseData.unreadMessages = unreadMessages;
+        responseData.totalUnread = totalUnread;
+        socket.emit('messages-loaded', responseData);
+      } else if (type === 'private') {
+        // 加载私信消息 - 完全复刻 private-chat-history 事件
+        const numericFriendId = parseInt(friendId);
+        
+        // 验证对方是否是自己的好友
+        const [friendCheck] = await pool.query(
+          'SELECT id FROM chat_friends WHERE user_id = ? AND friend_id = ?',
+          [numericUserId, numericFriendId]
+        );
+        
+        if (friendCheck.length === 0) {
+          socket.emit('error', { message: '对方不是您的好友，无法查看聊天记录' });
+          return;
+        }
+        
+        // 清除该好友的未读私信计数
+        try {
+          const friendIdStr = numericFriendId.toString();
+          await pool.execute(
+            `UPDATE chat_users 
+             SET unread_private_messages = JSON_REMOVE(
+               COALESCE(unread_private_messages, '{}'), 
+               CONCAT('$."', ?, '"')
+             ) 
+             WHERE id = ?`,
+            [friendIdStr, numericUserId]
+          );
+          
+          // 将该好友发来的消息标记为已读
+          await pool.execute(
+            `UPDATE chat_private_messages 
+             SET is_read = 1 
+             WHERE sender_id = ? AND receiver_id = ? AND is_read = 0`,
+            [numericFriendId, numericUserId]
+          );
+          
+          // 通知发送者其消息已被读取
+          const allOnlineUsers = await getAllOnlineUsers();
+          for (const onlineUser of allOnlineUsers) {
+            if (String(onlineUser.id) === String(numericFriendId)) {
+              const senderSocket = io.sockets.sockets.get(onlineUser.socketId);
+              if (senderSocket) {
+                senderSocket.emit('private-message-read', {
+                  fromUserId: numericUserId,
+                  friendId: numericFriendId
+                });
+              }
+              break;
+            }
+          }
+        } catch (unreadErr) {
+          console.error('清除未读私信计数失败:', unreadErr.message);
+        }
+        
+        let query = `
+          SELECT p.id, p.sender_id as senderId, p.receiver_id as receiverId, 
+                 p.content, p.message_type as messageType, p.is_read as isRead, p.timestamp,
+                 u1.nickname as senderNickname, u1.avatar_url as senderAvatarUrl,
+                 u2.nickname as receiverNickname, u2.avatar_url as receiverAvatarUrl
+          FROM chat_private_messages p
+          JOIN chat_users u1 ON p.sender_id = u1.id
+          JOIN chat_users u2 ON p.receiver_id = u2.id
+          WHERE ((p.sender_id = ? AND p.receiver_id = ?) OR (p.sender_id = ? AND p.receiver_id = ?))
+        `;
+        
+        const params = [numericUserId, numericFriendId, numericFriendId, numericUserId];
+        
+        if (loadMore) {
+          const olderThanNum = parseInt(olderThan);
+          if (!isNaN(olderThanNum)) {
+            query += ` AND p.id < ? `;
+            params.push(olderThanNum);
+          }
+        }
+        
+        const safeLimit = parseInt(limit);
+        const finalLimit = isNaN(safeLimit) ? 20 : safeLimit;
+        query += ` ORDER BY p.timestamp DESC, p.id DESC LIMIT ?`;
+        params.push(finalLimit);
+        
+        const [results] = await pool.query(query, params);
+        
+        messages = results.map(msg => {
+          const message = {
+            id: msg.id,
+            senderId: msg.senderId,
+            receiverId: msg.receiverId,
+            senderNickname: msg.senderNickname,
+            senderAvatarUrl: msg.senderAvatarUrl,
+            receiverNickname: msg.receiverNickname,
+            receiverAvatarUrl: msg.receiverAvatarUrl,
+            content: msg.content,
+            messageType: msg.messageType,
+            isRead: msg.isRead || 0,
+            timestamp: new Date(msg.timestamp).getTime(),
+            timestampISO: new Date(msg.timestamp).toISOString()
+          };
+          
+          if (msg.messageType === 1 && msg.content) {
+            try {
+              const contentData = JSON.parse(msg.content);
+              if (contentData.url) {
+                message.imageUrl = contentData.url;
+              }
+            } catch (error) {
+              console.error(`解析图片消息失败: 消息ID=${msg.id}, 错误=${error.message}`);
+            }
+          }
+          
+          return message;
+        });
+        
+        responseData.messages = messages;
+        responseData.friendId = numericFriendId;
+        socket.emit('messages-loaded', responseData);
+      } else {
+        socket.emit('error', { message: '无效的消息类型' });
+      }
+    } catch (err) {
+      console.error('❌ 加载消息失败:', err.message);
+      socket.emit('error', { message: '加载消息失败', error: err.message });
     }
   });
 
@@ -4822,31 +5974,48 @@ io.on('connection', (socket) => {
       // 将messageId转换为数字类型，确保与缓存中的msg.id类型匹配
       const numericMessageId = parseInt(messageId);
       
-      // 从缓存中删除消息
-    if (message.group_id) {
-      // 群组消息：从群组消息缓存中删除
-      // 确保使用字符串类型作为Map键
-      const groupIdStr = String(message.group_id);
-      const groupCache = messageCache.groups.get(groupIdStr);
-      if (groupCache && groupCache.length > 0) {
-        const updatedCache = groupCache.filter(msg => parseInt(msg.id) !== numericMessageId);
-        messageCache.groups.set(groupIdStr, updatedCache);
-        messageCache.lastUpdated = Date.now();
-      }
-    } else {
-        // 全局消息：从全局消息缓存中删除
-        if (messageCache.global && messageCache.global.length > 0) {
-          const updatedCache = messageCache.global.filter(msg => parseInt(msg.id) !== numericMessageId);
-          messageCache.global = updatedCache;
-          messageCache.lastUpdated = Date.now();
+      // 从缓存中删除消息（即使失败也不影响主流程）
+      try {
+        if (message.group_id) {
+          // 群组消息：从群组消息缓存中删除
+          const groupIdStr = String(message.group_id);
+          const groupCache = await getGroupMessagesFromCache(groupIdStr, 50);
+          if (groupCache && groupCache.length > 0) {
+            const updatedCache = groupCache.filter(msg => parseInt(msg.id) !== numericMessageId);
+            await setGroupMessagesCache(groupIdStr, updatedCache);
+          }
+        } else {
+          // 全局消息：从全局消息缓存中删除
+          const globalCache = await getGlobalMessagesFromCache(50);
+          if (globalCache && globalCache.length > 0) {
+            const updatedCache = globalCache.filter(msg => parseInt(msg.id) !== numericMessageId);
+            await setGlobalMessagesCache(updatedCache);
+          }
         }
+      } catch (cacheErr) {
+        console.error('从Redis缓存删除消息失败:', cacheErr.message);
       }
       
       // 广播消息删除事件
-      io.emit('message-deleted', { 
-        messageId: messageId,
-        groupId: message.group_id 
-      });
+      if (message.group_id) {
+        // 群组消息：向群组成员广播
+        const [groupMembers] = await pool.execute(
+          'SELECT user_id FROM chat_group_members WHERE group_id = ?',
+          [message.group_id]
+        );
+        for (const member of groupMembers) {
+          io.to(`user_${member.user_id}`).emit('message-deleted', { 
+            messageId: messageId,
+            groupId: message.group_id 
+          });
+        }
+      } else {
+        // 公共消息：全局广播
+        io.emit('message-deleted', { 
+          messageId: messageId,
+          groupId: message.group_id 
+        });
+      }
       
     } catch (err) {
       console.error('删除消息失败:', err.message);
@@ -4862,7 +6031,8 @@ io.on('connection', (socket) => {
         return;
       }
       
-      const onlineUsersArray = Array.from(onlineUsers.values()).map(user => ({
+      const allOnlineUsers = await getAllOnlineUsers();
+      const onlineUsersArray = allOnlineUsers.map(user => ({
         id: user.id,
         nickname: user.nickname,
         avatarUrl: user.avatarUrl,
@@ -4898,66 +6068,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 心跳检测 - 修改：不再需要延长会话
-  socket.on('heartbeat', async (data) => {
-    try {
-      // 会话和IP验证
-      const isValid = await validateSocketSession(socket, data);
-      if (!isValid) {
-        return;
-      }
-      
-      // 修改：永不过期模式，只需简单确认
-      if (data.userId && data.sessionToken) {
-        const session = userSessions.get(parseInt(data.userId));
-        if (session && session.token === data.sessionToken) {
-          // 更新最后活动时间，但不会过期
-          session.lastActive = Date.now();
-          socket.emit('heartbeat-ack', { 
-            timestamp: Date.now(),
-            userId: data.userId,
-            message: '心跳确认（会话永不过期）'
-          });
-          return;
-        }
-      }
-      socket.emit('session-expired');
-    } catch (err) {
-      console.error('❌ 心跳检测失败:', err.message);
-      socket.emit('error', { message: '服务器错误' });
-    }
-  });
-
-  // 延长会话 - 修改：不再需要，会话永不过期
-  socket.on('extend-session', async (data) => {
-    try {
-      // 会话和IP验证
-      const isValid = await validateSocketSession(socket, data);
-      if (!isValid) {
-        return;
-      }
-      
-      // 修改：永不过期模式，直接返回成功
-      if (data.userId && data.sessionToken) {
-        const session = userSessions.get(parseInt(data.userId));
-        if (session && session.token === data.sessionToken) {
-          session.lastActive = Date.now();
-          socket.emit('session-extended', {
-            newExpires: session.expires,
-            userId: data.userId,
-            message: '会话已延长（永不过期模式）'
-          });
-          return;
-        }
-      }
-      socket.emit('session-expired');
-    } catch (err) {
-      console.error('❌ 延长会话失败:', err.message);
-      socket.emit('error', { message: '服务器错误' });
-    }
-  });
-
-  // 清除群组未读消息
+  // 清除私信未读消息
   socket.on('clear-unread-messages', async (data) => {
     try {
       // 会话和IP验证
@@ -4966,30 +6077,69 @@ io.on('connection', (socket) => {
         return;
       }
       
-      const { userId, groupId } = data;
+      const { userId, groupId, friendId } = data;
       
-      if (!userId || !groupId) {
-        console.error('❌ 清除未读消息失败: 缺少必要参数');
-        socket.emit('error', { message: '缺少必要参数' });
-        return;
+      // 清除群组未读消息
+      if (userId && groupId) {
+        // 确保groupId是字符串类型
+        const groupIdStr = String(groupId);
+        
+        // 更新用户的未读消息，清除指定群组的未读计数
+        await pool.execute(
+          `UPDATE chat_users 
+           SET unread_group_messages = JSON_REMOVE(
+             COALESCE(unread_group_messages, '{}'), 
+             CONCAT('$."', ?, '"')
+           ) 
+           WHERE id = ?`,
+          [groupIdStr, parseInt(userId)]
+        );
+        
+        // 通知客户端未读消息已清除
+        socket.emit('unread-messages-cleared', { groupId });
       }
       
-      // 确保groupId是字符串类型
-      const groupIdStr = String(groupId);
-      
-      // 更新用户的未读消息，清除指定群组的未读计数
-      await pool.execute(
-        `UPDATE chat_users 
-         SET unread_group_messages = JSON_REMOVE(
-           COALESCE(unread_group_messages, '{}'), 
-           CONCAT('$."', ?, '"')
-         ) 
-         WHERE id = ?`,
-        [groupIdStr, parseInt(userId)]
-      );
-      
-      // 通知客户端未读消息已清除
-      socket.emit('unread-messages-cleared', { groupId });
+      // 清除私信未读消息
+      if (userId && friendId) {
+        const friendIdStr = String(friendId);
+        
+        // 更新用户的未读私信消息，清除指定好友的未读计数
+        await pool.execute(
+          `UPDATE chat_users 
+           SET unread_private_messages = JSON_REMOVE(
+             COALESCE(unread_private_messages, '{}'), 
+             CONCAT('$."', ?, '"')
+           ) 
+           WHERE id = ?`,
+          [friendIdStr, parseInt(userId)]
+        );
+        
+        // 将该好友发来的消息标记为已读
+        await pool.execute(
+          `UPDATE chat_private_messages 
+           SET is_read = 1 
+           WHERE sender_id = ? AND receiver_id = ? AND is_read = 0`,
+          [parseInt(friendId), parseInt(userId)]
+        );
+        
+        // 通知发送者其消息已被读取
+        const allOnlineUsers = await getAllOnlineUsers();
+        for (const onlineUser of allOnlineUsers) {
+          if (String(onlineUser.id) === String(friendId)) {
+            const senderSocket = io.sockets.sockets.get(onlineUser.socketId);
+            if (senderSocket) {
+              senderSocket.emit('private-message-read', {
+                fromUserId: parseInt(userId),
+                friendId: parseInt(friendId)
+              });
+            }
+            break;
+          }
+        }
+        
+        // 通知客户端私信未读消息已清除
+        socket.emit('unread-private-messages-cleared', { friendId });
+      }
     } catch (err) {
       console.error('❌ 清除未读消息失败:', err.message);
       socket.emit('error', { message: '清除未读消息失败' });
@@ -4998,24 +6148,32 @@ io.on('connection', (socket) => {
 
   // 用户断开连接
   socket.on('disconnect', async (reason) => {
-    // console.log('❌ 用户断开连接:', {
-    //   socketId: socket.id,
-    //   reason: reason,
-    //   onlineUsersBefore: onlineUsers.size
-    // });
+    // 从已认证用户集合中移除
+    const user = await getOnlineUser(socket.id);
+    if (user) {
+      await removeAuthenticatedUser(user.id);
+    }
 
     // 从在线用户列表中移除
-    if (onlineUsers.has(socket.id)) {
-      const user = onlineUsers.get(socket.id);
-      onlineUsers.delete(socket.id);
+    if (user) {
+      await removeOnlineUser(socket.id);
 
-      // console.log('👤 用户从在线列表移除:', user.nickname);
+      // 更新用户最后上线时间（即下线时间）
+      try {
+        await pool.execute(
+          'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+          [user.id]
+        );
+      } catch (err) {
+        console.error('更新用户最后上线时间失败:', err.message);
+      }
 
       // 广播更新后的用户列表
-      const onlineUsersArray = Array.from(onlineUsers.values()).map(user => ({
-        id: user.id,
-        nickname: user.nickname,
-        avatarUrl: user.avatarUrl,
+      const allOnlineUsers = await getAllOnlineUsers();
+      const onlineUsersArray = allOnlineUsers.map(u => ({
+        id: u.id,
+        nickname: u.nickname,
+        avatarUrl: u.avatarUrl,
         isOnline: true
       }));
 
@@ -5043,7 +6201,6 @@ io.on('connection', (socket) => {
         online: onlineUsersArray,
         offline: offlineUsersArray
       });
-      // console.log('📊 当前在线用户数:', onlineUsers.size);
     }
   });
 
@@ -5097,8 +6254,8 @@ app.post('/recall-group-messages', validateIPAndSession, async (req, res) => {
     
     // console.log(`🗑️ 群组 ${groupId} 的所有消息已被群主 ${userId} 撤回`);
     
-    // 清空消息缓存
-    messageCache.groups.delete(parseInt(groupId));
+    // 清空 Redis 消息缓存
+    await redisClient.del(`scr:message:group:${groupId}`);
     
     // 通知群组内所有用户
     io.to(`group_${groupId}`).emit('all-group-messages-recalled', { groupId });
@@ -5128,7 +6285,7 @@ app.post('/dissolve-group', validateIPAndSession, async (req, res) => {
     
     // 检查用户是否是群主
     const [groupResults] = await pool.execute(
-      'SELECT creator_id, name FROM chat_groups WHERE id = ?',
+      'SELECT creator_id, name, avatar_url FROM chat_groups WHERE id = ?',
       [groupId]
     );
     
@@ -5137,6 +6294,8 @@ app.post('/dissolve-group', validateIPAndSession, async (req, res) => {
     }
     
     const group = groupResults[0];
+    const groupAvatarUrl = group.avatar_url;
+    
     if (parseInt(group.creator_id) !== parseInt(userId)) {
       return res.status(403).json({ status: 'error', message: '只有群主可以解散群组' });
     }
@@ -5188,27 +6347,29 @@ app.post('/dissolve-group', validateIPAndSession, async (req, res) => {
       await connection.commit();
       connection.release();
       
-      // console.log(`💥 群组 ${groupId} (${group.name}) 已被群主 ${userId} 解散，所有群消息已删除`);
-      
-      // 清空消息缓存
-      messageCache.groups.delete(parseInt(groupId));
-      
-      // 通知群组内所有用户
-      io.to(`group_${groupId}`).emit('group-dissolved', { groupId });
-      
-      // 向所有群组成员发送解散事件，确保所有成员都能收到通知
-      for (const member of members) {
-        // 查找该成员的在线socket连接
-        for (let [socketId, user] of onlineUsers.entries()) {
-          if (user.id === parseInt(member.user_id)) {
-            const socket = io.sockets.sockets.get(socketId);
-            if (socket) {
-              socket.emit('group-dissolved', { groupId });
-            }
-            break;
+      // 删除群头像文件（如果有且不是默认头像）
+      if (groupAvatarUrl && groupAvatarUrl !== '/avatars/default.png') {
+        try {
+          // 去掉 URL 中的 ?v= 参数，并构建正确的文件路径
+          const avatarPathWithoutVersion = groupAvatarUrl.split('?')[0];
+          const fullAvatarPath = path.join(__dirname, 'public', avatarPathWithoutVersion);
+          if (fs.existsSync(fullAvatarPath)) {
+            fs.unlinkSync(fullAvatarPath);
           }
+        } catch (deleteError) {
+          console.error('删除群头像文件失败:', deleteError.message);
         }
       }
+      
+      // console.log(`💥 群组 ${groupId} (${group.name}) 已被群主 ${userId} 解散，所有群消息已删除`);
+      
+      // 向所有群组成员发送解散事件
+      for (const member of members) {
+        io.to(`user_${member.user_id}`).emit('group-dissolved', { groupId });
+      }
+      
+      // 清除群组消息缓存
+      await redisClient.del(`scr:message:group:${groupId}`);
       
       res.json({ status: 'success', message: '群组已成功解散' });
     } catch (transactionError) {
@@ -5262,7 +6423,7 @@ app.post('/update-group-name', validateIPAndSession, async (req, res) => {
 
     // console.log(`📝 群组 ${groupId} 的名称已更新为: ${cleanGroupName}`);
 
-    // 通知群组内所有用户
+    // 向所有群组成员广播群组名称更新事件（使用群组房间）
     io.to(`group_${groupId}`).emit('group-name-updated', {
       groupId: groupId,
       newGroupName: cleanGroupName
@@ -5310,7 +6471,7 @@ app.post('/update-group-description', validateIPAndSession, async (req, res) => 
 
     // console.log(`📝 群组 ${groupId} 的公告已更新为: ${cleanDescription}`);
 
-    // 通知群组内所有用户
+    // 向所有群组成员广播群组公告更新事件（使用群组房间）
     io.to(`group_${groupId}`).emit('group-description-updated', {
       groupId: groupId,
       newDescription: cleanDescription
@@ -5377,8 +6538,18 @@ app.post('/leave-group', validateIPAndSession, async (req, res) => {
       
       // console.log(`👤 用户 ${userId} 已退出群组 ${groupId}`);
       
-      // 通知群组内所有用户
-      io.to(`group_${groupId}`).emit('member-left-group', { groupId, userId });
+      // 获取群组所有成员，向他们广播成员退出事件
+      const [allMembers] = await pool.execute(
+        'SELECT user_id FROM chat_group_members WHERE group_id = ?',
+        [groupId]
+      );
+      
+      for (const member of allMembers) {
+        io.to(`user_${member.user_id}`).emit('member-left-group', { groupId, userId });
+      }
+      
+      // 也通知退出的用户
+      io.to(`user_${userId}`).emit('member-left-group', { groupId, userId });
       
       res.json({ status: 'success', message: '已成功退出群组' });
     } catch (transactionError) {
@@ -5406,7 +6577,7 @@ app.post('/send-message', validateIPAndSession, async (req, res) => {
     // });
 
     // 速率限制检查
-    const rateLimitResult = checkRateLimit(userId);
+    const rateLimitResult = await checkRateLimit(userId);
     if (!rateLimitResult.allowed) {
       return res.status(429).json({ 
         status: 'error', 
@@ -5458,7 +6629,13 @@ app.post('/send-message', validateIPAndSession, async (req, res) => {
     // 广播消息
     if (groupId) {
       io.to(`group_${groupId}`).emit('message-received', newMessage);
-      await getGroupMessages(groupId);
+      
+      // 将新消息添加到 Redis 群组消息缓存（即使失败也不影响主流程）
+      try {
+        await addGroupMessageToCache(groupId, newMessage);
+      } catch (cacheErr) {
+        console.error('添加群组消息到Redis缓存失败:', cacheErr.message);
+      }
       
       // 更新群组成员的未读消息计数
       try {
@@ -5490,8 +6667,22 @@ app.post('/send-message', validateIPAndSession, async (req, res) => {
         console.error('更新未读消息计数失败:', unreadErr.message);
       }
     } else {
-      io.emit('message-received', newMessage);
-      await getGlobalMessages();
+      // 只发送给已认证的用户（发送过 user-joined 事件的用户）
+      const allOnlineUsers = await getAllOnlineUsers();
+      for (const onlineUser of allOnlineUsers) {
+        if (await isAuthenticatedUser(onlineUser.id)) {
+          const socket = io.sockets.sockets.get(onlineUser.socketId);
+          if (socket) {
+            socket.emit('message-received', newMessage);
+          }
+        }
+      }
+      // 将新消息添加到 Redis 全局消息缓存（即使失败也不影响主流程）
+      try {
+        await addGlobalMessageToCache(newMessage);
+      } catch (cacheErr) {
+        console.error('添加全局消息到Redis缓存失败:', cacheErr.message);
+      }
     }
 
     res.json({
@@ -5511,8 +6702,11 @@ const PORT = process.env.PORT || 15825;
 
 async function startServer() {
   try {
-    // 每天凌晨2点执行
-    schedule.scheduleJob('0 0 2 * * *', cleanExpiredFiles);
+    // 每天凌晨2点执行清理任务
+    schedule.scheduleJob('0 0 2 * * *', async () => {
+      await cleanExpiredFiles();
+      await cleanupExpiredSessions();
+    });
 
     console.log(`
 __  ___/__(_)______ ______________  /____     _________  /_______ __  /_   __________________________ ___ 
@@ -5522,34 +6716,36 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
                       /_/                                                                                 
     `);
 
-    console.log('⏰ 已设置定时任务：每天凌晨2点清理过期文件');
+    console.log('⏰ 已设置定时任务：每天凌晨2点清理过期文件和过期会话');
     
     // 服务器启动时立即执行一次清理
-    cleanExpiredFiles()
+    cleanExpiredFiles();
+    cleanupExpiredSessions();
 
     await initializeDatabase();
     await loadSessionsFromDatabase();
+    await syncBannedIPsToRedis();
     
     // 初始化消息缓存（不阻塞服务器启动）
     // 在后台异步初始化缓存，服务器会立即启动
     (async () => {
       try {
-        // console.log('📊 开始初始化消息缓存...');
+        // 等待一小段时间确保服务器完全启动
+        await new Promise(resolve => setTimeout(resolve, 300));
         
-        // 初始化全局消息缓存
-        const globalMessages = await getGlobalMessages(50);
-        messageCache.global = globalMessages;
-        messageCache.lastUpdated = Date.now();
+        // 初始化全局消息缓存到 Redis（200 条）
+        const globalMessages = await getGlobalMessages(200);
+        // 使用 setGlobalMessagesCache 批量设置，避免多次 lTrim 导致的问题
+        await setGlobalMessagesCache(globalMessages);
         // console.log(`✅ 初始化全局消息缓存完成，包含${globalMessages.length}条消息`);
         
-        // 获取所有群组 ID，初始化每个群组的消息缓存
+        // 获取所有群组 ID，初始化每个群组的消息缓存到 Redis（50 条）
         const [groups] = await pool.execute('SELECT DISTINCT group_id FROM chat_messages WHERE group_id IS NOT NULL');
         for (const group of groups) {
           // 获取更多消息以确保包含所有最新消息
           const groupMessages = await getGroupMessages(group.group_id, 50);
-          // 确保使用字符串类型作为 Map 键
-          messageCache.groups.set(String(group.group_id), groupMessages);
-          messageCache.lastUpdated = Date.now();
+          // 使用 setGroupMessagesCache 批量设置，避免多次 lTrim 导致的问题
+          await setGroupMessagesCache(group.group_id, groupMessages);
           // console.log(`✅ 初始化群组${group.group_id}缓存完成，包含${groupMessages.length}条消息`);
         }
         
@@ -5589,11 +6785,12 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
 }
 
 // 优雅关闭处理
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('\n🛑 收到关闭信号，正在优雅关闭服务器...');
-  console.log(`📊 关闭前在线用户数: ${onlineUsers.size}`);
-  console.log(`💾 活动会话数: ${userSessions.size}`);
-  console.log('💡 所有会话将保持有效（永不过期）');
+  const onlineCount = await getOnlineUserCount();
+  console.log(`📊 关闭前在线用户数: ${onlineCount}`);
+  const sessionCount = await getSessionCount();
+  console.log(`💾 活动会话数: ${sessionCount}`);
 
   server.close(() => {
     console.log('✅ 服务器已关闭');

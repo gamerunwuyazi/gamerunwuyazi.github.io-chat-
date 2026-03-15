@@ -6,56 +6,18 @@ import {
   sessionStore, 
   unreadMessages 
 } from './store.js';
-import { escapeHtml, unescapeHtml, sendPrivateMessage } from './message.js';
+import { unescapeHtml } from './message.js';
+import modal from '../modal.js';
 
 let friendsList = [];
 
 function initializeFriendsListListeners() {
-  const privateChatSearchInput = document.getElementById('privateChatSearchInput');
-  const clearPrivateChatSearch = document.getElementById('clearPrivateChatSearch');
-
-  if (privateChatSearchInput && clearPrivateChatSearch) {
-    privateChatSearchInput.addEventListener('input', () => {
-      const keyword = privateChatSearchInput.value.toLowerCase();
-      const friendItems = document.querySelectorAll('.friend-item');
-
-      friendItems.forEach(item => {
-        const friendName = item.dataset.userNickname.toLowerCase();
-        if (friendName.includes(keyword)) {
-          item.style.display = 'flex';
-        } else {
-          item.style.display = 'none';
-        }
-      });
-
-      if (keyword) {
-        clearPrivateChatSearch.style.display = 'inline';
-      } else {
-        clearPrivateChatSearch.style.display = 'none';
-      }
-    });
-
-    clearPrivateChatSearch.addEventListener('click', () => {
-      privateChatSearchInput.value = '';
-      clearPrivateChatSearch.style.display = 'none';
-      const friendItems = document.querySelectorAll('.friend-item');
-      friendItems.forEach(item => {
-        item.style.display = 'flex';
-      });
-    });
-  }
-
-  const searchUserButton = document.getElementById('searchUserButton');
-  if (searchUserButton) {
-    searchUserButton.addEventListener('click', () => {
-      if (typeof window.openModal === 'function') {
-        window.openModal('userSearch');
-      }
-    });
-  }
+  // 好友搜索功能已移至 Vue 组件 (PrivateSidebar.vue)
 }
 
 function switchToPrivateChat(userId, nickname, username, avatarUrl) {
+  // console.log(`🔄 [切换私信] 切换到私信会话 - userId=${userId}, nickname=${nickname}`);
+  
   const currentPrivateChatUserId = userId;
   const currentPrivateChatUsername = username;
   const currentPrivateChatNickname = nickname;
@@ -69,6 +31,13 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
 
   // 同步到 window（关键：用于加载更多历史消息）
   window.currentPrivateChatUserId = userId;
+  
+  // 重置该会话的全部加载标志
+  if (!window.privateChatAllLoaded) {
+    window.privateChatAllLoaded = {};
+  }
+  delete window.privateChatAllLoaded[userId];
+  // console.log(`🔄 [切换私信] 重置会话 ${userId} 的全部加载标志 - window.privateChatAllLoaded[${userId}] 已删除`);
   
   // 同步到 store
   const store = getStore();
@@ -91,7 +60,8 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
 
   window.dispatchEvent(new CustomEvent('private-switched'));
   
-  loadPrivateChatHistory(userId);
+  const hasMessages = store && store.privateMessages && store.privateMessages[userId] && store.privateMessages[userId].length > 0;
+  loadPrivateChatHistory(userId, !hasMessages);
 }
 
 function initializePrivateChatFunctions() {
@@ -103,59 +73,9 @@ function initializePrivateChatFunctions() {
 }
 
 function initializePrivateChatInterface() {
-  const deleteFriendButton = document.getElementById('deleteFriendButton');
-  if (deleteFriendButton) {
-    deleteFriendButton.onclick = null;
-    deleteFriendButton.onclick = () => {
-      const currentPrivateChatUserId = sessionStore.currentPrivateChatUserId;
-      if (currentPrivateChatUserId) {
-        deleteFriend(currentPrivateChatUserId);
-      }
-    };
-  }
-
-  const privateUserInfoButton = document.getElementById('privateUserInfoButton');
-  if (privateUserInfoButton) {
-    privateUserInfoButton.onclick = null;
-    privateUserInfoButton.onclick = () => {
-      const currentPrivateChatUserId = sessionStore.currentPrivateChatUserId;
-      const currentPrivateChatUsername = sessionStore.currentPrivateChatUsername;
-      const currentPrivateChatNickname = sessionStore.currentPrivateChatNickname;
-      
-      if (currentPrivateChatUserId && currentPrivateChatUsername) {
-        const privateUserAvatar = document.getElementById('privateUserAvatar');
-        let avatarUrl = '';
-        if (privateUserAvatar && privateUserAvatar.src && privateUserAvatar.src !== '') {
-          if (privateUserAvatar.src.startsWith(SERVER_URL)) {
-            avatarUrl = privateUserAvatar.src.replace(SERVER_URL, '');
-          } else if (privateUserAvatar.src.startsWith('http')) {
-            avatarUrl = privateUserAvatar.src;
-          }
-        }
-
-        const user = {
-          id: currentPrivateChatUserId,
-          nickname: currentPrivateChatNickname,
-          avatarUrl: avatarUrl,
-          username: currentPrivateChatUsername
-        };
-        showUserProfile(user);
-      }
-    };
-  }
-
-  const privateMoreButton = document.getElementById('privateMoreButton');
-  if (privateMoreButton) {
-    privateMoreButton.onclick = null;
-    privateMoreButton.onclick = (e) => {
-      e.stopPropagation();
-      const privateMoreFunctions = document.getElementById('privateMoreFunctions');
-      if (privateMoreFunctions) {
-        privateMoreFunctions.classList.toggle('show');
-      }
-    };
-  }
-
+  // 大部分事件已在 Vue 组件中处理，只保留必要的 DOM 操作
+  
+  // Markdown 工具栏切换（如果 Vue 中没有处理）
   const togglePrivateMarkdownToolbar = document.getElementById('togglePrivateMarkdownToolbar');
   if (togglePrivateMarkdownToolbar) {
     togglePrivateMarkdownToolbar.addEventListener('click', () => {
@@ -171,6 +91,7 @@ function initializePrivateChatInterface() {
     });
   }
 
+  // 私信聊天界面点击清除未读
   const privateChatInterface = document.getElementById('privateChatInterface');
   if (privateChatInterface) {
     privateChatInterface.addEventListener('click', function() {
@@ -191,8 +112,7 @@ function initializePrivateChatInterface() {
           window.chatSocket.emit('join-private-chat', {
             userId: currentUser.id,
             friendId: currentPrivateChatUserId,
-            sessionToken: currentSessionToken,
-            onlyClearUnread: true
+            sessionToken: currentSessionToken
           });
         }
       }
@@ -201,102 +121,7 @@ function initializePrivateChatInterface() {
 }
 
 export function initializePrivateMessageSending() {
-  const sendPrivateMessageButton = document.getElementById('sendPrivateMessage');
-  if (sendPrivateMessageButton) {
-    sendPrivateMessageButton.addEventListener('click', () => {
-      sendPrivateMessage();
-    });
-  }
-
-  const privateMessageInput = document.getElementById('privateMessageInput');
-  if (privateMessageInput) {
-    // keydown事件已在PrivateChat.vue中处理
-  }
-
-  const markdownToolbar = document.getElementById('privateMarkdownToolbar');
-  if (markdownToolbar) {
-    const markdownButtons = markdownToolbar.querySelectorAll('.markdown-btn');
-    markdownButtons.forEach(button => {
-      button.addEventListener('click', function(e) {
-        e.stopPropagation();
-
-        const prefix = button.getAttribute('data-prefix') || '';
-        const suffix = button.getAttribute('data-suffix') || '';
-        const sample = button.getAttribute('data-sample') || '';
-
-        if (typeof window.insertMarkdownFormat === 'function') {
-          window.insertMarkdownFormat(prefix, suffix, sample);
-        }
-      });
-    });
-  }
-
-  const privateImageUploadButton = document.getElementById('privateImageUploadButton');
-  const privateImageInput = document.getElementById('privateImageInput');
-  if (privateImageUploadButton && privateImageInput) {
-    privateImageUploadButton.onclick = null;
-    privateImageInput.onchange = null;
-
-    privateImageUploadButton.onclick = () => {
-      privateImageInput.click();
-    };
-
-    privateImageInput.onchange = function() {
-      if (this.files && this.files[0]) {
-        if (typeof window.uploadPrivateImage === 'function') {
-          window.uploadPrivateImage(this.files[0]);
-        }
-      }
-    };
-  }
-
-  const privateFileUploadButton = document.getElementById('privateFileUploadButton');
-  const privateFileInput = document.getElementById('privateFileInput');
-  if (privateFileUploadButton && privateFileInput) {
-    privateFileUploadButton.onclick = null;
-    privateFileInput.onchange = null;
-
-    privateFileUploadButton.onclick = () => {
-      privateFileInput.click();
-    };
-
-    privateFileInput.onchange = function() {
-      if (this.files && this.files[0]) {
-        if (this.files[0].type.startsWith('image/')) {
-          if (typeof window.uploadPrivateImage === 'function') {
-            window.uploadPrivateImage(this.files[0]);
-          }
-        } else {
-          if (typeof window.uploadPrivateFile === 'function') {
-            window.uploadPrivateFile(this.files[0]);
-          }
-        }
-      }
-    };
-  }
-
-  if (privateMessageInput) {
-    privateMessageInput.addEventListener('paste', function(e) {
-      const items = e.clipboardData.items;
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          e.preventDefault();
-          const file = item.getAsFile();
-          if (file && typeof window.uploadPrivateImage === 'function') {
-            window.uploadPrivateImage(file);
-          }
-          break;
-        } else if (item.type === 'application/octet-stream') {
-          e.preventDefault();
-          const file = item.getAsFile();
-          if (file && typeof window.uploadPrivateFile === 'function') {
-            window.uploadPrivateFile(file);
-          }
-          break;
-        }
-      }
-    });
-  }
+  // 私信消息发送、图片上传、文件上传等事件已在 Vue 组件中处理
 }
 
 function loadPrivateChatHistory(userId) {
@@ -309,22 +134,9 @@ function loadPrivateChatHistory(userId) {
     window.chatSocket.emit('join-private-chat', {
       userId: currentUser.id,
       friendId: userId,
-      sessionToken: currentSessionToken
-    });
-  }
-}
-
-window.withdrawPrivateMessage = function(messageId) {
-  const currentUser = getCurrentUser();
-  const currentSessionToken = getCurrentSessionToken();
-  
-  if (!currentUser || !currentSessionToken) return;
-
-  if (window.chatSocket) {
-    window.chatSocket.emit('withdraw-private-message', {
-      userId: currentUser.id,
-      messageId: messageId,
-      sessionToken: currentSessionToken
+      sessionToken: currentSessionToken,
+      loadMore: false,
+      limit: 20
     });
   }
 }
@@ -407,13 +219,14 @@ export function addFriend(userId) {
     });
 }
 
-function deleteFriend(userId) {
+async function deleteFriend(userId) {
   const currentUser = getCurrentUser();
   const currentSessionToken = getCurrentSessionToken();
   
   if (!currentUser || !currentSessionToken) return;
 
-  if (confirm('确定要删除这个好友吗？')) {
+  const confirmed = await modal.confirm('确定要删除这个好友吗？', '删除好友');
+  if (confirmed) {
     fetch(`${SERVER_URL}/user/remove-friend`, {
       method: 'POST',
       headers: {
@@ -450,41 +263,42 @@ function deleteFriend(userId) {
 }
 
 function showUserProfile(user) {
-  if (typeof window.openModal === 'function') {
-    window.openModal('userProfile', user);
-  }
-  
-  setTimeout(() => {
-    const currentUserInfo = getCurrentUser();
-    const sessionToken = getCurrentSessionToken();
+  const currentUserInfo = getCurrentUser();
+  const sessionToken = getCurrentSessionToken();
 
-    fetch(`${SERVER_URL}/user/${user.id}`, {
-      headers: {
-        'user-id': currentUserInfo?.id || '',
-        'session-token': sessionToken || ''
+  fetch(`${SERVER_URL}/user/${user.id}`, {
+    headers: {
+      'user-id': currentUserInfo?.id || '',
+      'session-token': sessionToken || ''
+    }
+  })
+    .then(response => response.json())
+    .then(data => {
+      let fullUser = user;
+      if (data.status === 'success' && data.user) {
+        fullUser = {
+          id: data.user.id,
+          username: data.user.username,
+          nickname: data.user.nickname,
+          gender: data.user.gender !== undefined ? data.user.gender : 0,
+          signature: data.user.signature,
+          avatarUrl: data.user.avatar_url || data.user.avatarUrl || data.user.avatar
+        };
+      }
+      if (typeof window.openModal === 'function') {
+        window.openModal('userProfile', fullUser);
+      } else if (window.chatStore) {
+        window.chatStore.openModal('userProfile', fullUser);
       }
     })
-      .then(response => response.json())
-      .then(data => {
-        if (data.status === 'success' && data.user) {
-          // 使用 chatStore 更新用户资料数据（Vue 响应式）
-          if (window.chatStore) {
-            // 使用 Vue 的响应式更新方式
-            window.chatStore.modalData.value.userProfile = {
-              id: data.user.id,
-              username: data.user.username,
-              nickname: data.user.nickname,
-              gender: data.user.gender || 0,
-              signature: data.user.signature,
-              avatarUrl: data.user.avatar_url || data.user.avatarUrl || data.user.avatar
-            };
-          }
-        }
-      })
-      .catch(_error => {
-        console.error('获取用户信息失败:', _error);
-      });
-  }, 100);
+    .catch(_error => {
+      console.error('获取用户信息失败:', _error);
+      if (typeof window.openModal === 'function') {
+        window.openModal('userProfile', user);
+      } else if (window.chatStore) {
+        window.chatStore.openModal('userProfile', user);
+      }
+    });
 }
 
 function showUserAvatarPopup(event, user) {

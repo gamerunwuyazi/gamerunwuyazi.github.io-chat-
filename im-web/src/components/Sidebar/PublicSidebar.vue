@@ -60,6 +60,14 @@ function handleUserAvatarClick(event, user) {
     chatStore.openModal('userAvatarPopup', userData);
   }
 }
+
+// 处理头像加载失败
+function handleAvatarError(event, user) {
+  // 将头像 URL 设为空字符串，显示默认头像
+  user.avatarUrl = '';
+  user.avatar_url = '';
+  user.avatar = '';
+}
 </script>
 
 <template>
@@ -72,7 +80,7 @@ function handleUserAvatarClick(event, user) {
                 <li v-else v-for="user in chatStore.onlineUsers" :key="user.id" class="user-item" 
                     :style="{ padding: '8px 0px', display: 'flex', alignItems: 'center', fontWeight: 'normal' }">
                     <span v-if="getAvatarUrl(user) && !isSvgAvatar(getAvatarUrl(user))" class="user-avatar" @click="handleUserAvatarClick($event, user)">
-                        <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(user)}`" :alt="unescapeHtml(user.nickname)">
+                        <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(user)}`" :alt="unescapeHtml(user.nickname)" @error="handleAvatarError($event, user)">
                     </span>
                     <span v-else class="user-avatar" @click="handleUserAvatarClick($event, user)">
                         {{ unescapeHtml(user.nickname) ? unescapeHtml(user.nickname).charAt(0).toUpperCase() : 'U' }}
@@ -92,7 +100,7 @@ function handleUserAvatarClick(event, user) {
                 <li v-else v-for="user in chatStore.offlineUsers" :key="user.id" class="user-item"
                     :style="{ padding: '8px 0px', display: 'flex', alignItems: 'center', fontWeight: 'normal' }">
                     <span v-if="getAvatarUrl(user) && !isSvgAvatar(getAvatarUrl(user))" class="user-avatar" @click="handleUserAvatarClick($event, user)">
-                        <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(user)}`" :alt="unescapeHtml(user.nickname)">
+                        <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(user)}`" :alt="unescapeHtml(user.nickname)" @error="handleAvatarError($event, user)">
                     </span>
                     <span v-else class="user-avatar" @click="handleUserAvatarClick($event, user)">
                         {{ unescapeHtml(user.nickname) ? unescapeHtml(user.nickname).charAt(0).toUpperCase() : 'U' }}

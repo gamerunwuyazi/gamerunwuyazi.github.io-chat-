@@ -30,16 +30,14 @@ import * as websocketModule from './websocket.js';
 
 function login() {
   const currentUserStr = localStorage.getItem('currentUser');
-  const storedCurrentSessionToken = localStorage.getItem('currentSessionToken');
+  const currentSessionToken = localStorage.getItem('currentSessionToken');
   const chatUserId = localStorage.getItem('chatUserId');
-  const chatSessionToken = localStorage.getItem('chatSessionToken');
   const chatUserNickname = localStorage.getItem('chatUserNickname');
   const chatUserGender = localStorage.getItem('chatUserGender');
   
   const store = getStore();
   if (store) {
     let currentUser = null;
-    let currentSessionToken = null;
     
     if (currentUserStr) {
       try {
@@ -55,8 +53,6 @@ function login() {
         avatarUrl: null  // 从后端获取，不从 localStorage 读取
       };
     }
-    
-    currentSessionToken = storedCurrentSessionToken || chatSessionToken;
     
     if (currentUser && currentSessionToken) {
       store.currentUser = currentUser;
@@ -219,8 +215,7 @@ export const {
   initializeWebSocket,
   disconnectWebSocket,
   reconnectWebSocket,
-  isConnected,
-  chatSocket
+  isConnected
 } = websocketModule;
 
 if (typeof window !== 'undefined') {
@@ -228,35 +223,45 @@ if (typeof window !== 'undefined') {
   window.io = io;
   window.toast = toast;
   window.SERVER_URL = SERVER_URL;
-  window.getModalId = getModalId;
-  window.getModalNameFromId = getModalNameFromId;
-  window.MODAL_MAP = MODAL_MAP;
   
-  window.initChatStore = initChatStore;
-  window.getStore = getStore;
-  window.getCurrentUser = getCurrentUser;
-  window.getCurrentSessionToken = getCurrentSessionToken;
-  window.setCurrentUser = setCurrentUser;
-  window.setCurrentSessionToken = setCurrentSessionToken;
-  window.sessionStore = sessionStore;
-  window.unreadMessages = unreadMessages;
-  window.syncCurrentActiveChat = syncCurrentActiveChat;
-  window.deletePublicMessage = deletePublicMessage;
-  window.deleteGroupMessage = deleteGroupMessage;
-  window.deletePrivateMessage = deletePrivateMessage;
-  
-  window.escapeHtml = escapeHtml;
-  window.unescapeHtml = unescapeHtml;
-  window.formatFileSize = formatFileSize;
   window.sendMessage = sendMessage;
   window.sendGroupMessage = sendGroupMessage;
   window.sendPrivateMessage = sendPrivateMessage;
-  window.login = login;
-  window.dissolveGroup = groupModule.dissolveGroup;
   
-  Object.assign(window, privateModule);
-  Object.assign(window, groupModule);
-  Object.assign(window, uiModule);
-  Object.assign(window, uploadModule);
-  Object.assign(window, websocketModule);
+  window.switchToPrivateChat = privateModule.switchToPrivateChat;
+  window.loadFriendsList = privateModule.loadFriendsList;
+  window.showUserProfile = privateModule.showUserProfile;
+  window.showUserAvatarPopup = privateModule.showUserAvatarPopup;
+  window.addFriend = privateModule.addFriend;
+  
+  window.switchToGroupChat = groupModule.switchToGroupChat;
+  window.joinGroupWithToken = groupModule.joinGroupWithToken;
+  window.sendGroupCard = groupModule.sendGroupCard;
+  window.isGroupMuted = groupModule.isGroupMuted;
+  window.showSendGroupCardModal = groupModule.showSendGroupCardModal;
+  window.showGroupCardPopup = groupModule.showGroupCardPopup;
+  window.loadGroupList = groupModule.loadGroupList;
+  
+  window.openModal = uiModule.openModal;
+  window.closeModal = uiModule.closeModal;
+  window.updateTitleWithUnreadCount = uiModule.updateTitleWithUnreadCount;
+  window.updateUnreadCountsDisplay = uiModule.updateUnreadCountsDisplay;
+  window.setActiveChat = uiModule.setActiveChat;
+  window.currentActiveChat = uiModule.currentActiveChat;
+  window.currentGroupId = uiModule.currentGroupId;
+  window.currentGroupName = uiModule.currentGroupName;
+  window.currentUser = uiModule.currentUser;
+  window.currentSessionToken = uiModule.currentSessionToken;
+  window.hasReceivedHistory = uiModule.hasReceivedHistory;
+  window.hasReceivedGroupHistory = uiModule.hasReceivedGroupHistory;
+  window.hasReceivedPrivateHistory = uiModule.hasReceivedPrivateHistory;
+  window.currentPrivateChatUserId = uiModule.currentPrivateChatUserId;
+  window.currentPrivateChatUsername = uiModule.currentPrivateChatUsername;
+  window.currentPrivateChatNickname = uiModule.currentPrivateChatNickname;
+  window.currentSendChatType = uiModule.currentSendChatType;
+  window.selectedGroupIdForCard = uiModule.selectedGroupIdForCard;
+  window.originalTitle = uiModule.originalTitle;
+  window.isPageVisible = uiModule.isPageVisible;
+  
+  window.isConnected = websocketModule.isConnected;
 }
