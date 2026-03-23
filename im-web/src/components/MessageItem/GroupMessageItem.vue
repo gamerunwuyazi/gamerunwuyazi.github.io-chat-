@@ -465,8 +465,8 @@ const groupCardAvatarUrl = computed(() => {
   // 如果头像加载失败，返回空字符串
   if (groupCardAvatarLoadFailed.value) return '';
   
-  if (!groupCardData.value || !groupCardData.value.avatar_url) return '';
-  return `${chatStore.SERVER_URL}${groupCardData.value.avatar_url}`;
+  if (!groupCardData.value || !groupCardData.value.avatarUrl) return '';
+  return `${chatStore.SERVER_URL}${groupCardData.value.avatarUrl}`;
 });
 
 function handleGroupCardAvatarError() {
@@ -670,24 +670,6 @@ function handleContextMenu(event) {
   const senderNicknameValue = messageElement.querySelector('.message-sender')?.textContent || '';
   const messageType = props.message.messageType || 0;
   
-  let messageContentValue = '';
-  if (messageType === 1 || messageType === 2 || messageType === 3) {
-    // 图片、文件、群名片消息：保留原始 JSON 内容
-    messageContentValue = props.message.content || '';
-  } else if (messageType === 4) {
-    // 引用消息：获取实际被引用的内容
-    if (quotedMessageData.value && quotedMessageData.value.content) {
-      messageContentValue = quotedMessageData.value.content;
-    } else {
-      messageContentValue = '[引用消息]';
-    }
-  } else {
-    const originalContent = props.message.content || '';
-    if (originalContent) {
-      messageContentValue = originalContent.length > 50 ? originalContent.substring(0, 50) + '...' : originalContent;
-    }
-  }
-  
   if (!messageId) return;
   
   hideContextMenu();
@@ -716,19 +698,25 @@ function handleContextMenu(event) {
   const userId = messageUser.value?.id;
   
   quoteMenuItem.addEventListener('click', () => {
-    const quotedMsgData = {
-      id: messageId,
-      userId: userId,
-      nickname: senderNicknameValue,
-      content: messageContentValue,
-      messageType: messageType
-    };
-    
-    // 如果当前消息是引用消息，传递嵌套的引用数据
-    if (messageType === 4 && quotedMessageData.value) {
-      quotedMsgData.quotedMessage = quotedMessageData.value;
+    let quotedMsgData = {};
+    if (messageType === 4) {
+      quotedMsgData = {
+        id: messageId,
+        userId: userId,
+        nickname: senderNicknameValue,
+        content: JSON.parse(props.message.content).text,
+        messageType: 4
+      };
+    } else {
+      quotedMsgData = {
+        id: messageId,
+        userId: userId,
+        nickname: senderNicknameValue,
+        content: props.message.content,
+        messageType: messageType
+      };
     }
-    
+
     chatStore.setQuotedMessage(quotedMsgData);
     hideContextMenu();
   });
@@ -737,10 +725,27 @@ function handleContextMenu(event) {
   
   const isOwnMessage = messageUser.value && String(messageUser.value.id) === String(currentUserId);
   
+  // 删除消息菜单项
+  const deleteMenuItem = document.createElement('div');
+  deleteMenuItem.className = 'context-menu-item';
+  deleteMenuItem.textContent = '删除';
+  deleteMenuItem.style.padding = '8px 15px';
+  deleteMenuItem.style.cursor = 'pointer';
+  deleteMenuItem.style.fontSize = '14px';
+  deleteMenuItem.style.whiteSpace = 'nowrap';
+  
+  deleteMenuItem.addEventListener('click', () => {
+    chatStore.deleteGroupMessage(chatStore.currentGroupId, messageId);
+    hideContextMenu();
+  });
+  
+  contextMenu.appendChild(deleteMenuItem);
+  
+  // 撤回消息菜单项（仅自己的消息）
   if (isOwnMessage) {
     const menuItem = document.createElement('div');
     menuItem.className = 'context-menu-item';
-    menuItem.textContent = '撤回消息';
+    menuItem.textContent = '撤回';
     menuItem.style.padding = '8px 15px';
     menuItem.style.cursor = 'pointer';
     menuItem.style.fontSize = '14px';

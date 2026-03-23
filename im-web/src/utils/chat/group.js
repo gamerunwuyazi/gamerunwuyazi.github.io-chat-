@@ -11,12 +11,11 @@ import modal from '../modal.js';
 import { 
   updateUnreadCountsDisplay, 
   currentGroupId, 
-  currentUser, 
-  currentSessionToken, 
   setActiveChat,
   updateGroupListDisplay
 } from './ui.js';
 import { isConnected } from './websocket.js';
+import localForage from 'localforage';
 
 let groupsList = [];
 let currentSharedGroup = null;
@@ -30,10 +29,12 @@ function addGroupCardClickListeners() {
 }
 
 function loadGroupList() {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     if (!currentUser || !currentSessionToken) return;
 
     // 使用fetch API加载群组列表
-    fetch(`${SERVER_URL}/user-groups/${currentUser.id}`, {
+    fetch(`${SERVER_URL}/api/user-groups/${currentUser.id}`, {
         headers: {
             'user-id': currentUser.id,
             'session-token': currentSessionToken
@@ -129,7 +130,7 @@ function setupGroupInfoButton(groupInfoButton) {
             return;
         }
 
-        fetch(`${SERVER_URL}/group-info/${currentGroupId}`, {
+        fetch(`${SERVER_URL}/api/group-info/${currentGroupId}`, {
             headers: {
                 'user-id': user?.id,
                 'session-token': sessionToken
@@ -167,12 +168,14 @@ function setupLeaveGroupButton(leaveGroupButton) {
     leaveGroupButton.parentNode.replaceChild(newLeaveGroupButton, leaveGroupButton);
 
     newLeaveGroupButton.addEventListener('click', function() {
+        const currentUser = getCurrentUser();
+        const currentSessionToken = getCurrentSessionToken();
         if (!currentGroupId) {
             toast.warning('请先选择一个群组');
             return;
         }
 
-        fetch(`${SERVER_URL}/group-info/${currentGroupId}`, {
+        fetch(`${SERVER_URL}/api/group-info/${currentGroupId}`, {
             headers: {
                 'user-id': currentUser.id,
                 'session-token': currentSessionToken
@@ -216,9 +219,11 @@ async function handleDissolveGroup(groupId) {
 }
 
 async function handleLeaveGroup(groupId) {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     const confirmed = await modal.confirm('确定要退出该群组吗？', '退出群组');
     if (confirmed) {
-        fetch(`${SERVER_URL}/leave-group`, {
+        fetch(`${SERVER_URL}/api/leave-group`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -259,6 +264,8 @@ async function handleLeaveGroup(groupId) {
 }
 
 async function dissolveGroup(groupId) {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     if (!currentUser || !currentSessionToken) {
         toast.error('请先登录');
         return;
@@ -269,7 +276,7 @@ async function dissolveGroup(groupId) {
         return;
     }
 
-    fetch(`${SERVER_URL}/dissolve-group`, {
+    fetch(`${SERVER_URL}/api/dissolve-group`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -305,6 +312,8 @@ async function dissolveGroup(groupId) {
 
 function loadGroupMembers(groupId, isOwner) {
     // console.log(`📋 [群组成员] 开始加载群组成员列表，群组ID: ${groupId}，是否为群主: ${isOwner}`);
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
 
     const groupMembersContainer = document.getElementById('groupMembersContainer');
     const modalGroupMemberCount = document.getElementById('modalGroupMemberCount');
@@ -316,7 +325,7 @@ function loadGroupMembers(groupId, isOwner) {
     groupMembersContainer.innerHTML = '<div class="loading-members">正在加载成员列表...</div>';
 
     // console.log(`🔄 [群组成员] 发送请求获取群组成员列表，群组ID: ${groupId}`);
-    fetch(`${SERVER_URL}/group-members/${groupId}`, {
+    fetch(`${SERVER_URL}/api/group-members/${groupId}`, {
         headers: {
             'user-id': currentUser.id,
             'session-token': currentSessionToken
@@ -344,6 +353,7 @@ function loadGroupMembers(groupId, isOwner) {
 
 function updateGroupMembersList(members, isOwner, groupId) {
     // console.log(`📋 [群组成员] 开始更新群组成员列表，群组ID: ${groupId}，是否为群主: ${isOwner}，成员数量: ${members ? members.length : 0}`);
+    const currentUser = getCurrentUser();
 
     const groupMembersContainer = document.getElementById('groupMembersContainer');
     if (!groupMembersContainer) {
@@ -402,6 +412,8 @@ function updateGroupMembersList(members, isOwner, groupId) {
 }
 
 async function removeMemberFromGroup(groupId, memberId, memberName) {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     const confirmed = await modal.confirm(`确定要踢出成员 ${memberName} 吗？`, '踢出成员');
     if (!confirmed) return;
     if (!currentUser || !currentSessionToken) {
@@ -409,7 +421,7 @@ async function removeMemberFromGroup(groupId, memberId, memberName) {
         return;
     }
 
-    fetch(`${SERVER_URL}/remove-group-member`, {
+    fetch(`${SERVER_URL}/api/remove-group-member`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -440,6 +452,8 @@ async function removeMemberFromGroup(groupId, memberId, memberName) {
 }
 
 function showAddGroupMemberModal(groupId) {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     if (!groupId || !currentUser || !currentSessionToken) {
         return;
     }
@@ -459,7 +473,8 @@ function hideAddGroupMemberModal() {
 }
 
 function confirmAddGroupMembers() {
-
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     const groupId = window.currentAddingGroupId;
     if (!groupId || !currentUser || !currentSessionToken) {
         return;
@@ -490,7 +505,7 @@ function confirmAddGroupMembers() {
 
 
     // 发送添加成员请求
-    fetch(`${SERVER_URL}/add-group-members`, {
+    fetch(`${SERVER_URL}/api/add-group-members`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -531,12 +546,14 @@ function confirmAddGroupMembers() {
 }
 
 function updateGroupName(groupId, newGroupName) {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     if (!currentUser || !currentSessionToken) {
         toast.error('请先登录');
         return;
     }
 
-    fetch(`${SERVER_URL}/update-group-name`, {
+    fetch(`${SERVER_URL}/api/update-group-name`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -575,12 +592,14 @@ function updateGroupName(groupId, newGroupName) {
 }
 
 function updateGroupNotice(groupId, newNotice) {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     if (!currentUser || !currentSessionToken) {
         toast.error('请先登录');
         return;
     }
 
-    fetch(`${SERVER_URL}/update-group-description`, {
+    fetch(`${SERVER_URL}/api/update-group-description`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -611,6 +630,8 @@ function updateGroupNotice(groupId, newNotice) {
 }
 
 function uploadGroupAvatar(groupId, file) {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     if (!currentUser || !currentSessionToken) {
         toast.error('请先登录');
         return;
@@ -623,7 +644,7 @@ function uploadGroupAvatar(groupId, file) {
 
     toast.info('正在上传群头像，请稍候...');
 
-    fetch(`${SERVER_URL}/upload-group-avatar/${groupId}`, {
+    fetch(`${SERVER_URL}/api/upload-group-avatar/${groupId}`, {
         method: 'POST',
         headers: {
             'session-token': currentSessionToken,
@@ -650,7 +671,9 @@ function uploadGroupAvatar(groupId, file) {
 }
 
 function joinGroupWithToken(token, groupId, groupName, popup) {
-    fetch(`${SERVER_URL}/join-group-with-token`, {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
+    fetch(`${SERVER_URL}/api/join-group-with-token`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -687,6 +710,8 @@ function showGroupCardPopup(event, groupCardData) {
 }
 
 function displayShareGroupCardModal() {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     const modal = document.getElementById('shareGroupCardModal');
     const shareGroupList = document.getElementById('shareGroupList');
 
@@ -694,7 +719,7 @@ function displayShareGroupCardModal() {
     shareGroupList.innerHTML = '';
 
     // 加载用户加入的群组，排除当前要分享的群组
-    fetch(`${SERVER_URL}/groups`, {
+    fetch(`${SERVER_URL}/api/user-groups/${currentUser.id}`, {
         headers: {
             'user-id': currentUser.id,
             'session-token': currentSessionToken
@@ -757,6 +782,8 @@ function displayShareGroupCardModal() {
 }
 
 function shareGroupCard() {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     if (!currentSharedGroup) return;
 
     // 获取选中的目标
@@ -769,7 +796,7 @@ function shareGroupCard() {
     }
 
     // 生成群组邀请Token
-    fetch(`${SERVER_URL}/generate-group-token`, {
+    fetch(`${SERVER_URL}/api/generate-group-token`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -862,12 +889,28 @@ function switchToGroupChat(groupId, groupName) {
     sessionStore.currentSendChatType = 'group';
     sessionStore.selectedGroupIdForCard = groupId;
     
+    // 重置该会话的全部加载标志
+    if (!window.groupChatAllLoaded) {
+        window.groupChatAllLoaded = {};
+    }
+    delete window.groupChatAllLoaded[groupId];
+    
     if (store) {
         store.currentGroupId = groupId;
         store.currentGroupName = groupName;
         store.currentActiveChat = `group_${groupId}`;
         store.currentSendChatType = 'group';
         store.selectedGroupIdForCard = groupId;
+        
+        // 同时重置 chatStore 中的标记
+        if (store.setGroupAllLoaded) {
+            store.setGroupAllLoaded(groupId, false);
+        }
+        
+        // 清零该会话的未读计数
+        if (store.clearGroupUnread) {
+            store.clearGroupUnread(groupId);
+        }
     }
     
     window.currentGroupId = groupId;
@@ -881,38 +924,55 @@ function switchToGroupChat(groupId, groupName) {
 
     window.dispatchEvent(new CustomEvent('group-switched'));
     
+    // 更新未读计数显示
+    if (typeof window.updateUnreadCountsDisplay === 'function') {
+        window.updateUnreadCountsDisplay();
+    }
+    if (typeof window.updateTitleWithUnreadCount === 'function') {
+        window.updateTitleWithUnreadCount();
+    }
+    
     const hasMessages = store && store.groupMessages && store.groupMessages[groupId] && store.groupMessages[groupId].length > 0;
     window.switchingGroupWithExistingMessages = hasMessages;
-    loadGroupMessages(groupId, !hasMessages);
 }
 
 function loadGroupMessages(groupId) {
-    if (isConnected && window.chatSocket) {
-        // 加入群组房间并获取聊天历史
-        window.chatSocket.emit('join-group', {
-            groupId: parseInt(groupId),
-            sessionToken: currentSessionToken,
-            userId: currentUser.id,
-            loadMore: false,
-            limit: 20
-        });
-    }
+    // 不再发送加入事件，直接从 chatStore 渲染本地存储的消息
 }
 
-function updateGroupList(groups) {
+async function updateGroupList(groups) {
     // 更新群组列表全局变量
     groupsList = groups;
 
     // 直接更新 store
     if (window.chatStore) {
-        // 应用 localStorage 缓存的最后消息时间
-        const updatedGroups = groups.map(group => {
+        const userId = window.chatStore.currentUser?.id || 'guest';
+        const prefix = `chats-${userId}`;
+        
+        // 应用 localStorage 缓存的最后消息时间和从IndexedDB加载最后消息
+        const updatedGroups = await Promise.all(groups.map(async (group) => {
+            const result = { ...group };
             const cachedTime = window.chatStore.getGroupLastMessageTime(group.id);
             if (cachedTime) {
-                return { ...group, last_message_time: cachedTime };
+                result.last_message_time = cachedTime;
             }
-            return group;
-        });
+            
+            // 从IndexedDB加载最后消息
+            try {
+                const key = `${prefix}-group-${group.id}`;
+                const data = await localForage.getItem(key);
+                if (data && data.messages && data.messages.length > 0) {
+                    const validMessages = data.messages.filter(m => m.messageType !== 101);
+                    if (validMessages.length > 0) {
+                        result.lastMessage = validMessages[validMessages.length - 1];
+                    }
+                }
+            } catch (e) {
+                console.error('加载群组最后消息失败:', e);
+            }
+            
+            return result;
+        }));
         
         window.chatStore.groupsList = updatedGroups;
         // 按最后消息时间排序
@@ -956,7 +1016,7 @@ function sendGroupCard() {
     const currentSessionToken = getCurrentSessionToken();
 
     // 生成群组邀请Token
-    fetch(`${SERVER_URL}/generate-group-token`, {
+    fetch(`${SERVER_URL}/api/generate-group-token`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -971,7 +1031,7 @@ function sendGroupCard() {
                 const token = data.token;
 
                 // 获取群组信息
-                fetch(`${SERVER_URL}/group-info/${selectedGroupIdForCard}`, {
+                fetch(`${SERVER_URL}/api/group-info/${selectedGroupIdForCard}`, {
                     headers: {
                         'user-id': currentUser.id,
                         'session-token': currentSessionToken
@@ -1012,7 +1072,7 @@ function sendGroupCard() {
                                 });
                             } else if (currentSendChatType === 'private' && currentPrivateChatUserId) {
                                 // 发送到当前私信聊天
-                                window.chatSocket.emit('private-message', {
+                                window.chatSocket.emit('send-private-message', {
                                     content: groupCardContent,
                                     messageType: 3,
                                     receiverId: currentPrivateChatUserId,

@@ -34,6 +34,15 @@ h1, h2, h3, h4, h5, h6, ul {
     margin: 0;
 }
 
+noscript {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    min-height: 100vh;
+    flex-direction: column;
+}
+
 .quoted-highlight,
 .message.active {
     border-radius: 8px;
@@ -664,7 +673,7 @@ h1, h2, h3, h4, h5, h6, ul {
 }
 
 .user-list li, .settings-list li {
-    padding: 8px 6px;
+    padding: 8px 3px;
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.3s ease;
@@ -1282,7 +1291,7 @@ h1, h2, h3, h4, h5, h6, ul {
 #groupList li {
     display: flex;
     align-items: center;
-    padding: 8px 6px;
+    padding: 8px 3px;
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.3s ease;
@@ -1891,6 +1900,8 @@ h1, h2, h3, h4, h5, h6, ul {
 .search-container {
     margin-top: 10px;
     position: relative;
+    margin-left: -2.5px;
+    margin-right: -2.5px;
 }
 
 .search-input {

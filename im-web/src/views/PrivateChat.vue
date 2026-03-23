@@ -159,12 +159,11 @@
   </div>
 </template>
 
-<style src="@/css/index.css"></style>
-<style src="@/css/code-highlight.css"></style>
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useChatStore } from "@/stores/chatStore";
 import { useRoute } from "vue-router";
+import localForage from "localforage";
 import PrivateMessageItem from "@/components/MessageItem/PrivateMessageItem.vue";
 import QuotedMessagePreview from "@/components/MessageItem/QuotedMessagePreview.vue";
 
@@ -180,7 +179,7 @@ import {
 } from "@/utils/chat";
 
 const chatStore = useChatStore();
-const SERVER_URL = chatStore.SERVER_URL || process.env.VUE_APP_SERVER_URL || '';
+const SERVER_URL = chatStore.SERVER_URL || import.meta.env.VITE_SERVER_URL || '';
 
 const route = useRoute();
 const privateMessageInputRef = ref(null);
@@ -285,7 +284,6 @@ function applySavedPrivateState() {
     }
     
     initializePrivateChatInterface();
-    loadPrivateChatHistory(chatStore.currentPrivateChatUserId);
     
     // 重新初始化滚动监听器
     nextTick(() => {
@@ -581,58 +579,47 @@ async function executeSearch() {
   
   try {
     const friendId = chatStore.currentPrivateChatUserId;
-    const messages = chatStore.privateMessages[friendId] || [];
+    const prefix = `chats-${chatStore.currentUser?.id || 'guest'}`;
+    const storageKey = `${prefix}-private-${friendId}`;
     
-    // 如果消息数量不足，发送加载更多事件
-    if (messages.length < 200) {
-      for (let i = 0; i < 10; i++) {
-        if (chatStore.privateMessages[friendId]?.length >= 200) break;
+    // 直接从 indexedDB 读取消息
+    const storageData = await localForage.getItem(storageKey);
+    const allMessages = storageData?.messages || [];
+    const keyword = searchKeyword.value.trim().toLowerCase();
+    
+    // 搜索消息
+    const matchedMessages = allMessages
+      .filter(msg => {
+        if (msg.messageType === 101) return false;
+        const content = msg.content?.toLowerCase() || '';
+        return content.includes(keyword);
+      });
+    
+    if (matchedMessages.length > 0) {
+      searchResults.value = [...matchedMessages].reverse();
+      
+      // 找到查找到的所有消息中最小的ID
+      const minMatchedId = Math.min(...matchedMessages.map(m => m.id));
+      
+      // 获取store中的当前消息列表的最小ID
+      const storeMessages = chatStore.privateMessages[friendId] || [];
+      if (storeMessages.length > 0) {
+        const storeMinId = Math.min(...storeMessages.map(m => m.id));
         
-        const currentMessages = chatStore.privateMessages[friendId] || [];
-        const oldestMessage = currentMessages[0];
-        if (!oldestMessage) break;
+        // 从完整消息列表中提取需要添加的消息：从最小匹配ID-20 到 store最小ID-1
+        const startId = Math.max(1, minMatchedId - 20);
+        const endId = storeMinId - 1;
         
-        if (window.chatSocket && window.chatSocket.connected) {
-          await new Promise((resolve) => {
-            let resolved = false;
-            const handler = () => {
-              if (resolved) return;
-              resolved = true;
-              window.chatSocket.off('private-chat-history', handler);
-              setTimeout(resolve, 100);
-            };
-            window.chatSocket.on('private-chat-history', handler);
-            
-            window.chatSocket.emit('get-private-chat-history', {
-              userId: chatStore.currentUser?.id,
-              friendId: friendId,
-              sessionToken: chatStore.currentSessionToken,
-              limit: 20,
-              loadMore: true,
-              olderThan: oldestMessage.id
-            });
-            
-            setTimeout(() => {
-              if (!resolved) {
-                resolved = true;
-                window.chatSocket.off('private-chat-history', handler);
-                resolve();
-              }
-            }, 3000);
-          });
+        if (startId <= endId) {
+          const messagesToAdd = allMessages
+            .filter(msg => msg.id >= startId && msg.id <= endId && msg.messageType !== 101)
+            .sort((a, b) => a.id - b.id);
+          
+          // 添加到store
+          chatStore.prependPrivateMessages(friendId, messagesToAdd);
         }
       }
     }
-    
-    const allMessages = chatStore.privateMessages[friendId] || [];
-    const keyword = searchKeyword.value.trim().toLowerCase();
-    
-    searchResults.value = allMessages
-      .filter(msg => {
-        const content = msg.content?.toLowerCase() || '';
-        return content.includes(keyword);
-      })
-      .reverse();
     
     hasSearched.value = true;
   } catch (err) {

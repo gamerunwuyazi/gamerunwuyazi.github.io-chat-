@@ -7,7 +7,7 @@ import { unescapeHtml } from '@/utils/chat';
 import modal from '@/utils/modal';
 
 const chatStore = useChatStore();
-const SERVER_URL = chatStore.SERVER_URL || process.env.VUE_APP_SERVER_URL || '';
+const SERVER_URL = chatStore.SERVER_URL || import.meta.env.VITE_SERVER_URL || '';
 
 const router = useRouter();
 const route = useRoute();
@@ -215,6 +215,3 @@ async function handleMenuClick(section) {
     </div>
 </div>
 </template>
-
-<style src="@/css/index.css"></style>
-<style src="@/css/code-highlight.css"></style>

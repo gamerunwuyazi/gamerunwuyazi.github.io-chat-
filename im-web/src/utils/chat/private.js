@@ -8,6 +8,7 @@ import {
 } from './store.js';
 import { unescapeHtml } from './message.js';
 import modal from '../modal.js';
+import localForage from 'localforage';
 
 let friendsList = [];
 
@@ -37,16 +38,25 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
     window.privateChatAllLoaded = {};
   }
   delete window.privateChatAllLoaded[userId];
-  // console.log(`🔄 [切换私信] 重置会话 ${userId} 的全部加载标志 - window.privateChatAllLoaded[${userId}] 已删除`);
   
   // 同步到 store
   const store = getStore();
   if (store) {
+    // 同时重置 chatStore 中的标记
+    if (store.setPrivateAllLoaded) {
+      store.setPrivateAllLoaded(userId, false);
+    }
+    // console.log(`🔄 [切换私信] 重置会话 ${userId} 的全部加载标志 - window.privateChatAllLoaded[${userId}] 已删除`);
     store.currentPrivateChatUserId = userId;
     store.currentPrivateChatUsername = username;
     store.currentPrivateChatNickname = nickname;
     store.currentPrivateChatAvatarUrl = avatarUrl;
     store.currentActiveChat = `private_${userId}`;
+    
+    // 清零该会话的未读计数
+    if (store.clearPrivateUnread) {
+      store.clearPrivateUnread(userId);
+    }
   }
 
   if (typeof window.setActiveChat === 'function') {
@@ -60,8 +70,15 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
 
   window.dispatchEvent(new CustomEvent('private-switched'));
   
+  // 更新未读计数显示
+  if (typeof window.updateUnreadCountsDisplay === 'function') {
+    window.updateUnreadCountsDisplay();
+  }
+  if (typeof window.updateTitleWithUnreadCount === 'function') {
+    window.updateTitleWithUnreadCount();
+  }
+  
   const hasMessages = store && store.privateMessages && store.privateMessages[userId] && store.privateMessages[userId].length > 0;
-  loadPrivateChatHistory(userId, !hasMessages);
 }
 
 function initializePrivateChatFunctions() {
@@ -107,14 +124,6 @@ function initializePrivateChatInterface() {
         if (typeof window.updateTitleWithUnreadCount === 'function') {
           window.updateTitleWithUnreadCount();
         }
-
-        if (window.chatSocket) {
-          window.chatSocket.emit('join-private-chat', {
-            userId: currentUser.id,
-            friendId: currentPrivateChatUserId,
-            sessionToken: currentSessionToken
-          });
-        }
       }
     });
   }
@@ -125,20 +134,7 @@ export function initializePrivateMessageSending() {
 }
 
 function loadPrivateChatHistory(userId) {
-  const currentUser = getCurrentUser();
-  const currentSessionToken = getCurrentSessionToken();
-  
-  if (!currentUser || !currentSessionToken) return;
-
-  if (window.chatSocket) {
-    window.chatSocket.emit('join-private-chat', {
-      userId: currentUser.id,
-      friendId: userId,
-      sessionToken: currentSessionToken,
-      loadMore: false,
-      limit: 20
-    });
-  }
+  // 不再发送加入事件，直接从 chatStore 渲染本地存储的消息
 }
 
 function loadFriendsList() {
@@ -147,7 +143,7 @@ function loadFriendsList() {
   
   if (!currentUser || !currentSessionToken) return;
 
-  fetch(`${SERVER_URL}/user/friends`, {
+  fetch(`${SERVER_URL}/api/user/friends`, {
     headers: {
       'user-id': currentUser.id,
       'session-token': currentSessionToken
@@ -163,18 +159,37 @@ function loadFriendsList() {
     });
 }
 
-function updateFriendsList(friends) {
+async function updateFriendsList(friends) {
   friendsList = friends;
 
   if (window.chatStore) {
-    // 应用 localStorage 缓存的最后消息时间
-    const updatedFriends = friends.map(friend => {
+    const userId = window.chatStore.currentUser?.id || 'guest';
+    const prefix = `chats-${userId}`;
+    
+    // 应用 localStorage 缓存的最后消息时间和从IndexedDB加载最后消息
+    const updatedFriends = await Promise.all(friends.map(async (friend) => {
+      const result = { ...friend };
       const cachedTime = window.chatStore.getFriendLastMessageTime(friend.id);
       if (cachedTime) {
-        return { ...friend, last_message_time: cachedTime };
+        result.last_message_time = cachedTime;
       }
-      return friend;
-    });
+      
+      // 从IndexedDB加载最后消息
+      try {
+        const key = `${prefix}-private-${friend.id}`;
+        const data = await localForage.getItem(key);
+        if (data && data.messages && data.messages.length > 0) {
+          const validMessages = data.messages.filter(m => m.messageType !== 101);
+          if (validMessages.length > 0) {
+            result.lastMessage = validMessages[validMessages.length - 1];
+          }
+        }
+      } catch (e) {
+        console.error('加载好友最后消息失败:', e);
+      }
+      
+      return result;
+    }));
     
     window.chatStore.friendsList = updatedFriends;
     // 按最后消息时间排序
@@ -196,7 +211,7 @@ export function addFriend(userId) {
   
   if (!currentUser || !currentSessionToken) return;
 
-  fetch(`${SERVER_URL}/user/add-friend`, {
+  fetch(`${SERVER_URL}/api/user/add-friend`, {
     method: 'POST',
     headers: {
       'user-id': currentUser.id,
@@ -227,7 +242,7 @@ async function deleteFriend(userId) {
 
   const confirmed = await modal.confirm('确定要删除这个好友吗？', '删除好友');
   if (confirmed) {
-    fetch(`${SERVER_URL}/user/remove-friend`, {
+    fetch(`${SERVER_URL}/api/user/remove-friend`, {
       method: 'POST',
       headers: {
         'user-id': currentUser.id,
@@ -266,7 +281,7 @@ function showUserProfile(user) {
   const currentUserInfo = getCurrentUser();
   const sessionToken = getCurrentSessionToken();
 
-  fetch(`${SERVER_URL}/user/${user.id}`, {
+  fetch(`${SERVER_URL}/api/user/${user.id}`, {
     headers: {
       'user-id': currentUserInfo?.id || '',
       'session-token': sessionToken || ''
@@ -357,7 +372,7 @@ function showUserAvatarPopup(event, user) {
     const currentUserInfo = getCurrentUser();
     const sessionToken = getCurrentSessionToken();
     
-    return fetch(`${SERVER_URL}/user/${user.id}`, {
+    return fetch(`${SERVER_URL}/api/user/${user.id}`, {
       headers: {
         'user-id': currentUserInfo?.id || '',
         'session-token': sessionToken || ''
@@ -532,7 +547,7 @@ function searchUsers(keyword) {
   
   if (!currentUser || !currentSessionToken) return;
 
-  fetch(`${SERVER_URL}/user/search?keyword=${encodeURIComponent(keyword)}`, {
+  fetch(`${SERVER_URL}/api/user/search?keyword=${encodeURIComponent(keyword)}`, {
     headers: {
       'user-id': currentUser.id,
       'session-token': currentSessionToken

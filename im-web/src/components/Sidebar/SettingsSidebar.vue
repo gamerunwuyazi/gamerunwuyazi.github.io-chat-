@@ -53,6 +53,3 @@ function handleSettingItemClick(settingId) {
     </div>
   </div>
 </template>
-
-<style src="@/css/index.css"></style>
-<style src="@/css/code-highlight.css"></style>

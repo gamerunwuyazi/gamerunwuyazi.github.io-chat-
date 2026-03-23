@@ -118,6 +118,3 @@ function handleAvatarError(event, user) {
   font-weight: bold;
 }
 </style>
-
-<style src="@/css/index.css"></style>
-<style src="@/css/code-highlight.css"></style>

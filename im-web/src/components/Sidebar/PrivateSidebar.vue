@@ -7,11 +7,6 @@ const chatStore = useChatStore();
 
 onMounted(() => {
   window.chatStore = chatStore;
-  
-  // 加载好友列表
-  if (window.loadFriendsList) {
-    window.loadFriendsList();
-  }
 });
 
 // 私信搜索状态
@@ -47,6 +42,19 @@ function getAvatarUrl(user) {
 // 工具函数：检查是否为SVG格式
 function isSvgAvatar(url) {
   return url && /\.svg$/i.test(url);
+}
+
+// 获取私信最后消息
+function getPrivateLastMessage(friend) {
+  const lastMessage = friend.lastMessage || chatStore.getPrivateLastMessage(friend.id);
+  if (!lastMessage) return '';
+  
+  let content = chatStore.formatMessageContent(lastMessage);
+  const isSelfSend = String(lastMessage.sender_id) === String(chatStore.currentUser?.id) || 
+                       String(lastMessage.user_id) === String(chatStore.currentUser?.id);
+  const prefix = isSelfSend ? '你: ' : '';
+  
+  return `${prefix}${content}`;
 }
 
 // 工具函数：检查用户是否在线
@@ -128,13 +136,19 @@ function handleSearchUserClick() {
                     :data-user-id="friend.id"
                     :data-user-nickname="unescapeHtml(friend.nickname)"
                     @click="handleFriendClick(friend)">
-                    <span v-if="getAvatarUrl(friend) && !isSvgAvatar(getAvatarUrl(friend))" class="user-avatar" @click.stop="handleUserAvatarClick($event, friend)">
-                        <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(friend)}`" :alt="unescapeHtml(friend.nickname)" @error="handleAvatarError($event, friend)">
+                    <span class="user-avatar-wrapper" @click.stop="handleUserAvatarClick($event, friend)">
+                        <span v-if="getAvatarUrl(friend) && !isSvgAvatar(getAvatarUrl(friend))" class="user-avatar">
+                            <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(friend)}`" :alt="unescapeHtml(friend.nickname)" @error="handleAvatarError($event, friend)">
+                        </span>
+                        <span v-else class="user-avatar">
+                            {{ unescapeHtml(friend.nickname) ? unescapeHtml(friend.nickname).charAt(0).toUpperCase() : 'U' }}
+                        </span>
+                        <span v-if="isUserOnline(friend.id)" class="online-indicator"></span>
                     </span>
-                    <span v-else class="user-avatar" @click.stop="handleUserAvatarClick($event, friend)">
-                        {{ unescapeHtml(friend.nickname) ? unescapeHtml(friend.nickname).charAt(0).toUpperCase() : 'U' }}
-                    </span>
-                    <span class="friend-name">{{ unescapeHtml(friend.nickname) }}</span>
+                    <div class="friend-info">
+                        <span class="friend-name">{{ unescapeHtml(friend.nickname) }}</span>
+                        <span class="friend-last-message">{{ getPrivateLastMessage(friend) }}</span>
+                    </div>
                     <span class="friend-status" :class="isUserOnline(friend.id) ? 'online' : 'offline'"></span>
                     <div class="unread-count private-unread-count" v-if="chatStore.unreadMessages.private && chatStore.unreadMessages.private[friend.id]">
                         {{ chatStore.unreadMessages.private[friend.id] }}
@@ -146,5 +160,45 @@ function handleSearchUserClick() {
   </div>
 </template>
 
-<style src="@/css/index.css"></style>
-<style src="@/css/code-highlight.css"></style>
+<style scoped>
+.user-avatar-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.online-indicator {
+  position: absolute;
+  right: -2px;
+  bottom: 0;
+  width: 8px;
+  height: 8px;
+  background: limegreen;
+  border-radius: 50%;
+  border: 2px solid white;
+  z-index: 1;
+}
+
+.friend-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.friend-name {
+  font-weight: 500;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friend-last-message {
+  font-size: 12px;
+  color: #999;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+</style>

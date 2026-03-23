@@ -3,8 +3,8 @@ import {ref, computed, onMounted, onUnmounted} from "vue";
 import {currentUser, currentSessionToken, unescapeHtml} from "@/utils/chat";
 import VueTurnstile from 'vue-turnstile';
 
-const SERVER_URL = process.env.VUE_APP_SERVER_URL || 'https://back.hs.airoe.cn'
-const TURNSTILE_SITE_KEY = process.env.VUE_APP_TURNSTILE_SITE_KEY || ''
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn'
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || ''
 
 // 当前显示的设置项
 const currentSetting = ref('')
@@ -140,7 +140,7 @@ async function handleChangePassword() {
   }
   
   try {
-    const response = await fetch(`${SERVER_URL}/user/change-password`, {
+    const response = await fetch(`${SERVER_URL}/api/user/change-password`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -195,7 +195,7 @@ async function handleChangeNickname() {
   }
   
   try {
-    const response = await fetch(`${SERVER_URL}/user/update-nickname`, {
+    const response = await fetch(`${SERVER_URL}/api/user/update-nickname`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -234,7 +234,7 @@ async function handleChangeSignature() {
   const sessionToken = getCurrentSessionToken()
   
   try {
-    const response = await fetch(`${SERVER_URL}/update-signature`, {
+    const response = await fetch(`${SERVER_URL}/api/update-signature`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -271,7 +271,7 @@ async function handleChangeGender() {
   const sessionToken = getCurrentSessionToken()
   
   try {
-    const response = await fetch(`${SERVER_URL}/update-gender`, {
+    const response = await fetch(`${SERVER_URL}/api/update-gender`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -353,7 +353,7 @@ async function handleUploadAvatar() {
   formData.append('userId', userId)
   
   try {
-    const response = await fetch(`${SERVER_URL}/upload-avatar`, {
+    const response = await fetch(`${SERVER_URL}/api/upload-avatar`, {
       method: 'POST',
       headers: {
         'user-id': userId,
@@ -600,8 +600,6 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style src="@/css/index.css"></style>
-<style src="@/css/code-highlight.css"></style>
 <style scoped>
 .turnstile-container {
   display: flex;

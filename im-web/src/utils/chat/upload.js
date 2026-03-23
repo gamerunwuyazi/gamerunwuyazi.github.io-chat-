@@ -5,7 +5,7 @@ import {
   getCurrentSessionToken, 
   syncCurrentActiveChat 
 } from './store.js';
-import { currentUser, currentSessionToken } from './ui.js';
+import localForage from 'localforage';
 
 function showError(message) {
   if (typeof window.toast !== 'undefined' && window.toast.error) {
@@ -68,6 +68,8 @@ function uploadWithProgress(url, formData, store, onSuccess, onError) {
   });
   
   xhr.open('POST', url);
+  const currentUser = getCurrentUser();
+  const currentSessionToken = getCurrentSessionToken();
   xhr.setRequestHeader('user-id', currentUser.id);
   xhr.setRequestHeader('session-token', currentSessionToken);
   xhr.send(formData);
@@ -83,8 +85,8 @@ function uploadImage(file) {
     return;
   }
   
-  const user = currentUser || getCurrentUser();
-  const token = currentSessionToken || getCurrentSessionToken();
+  const user = getCurrentUser();
+  const token = getCurrentSessionToken();
   if (!user || !token) {
     return;
   }
@@ -118,7 +120,7 @@ function uploadImage(file) {
       }
 
       uploadWithProgress(
-        `${SERVER_URL}/upload`,
+        `${SERVER_URL}/api/upload`,
         formData,
         store,
         () => {},
@@ -146,7 +148,7 @@ function uploadImage(file) {
       }
 
       uploadWithProgress(
-        `${SERVER_URL}/upload`,
+        `${SERVER_URL}/api/upload`,
         formData,
         store,
         () => {},
@@ -170,8 +172,8 @@ function uploadFile(file) {
     return;
   }
   
-  const user = currentUser || getCurrentUser();
-  const token = currentSessionToken || getCurrentSessionToken();
+  const user = getCurrentUser();
+  const token = getCurrentSessionToken();
   if (!user || !token) {
     return;
   }
@@ -205,8 +207,8 @@ function uploadFile(file) {
 }
 
 function uploadPrivateImage(file) {
-  const user = currentUser || getCurrentUser();
-  const token = currentSessionToken || getCurrentSessionToken();
+  const user = getCurrentUser();
+  const token = getCurrentSessionToken();
   
   if (!user || !token) return;
 
@@ -245,7 +247,7 @@ function uploadPrivateImage(file) {
       };
 
       if (window.chatSocket) {
-        window.chatSocket.emit('private-message', messageData);
+        window.chatSocket.emit('send-private-message', messageData);
       }
     },
     () => showError('上传失败')
@@ -253,8 +255,8 @@ function uploadPrivateImage(file) {
 }
 
 function uploadPrivateFile(file) {
-  const user = currentUser || getCurrentUser();
-  const token = currentSessionToken || getCurrentSessionToken();
+  const user = getCurrentUser();
+  const token = getCurrentSessionToken();
   
   if (!user || !token) return;
 
@@ -293,7 +295,7 @@ function uploadPrivateFile(file) {
       };
 
       if (window.chatSocket) {
-        window.chatSocket.emit('private-message', messageData);
+        window.chatSocket.emit('send-private-message', messageData);
       }
     },
     () => showError('上传失败')
@@ -301,8 +303,8 @@ function uploadPrivateFile(file) {
 }
 
 function uploadUserAvatar(file) {
-  const user = currentUser || getCurrentUser();
-  const token = currentSessionToken || getCurrentSessionToken();
+  const user = getCurrentUser();
+  const token = getCurrentSessionToken();
   
   if (!user || !token) return;
   
@@ -310,7 +312,7 @@ function uploadUserAvatar(file) {
   formData.append('avatar', file);
   formData.append('userId', user.id);
 
-  fetch(`${SERVER_URL}/upload-avatar`, {
+  fetch(`${SERVER_URL}/api/upload-avatar`, {
     method: 'POST',
     headers: {
       'session-token': token,
@@ -324,8 +326,14 @@ function uploadUserAvatar(file) {
         showSuccess('头像上传成功');
 
         if (data.avatarUrl) {
-          const updatedUser = { ...user, avatarUrl: data.avatarUrl };
-          localStorage.setItem('currentUser', JSON.stringify(updatedUser));
+          // 更新 store 中的用户信息
+          const store = getStore();
+          if (store && store.currentUser) {
+            store.currentUser = {
+              ...store.currentUser,
+              avatar_url: data.avatarUrl
+            };
+          }
 
           const currentUserAvatar = document.getElementById('currentUserAvatar');
           if (currentUserAvatar) {
@@ -413,15 +421,44 @@ function initializeScrollLoading(force = false) {
   if (window.privateChatAllLoaded === undefined) {
     window.privateChatAllLoaded = {};
   }
+  if (window.groupChatAllLoaded === undefined) {
+    window.groupChatAllLoaded = {};
+  }
 
-  function handleScroll(e, container, isGroup, isPrivate = false) {
+  async function handleScroll(e, container, isGroup, isPrivate = false) {
     const containerId = isPrivate ? 'private' : (isGroup ? 'group' : 'public');
     
     if (container.scrollTop < 50) {
+      // 检查会话是否已全部加载
+      const store = getStore();
+      let isAllLoaded = false;
+      
       if (isPrivate && window.currentPrivateChatUserId) {
-        if (window.privateChatAllLoaded[window.currentPrivateChatUserId]) {
-          return;
+        // 先检查 chatStore 中的标记，再检查 window 中的标记
+        if (store && store.isPrivateAllLoaded) {
+          isAllLoaded = store.isPrivateAllLoaded(window.currentPrivateChatUserId);
         }
+        if (!isAllLoaded && window.privateChatAllLoaded && window.privateChatAllLoaded[window.currentPrivateChatUserId]) {
+          isAllLoaded = true;
+        }
+      } else if (isGroup && window.currentGroupId) {
+        // 先检查 chatStore 中的标记，再检查 window 中的标记
+        if (store && store.isGroupAllLoaded) {
+          isAllLoaded = store.isGroupAllLoaded(window.currentGroupId);
+        }
+        if (!isAllLoaded && window.groupChatAllLoaded && window.groupChatAllLoaded[window.currentGroupId]) {
+          isAllLoaded = true;
+        }
+      } else {
+        // 公共聊天
+        if (store && store.isPublicAllLoaded) {
+          isAllLoaded = store.isPublicAllLoaded();
+        }
+      }
+      
+      if (isAllLoaded) {
+        
+        return;
       }
       
       if (!window.isLoadingMoreMessages && window.scrollingInitialized[containerId]) {
@@ -441,7 +478,6 @@ function initializeScrollLoading(force = false) {
           window.prevPublicScrollTop = prevScrollTop;
         }
 
-        const store = getStore();
         let olderThan = null;
         let messages = [];
 
@@ -457,8 +493,102 @@ function initializeScrollLoading(force = false) {
           olderThan = messages[0].id;
         }
 
-        const user = currentUser || getCurrentUser();
-        const token = currentSessionToken || getCurrentSessionToken();
+        // 优先使用内存中的完整消息列表
+        let fullMessages = null;
+        if (isPrivate && window.currentPrivateChatUserId) {
+          fullMessages = store.fullPrivateMessages && store.fullPrivateMessages[window.currentPrivateChatUserId];
+        } else if (isGroup && window.currentGroupId) {
+          fullMessages = store.fullGroupMessages && store.fullGroupMessages[window.currentGroupId];
+        } else {
+          fullMessages = store.fullPublicMessages;
+        }
+        
+        if (fullMessages && fullMessages.length > messages.length) {
+          // 找出完整消息列表中有更多消息，优先使用
+          const storeIds = new Set(messages.map(m => m.id));
+          const newLocalMessages = fullMessages.filter(m => !storeIds.has(m.id));
+          
+          if (newLocalMessages.length > 0) {
+            // 按 ID 降序排序（从大到小，最新的在前）
+            newLocalMessages.sort((a, b) => b.id - a.id);
+            
+            // 每次只加载 20 条
+            const pageSize = 20;
+            const messagesToAdd = newLocalMessages.slice(0, pageSize);
+            
+            // 添加到 store
+            if (isPrivate && store.prependPrivateMessages) {
+              store.prependPrivateMessages(window.currentPrivateChatUserId, messagesToAdd);
+            } else if (isGroup && store.prependGroupMessages) {
+              store.prependGroupMessages(window.currentGroupId, messagesToAdd);
+            } else if (store.prependPublicMessages) {
+              store.prependPublicMessages(messagesToAdd);
+            }
+            
+            // 重置加载状态
+            window.isLoadingMoreMessages = false;
+            if (window.resetLoadingState) {
+              window.resetLoadingState();
+            }
+            return;
+          }
+        }
+        
+        // 如果内存中没有更多消息，检查 IndexedDB
+        const prefix = store.getStorageKeyPrefix ? store.getStorageKeyPrefix() : `chats-${currentUser?.id || 'guest'}`;
+        let localMessages = [];
+        let hasMoreLocalMessages = false;
+        
+        try {
+          let storageKey = '';
+          if (isPrivate && window.currentPrivateChatUserId) {
+            storageKey = `${prefix}-private-${window.currentPrivateChatUserId}`;
+          } else if (isGroup && window.currentGroupId) {
+            storageKey = `${prefix}-group-${window.currentGroupId}`;
+          } else {
+            storageKey = `${prefix}-public`;
+          }
+          
+          const localData = await localForage.getItem(storageKey);
+          if (localData && localData.messages) {
+            localMessages = localData.messages || [];
+            // 找出本地有但 store 中没有的消息
+            const storeIds = new Set(messages.map(m => m.id));
+            const newLocalMessages = localMessages.filter(m => !storeIds.has(m.id));
+            
+            if (newLocalMessages.length > 0) {
+              // 按 ID 降序排序（从大到小，最新的在前）
+              newLocalMessages.sort((a, b) => b.id - a.id);
+              
+              // 每次只加载 20 条
+              const pageSize = 20;
+              const messagesToAdd = newLocalMessages.slice(0, pageSize);
+              
+              // 添加到 store
+              if (isPrivate && store.prependPrivateMessages) {
+                store.prependPrivateMessages(window.currentPrivateChatUserId, messagesToAdd);
+              } else if (isGroup && store.prependGroupMessages) {
+                store.prependGroupMessages(window.currentGroupId, messagesToAdd);
+              } else if (store.prependPublicMessages) {
+                store.prependPublicMessages(messagesToAdd);
+              }
+              
+              // 重置加载状态
+              window.isLoadingMoreMessages = false;
+              if (window.resetLoadingState) {
+                window.resetLoadingState();
+              }
+              return;
+            }
+          }
+        } catch (err) {
+          console.error(`[加载更多] ${containerId} 聊天 - 检查本地消息失败:`, err);
+        }
+        
+        // 如果本地没有更多消息，从服务器加载
+        
+        const user = getCurrentUser();
+        const token = getCurrentSessionToken();
 
         if (user && token && window.loadMessages) {
           if (isGroup && window.currentGroupId) {

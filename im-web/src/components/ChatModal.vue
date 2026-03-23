@@ -381,20 +381,23 @@
         style="pointer-events: auto;"
       >
         <div class="popup-header">
-          <div class="popup-avatar">
-            <img 
-              id="popupAvatarImg" 
-              :src="userAvatarPopupAvatarUrl" 
-              alt="用户头像"
-              :style="{ display: userAvatarPopupAvatarUrl ? 'block' : 'none' }"
-              @click="openUserAvatarPopupAvatarPreview"
-              @error="handleUserAvatarPopupAvatarError"
-            >
-            <span 
-              id="popupInitials" 
-              :style="{ display: userAvatarPopupAvatarUrl ? 'none' : 'block' }"
-            >{{ userAvatarPopupInitials }}</span>
-          </div>
+            <div class="user-avatar-wrapper">
+              <div class="popup-avatar">
+                <img 
+                  id="popupAvatarImg" 
+                  :src="userAvatarPopupAvatarUrl" 
+                  alt="用户头像"
+                  :style="{ display: userAvatarPopupAvatarUrl ? 'block' : 'none' }"
+                  @click="openUserAvatarPopupAvatarPreview"
+                  @error="handleUserAvatarPopupAvatarError"
+                >
+                <span 
+                  id="popupInitials" 
+                  :style="{ display: userAvatarPopupAvatarUrl ? 'none' : 'block' }"
+                >{{ userAvatarPopupInitials }}</span>
+              </div>
+              <div v-if="isUserOnline(chatStore.modalData.userAvatarPopup?.id)" class="online-indicator"></div>
+            </div>
           <div class="popup-info">
             <div class="popup-info-top">
               <div id="popupNickname">{{ userAvatarPopupNickname }}</div>
@@ -513,6 +516,11 @@
   margin-bottom: 10px;
 }
 
+#userAvatarPopup .user-avatar-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
 #userAvatarPopup .popup-avatar {
   width: 40px;
   height: 40px;
@@ -524,6 +532,18 @@
   background: #3498db;
   color: white;
   font-weight: bold;
+}
+
+#userAvatarPopup .online-indicator {
+  position: absolute;
+  right: -2px;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  background: limegreen;
+  border-radius: 50%;
+  border: 2px solid white;
+  z-index: 1;
 }
 
 #userAvatarPopup .popup-avatar img {
@@ -735,7 +755,7 @@ import { addFriend } from "@/utils/chat";
 import toast from "@/utils/toast";
 import modal from "@/utils/modal";
 
-const SERVER_URL = process.env.VUE_APP_SERVER_URL || 'https://back.hs.airoe.cn';
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn';
 
 const chatStore = useChatStore();
 
@@ -1167,7 +1187,7 @@ async function handleUserSearch() {
     const user = chatStore.currentUser;
     const sessionToken = chatStore.currentSessionToken;
     
-    const response = await fetch(`${chatStore.SERVER_URL}/user/search?keyword=${encodeURIComponent(searchKeyword.value.trim())}`, {
+    const response = await fetch(`${chatStore.SERVER_URL}/api/user/search?keyword=${encodeURIComponent(searchKeyword.value.trim())}`, {
       headers: {
         'user-id': user?.id || '',
         'session-token': sessionToken || ''
@@ -1228,7 +1248,7 @@ watch(() => chatStore.showSendGroupCardModal, async (newVal) => {
     loadingSendGroupCardList.value = true;
     
     try {
-      const response = await fetch(`${SERVER_URL}/user-groups/${chatStore.currentUser?.id}`, {
+      const response = await fetch(`${SERVER_URL}/api/user-groups/${chatStore.currentUser?.id}`, {
         headers: {
           'user-id': chatStore.currentUser?.id,
           'session-token': chatStore.currentSessionToken
@@ -1236,7 +1256,13 @@ watch(() => chatStore.showSendGroupCardModal, async (newVal) => {
       });
       const data = await response.json();
       if (data.status === 'success') {
-        sendGroupCardList.value = data.groups || [];
+        let groups = data.groups || [];
+        groups.sort((a, b) => {
+          const aTime = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
+          const bTime = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
+          return bTime - aTime;
+        });
+        sendGroupCardList.value = groups;
       }
     } catch (error) {
       console.error('加载群组列表失败:', error);
@@ -1275,7 +1301,7 @@ async function loadGroupMembers(groupId) {
   if (!groupId) return;
   
   try {
-    const response = await fetch(`${chatStore.SERVER_URL}/group-members/${groupId}`, {
+    const response = await fetch(`${chatStore.SERVER_URL}/api/group-members/${groupId}`, {
       headers: {
         'user-id': chatStore.currentUser?.id || '',
         'session-token': chatStore.currentSessionToken || ''
@@ -1298,7 +1324,7 @@ async function loadAvailableMembers() {
     const user = chatStore.currentUser;
     const sessionToken = chatStore.currentSessionToken;
     
-    const friendsResponse = await fetch(`${chatStore.SERVER_URL}/user/friends`, {
+    const friendsResponse = await fetch(`${chatStore.SERVER_URL}/api/user/friends`, {
       headers: {
         'user-id': user?.id || '',
         'session-token': sessionToken || ''
@@ -1355,7 +1381,7 @@ async function handleCreateGroup() {
       return;
     }
 
-    const response = await fetch(`${chatStore.SERVER_URL}/create-group`, {
+    const response = await fetch(`${chatStore.SERVER_URL}/api/create-group`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1451,7 +1477,7 @@ async function saveGroupName() {
   
   try {
     const groupId = chatStore.modalData.groupInfo.id;
-    const response = await fetch(`${chatStore.SERVER_URL}/update-group-name`, {
+    const response = await fetch(`${chatStore.SERVER_URL}/api/update-group-name`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1491,7 +1517,7 @@ function cancelEditGroupNotice() {
 async function saveGroupNotice() {
   try {
     const groupId = chatStore.modalData.groupInfo.id;
-    const response = await fetch(`${chatStore.SERVER_URL}/update-group-description`, {
+    const response = await fetch(`${chatStore.SERVER_URL}/api/update-group-description`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1526,7 +1552,7 @@ async function handleRemoveGroupMember(member) {
   
   try {
     const groupId = chatStore.modalData.groupInfo.id;
-    const response = await fetch(`${chatStore.SERVER_URL}/remove-group-member`, {
+    const response = await fetch(`${chatStore.SERVER_URL}/api/remove-group-member`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1565,7 +1591,7 @@ async function handleDissolveGroup() {
   }
   
   try {
-    const response = await fetch(`${chatStore.SERVER_URL}/dissolve-group`, {
+    const response = await fetch(`${chatStore.SERVER_URL}/api/dissolve-group`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1605,7 +1631,7 @@ async function handleLeaveGroup() {
   }
   
   try {
-    const response = await fetch(`${chatStore.SERVER_URL}/leave-group`, {
+    const response = await fetch(`${chatStore.SERVER_URL}/api/leave-group`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1645,7 +1671,7 @@ async function handleDeleteFriend() {
   }
   
   try {
-    const response = await fetch(`${chatStore.SERVER_URL}/user/remove-friend`, {
+    const response = await fetch(`${chatStore.SERVER_URL}/api/user/remove-friend`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1685,7 +1711,7 @@ async function loadAvailableFriendsForAdd() {
     const sessionToken = chatStore.currentSessionToken;
     const groupId = chatStore.modalData.groupInfo.id;
     
-    const friendsResponse = await fetch(`${chatStore.SERVER_URL}/user/friends`, {
+    const friendsResponse = await fetch(`${chatStore.SERVER_URL}/api/user/friends`, {
       headers: {
         'user-id': user?.id || '',
         'session-token': sessionToken || ''
@@ -1694,7 +1720,7 @@ async function loadAvailableFriendsForAdd() {
     
     const friendsData = await friendsResponse.json();
     if (friendsData.status === 'success' && friendsData.friends) {
-      const membersResponse = await fetch(`${chatStore.SERVER_URL}/group-members/${groupId}`, {
+      const membersResponse = await fetch(`${chatStore.SERVER_URL}/api/group-members/${groupId}`, {
         headers: {
           'user-id': user?.id || '',
           'session-token': sessionToken || ''
@@ -1725,7 +1751,7 @@ async function confirmAddGroupMembers() {
   
   try {
     const groupId = chatStore.modalData.groupInfo.id;
-    const response = await fetch(`${chatStore.SERVER_URL}/add-group-members`, {
+    const response = await fetch(`${chatStore.SERVER_URL}/api/add-group-members`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1763,7 +1789,7 @@ async function handleGroupAvatarChange(event) {
     formData.append('userId', chatStore.currentUser?.id || '');
     
     const groupId = chatStore.modalData.groupInfo.id;
-    const response = await fetch(`${chatStore.SERVER_URL}/upload-group-avatar/${groupId}`, {
+    const response = await fetch(`${chatStore.SERVER_URL}/api/upload-group-avatar/${groupId}`, {
       method: 'POST',
       headers: {
         'user-id': chatStore.currentUser?.id || '',
@@ -1775,7 +1801,7 @@ async function handleGroupAvatarChange(event) {
     const data = await response.json();
     if (data.status === 'success') {
       toast.success('群头像上传成功');
-      const infoResponse = await fetch(`${chatStore.SERVER_URL}/group-info/${groupId}`, {
+      const infoResponse = await fetch(`${chatStore.SERVER_URL}/api/group-info/${groupId}`, {
         headers: {
           'user-id': chatStore.currentUser?.id || '',
           'session-token': chatStore.currentSessionToken || ''
@@ -1803,7 +1829,7 @@ async function handleGroupAvatarChange(event) {
 
 async function fetchUserInfo(userId) {
   try {
-    const response = await fetch(`${SERVER_URL}/user/${userId}`, {
+    const response = await fetch(`${SERVER_URL}/api/user/${userId}`, {
       headers: {
         'user-id': chatStore.currentUser?.id || '',
         'session-token': chatStore.currentSessionToken || ''
@@ -1948,6 +1974,3 @@ onMounted(() => {
   window.showGroupCardPopupVue = showGroupCardPopupVue;
 });
 </script>
-
-<style src="@/css/index.css"></style>
-<style src="@/css/code-highlight.css"></style>

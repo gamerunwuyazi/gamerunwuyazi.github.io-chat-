@@ -66,6 +66,19 @@
               :class="{ selected: index === selectedAtIndex }"
               @click="selectGroupAtUser(user)"
             >
+              <div class="user-avatar-wrapper">
+                <component 
+                  :is="getAvatarIsImage(user) ? 'img' : 'div'"
+                  :src="getAvatarIsImage(user) ? getFullAvatarUrl(user) : undefined"
+                  :alt="user.nickname"
+                  class="user-avatar"
+                  :class="{ 'default-avatar': !getAvatarIsImage(user) }"
+                  @error="handleAvatarError(user.id)"
+                >
+                  {{ !getAvatarIsImage(user) ? getUserInitials(user) : '' }}
+                </component>
+                <div v-if="user.isOnline" class="online-indicator"></div>
+              </div>
               <span class="at-picker-nickname">{{ user.nickname }}</span>
             </div>
             <div v-if="filteredAtSuggestions.length === 0" class="at-picker-empty">暂无群成员</div>
@@ -161,9 +174,6 @@
   </div>
 </template>
 
-<style src="@/css/index.css"></style>
-<style src="@/css/code-highlight.css"></style>
-
 <style scoped>
 .at-picker {
   position: fixed;
@@ -195,6 +205,37 @@
   background: #f5f5f5;
 }
 
+.user-avatar-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #e0e0e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: #666;
+  font-size: 14px;
+  object-fit: cover;
+}
+
+.online-indicator {
+  position: absolute;
+  right: -2px;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  background: limegreen;
+  border-radius: 50%;
+  border: 2px solid white;
+  z-index: 1;
+}
+
 .at-picker-nickname {
   font-weight: 500;
   color: #333;
@@ -211,6 +252,7 @@
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useChatStore } from "@/stores/chatStore";
 import { useRoute } from "vue-router";
+import localForage from "localforage";
 import GroupMessageItem from "@/components/MessageItem/GroupMessageItem.vue";
 import QuotedMessagePreview from "@/components/MessageItem/QuotedMessagePreview.vue";
 import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile, clearContentEditable, unescapeHtml } from "@/utils/chat";
@@ -241,6 +283,27 @@ const isComposing = ref(false);
 const showMoreFunctions = ref(false);
 const currentGroupInfo = ref(null);
 const groupMembers = ref([]);
+const avatarLoadFailedMap = ref({});
+
+function getAvatarIsImage(user) {
+  return getFullAvatarUrl(user) !== '' && !avatarLoadFailedMap.value[user.id];
+}
+
+function getFullAvatarUrl(user) {
+  const avatarUrl = user.avatarUrl;
+  if (!avatarUrl) return '';
+  if (/^\.(svg)$/i.test(avatarUrl) || avatarUrl.includes('.svg')) return '';
+  return avatarUrl.startsWith('http') ? avatarUrl : `${chatStore.SERVER_URL}${avatarUrl}`;
+}
+
+function getUserInitials(user) {
+  const nickname = user.nickname || 'U';
+  return nickname.charAt(0).toUpperCase();
+}
+
+function handleAvatarError(userId) {
+  avatarLoadFailedMap.value[userId] = true;
+}
 
 const displayGroupName = computed(() => {
   const name = currentGroupName.value || '群组名称';
@@ -316,7 +379,6 @@ function applySavedGroupState() {
     setActiveChat('group', chatStore.currentGroupId, false);
     isGroupChatVisible.value = true;
     currentGroupName.value = chatStore.currentGroupName;
-    loadGroupMessages(chatStore.currentGroupId, false);
     loadCurrentGroupInfo();
     
     // 重新初始化滚动监听器
@@ -334,7 +396,7 @@ function loadCurrentGroupInfo() {
   if (!user || !sessionToken) return;
   
   // 加载群组基本信息
-  fetch(`${chatStore.SERVER_URL}/group-info/${chatStore.currentGroupId}`, {
+  fetch(`${chatStore.SERVER_URL}/api/group-info/${chatStore.currentGroupId}`, {
     headers: {
       'user-id': user.id,
       'session-token': sessionToken
@@ -348,7 +410,7 @@ function loadCurrentGroupInfo() {
     });
     
   // 加载群组成员列表
-  fetch(`${chatStore.SERVER_URL}/group-members/${chatStore.currentGroupId}`, {
+  fetch(`${chatStore.SERVER_URL}/api/group-members/${chatStore.currentGroupId}`, {
     headers: {
       'user-id': user.id,
       'session-token': sessionToken
@@ -564,13 +626,21 @@ function handleGroupMessageInput() {
             
             // 获取群组成员列表
             const members = groupMembers.value || [];
+            const onlineUserIds = new Set((chatStore.onlineUsers || []).map(user => String(user.id)));
+            
             atSuggestions.value = members
               .filter(member => member)
-              .map(member => ({
-                id: member.userId || member.id,
-                nickname: unescapeHtml(member.nickname || member.name || '未知成员'),
-                username: unescapeHtml(member.nickname || member.name || String(member.userId || member.id))
-              }))
+              .map(member => {
+                const userId = member.userId || member.id;
+                const isOnline = onlineUserIds.has(String(userId));
+                return {
+                  id: userId,
+                  nickname: unescapeHtml(member.nickname || member.name || '未知成员'),
+                  username: unescapeHtml(member.nickname || member.name || String(userId)),
+                  avatarUrl: member.avatarUrl || member.avatar_url || null,
+                  isOnline: isOnline
+                };
+              })
               .filter(u => u.username);
             
             // 过滤建议 - 根据输入的文字匹配
@@ -596,9 +666,22 @@ function handleGroupMessageInput() {
                   return { ...user, score };
                 })
                 .filter(user => user.score > 0)
-                .sort((a, b) => b.score - a.score);
+                .sort((a, b) => {
+                  // 优先按在线状态排序（在线在上）
+                  if (a.isOnline !== b.isOnline) {
+                    return b.isOnline ? 1 : -1;
+                  }
+                  // 然后按匹配分数排序
+                  return b.score - a.score;
+                });
             } else {
-              filteredAtSuggestions.value = [...atSuggestions.value];
+              filteredAtSuggestions.value = [...atSuggestions.value].sort((a, b) => {
+                // 优先按在线状态排序（在线在上）
+                if (a.isOnline !== b.isOnline) {
+                  return b.isOnline ? 1 : -1;
+                }
+                return 0;
+              });
             }
             
             // 在过滤完成后计算位置
@@ -676,7 +759,7 @@ function handleGroupInfoClick() {
     return;
   }
   
-  fetch(`${chatStore.SERVER_URL}/group-info/${chatStore.currentGroupId}`, {
+  fetch(`${chatStore.SERVER_URL}/api/group-info/${chatStore.currentGroupId}`, {
     headers: {
       'user-id': user.id,
       'session-token': sessionToken
@@ -850,59 +933,48 @@ async function executeSearch() {
   
   try {
     const groupId = chatStore.currentGroupId;
-    const messages = chatStore.groupMessages[groupId] || [];
+    const prefix = `chats-${chatStore.currentUser?.id || 'guest'}`;
+    const storageKey = `${prefix}-group-${groupId}`;
     
-    // 如果消息数量不足，发送加载更多事件
-    if (messages.length < 200) {
-      for (let i = 0; i < 10; i++) {
-        if (chatStore.groupMessages[groupId]?.length >= 200) break;
-        
-        const currentMessages = chatStore.groupMessages[groupId] || [];
-        const oldestMessage = currentMessages[0];
-        if (!oldestMessage) break;
-        
-        if (window.chatSocket && window.chatSocket.connected) {
-          await new Promise((resolve) => {
-            let resolved = false;
-            const handler = () => {
-              if (resolved) return;
-              resolved = true;
-              window.chatSocket.off('group-chat-history', handler);
-              setTimeout(resolve, 100);
-            };
-            window.chatSocket.on('group-chat-history', handler);
-            
-            window.chatSocket.emit('get-group-chat-history', {
-              groupId: groupId,
-              userId: chatStore.currentUser?.id,
-              sessionToken: chatStore.currentSessionToken,
-              limit: 20,
-              loadMore: true,
-              olderThan: oldestMessage.id
-            });
-            
-            setTimeout(() => {
-              if (!resolved) {
-                resolved = true;
-                window.chatSocket.off('group-chat-history', handler);
-                resolve();
-              }
-            }, 3000);
-          });
-        }
-      }
-    }
-    
-    const allMessages = chatStore.groupMessages[groupId] || [];
+    // 直接从 indexedDB 读取消息
+    const storageData = await localForage.getItem(storageKey);
+    const allMessages = storageData?.messages || [];
     const keyword = searchKeyword.value.trim().toLowerCase();
     
-    searchResults.value = allMessages
+    // 搜索消息
+    const matchedMessages = allMessages
       .filter(msg => {
+        if (msg.messageType === 101) return false;
         const content = msg.content?.toLowerCase() || '';
         const nickname = msg.nickname?.toLowerCase() || '';
         return content.includes(keyword) || nickname.includes(keyword);
-      })
-      .reverse();
+      });
+    
+    if (matchedMessages.length > 0) {
+      searchResults.value = [...matchedMessages].reverse();
+      
+      // 找到查找到的所有消息中最小的ID
+      const minMatchedId = Math.min(...matchedMessages.map(m => m.id));
+      
+      // 获取store中的当前消息列表的最小ID
+      const storeMessages = chatStore.groupMessages[groupId] || [];
+      if (storeMessages.length > 0) {
+        const storeMinId = Math.min(...storeMessages.map(m => m.id));
+        
+        // 从完整消息列表中提取需要添加的消息：从最小匹配ID-20 到 store最小ID-1
+        const startId = Math.max(1, minMatchedId - 20);
+        const endId = storeMinId - 1;
+        
+        if (startId <= endId) {
+          const messagesToAdd = allMessages
+            .filter(msg => msg.id >= startId && msg.id <= endId && msg.messageType !== 101)
+            .sort((a, b) => a.id - b.id);
+          
+          // 添加到store
+          chatStore.prependGroupMessages(groupId, messagesToAdd);
+        }
+      }
+    }
     
     hasSearched.value = true;
   } catch (err) {

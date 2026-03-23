@@ -1,6 +1,8 @@
 import { SERVER_URL, io, toast, getModalNameFromId } from './config.js';
 import { 
   getStore, 
+  getCurrentUser,
+  getCurrentSessionToken,
   unreadMessages,
   sessionStore,
   setCurrentSessionToken
@@ -9,8 +11,6 @@ import { unescapeHtml } from './message.js';
 import { 
   updateUnreadCountsDisplay, 
   updateTitleWithUnreadCount, 
-  currentUser, 
-  currentSessionToken, 
   currentGroupId, 
   currentActiveChat, 
   logout,
@@ -38,6 +38,7 @@ function startTokenRefreshTimer() {
     }
     
     tokenRefreshTimer = setInterval(async () => {
+        const currentUser = getCurrentUser();
         if (currentUser && localStorage.getItem('refreshToken')) {
             await refreshToken();
         }
@@ -89,26 +90,15 @@ function initializeWebSocket() {
         }
 
         // 登录后先检查IP和用户状态，然后再加入聊天室
+        const currentUser = getCurrentUser();
+        const currentSessionToken = getCurrentSessionToken();
         if (currentUser && currentSessionToken) {
             checkUserAndIPStatus((canProceed) => {
                 if (canProceed) {
-                    // 检查通过，发送user-joined事件进行认证和加入聊天，但不依赖它获取历史消息
-                    // 确保发送的数据格式正确，特别是avatarUrl字段
-                    // 安全处理userId，避免undefined错误
-                    // 支持多种头像URL字段名：avatarUrl、avatar_url和avatar
-                    let avatarUrl = '';
-                    if (currentUser.avatarUrl && typeof currentUser.avatarUrl === 'string') {
-                        avatarUrl = currentUser.avatarUrl.trim();
-                    } else if (currentUser.avatar_url && typeof currentUser.avatar_url === 'string') {
-                        avatarUrl = currentUser.avatar_url.trim();
-                    } else if (currentUser.avatar && typeof currentUser.avatar === 'string') {
-                        avatarUrl = currentUser.avatar.trim();
-                    }
-
+                    // 检查通过，发送user-joined事件进行认证和加入聊天
+                    // 后端会从数据库获取用户的真实信息（昵称、头像等）
                     const joinedData = {
                         userId: currentUser.id ? String(currentUser.id) : null,
-                        nickname: currentUser.nickname,
-                        avatarUrl: avatarUrl || null,
                         sessionToken: currentSessionToken
                     };
                     socket.emit('user-joined', joinedData);
@@ -170,6 +160,44 @@ function initializeWebSocket() {
         const isBrowserFocused = document.hasFocus();
         const pageVisible = isPageVisible && isBrowserFocused;
         
+        // 检查是否是类型101撤回消息
+        if (message.messageType === 101) {
+            const messageIdToDelete = message.content;
+            if (store && messageIdToDelete) {
+                if (message.groupId) {
+                    // 群组消息撤回
+                    store.deleteGroupMessage(message.groupId, messageIdToDelete);
+                    // 添加101撤回消息
+                    store.addGroupMessage(message.groupId, message);
+                } else {
+                    // 公共消息撤回
+                    store.deletePublicMessage(messageIdToDelete);
+                    // 添加101撤回消息
+                    store.addPublicMessage(message);
+                }
+                // 更新对应的 minId
+                if (message.id && store.publicAndGroupMinId !== undefined) {
+                    if (message.id > store.publicAndGroupMinId) {
+                        store.publicAndGroupMinId = message.id;
+                        if (store.saveMinIds) {
+                            store.saveMinIds();
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        
+        // 更新对应的 minId（只对非撤回消息）
+        if (message.id && store && store.publicAndGroupMinId !== undefined) {
+            if (message.id > store.publicAndGroupMinId) {
+                store.publicAndGroupMinId = message.id;
+                if (store.saveMinIds) {
+                    store.saveMinIds();
+                }
+            }
+        }
+        
         // 检查消息是否包含群组 ID
         if (message.groupId) {
             // 检查是否是历史消息
@@ -189,6 +217,7 @@ function initializeWebSocket() {
                 if (group) {
                     const newTime = new Date(message.timestamp || Date.now()).toISOString();
                     group.last_message_time = newTime;
+                    group.lastMessage = message;
                     store.sortGroupsByLastMessageTime();
                     // 保存到 localStorage
                     if (store.saveGroupLastMessageTime) {
@@ -200,6 +229,7 @@ function initializeWebSocket() {
             // 更新群组未读计数
             // 规则：如果不是自己发送的消息，且 (不在当前群组页面 或 页面不可见 或 浏览器没有焦点)，则增加未读计数
             // 另外：如果是免打扰群组，则不增加未读计数
+            const currentUser = getCurrentUser();
             const isOwnMessage = String(currentUser.id) === String(message.userId);
             const isCurrentGroup = currentActiveChat === `group_${message.groupId}`;
             const isGroupMuted = typeof window.isGroupMuted === 'function' && window.isGroupMuted(message.groupId);
@@ -208,28 +238,20 @@ function initializeWebSocket() {
             const shouldAddGroupUnread = !isOwnMessage && !(isCurrentGroup && isPageVisible && isBrowserFocused) && !isGroupMuted;
             
             if (shouldAddGroupUnread) {
-                const groupIdStr = String(message.groupId);
-                if (store && store.unreadMessages) {
-                    store.unreadMessages.groups[groupIdStr] = (store.unreadMessages.groups[groupIdStr] || 0) + 1;
+                if (store && store.incrementGroupUnread) {
+                    store.incrementGroupUnread(message.groupId);
                 }
                 updateUnreadCountsDisplay();
                 updateTitleWithUnreadCount();
             }
             
-            // 如果用户当前正在该群组聊天中且浏览器有焦点且页面可见，自动清除未读并发送清除事件
+            // 如果用户当前正在该群组聊天中且浏览器有焦点且页面可见，自动清除未读
             if (isCurrentGroup && isPageVisible && isBrowserFocused && !isOwnMessage) {
-                // 先立即清除群组未读计数
-                if (store && store.unreadMessages) {
-                    store.unreadMessages.groups[String(message.groupId)] = 0;
+                // 立即清除群组未读计数
+                if (store && store.clearGroupUnread) {
+                    store.clearGroupUnread(message.groupId);
                 }
                 updateUnreadCountsDisplay();
-                
-                // 发送清除群组未读消息事件
-                socket.emit('clear-unread-messages', {
-                    userId: currentUser.id,
-                    sessionToken: currentSessionToken,
-                    groupId: message.groupId
-                });
             }
             
             // 如果当前焦点在群组页面，将群组移到顶部
@@ -246,6 +268,7 @@ function initializeWebSocket() {
             
             // 更新公共聊天未读计数
             // 规则：如果不是自己发送的消息，且 (不在主聊天室路由 或 页面不可见 或 浏览器没有焦点)，则增加未读计数
+            const currentUser = getCurrentUser();
             const isOwnMessage = String(currentUser.id) === String(message.userId);
             
             // 检查当前路由是否在主聊天室（/chat 或 /chat/）
@@ -256,8 +279,8 @@ function initializeWebSocket() {
             const shouldAddUnread = !isOwnMessage && !(isInMainChatRoute && isPageVisible && isBrowserFocused);
             
             if (shouldAddUnread) {
-                if (store && store.unreadMessages) {
-                    store.unreadMessages.global = (store.unreadMessages.global || 0) + 1;
+                if (store && store.incrementGlobalUnread) {
+                    store.incrementGlobalUnread();
                 }
                 updateUnreadCountsDisplay();
                 updateTitleWithUnreadCount();
@@ -266,8 +289,8 @@ function initializeWebSocket() {
             // 如果用户当前正在主聊天室路由且浏览器有焦点且页面可见，自动清除未读
             if (isInMainChatRoute && isPageVisible && isBrowserFocused && !isOwnMessage) {
                 // 清除主聊天室未读计数
-                if (store && store.unreadMessages) {
-                    store.unreadMessages.global = 0;
+                if (store && store.clearGlobalUnread) {
+                    store.clearGlobalUnread();
                 }
                 updateUnreadCountsDisplay();
             }
@@ -285,6 +308,16 @@ function initializeWebSocket() {
             
             const store = window.chatStore;
             
+            // 更新对应的 minId
+            if (confirmedMessage.id && store && store.publicAndGroupMinId !== undefined) {
+                if (confirmedMessage.id > store.publicAndGroupMinId) {
+                    store.publicAndGroupMinId = confirmedMessage.id;
+                    if (store.saveMinIds) {
+                        store.saveMinIds();
+                    }
+                }
+            }
+            
             // 检查消息中是否包含群组 ID
             if (confirmedMessage.groupId) {
                 // 群组消息
@@ -293,6 +326,11 @@ function initializeWebSocket() {
                 // 添加确认后的消息到 store
                 if (store && store.addGroupMessage) {
                     store.addGroupMessage(groupId, confirmedMessage);
+                }
+                
+                // 更新群组最后消息
+                if (store && store.updateGroupLastMessage) {
+                    store.updateGroupLastMessage(groupId, confirmedMessage);
                 }
                 
                 // 将群组移到列表顶部
@@ -589,6 +627,32 @@ function initializeWebSocket() {
         window.location.href = '/login';
     });
 
+    // 用户封禁事件
+    socket.on('user-banned', async (data) => {
+        console.log('🚫 您的账户已被封禁:', data);
+        
+        // 显示封禁提示
+        let banMessage = `您的账户已被封禁\n\n原因: ${data.reason || '违反使用规则'}`;
+        if (data.expiresAt) {
+            const expireDate = new Date(data.expiresAt);
+            banMessage += `\n\n解封时间: ${expireDate.toLocaleString('zh-CN')}`;
+        } else {
+            banMessage += '\n\n封禁类型: 永久封禁';
+        }
+        
+        await modal.error(banMessage, '账户已被封禁');
+        
+        // 清除本地存储
+        localStorage.removeItem('currentUser');
+        localStorage.removeItem('currentSessionToken');
+        
+        // 断开连接
+        socket.disconnect();
+        
+        // 跳转到登录页面
+        window.location.href = '/login';
+    });
+
     // 统一加载消息事件（替代原来的三个事件）
     socket.on('messages-loaded', (data) => {
         const store = window.chatStore;
@@ -607,24 +671,14 @@ function initializeWebSocket() {
                 } else if (store.setPublicMessages) {
                     store.setPublicMessages(data.messages);
                 }
-            }
-
-            // 处理未读消息信息
-            let processedUnreadMessages = {
-                groups: {},
-                private: {}
-            };
-
-            if (data.unreadMessages) {
-                if (data.unreadMessages && typeof data.unreadMessages === 'object' && !Object.prototype.hasOwnProperty.call(data.unreadMessages, 'global')) {
-                    processedUnreadMessages.groups = data.unreadMessages;
-                } else {
-                    processedUnreadMessages.groups = data.unreadMessages.groups || {};
+                
+                // 检查是否加载更多时返回了空数组或消息数少于20条，标记为已全部加载
+                if (data.loadMore) {
+                    const isAllLoaded = !data.messages || data.messages.length < 20 || data.messages.length === 0;
+                    if (isAllLoaded && store.setPublicAllLoaded) {
+                        store.setPublicAllLoaded(true);
+                    }
                 }
-            }
-
-            if (data.unreadPrivateMessages) {
-                processedUnreadMessages.private = data.unreadPrivateMessages;
             }
 
             if (data.groupLastMessageTimes && Object.keys(data.groupLastMessageTimes).length > 0) {
@@ -659,39 +713,6 @@ function initializeWebSocket() {
                 }
             }
 
-            // 只更新有值的未读记录，不覆盖已有的记录
-            if (data.unreadMessages && data.unreadMessages.groups) {
-                for (const gid in data.unreadMessages.groups) {
-                    if (Object.prototype.hasOwnProperty.call(data.unreadMessages.groups, gid)) {
-                        unreadMessages.groups[gid] = data.unreadMessages.groups[gid];
-                    }
-                }
-            }
-            if (data.unreadPrivateMessages) {
-                for (const pid in data.unreadPrivateMessages) {
-                    if (Object.prototype.hasOwnProperty.call(data.unreadPrivateMessages, pid)) {
-                        unreadMessages.private[pid] = data.unreadPrivateMessages[pid];
-                    }
-                }
-            }
-
-            const mutedGroups = getMutedGroups();
-            for (const groupId in unreadMessages.groups) {
-                if (unreadMessages.groups && Object.prototype.hasOwnProperty.call(unreadMessages.groups, groupId)) {
-                    if (mutedGroups.includes(groupId)) {
-                        unreadMessages.groups[groupId] = 0;
-
-                        if (window.chatSocket) {
-                            window.chatSocket.emit('clear-unread-messages', {
-                                groupId: groupId,
-                                sessionToken: currentSessionToken,
-                                userId: currentUser.id
-                            });
-                        }
-                    }
-                }
-            }
-
             updateUnreadCountsDisplay();
             updateTitleWithUnreadCount();
         } else if (data.type === 'group') {
@@ -703,49 +724,37 @@ function initializeWebSocket() {
                 } else if (store.setGroupMessages) {
                     store.setGroupMessages(groupId, data.messages);
                 }
-            }
-
-            if (data.unreadMessages) {
-                let processedUnreadMessages = data.unreadMessages;
-                if (processedUnreadMessages && typeof processedUnreadMessages === 'object' && !Object.prototype.hasOwnProperty.call(processedUnreadMessages, 'global')) {
-                    processedUnreadMessages = {
-                        groups: processedUnreadMessages
-                    };
-                }
-                if (processedUnreadMessages.groups) {
-                    unreadMessages.groups = processedUnreadMessages.groups;
-                }
-                if (processedUnreadMessages.private) {
-                    unreadMessages.private = processedUnreadMessages.private;
-                }
-
-                const mutedGroups = getMutedGroups();
-                for (const groupId in unreadMessages.groups) {
-                    if (Object.prototype.hasOwnProperty.call(unreadMessages.groups, groupId)) {
-                        if (mutedGroups.includes(groupId)) {
-                            unreadMessages.groups[groupId] = 0;
-
-                            if (window.chatSocket) {
-                                window.chatSocket.emit('clear-unread-messages', {
-                                    groupId: groupId,
-                                    sessionToken: currentSessionToken,
-                                    userId: currentUser.id
-                                });
-                            }
-                        }
+                
+                // 检查是否加载更多时返回了空数组或消息数少于20条，标记为已全部加载
+                if (data.loadMore) {
+                    const isAllLoaded = !data.messages || data.messages.length < 20 || data.messages.length === 0;
+                    if (isAllLoaded && store.setGroupAllLoaded) {
+                        store.setGroupAllLoaded(groupId, true);
+                    }
+                    // 同时更新 window.groupChatAllLoaded（保持兼容性）
+                    if (!window.groupChatAllLoaded) {
+                        window.groupChatAllLoaded = {};
+                    }
+                    if (isAllLoaded) {
+                        window.groupChatAllLoaded[groupId] = true;
                     }
                 }
-
-                updateTitleWithUnreadCount();
             }
+
+            // 清除该群组的未读计数，因为用户正在加载群组消息
+            if (store && store.clearGroupUnread && groupId) {
+                store.clearGroupUnread(groupId);
+            }
+            updateUnreadCountsDisplay();
+            updateTitleWithUnreadCount();
         } else if (data.type === 'private') {
             // 私信消息 - 完全复刻 private-chat-history 事件
             
 
             let userId = data.friendId || data.userId || currentPrivateChatUserId;
-
             
-
+            const currentUser = getCurrentUser();
+            
             if (!userId && data.messages && data.messages.length > 0) {
                 const firstMessage = data.messages[0];
                 const msgSenderId = String(firstMessage.senderId);
@@ -756,7 +765,6 @@ function initializeWebSocket() {
 
             if (data.loadMore && userId) {
                 
-
                 if (!window.privateChatAllLoaded) {
                     window.privateChatAllLoaded = {};
                     
@@ -764,9 +772,12 @@ function initializeWebSocket() {
 
                 const isAllLoaded = !data.messages || data.messages.length < 20 || data.messages.length === 0;
                 
-
                 if (isAllLoaded) {
                     window.privateChatAllLoaded[userId] = true;
+                    // 同时更新 chatStore 中的标记
+                    if (store && store.setPrivateAllLoaded) {
+                        store.setPrivateAllLoaded(userId, true);
+                    }
                 }
             }
 
@@ -777,6 +788,13 @@ function initializeWebSocket() {
                     store.setPrivateMessages(userId, data.messages);
                 }
             }
+
+            // 清除该私信的未读计数，因为用户正在加载私信消息
+            if (store && store.clearPrivateUnread && userId) {
+                store.clearPrivateUnread(userId);
+            }
+            updateUnreadCountsDisplay();
+            updateTitleWithUnreadCount();
         }
     });
 
@@ -797,33 +815,7 @@ function initializeWebSocket() {
             }
         }
 
-        // 处理未读消息信息
-        // 注意：不要设置默认值，只有在服务器明确返回时才更新
-        let processedUnreadMessages = {
-            groups: {},
-            private: {}
-        };
-
-        // 处理群组未读消息
-        if (data.unreadMessages) {
-            if (data.unreadMessages && typeof data.unreadMessages === 'object' && !Object.prototype.hasOwnProperty.call(data.unreadMessages, 'global')) {
-                // 格式转换：将直接的群组键值对转换为包含 global 和 groups 的对象
-                processedUnreadMessages.groups = data.unreadMessages;
-            } else {
-                processedUnreadMessages.groups = data.unreadMessages.groups || {};
-                // 只有服务器明确返回 global 字段时才设置
-                if (data.unreadMessages.global !== undefined) {
-                    processedUnreadMessages.global = data.unreadMessages.global;
-                }
-            }
-        }
-
-        // 处理私信未读消息
-        if (data.unreadPrivateMessages) {
-            processedUnreadMessages.private = data.unreadPrivateMessages;
-        }
-
-        // 处理群组最后消息时间（仅在有未读消息时返回）
+        // 处理群组最后消息时间
         if (data.groupLastMessageTimes && Object.keys(data.groupLastMessageTimes).length > 0) {
             // 更新群组列表中的最后消息时间
             if (window.chatStore && window.chatStore.groupsList) {
@@ -844,7 +836,7 @@ function initializeWebSocket() {
             }
         }
 
-        // 处理私信最后消息时间（仅在有未读消息时返回）
+        // 处理私信最后消息时间
         if (data.privateLastMessageTimes && Object.keys(data.privateLastMessageTimes).length > 0) {
             // 更新好友列表中的最后消息时间
             if (window.chatStore && window.chatStore.friendsList) {
@@ -865,41 +857,6 @@ function initializeWebSocket() {
             }
         }
 
-        // 更新未读消息计数
-        // 只在服务器明确返回未读消息计数时才更新，否则保持当前的未读计数
-        if (data.unreadMessages || data.unreadPrivateMessages) {
-            if (processedUnreadMessages.global !== undefined) {
-                unreadMessages.global = processedUnreadMessages.global;
-            }
-            if (processedUnreadMessages.groups) {
-                unreadMessages.groups = processedUnreadMessages.groups;
-            }
-            if (processedUnreadMessages.private) {
-                unreadMessages.private = processedUnreadMessages.private;
-            }
-        }
-
-        // 检查并处理免打扰群组的未读消息
-        const mutedGroups = getMutedGroups();
-        for (const groupId in unreadMessages.groups) {
-            if (unreadMessages.groups && Object.prototype.hasOwnProperty.call(unreadMessages.groups, groupId)) {
-                // 检查群组是否被免打扰
-                if (mutedGroups.includes(groupId)) {
-                    // 清除免打扰群组的未读消息计数
-                    unreadMessages.groups[groupId] = 0;
-
-                    // 发送WebSocket消息，通知服务器已读该群组消息
-                    if (window.chatSocket) {
-                        window.chatSocket.emit('clear-unread-messages', {
-                            groupId: groupId,
-                            sessionToken: currentSessionToken,
-                            userId: currentUser.id
-                        });
-                    }
-                }
-            }
-        }
-
         // 更新未读计数显示
         updateUnreadCountsDisplay();
         updateTitleWithUnreadCount();
@@ -913,53 +870,15 @@ function initializeWebSocket() {
             setCurrentSessionToken(data.sessionToken);
         }
 
-        // 处理未读消息信息
-        if (data.unreadMessages) {
-            // 检查数据格式：如果是直接的群组键值对，则转换为期望的格式
-            let processedUnreadMessages = data.unreadMessages;
-            if (processedUnreadMessages && typeof processedUnreadMessages === 'object' && !Object.prototype.hasOwnProperty.call(processedUnreadMessages, 'global')) {
-                // 格式转换：将直接的群组键值对转换为包含groups的对象
-                // 注意：不设置 global 默认值，只有在服务器明确返回时才更新
-                processedUnreadMessages = {
-                    groups: processedUnreadMessages
-                };
-            }
-            // 更新未读消息计数，确保包含groups和private属性，保持响应性
-            // 只在服务器明确返回未读消息计数时才更新，否则保持当前的未读计数
-            if (processedUnreadMessages.global !== undefined) {
-                unreadMessages.global = processedUnreadMessages.global;
-            }
-            if (processedUnreadMessages.groups) {
-                unreadMessages.groups = processedUnreadMessages.groups;
-            }
-            if (processedUnreadMessages.private) {
-                unreadMessages.private = processedUnreadMessages.private;
-            }
-
-            // 检查并处理免打扰群组的未读消息
-            const mutedGroups = getMutedGroups();
-            for (const groupId in unreadMessages.groups) {
-                if (Object.prototype.hasOwnProperty.call(unreadMessages.groups, groupId)) {
-                    // 检查群组是否被免打扰
-                    if (mutedGroups.includes(groupId)) {
-                        // 清除免打扰群组的未读消息计数
-                        unreadMessages.groups[groupId] = 0;
-
-                        // 发送WebSocket消息，通知服务器已读该群组消息
-                        if (window.chatSocket) {
-                            window.chatSocket.emit('clear-unread-messages', {
-                            groupId: groupId,
-                            sessionToken: currentSessionToken,
-                            userId: currentUser.id
-                        });
-                        }
-                    }
-                }
-            }
-
-            // 更新未读计数显示
-            updateTitleWithUnreadCount();
+        // 从本地存储加载未读消息计数（不再依赖后端）
+        const store = window.chatStore;
+        if (store && store.loadUnreadMessages) {
+            store.loadUnreadMessages();
         }
+
+        // 更新未读计数显示
+        updateUnreadCountsDisplay();
+        updateTitleWithUnreadCount();
     });
 
     // 登录成功响应事件
@@ -1037,6 +956,8 @@ function initializeWebSocket() {
     // 监听群组名称更新事件
     socket.on('group-name-updated', () => {
         // 只有登录状态才刷新群组列表
+        const currentUser = getCurrentUser();
+        const currentSessionToken = getCurrentSessionToken();
         if (currentUser && currentSessionToken) {
             loadGroupList();
         }
@@ -1045,6 +966,8 @@ function initializeWebSocket() {
     // 监听群组公告更新事件
     socket.on('group-description-updated', (data) => {
         // 只有登录状态才刷新群组列表
+        const currentUser = getCurrentUser();
+        const currentSessionToken = getCurrentSessionToken();
         if (currentUser && currentSessionToken) {
             loadGroupList();
 
@@ -1070,11 +993,29 @@ function initializeWebSocket() {
             
             const store = window.chatStore;
             
+            // 更新对应的 minId
+            if (confirmedMessage.id && store && store.privateMinId !== undefined) {
+                if (confirmedMessage.id > store.privateMinId) {
+                    store.privateMinId = confirmedMessage.id;
+                    if (store.saveMinIds) {
+                        store.saveMinIds();
+                    }
+                }
+            }
+            
             // 添加确认后的私信消息到 store
             if (store && store.addPrivateMessage) {
                 const currentPrivateUserId = sessionStore.currentPrivateChatUserId;
                 if (currentPrivateUserId) {
                     store.addPrivateMessage(currentPrivateUserId, confirmedMessage);
+                }
+            }
+            
+            // 更新好友最后消息
+            if (store && store.updateFriendLastMessage) {
+                const currentPrivateUserId = sessionStore.currentPrivateChatUserId;
+                if (currentPrivateUserId) {
+                    store.updateFriendLastMessage(currentPrivateUserId, confirmedMessage);
                 }
             }
             
@@ -1096,12 +1037,41 @@ function initializeWebSocket() {
             setCurrentSessionToken(message.sessionToken);
         }
 
+        // 检查是否是类型101撤回消息
+        if (message.messageType === 101) {
+            const messageIdToDelete = message.content;
+            const store = window.chatStore;
+            const currentUser = getCurrentUser();
+            if (store && messageIdToDelete) {
+                // 确定聊天对象ID
+                const msgSenderId = String(message.senderId);
+                const msgReceiverId = String(message.receiverId);
+                const chatPartnerId = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
+                
+                // 从该私信会话中删除消息
+                store.deletePrivateMessage(chatPartnerId, messageIdToDelete);
+                // 添加101撤回消息
+                store.addPrivateMessage(chatPartnerId, message);
+                // 更新对应的 minId
+                if (message.id && store.privateMinId !== undefined) {
+                    if (message.id > store.privateMinId) {
+                        store.privateMinId = message.id;
+                        if (store.saveMinIds) {
+                            store.saveMinIds();
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        
         // 标记为实时消息
         message.isHistory = false;
 
         // 检查消息是否是当前聊天对象的消息，使用字符串比较确保类型一致
         const msgSenderId = String(message.senderId);
         const msgReceiverId = String(message.receiverId);
+        const currentUser = getCurrentUser();
         
         // 确定聊天对象ID（无论收到还是发送消息，聊天对象都是对方）
         const chatPartnerId = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
@@ -1110,6 +1080,15 @@ function initializeWebSocket() {
         // 条件：页面可见 + 当前聊天是私聊页面 + 消息是当前私聊对象发来的
         const store = window.chatStore;
         const pageVisible = (window.isPageVisible !== undefined ? window.isPageVisible : true) && document.hasFocus();
+        
+        if (message.id && store && store.privateMinId !== undefined) {
+            if (message.id > store.privateMinId) {
+                store.privateMinId = message.id;
+                if (store.saveMinIds) {
+                    store.saveMinIds();
+                }
+            }
+        }
         
         if (pageVisible && currentActiveChat === `private_${chatPartnerId}`) {
             if (store && store.moveFriendToTop) {
@@ -1123,6 +1102,7 @@ function initializeWebSocket() {
             if (friend) {
                 const newTime = new Date(message.timestamp || Date.now()).toISOString();
                 friend.last_message_time = newTime;
+                friend.lastMessage = message;
                 store.sortFriendsByLastMessageTime();
                 // 保存到 localStorage
                 if (store.saveFriendLastMessageTime) {
@@ -1148,27 +1128,20 @@ function initializeWebSocket() {
         
         if (shouldAddPrivateUnread) {
             // 更新未读消息计数 - 使用 chatPartnerId 作为键
-            if (store && store.unreadMessages) {
-                store.unreadMessages.private[chatPartnerId] = (store.unreadMessages.private[chatPartnerId] || 0) + 1;
+            if (store && store.incrementPrivateUnread) {
+                store.incrementPrivateUnread(chatPartnerId);
             }
             updateUnreadCountsDisplay();
             updateTitleWithUnreadCount();
         }
         
-        // 如果用户当前正在该私信聊天中且浏览器有焦点且页面可见，自动清除未读并发送清除事件
+        // 如果用户当前正在该私信聊天中且浏览器有焦点且页面可见，自动清除未读
         if (isCurrentPrivateChat && !isPageInvisible && !isBrowserNotFocused && !isOwnMessage) {
             // 清除私信未读计数
-            if (store && store.unreadMessages) {
-                store.unreadMessages.private[chatPartnerId] = 0;
+            if (store && store.clearPrivateUnread) {
+                store.clearPrivateUnread(chatPartnerId);
             }
             updateUnreadCountsDisplay();
-            
-            // 发送清除私信未读消息事件
-            socket.emit('clear-unread-messages', {
-                userId: currentUser.id,
-                sessionToken: currentSessionToken,
-                friendId: chatPartnerId
-            });
         }
     });
 
@@ -1235,6 +1208,8 @@ function initializeWebSocket() {
     // 统一加载消息函数（支持全局、群组、私信）
     window.loadMessages = function(type, options = {}) {
         if (!window.chatSocket) return;
+        const currentUser = getCurrentUser();
+        const currentSessionToken = getCurrentSessionToken();
         
         const data = {
             type: type,
@@ -1421,6 +1396,8 @@ function initializeWebSocket() {
 
         // 加载可用成员列表（只显示好友）
         loadAvailableMembers: function() {
+            const currentUser = getCurrentUser();
+            const currentSessionToken = getCurrentSessionToken();
             const groupMembersList = document.getElementById('groupMembersList');
             if (!groupMembersList) return;
 
@@ -1434,7 +1411,7 @@ function initializeWebSocket() {
             }
 
             // 获取好友列表
-            fetch(`${SERVER_URL}/user/friends`, {
+            fetch(`${SERVER_URL}/api/user/friends`, {
                 headers: {
                     'user-id': currentUser.id,
                     'session-token': currentSessionToken
@@ -1482,6 +1459,8 @@ function initializeWebSocket() {
 
         // 处理创建群组表单提交
         handleCreateGroupSubmit: function() {
+            const currentUser = getCurrentUser();
+            const currentSessionToken = getCurrentSessionToken();
             const newGroupNameInput = document.getElementById('newGroupName');
             const newGroupDescriptionInput = document.getElementById('newGroupDescription');
             const createGroupMessage = document.getElementById('createGroupMessage');
@@ -1518,7 +1497,7 @@ function initializeWebSocket() {
             }
 
             // 使用fetch API创建群组
-            fetch(`${SERVER_URL}/create-group`, {
+            fetch(`${SERVER_URL}/api/create-group`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1798,6 +1777,8 @@ function enableMessageSending() {
 function disableMessageSending() {
     // 只有当用户未登录时才禁用消息发送功能
     // 已登录用户即使WebSocket连接暂时断开，也应该保持输入框可用
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     if (!currentUser || !currentSessionToken) {
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
@@ -1852,6 +1833,8 @@ function disableMessageSending() {
  * @returns {Promise<boolean>} - 返回 Promise，表示是否允许继续
  */
 async function checkUserAndIPStatus(callback) {
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
     // 构建请求头，包含会话令牌
     const headers = {
         'Content-Type': 'application/json'
@@ -1863,7 +1846,7 @@ async function checkUserAndIPStatus(callback) {
     }
     
     try {
-        const response = await fetch(`${SERVER_URL}/check-status`, {
+        const response = await fetch(`${SERVER_URL}/api/check-status`, {
             method: 'GET',
             headers: headers
         });

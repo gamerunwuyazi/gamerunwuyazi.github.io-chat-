@@ -55,6 +55,18 @@
             :class="{ selected: index === selectedAtIndex }"
             @click="selectAtUser(user)"
           >
+            <div class="user-avatar-wrapper">
+              <component 
+                :is="getAvatarIsImage(user) ? 'img' : 'div'"
+                :src="getAvatarIsImage(user) ? getFullAvatarUrl(user) : undefined"
+                :alt="user.nickname"
+                class="user-avatar"
+                :class="{ 'default-avatar': !getAvatarIsImage(user) }"
+                @error="handleAvatarError(user.id)"
+              >
+                {{ !getAvatarIsImage(user) ? getUserInitials(user) : '' }}
+              </component>
+            </div>
             <span class="at-picker-nickname">{{ user.nickname }}</span>
           </div>
           <div v-if="filteredAtSuggestions.length === 0" class="at-picker-empty">暂无在线用户</div>
@@ -149,9 +161,6 @@
   </div>
 </template>
 
-<style src="@/css/index.css"></style>
-<style src="@/css/code-highlight.css"></style>
-
 <style scoped>
 .at-picker {
   position: fixed;
@@ -183,6 +192,25 @@
   background: #f5f5f5;
 }
 
+.user-avatar-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #e0e0e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: #666;
+  font-size: 14px;
+  object-fit: cover;
+}
+
 .at-picker-nickname {
   font-weight: 500;
   color: #333;
@@ -199,6 +227,7 @@
 import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useChatStore } from "@/stores/chatStore";
 import { useRoute } from "vue-router";
+import localForage from "localforage";
 import PublicMessageItem from "@/components/MessageItem/PublicMessageItem.vue";
 import QuotedMessagePreview from "@/components/MessageItem/QuotedMessagePreview.vue";
 import { 
@@ -418,6 +447,27 @@ const filteredAtSuggestions = ref([]);
 const selectedAtIndex = ref(0);
 const atTriggerPosition = ref(0);
 const isComposing = ref(false);
+const avatarLoadFailedMap = ref({});
+
+function getAvatarIsImage(user) {
+  return getFullAvatarUrl(user) !== '' && !avatarLoadFailedMap.value[user.id];
+}
+
+function getFullAvatarUrl(user) {
+  const avatarUrl = user.avatarUrl;
+  if (!avatarUrl) return '';
+  if (/^\.(svg)$/i.test(avatarUrl) || avatarUrl.includes('.svg')) return '';
+  return avatarUrl.startsWith('http') ? avatarUrl : `${chatStore.SERVER_URL}${avatarUrl}`;
+}
+
+function getUserInitials(user) {
+  const nickname = user.nickname || 'U';
+  return nickname.charAt(0).toUpperCase();
+}
+
+function handleAvatarError(userId) {
+  avatarLoadFailedMap.value[userId] = true;
+}
 
 function toggleMarkdownToolbar() {
   showMarkdownToolbar.value = !showMarkdownToolbar.value;
@@ -485,7 +535,8 @@ function handleMessageInput() {
               .map(user => ({
                 id: user.id,
                 nickname: unescapeHtml(user.nickname || user.name || '未知用户'),
-                username: unescapeHtml(user.nickname || user.name || String(user.id))
+                username: unescapeHtml(user.nickname || user.name || String(user.id)),
+                avatarUrl: user.avatarUrl || user.avatar_url || null
               }))
               .filter(u => u.username);
             
@@ -859,61 +910,48 @@ async function executeSearch() {
   searchResults.value = [];
   
   try {
-    const messages = chatStore.publicMessages;
+    const prefix = `chats-${chatStore.currentUser?.id || 'guest'}`;
+    const storageKey = `${prefix}-public`;
     
-    // 如果消息数量 < 200，发送加载更多事件
-    if (messages.length < 200) {
-      for (let i = 0; i < 10; i++) {
-        if (chatStore.publicMessages.length >= 200) break;
-        
-        // 获取最旧的消息（数组第一个元素），用于加载更旧的消息
-        const oldestMessage = chatStore.publicMessages[0];
-        if (!oldestMessage) break;
-        
-        if (window.chatSocket && window.chatSocket.connected) {
-          await new Promise((resolve) => {
-            let resolved = false;
-            const handler = () => {
-              if (resolved) return;
-              resolved = true;
-              window.chatSocket.off('chat-history', handler);
-              // 等待一小段时间确保消息被添加到 store
-              setTimeout(resolve, 100);
-            };
-            window.chatSocket.on('chat-history', handler);
-            
-            window.chatSocket.emit('get-chat-history', {
-              userId: chatStore.currentUser?.id,
-              sessionToken: chatStore.currentSessionToken,
-              limit: 20,
-              loadMore: true,
-              olderThan: oldestMessage.id  // 使用最旧消息的 ID
-            });
-            
-            // 超时保护
-            setTimeout(() => {
-              if (!resolved) {
-                resolved = true;
-                window.chatSocket.off('chat-history', handler);
-                resolve();
-              }
-            }, 3000);
-          });
-        }
-      }
-    }
-    
-    // 使用最新的消息列表进行搜索
-    const allMessages = chatStore.publicMessages;
+    // 直接从 indexedDB 读取消息
+    const storageData = await localForage.getItem(storageKey);
+    const allMessages = storageData?.messages || [];
     const keyword = searchKeyword.value.trim().toLowerCase();
     
-    searchResults.value = allMessages
+    // 搜索消息
+    const matchedMessages = allMessages
       .filter(msg => {
+        if (msg.messageType === 101) return false;
         const content = msg.content?.toLowerCase() || '';
         const nickname = msg.nickname?.toLowerCase() || '';
         return content.includes(keyword) || nickname.includes(keyword);
-      })
-      .reverse();
+      });
+    
+    if (matchedMessages.length > 0) {
+      searchResults.value = [...matchedMessages].reverse();
+      
+      // 找到查找到的所有消息中最小的ID
+      const minMatchedId = Math.min(...matchedMessages.map(m => m.id));
+      
+      // 获取store中的当前消息列表的最小ID
+      const storeMessages = chatStore.publicMessages;
+      if (storeMessages.length > 0) {
+        const storeMinId = Math.min(...storeMessages.map(m => m.id));
+        
+        // 从完整消息列表中提取需要添加的消息：从最小匹配ID-20 到 store最小ID-1
+        const startId = Math.max(1, minMatchedId - 20);
+        const endId = storeMinId - 1;
+        
+        if (startId <= endId) {
+          const messagesToAdd = allMessages
+            .filter(msg => msg.id >= startId && msg.id <= endId && msg.messageType !== 101)
+            .sort((a, b) => a.id - b.id);
+          
+          // 添加到store
+          chatStore.prependPublicMessages(messagesToAdd);
+        }
+      }
+    }
     
     hasSearched.value = true;
   } catch (err) {

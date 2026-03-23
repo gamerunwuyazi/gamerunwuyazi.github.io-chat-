@@ -97,33 +97,12 @@ export function sendMessage() {
     if (quotedMessage) {
       messageData.message_type = 4;
       
-      // 递归获取最原始的引用消息内容
-      let quotedContent = quotedMessage.content;
-      let quotedMessageType = quotedMessage.messageType || 0;
-      
-      // 如果被引用的消息也是引用消息，需要获取其实际内容
-      if (quotedMessageType === 4 && quotedMessage.quotedMessage) {
-        // 递归获取原始内容 - eslint-disable-next-line no-inner-declarations
-        const getOriginalContent = (msg) => {
-          if (!msg) return null;
-          if (msg.messageType === 4 && msg.quotedMessage) {
-            return getOriginalContent(msg.quotedMessage);
-          }
-          return msg;
-        };
-        const originalMsg = getOriginalContent(quotedMessage.quotedMessage);
-        if (originalMsg) {
-          quotedContent = originalMsg.content || '[引用消息]';
-          quotedMessageType = originalMsg.messageType || 0;
-        }
-      }
-      
       messageData.quotedMessage = {
         id: quotedMessage.id,
         userId: quotedMessage.userId,
         nickname: quotedMessage.nickname,
-        content: quotedContent,
-        messageType: quotedMessageType,
+        content: quotedMessage.content,
+        messageType: quotedMessage.messageType || 0,
         markdone: showMarkdownToolbar
       };
     } else if (showMarkdownToolbar) {
@@ -246,6 +225,7 @@ export function sendGroupMessage() {
     // 3. 否则类型为 0（普通文本）
     if (quotedMessage) {
       messageData.message_type = 4;
+      
       messageData.quotedMessage = {
         id: quotedMessage.id,
         userId: quotedMessage.userId,
@@ -374,6 +354,7 @@ export function sendPrivateMessage() {
   // 3. 否则类型为 0（普通文本）
   if (quotedMessage) {
     messageData.message_type = 4;
+    
     messageData.quotedMessage = {
       id: quotedMessage.id,
       userId: quotedMessage.userId,
@@ -444,7 +425,7 @@ export function sendPrivateMessage() {
     };
     window.chatSocket.on('private-message-sent', privateMessageSentHandler);
     
-    window.chatSocket.emit('private-message', messageData);
+    window.chatSocket.emit('send-private-message', messageData);
     
     if (quotedMessage) {
       getChatStore()?.clearQuotedMessage();

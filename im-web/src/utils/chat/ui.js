@@ -74,7 +74,7 @@ async function refreshToken() {
     }
     
     try {
-        const response = await fetch(`${SERVER_URL}/refresh-token`, {
+        const response = await fetch(`${SERVER_URL}/api/refresh-token`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -599,7 +599,7 @@ function initSidebarToggle() {
         const originalLoadGroupList = window.loadGroupList;
         window.loadGroupList = function() {
           // 调用原始的loadGroupList函数
-          fetch(`${SERVER_URL}/user-groups/${currentUser.id}`, {
+          fetch(`${SERVER_URL}/api/user-groups/${currentUser.id}`, {
             headers: {
               'user-id': currentUser.id,
               'session-token': currentSessionToken
@@ -704,6 +704,7 @@ function updateTitleWithUnreadCount() {
 // 来源: 显示错误消息.txt
 function handlePageVisibilityChange() {
   isPageVisible = !document.hidden;
+  const store = window.chatStore;
 
   // 页面从不可见变为可见时，只清除当前活动会话的未读计数
   if (isPageVisible) {
@@ -722,36 +723,20 @@ function handlePageVisibilityChange() {
     // 注意：只有当 currentActiveChat 和路由都匹配时才清除
     if (chat === 'main' && isMainChat) {
       // 公共聊天室
-      if (unreadMessages.global > 0) {
-        unreadMessages.global = 0;
+      if (store && store.clearGlobalUnread) {
+        store.clearGlobalUnread();
       }
     } else if (chat.startsWith('group_') && isGroupChat) {
       // 群组聊天室
       const groupId = chat.replace('group_', '');
-      if (unreadMessages.groups[groupId] > 0) {
-        unreadMessages.groups[groupId] = 0;
-        // 只有有未读消息时才发送清除事件
-        if (window.chatSocket && currentUser && currentSessionToken) {
-          window.chatSocket.emit('clear-unread-messages', {
-            userId: currentUser.id,
-            sessionToken: currentSessionToken,
-            groupId: groupId
-          });
-        }
+      if (store && store.clearGroupUnread) {
+        store.clearGroupUnread(groupId);
       }
     } else if (chat.startsWith('private_') && isPrivateChat) {
       // 私信聊天室
       const userId = chat.replace('private_', '');
-      if (unreadMessages.private[userId] > 0) {
-        unreadMessages.private[userId] = 0;
-        // 只有有未读消息时才发送清除事件
-        if (window.chatSocket && currentUser && currentSessionToken) {
-          window.chatSocket.emit('clear-unread-messages', {
-            userId: currentUser.id,
-            sessionToken: currentSessionToken,
-            friendId: userId
-          });
-        }
+      if (store && store.clearPrivateUnread) {
+        store.clearPrivateUnread(userId);
       }
     }
     
@@ -763,6 +748,7 @@ function handlePageVisibilityChange() {
 
 function handleFocusChange() {
   isPageVisible = document.hasFocus();
+  const store = window.chatStore;
 
   // 页面获得焦点时，只清除当前活动会话的未读计数
   if (isPageVisible) {
@@ -781,36 +767,20 @@ function handleFocusChange() {
     // 注意：只有当 currentActiveChat 和路由都匹配时才清除
     if (chat === 'main' && isMainChat) {
       // 公共聊天室
-      if (unreadMessages.global > 0) {
-        unreadMessages.global = 0;
+      if (store && store.clearGlobalUnread) {
+        store.clearGlobalUnread();
       }
     } else if (chat.startsWith('group_') && isGroupChat) {
       // 群组聊天室
       const groupId = chat.replace('group_', '');
-      if (unreadMessages.groups[groupId] > 0) {
-        unreadMessages.groups[groupId] = 0;
-        // 只有有未读消息时才发送清除事件
-        if (window.chatSocket && currentUser && currentSessionToken) {
-          window.chatSocket.emit('clear-unread-messages', {
-            userId: currentUser.id,
-            sessionToken: currentSessionToken,
-            groupId: groupId
-          });
-        }
+      if (store && store.clearGroupUnread) {
+        store.clearGroupUnread(groupId);
       }
     } else if (chat.startsWith('private_') && isPrivateChat) {
       // 私信聊天室
       const userId = chat.replace('private_', '');
-      if (unreadMessages.private[userId] > 0) {
-        unreadMessages.private[userId] = 0;
-        // 只有有未读消息时才发送清除事件
-        if (window.chatSocket && currentUser && currentSessionToken) {
-          window.chatSocket.emit('clear-unread-messages', {
-            userId: currentUser.id,
-            sessionToken: currentSessionToken,
-            friendId: userId
-          });
-        }
+      if (store && store.clearPrivateUnread) {
+        store.clearPrivateUnread(userId);
       }
     }
     
@@ -888,8 +858,8 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
       }
     }
     // 清除全局未读消息计数
-    if (clearUnread && unreadMessages.global > 0) {
-      unreadMessages.global = 0;
+    if (clearUnread && store && store.clearGlobalUnread) {
+      store.clearGlobalUnread();
       updateTitleWithUnreadCount();
     }
   } else if (chatType === 'group' && id) {
@@ -903,8 +873,8 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
       }
     }
     // 清除该群组未读消息计数
-    if (clearUnread && unreadMessages.groups[id] > 0) {
-      unreadMessages.groups[id] = 0;
+    if (clearUnread && store && store.clearGroupUnread) {
+      store.clearGroupUnread(id);
       updateTitleWithUnreadCount();
     }
   } else if (chatType === 'private' && id) {
@@ -918,8 +888,8 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
       }
     }
     // 清除该好友未读消息计数
-    if (clearUnread && unreadMessages.private[id] > 0) {
-      unreadMessages.private[id] = 0;
+    if (clearUnread && store && store.clearPrivateUnread) {
+      store.clearPrivateUnread(id);
       updateTitleWithUnreadCount();
     }
   }
@@ -1095,6 +1065,31 @@ async function initializeChat() {
             currentUser = store.currentUser;
             currentSessionToken = store.currentSessionToken;
             window.currentSessionToken = currentSessionToken;
+            
+            // 调用 /self API 获取完整的用户信息
+            try {
+                const response = await fetch(`${SERVER_URL}/api/self`, {
+                    headers: {
+                        'user-id': currentUser.id,
+                        'session-token': currentSessionToken
+                    }
+                });
+                const data = await response.json();
+                if (data.status === 'success' && data.user) {
+                    currentUser = {
+                        id: data.user.id,
+                        username: data.user.username,
+                        nickname: data.user.nickname,
+                        gender: data.user.gender,
+                        signature: data.user.signature,
+                        avatar_url: data.user.avatar_url
+                    };
+                    store.currentUser = currentUser;
+                    console.log('✅ initializeChat() 通过 /self API 获取完整用户信息:', currentUser.id);
+                }
+            } catch (error) {
+                console.error('获取用户信息失败:', error);
+            }
         }
         // 如果 store 中没有，再尝试从 localStorage 获取
         else if (!currentUser || !currentSessionToken) {
@@ -1103,19 +1098,10 @@ async function initializeChat() {
                         localStorage.getItem('userId') ||
                         localStorage.getItem('currentUserId');
             let sessionToken = localStorage.getItem('currentSessionToken');
-            let nickname = localStorage.getItem('chatUserNickname') ||
-                          localStorage.getItem('nickname') ||
-                          localStorage.getItem('currentUserNickname');
-            let gender = localStorage.getItem('chatUserGender');
-
-            // console.log('📋 从 localStorage 读取到的数据:', { userId, sessionToken, nickname });
 
             if (userId && sessionToken) {
                 currentUser = {
-                    id: userId,
-                    nickname: nickname,
-                    gender: gender ? parseInt(gender) : 0,
-                    avatarUrl: null  // 从后端获取，不从 localStorage 读取
+                    id: userId
                 };
                 currentSessionToken = sessionToken;
                 window.currentSessionToken = sessionToken;
@@ -1125,7 +1111,33 @@ async function initializeChat() {
                     store.currentUser = currentUser;
                     store.setCurrentSessionToken(sessionToken);
                 }
-                // console.log('✅ 从 localStorage 中获取到用户信息:', currentUser?.id);
+                
+                // 调用 /self API 获取完整的用户信息
+                try {
+                    const response = await fetch(`${SERVER_URL}/api/self`, {
+                        headers: {
+                            'user-id': userId,
+                            'session-token': sessionToken
+                        }
+                    });
+                    const data = await response.json();
+                    if (data.status === 'success' && data.user) {
+                        currentUser = {
+                            id: data.user.id,
+                            username: data.user.username,
+                            nickname: data.user.nickname,
+                            gender: data.user.gender,
+                            signature: data.user.signature,
+                            avatar_url: data.user.avatar_url
+                        };
+                        if (store) {
+                            store.currentUser = currentUser;
+                        }
+                        console.log('✅ initializeChat() 通过 /self API 获取完整用户信息:', currentUser.id);
+                    }
+                } catch (error) {
+                    console.error('获取用户信息失败:', error);
+                }
             } else {
                 console.warn('⚠️ 未找到用户信息，初始化聊天失败');
                 return;
@@ -1140,6 +1152,7 @@ async function initializeChat() {
                 return;
             }
           } else console.warn('刷新 Token 函数不存在');
+          if (typeof getStore().initializeMessages === 'function') getStore().initializeMessages(); else console.warn('拉取消息失败');
           if (typeof initializeWebSocket === 'function') initializeWebSocket(); else console.warn('初始化 WebSocket 失败');
           if (typeof enableMessageSending === 'function') enableMessageSending(); else console.warn('启用消息发送失败');
           if (typeof initializeFocusListeners === 'function') initializeFocusListeners(); else console.warn('初始化焦点监听失败');

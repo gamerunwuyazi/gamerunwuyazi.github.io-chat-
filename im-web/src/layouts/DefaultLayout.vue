@@ -4,7 +4,7 @@
     
     <router-view name="sidebar"></router-view>
     
-    <div id="chat-main" @click="handleChatMainClick">
+    <div id="chat-main">
       <router-view></router-view>
     </div>
     <div id="modal">
@@ -36,42 +36,6 @@ function updateCurrentActiveChat() {
   } else if (path.startsWith('/chat/private')) {
     if (chatStore.currentPrivateChatUserId) {
       setActiveChat('private', chatStore.currentPrivateChatUserId, true);
-    }
-  }
-}
-
-function handleChatMainClick() {
-  const path = route.path;
-  const sessionToken = chatStore.currentSessionToken;
-  const userId = chatStore.currentUser?.id;
-  
-  if (path.startsWith('/chat/group')) {
-    const groupId = chatStore.currentGroupId;
-    if (groupId && window.chatSocket && sessionToken && userId) {
-      const unreadGroup = chatStore.unreadMessages?.groups?.[groupId];
-      if (unreadGroup > 0) {
-        window.chatSocket.emit('clear-unread-messages', {
-          groupId: parseInt(groupId),
-          sessionToken: sessionToken,
-          userId: userId
-        });
-        chatStore.unreadMessages.groups[groupId] = 0;
-        updateTitleWithUnreadCount();
-      }
-    }
-  } else if (path.startsWith('/chat/private')) {
-    const friendId = chatStore.currentPrivateChatUserId;
-    if (friendId && window.chatSocket && sessionToken && userId) {
-      const unreadPrivate = chatStore.unreadMessages?.private?.[friendId];
-      if (unreadPrivate > 0) {
-        window.chatSocket.emit('clear-unread-messages', {
-          userId: userId,
-          friendId: friendId,
-          sessionToken: sessionToken
-        });
-        chatStore.unreadMessages.private[friendId] = 0;
-        updateTitleWithUnreadCount();
-      }
     }
   }
 }

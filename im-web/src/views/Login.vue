@@ -59,8 +59,8 @@ import { ref, reactive, computed } from 'vue';
 import { login } from "@/utils/chat";
 import VueTurnstile from 'vue-turnstile';
 
-const SERVER_URL = process.env.VUE_APP_SERVER_URL || '';
-const TURNSTILE_SITE_KEY = process.env.VUE_APP_TURNSTILE_SITE_KEY || '';
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
 
 const formData = reactive({
   username: '',
@@ -109,7 +109,7 @@ async function handleLogin() {
   isSubmitting.value = true;
 
   try {
-    const response = await fetch(`${SERVER_URL}/login`, {
+    const response = await fetch(`${SERVER_URL}/api/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

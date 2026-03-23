@@ -1,6 +1,6 @@
 [build]
   base = "im-web"
-  command = "npm run build"
+  command = "npm run dev"
   publish = "dist"
 
   # 构建时使用的环境变量

@@ -7,11 +7,6 @@ const chatStore = useChatStore();
 
 onMounted(() => {
   window.chatStore = chatStore;
-  
-  // 加载群组列表
-  if (window.loadGroupList) {
-    window.loadGroupList();
-  }
 });
 
 onUnmounted(() => {
@@ -59,6 +54,17 @@ function getGroupAvatarUrl(group) {
 // 工具函数：检查是否为 SVG 格式
 function isSvgAvatar(url) {
   return url && /\.svg$/i.test(url);
+}
+
+// 获取群组最后消息
+function getGroupLastMessage(group) {
+  const lastMessage = group.lastMessage || chatStore.getGroupLastMessage(group.id);
+  if (!lastMessage) return '';
+  
+  let content = chatStore.formatMessageContent(lastMessage);
+  const senderName = lastMessage.nickname || '群成员';
+  
+  return `${senderName}: ${content}`;
 }
 
 // 获取免打扰群组列表
@@ -212,7 +218,10 @@ function handleGroupAvatarError(event, group) {
                     <span v-else class="group-avatar" @click.stop="handleGroupAvatarClick($event, group)">
                         {{ unescapeHtml(group.name).charAt(0).toUpperCase() }}
                     </span>
-                    <span class="group-name">{{ unescapeHtml(group.name) }}</span>
+                    <div class="group-info">
+                        <span class="group-name">{{ unescapeHtml(group.name) }}</span>
+                        <span class="group-last-message">{{ getGroupLastMessage(group) }}</span>
+                    </div>
                     <span v-if="isGroupMuted(group.id)" class="mute-icon" style="margin-left: 5px; font-size: 12px;" title="已免打扰">🔕</span>
                     <div class="unread-count group-unread-count" v-if="chatStore.unreadMessages.groups && chatStore.unreadMessages.groups[group.id] && !isGroupMuted(group.id)">
                         {{ chatStore.unreadMessages.groups[group.id] }}
@@ -255,7 +264,28 @@ function handleGroupAvatarError(event, group) {
 .context-menu-item:hover {
     background-color: #f5f5f5;
 }
-</style>
 
-<style src="@/css/index.css"></style>
-<style src="@/css/code-highlight.css"></style>
+.group-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.group-name {
+    font-weight: 500;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.group-last-message {
+    font-size: 12px;
+    color: #999;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+</style>

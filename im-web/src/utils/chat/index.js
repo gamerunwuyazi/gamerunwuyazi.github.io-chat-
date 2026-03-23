@@ -28,29 +28,29 @@ import * as uiModule from './ui.js';
 import * as uploadModule from './upload.js';
 import * as websocketModule from './websocket.js';
 
-function login() {
+async function login() {
   const currentUserStr = localStorage.getItem('currentUser');
   const currentSessionToken = localStorage.getItem('currentSessionToken');
   const chatUserId = localStorage.getItem('chatUserId');
-  const chatUserNickname = localStorage.getItem('chatUserNickname');
-  const chatUserGender = localStorage.getItem('chatUserGender');
   
   const store = getStore();
   if (store) {
     let currentUser = null;
     
+    // 优先从 localStorage 的 currentUser 获取用户ID
     if (currentUserStr) {
       try {
-        currentUser = JSON.parse(currentUserStr);
+        const parsedUser = JSON.parse(currentUserStr);
+        currentUser = {
+          id: parsedUser.id
+        };
       } catch (error) {
         console.warn('解析 currentUser 失败:', error);
       }
     } else if (chatUserId) {
+      // 兼容旧版 localStorage
       currentUser = {
-        id: chatUserId,
-        nickname: chatUserNickname,
-        gender: chatUserGender ? parseInt(chatUserGender) : 0,
-        avatarUrl: null  // 从后端获取，不从 localStorage 读取
+        id: chatUserId
       };
     }
     
@@ -58,6 +58,30 @@ function login() {
       store.currentUser = currentUser;
       store.setCurrentSessionToken(currentSessionToken);
       console.log('✅ login() 函数同步用户信息到 store:', currentUser?.id);
+      
+      // 调用 /self API 获取完整的用户信息
+      try {
+        const response = await fetch(`${SERVER_URL}/api/self`, {
+          headers: {
+            'user-id': currentUser.id,
+            'session-token': currentSessionToken
+          }
+        });
+        const data = await response.json();
+        if (data.status === 'success' && data.user) {
+          store.currentUser = {
+            id: data.user.id,
+            username: data.user.username,
+            nickname: data.user.nickname,
+            gender: data.user.gender,
+            signature: data.user.signature,
+            avatar_url: data.user.avatar_url
+          };
+          console.log('✅ 已通过 /self API 获取完整用户信息:', data.user.id);
+        }
+      } catch (error) {
+        console.error('获取用户信息失败:', error);
+      }
     }
   }
   

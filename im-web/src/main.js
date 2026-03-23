@@ -4,9 +4,9 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 
 // 导入复制过来的 css 文件
-import './css/index.css'
-import './css/code-highlight.css'
-import './css/mobile.css'
+import './assets/css/index.css'
+import './assets/css/code-highlight.css'
+import './assets/css/mobile.css'
 
 // 创建路由实例
 const router = createRouter({
