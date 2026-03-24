@@ -1241,34 +1241,11 @@ function handleSendGroupCard() {
   }
 }
 
-watch(() => chatStore.showSendGroupCardModal, async (newVal) => {
+watch(() => chatStore.showSendGroupCardModal, (newVal) => {
   if (newVal) {
     selectedGroupIdForSendCard.value = null;
-    sendGroupCardList.value = [];
-    loadingSendGroupCardList.value = true;
-    
-    try {
-      const response = await fetch(`${SERVER_URL}/api/user-groups/${chatStore.currentUser?.id}`, {
-        headers: {
-          'user-id': chatStore.currentUser?.id,
-          'session-token': chatStore.currentSessionToken
-        }
-      });
-      const data = await response.json();
-      if (data.status === 'success') {
-        let groups = data.groups || [];
-        groups.sort((a, b) => {
-          const aTime = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
-          const bTime = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
-          return bTime - aTime;
-        });
-        sendGroupCardList.value = groups;
-      }
-    } catch (error) {
-      console.error('加载群组列表失败:', error);
-    } finally {
-      loadingSendGroupCardList.value = false;
-    }
+    // 直接使用 store 中已经排好序的群组列表
+    sendGroupCardList.value = [...(chatStore.groupsList || [])];
   }
 });
 
