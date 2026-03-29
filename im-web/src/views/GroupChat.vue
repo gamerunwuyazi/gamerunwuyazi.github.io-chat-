@@ -175,6 +175,11 @@
 </template>
 
 <style scoped>
+.chat-at-user {
+  color: #00f;
+  border-radius: 3px;
+}
+
 .at-picker {
   position: fixed;
   background: white;
@@ -255,7 +260,7 @@ import { useRoute } from "vue-router";
 import localForage from "localforage";
 import GroupMessageItem from "@/components/MessageItem/GroupMessageItem.vue";
 import QuotedMessagePreview from "@/components/MessageItem/QuotedMessagePreview.vue";
-import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile, clearContentEditable, unescapeHtml } from "@/utils/chat";
+import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile, clearContentEditable } from "@/utils/chat";
 import toast from "@/utils/toast";
 
 const chatStore = useChatStore();
@@ -306,8 +311,7 @@ function handleAvatarError(userId) {
 }
 
 const displayGroupName = computed(() => {
-  const name = currentGroupName.value || '群组名称';
-  return unescapeHtml(name);
+  return currentGroupName.value || '群组名称';
 });
 
 const currentUserId = computed(() => chatStore.currentUser?.id);
@@ -380,6 +384,19 @@ function applySavedGroupState() {
     isGroupChatVisible.value = true;
     currentGroupName.value = chatStore.currentGroupName;
     loadCurrentGroupInfo();
+    
+    // 恢复当前群组的草稿
+    const draftContent = chatStore.getDraft('group', chatStore.currentGroupId);
+    if (draftContent) {
+      window.restoringGroupDraft = true;
+      nextTick(() => {
+        const messageInput = document.getElementById('groupMessageInput');
+        if (messageInput) {
+          messageInput.innerHTML = draftContent;
+        }
+        window.restoringGroupDraft = false;
+      });
+    }
     
     // 重新初始化滚动监听器
     nextTick(() => {
@@ -455,6 +472,68 @@ function handleGroupMessageInputKeydown(e) {
     } else if (e.key === 'Escape') {
       e.preventDefault();
       showAtPicker.value = false;
+      return;
+    }
+  }
+  
+  if (e.key === 'Backspace' || e.key === 'Delete') {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    
+    const range = selection.getRangeAt(0);
+    let targetElement = null;
+    
+    if (e.key === 'Backspace') {
+      let node = range.startContainer;
+      while (node && node !== groupMessageInputRef.value) {
+        if (node.nodeType === Node.ELEMENT_NODE && node.classList && node.classList.contains('chat-at-user')) {
+          targetElement = node;
+          break;
+        }
+        if (node.previousSibling) {
+          node = node.previousSibling;
+          while (node && node.lastChild) {
+            node = node.lastChild;
+          }
+        } else {
+          node = node.parentNode;
+        }
+      }
+      if (!targetElement && range.startContainer.parentNode && range.startContainer.parentNode.classList && range.startContainer.parentNode.classList.contains('chat-at-user')) {
+        targetElement = range.startContainer.parentNode;
+      }
+      if (!targetElement && range.startOffset === 0 && range.startContainer.previousSibling && range.startContainer.previousSibling.nodeType === Node.ELEMENT_NODE && range.startContainer.previousSibling.classList && range.startContainer.previousSibling.classList.contains('chat-at-user')) {
+        targetElement = range.startContainer.previousSibling;
+      }
+    } else if (e.key === 'Delete') {
+      let node = range.endContainer;
+      while (node && node !== groupMessageInputRef.value) {
+        if (node.nodeType === Node.ELEMENT_NODE && node.classList && node.classList.contains('chat-at-user')) {
+          targetElement = node;
+          break;
+        }
+        if (node.nextSibling) {
+          node = node.nextSibling;
+          while (node && node.firstChild) {
+            node = node.firstChild;
+          }
+        } else {
+          node = node.parentNode;
+        }
+      }
+      if (!targetElement && range.endContainer.parentNode && range.endContainer.parentNode.classList && range.endContainer.parentNode.classList.contains('chat-at-user')) {
+        targetElement = range.endContainer.parentNode;
+      }
+      if (!targetElement && range.endOffset === range.endContainer.textContent.length && range.endContainer.nextSibling && range.endContainer.nextSibling.nodeType === Node.ELEMENT_NODE && range.endContainer.nextSibling.classList && range.endContainer.nextSibling.classList.contains('chat-at-user')) {
+        targetElement = range.endContainer.nextSibling;
+      }
+    }
+    
+    if (targetElement) {
+      e.preventDefault();
+      const parent = targetElement.parentNode;
+      parent.removeChild(targetElement);
+      chatStore.groupMessageInput = groupMessageInputRef.value.innerHTML;
       return;
     }
   }
@@ -592,6 +671,11 @@ function handleGroupMessageInput() {
       return;
     }
     
+    // 如果正在恢复草稿，不保存草稿
+    if (window.restoringGroupDraft) {
+      return;
+    }
+    
     chatStore.groupMessageInput = input.innerHTML;
     
     const maxHeight = 180;
@@ -624,6 +708,13 @@ function handleGroupMessageInput() {
           if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
             atTriggerPosition.value = atIndex;
             
+            // 保存@触发器信息，用于点击时定位
+            atTriggerInfo = {
+              textNode: textNode,
+              atIndex: atIndex,
+              cursorPos: cursorPos
+            };
+            
             // 获取群组成员列表
             const members = groupMembers.value || [];
             const onlineUserIds = new Set((chatStore.onlineUsers || []).map(user => String(user.id)));
@@ -635,8 +726,8 @@ function handleGroupMessageInput() {
                 const isOnline = onlineUserIds.has(String(userId));
                 return {
                   id: userId,
-                  nickname: unescapeHtml(member.nickname || member.name || '未知成员'),
-                  username: unescapeHtml(member.nickname || member.name || String(userId)),
+                  nickname: member.nickname || member.name || '未知成员',
+                  username: member.nickname || member.name || String(userId),
                   avatarUrl: member.avatarUrl || member.avatar_url || null,
                   isOnline: isOnline
                 };
@@ -774,43 +865,123 @@ function handleGroupInfoClick() {
     });
 }
 
+// 保存@触发器的位置信息
+let atTriggerInfo = null;
+
 function selectGroupAtUser(user) {
   if (!groupMessageInputRef.value) return;
   
   const input = groupMessageInputRef.value;
+  const selection = window.getSelection();
   
-  // 从输入框文本中查找 @ 位置
-  const text = input.textContent || '';
-  const atIndex = text.lastIndexOf('@');
+  // 先获取焦点，但尝试保持选区
+  input.focus();
   
-  if (atIndex !== -1) {
-    // 找到 @ 位置，替换为 @username 
-    const textBeforeAt = text.substring(0, atIndex);
-    const textAfterAt = text.substring(atIndex + 1);
+  // 如果有保存的@触发器信息，使用它
+  if (atTriggerInfo && atTriggerInfo.textNode && atTriggerInfo.atIndex !== -1) {
+    const textNode = atTriggerInfo.textNode;
+    const atIndex = atTriggerInfo.atIndex;
+    const cursorPos = atTriggerInfo.cursorPos;
     
-    // 找到第一个空格或换行符的位置
-    let textAfterUsername = textAfterAt;
-    const spaceMatch = textAfterAt.match(/^(\S+)/);
-    if (spaceMatch) {
-      textAfterUsername = textAfterAt.substring(spaceMatch[1].length);
+    if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+      // 创建新的选区
+      const range = document.createRange();
+      
+      // 选中输入的 @xx 符
+      range.setStart(textNode, atIndex);
+      range.setEnd(textNode, cursorPos);
+      range.deleteContents();
+      range.collapse(true);
+      
+      // 创建元素节点
+      const element = document.createElement('SPAN');
+      element.className = 'chat-at-user';
+      element.dataset.id = user.id;
+      element.contentEditable = 'false';
+      element.innerText = `@${user.username}`;
+      range.insertNode(element);
+      
+      // 光标移动到元素后面
+      range.setStartAfter(element);
+      range.collapse(true);
+      
+      // 插入普通空格
+      const textNodeSpace = document.createTextNode(' ');
+      range.insertNode(textNodeSpace);
+      
+      // 设置光标位置在空格后面
+      range.setStartAfter(textNodeSpace);
+      range.collapse(true);
+      
+      // 立即设置光标位置
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  } else if (selection && selection.rangeCount > 0) {
+    // 备用方案：使用当前选区
+    const range = selection.getRangeAt(0);
+    
+    // 查找 @ 触发器 - 改进查找逻辑，处理更复杂的情况
+    let textNode = range.startContainer;
+    let cursorPos = range.startOffset;
+    let atIndex = -1;
+    
+    // 如果当前不是文本节点，往前查找
+    while (textNode && textNode.nodeType !== Node.TEXT_NODE) {
+      if (textNode.previousSibling) {
+        textNode = textNode.previousSibling;
+        while (textNode.lastChild) {
+          textNode = textNode.lastChild;
+        }
+        if (textNode.nodeType === Node.TEXT_NODE) {
+          cursorPos = textNode.textContent.length;
+        }
+      } else {
+        textNode = textNode.parentNode;
+      }
     }
     
-    const replaceText = `@${user.username} `    
-    input.textContent = textBeforeAt + replaceText + textAfterUsername;
-    
-    // 设置光标位置到替换文本之后
-    const newCursorPos = atIndex + replaceText.length;
-    const newRange = document.createRange();
-    const textNode = input.firstChild;
     if (textNode && textNode.nodeType === Node.TEXT_NODE) {
-      newRange.setStart(textNode, Math.min(newCursorPos, textNode.textContent.length));
-      newRange.collapse(true);
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(newRange);
+      const text = textNode.textContent;
+      const textBeforeCursor = text.substring(0, cursorPos);
+      atIndex = textBeforeCursor.lastIndexOf('@');
+      
+      if (atIndex !== -1) {
+        // 选中输入的 @xx 符
+        range.setStart(textNode, atIndex);
+        range.setEnd(textNode, cursorPos);
+        range.deleteContents();
+        range.collapse(true);
+        
+        // 创建元素节点
+        const element = document.createElement('SPAN');
+        element.className = 'chat-at-user';
+        element.dataset.id = user.id;
+        element.contentEditable = 'false';
+        element.innerText = `@${user.username}`;
+        range.insertNode(element);
+        
+        // 光标移动到元素后面
+        range.setStartAfter(element);
+        range.collapse(true);
+        
+        // 插入普通空格
+        const textNodeSpace = document.createTextNode(' ');
+        range.insertNode(textNodeSpace);
+        
+        // 设置光标位置在空格后面
+        range.setStartAfter(textNodeSpace);
+        range.collapse(true);
+        
+        // 立即设置光标位置
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
     }
   }
   
+  // 清除保存的信息
+  atTriggerInfo = null;
   showAtPicker.value = false;
   chatStore.groupMessageInput = input.innerHTML;
   input.focus();
@@ -985,11 +1156,21 @@ async function executeSearch() {
 }
 
 function highlightKeyword(content) {
-  if (!content || !searchKeyword.value) return content;
+  if (!content || !searchKeyword.value) {
+    if (!content) return content;
+    const div = document.createElement('div');
+    div.textContent = content;
+    return div.innerHTML;
+  }
   
   const keyword = searchKeyword.value.trim();
+  
+  const div = document.createElement('div');
+  div.textContent = content;
+  let escapedContent = div.innerHTML;
+  
   const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-  return content.replace(regex, '<mark class="search-highlight">$1</mark>');
+  return escapedContent.replace(regex, '<mark class="search-highlight">$1</mark>');
 }
 
 function formatTime(timestamp) {
@@ -1040,6 +1221,38 @@ function handleGroupSwitched() {
     currentGroupName.value = chatStore.currentGroupName;
     loadCurrentGroupInfo();
     
+    // 设置标志，防止恢复草稿时触发 handleGroupMessageInput 保存草稿
+    window.restoringGroupDraft = true;
+    
+    // 恢复草稿并设置光标在文字后
+    nextTick(() => {
+      const messageInput = document.getElementById('groupMessageInput');
+      if (messageInput) {
+        // 先清空输入框
+        messageInput.innerHTML = '';
+        
+        // 从 drafts 中获取草稿
+        const draftContent = chatStore.getDraft('group', chatStore.currentGroupId);
+        if (draftContent) {
+          messageInput.innerHTML = draftContent;
+          
+          // 恢复完成后，清除草稿状态
+          chatStore.saveDraft('group', chatStore.currentGroupId, '');
+          chatStore.tempRestoreLastMessage('group', chatStore.currentGroupId);
+          
+          const range = document.createRange();
+          const sel = window.getSelection();
+          range.selectNodeContents(messageInput);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        
+        // 恢复完成后清除标志
+        window.restoringGroupDraft = false;
+      }
+    });
+    
     // 切换群组后，重新初始化滚动监听器
     setTimeout(() => {
       initializeScrollLoading(true);
@@ -1056,6 +1269,11 @@ watch(
       window.isLoadingMoreMessages = false;
       if (window.scrollingInitialized) {
         window.scrollingInitialized.group = false;
+      }
+      
+      // 清空输入框
+      if (groupMessageInputRef.value) {
+        groupMessageInputRef.value.innerHTML = '';
       }
       
       nextTick(() => {
@@ -1101,14 +1319,46 @@ watch(
 );
 
 watch(
+  () => chatStore.currentGroupName,
+  (newGroupName) => {
+    currentGroupName.value = newGroupName;
+  }
+);
+
+watch(
   () => route.path,
-  (newPath) => {
+  (newPath, oldPath) => {
+    if (oldPath && oldPath.startsWith('/chat/group') && !newPath.startsWith('/chat/group')) {
+      const currentGroupId = chatStore.currentGroupId;
+      if (currentGroupId) {
+        const groupMessageInput = document.getElementById('groupMessageInput');
+        if (groupMessageInput) {
+          const content = groupMessageInput.textContent || groupMessageInput.innerHTML || '';
+          chatStore.saveDraft('group', currentGroupId, content);
+          chatStore.setLastMessageToDraft('group', currentGroupId);
+        }
+      }
+    }
+    
     if (newPath.startsWith('/chat/group')) {
       window.prevGroupScrollHeight = undefined;
       window.prevGroupScrollTop = undefined;
       window.isLoadingMoreMessages = false;
       if (window.scrollingInitialized) {
         window.scrollingInitialized.group = false;
+      }
+      
+      // 恢复当前群组的草稿
+      const draftContent = chatStore.getDraft('group', chatStore.currentGroupId);
+      if (draftContent) {
+        window.restoringGroupDraft = true;
+        nextTick(() => {
+          const messageInput = document.getElementById('groupMessageInput');
+          if (messageInput) {
+            messageInput.innerHTML = draftContent;
+          }
+          window.restoringGroupDraft = false;
+        });
       }
       
       if (window.switchingGroupWithExistingMessages) {

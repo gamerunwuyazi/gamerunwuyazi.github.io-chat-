@@ -136,6 +136,7 @@ async function handleLogin() {
     if (data.success || data.status === 'success' || data.code === 200) {
       const userId = data.userId || (data.user && data.user.id) || (data.data && data.data.id) || '';
       const nickname = data.nickname || (data.user && data.user.nickname) || (data.data && data.data.nickname) || '';
+      const signature = data.signature || (data.user && data.user.signature) || (data.data && data.data.signature) || '';
       const avatarUrl = data.avatarUrl || (data.user && data.user.avatarUrl) || (data.data && data.data.avatarUrl) || (data.user && data.user.avatar) || (data.data && data.data.avatar) || null;
       const gender = data.gender || (data.user && data.user.gender) || (data.data && data.data.gender) || 0;
       const sessionToken = data.sessionToken || data.token || data.session_token;
@@ -151,6 +152,7 @@ async function handleLogin() {
       const userData = {
         id: userId ? String(userId) : '',
         nickname: nickname,
+        signature: signature,
         gender: gender,
         avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
       };

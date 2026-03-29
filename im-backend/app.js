@@ -901,8 +901,6 @@ function validateMessageContent(content) {
 
 // API请求日志记录中间件
 app.use(async (req, res, next) => {
-  const start = Date.now();
-  
   res.on('finish', async () => {
     // 排除不需要记录的路径 - 格式: {请求方法: 路径数组}
     const excludedPaths = {
@@ -956,7 +954,7 @@ app.get('/api/health', async (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     activeSessions: sessionCount,
-    message: '会话永不过期模式'
+    message: '会话20分钟过期模式'
   });
 });
 
@@ -1113,7 +1111,7 @@ app.get('/api/session-check', async (req, res) => {
     status: 'success',
     valid: isValid,
     userId: userId,
-    message: isValid ? '会话有效（永不过期）' : '会话无效'
+    message: isValid ? '会话有效（20分钟过期）' : '会话无效'
   });
 });
 
@@ -1131,22 +1129,22 @@ app.get('/api/check-username', async (req, res) => {
       return res.status(400).json({ status: 'error', message: '用户名非法' });
     }
     
-    const cleanUsername = sanitizeInput(username.trim());
+    const trimmedUsername = username.trim();
     
-    if (!cleanUsername) {
+    if (!trimmedUsername) {
       return res.status(400).json({ status: 'error', message: '用户名不能为空' });
     }
     
     // 使用参数化查询预防SQL注入
     const [existingUsers] = await pool.execute(
         'SELECT id FROM chat_users WHERE username = ?',
-        [cleanUsername]
+        [trimmedUsername]
     );
     
     res.json({
       status: 'success',
       isAvailable: existingUsers.length === 0,
-      username: cleanUsername
+      username: trimmedUsername
     });
   } catch (err) {
     console.error('检查用户名失败:', err.message);
@@ -1612,12 +1610,6 @@ app.post('/api/user/remove-friend', async (req, res) => {
     await pool.execute('DELETE FROM chat_private_messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)',
         [userId, friendIdNum, friendIdNum, userId]);
 
-    // 删除双方的该私信未读记录 - 修正JSON路径
-    await pool.execute('UPDATE chat_users SET unread_private_messages = JSON_REMOVE(unread_private_messages, ?) WHERE id = ?',
-        [`$."${friendIdNum}"`, userId]);  // 添加双引号
-    await pool.execute('UPDATE chat_users SET unread_private_messages = JSON_REMOVE(unread_private_messages, ?) WHERE id = ?',
-        [`$."${userId}"`, friendIdNum]);  // 添加双引号
-
     // 通知被删除的好友刷新好友列表
     io.to(`user_${friendIdNum}`).emit('friend-removed', { friendId: userId });
     
@@ -1774,6 +1766,7 @@ async function initializeDatabase() {
         sender_id INT NOT NULL,
         receiver_id INT NOT NULL,
         content TEXT,
+        at_userid TEXT,
         message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件，4代表引用消息',
         is_read TINYINT NOT NULL DEFAULT 0 COMMENT '0代表未读，1代表已读',
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1790,6 +1783,7 @@ async function initializeDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         content TEXT,
+        at_userid TEXT,
         message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件，4代表引用消息',
         group_id INT DEFAULT NULL,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1839,6 +1833,14 @@ async function initializeDatabase() {
         INDEX user_id_index (user_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    try {
+      await pool.execute('ALTER TABLE chat_private_messages ADD COLUMN at_userid TEXT AFTER content');
+    } catch (err) {
+      if (err.code !== 'ER_DUP_FIELDNAME') {
+        console.error('添加at_userid字段到chat_private_messages失败:', err.message);
+      }
+    }
 
   } catch (err) {
     console.error('初始化数据库失败:', err.message);
@@ -2175,7 +2177,7 @@ async function getGlobalMessages(limit = 50, olderThan = null) {
   try {
     let query = `
       SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl, 
-             m.content, m.message_type as messageType, m.group_id as groupId, m.timestamp
+             m.content, m.at_userid, m.message_type as messageType, m.group_id as groupId, m.timestamp
       FROM chat_messages m 
       JOIN chat_users u ON m.user_id = u.id 
       WHERE m.group_id IS NULL 
@@ -2217,9 +2219,24 @@ async function getGlobalMessages(limit = 50, olderThan = null) {
     const [messages] = await pool.query(query, params);
 
     const processedMessages = messages.map(msg => {
+      let atUserIds = null;
+      if (msg.at_userid) {
+        try {
+          atUserIds = JSON.parse(msg.at_userid);
+        } catch (e) {
+          atUserIds = msg.at_userid;
+        }
+      }
       const baseMessage = {
-        ...msg,
-        groupId: msg.groupId !== null && msg.groupId !== undefined ? parseInt(msg.groupId) : null
+        id: msg.id,
+        userId: msg.userId,
+        nickname: msg.nickname,
+        avatarUrl: msg.avatarUrl,
+        content: msg.content,
+        at_userid: atUserIds,
+        messageType: msg.messageType,
+        groupId: msg.groupId !== null && msg.groupId !== undefined ? parseInt(msg.groupId) : null,
+        timestamp: msg.timestamp
       };
       
       // 处理图片消息：从content字段解析图片URL
@@ -2274,7 +2291,7 @@ async function getGroupMessages(groupId, limit = 50, olderThan = null) {
     
     let query = `
       SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl, 
-             m.content, m.message_type as messageType, m.timestamp
+             m.content, m.at_userid, m.message_type as messageType, m.timestamp
       FROM chat_messages m 
       JOIN chat_users u ON m.user_id = u.id 
       WHERE m.group_id = ? 
@@ -2304,9 +2321,24 @@ async function getGroupMessages(groupId, limit = 50, olderThan = null) {
     const [messages] = await pool.query(query, params);
 
     const processedMessages = messages.map(msg => {
+      let atUserIds = null;
+      if (msg.at_userid) {
+        try {
+          atUserIds = JSON.parse(msg.at_userid);
+        } catch (e) {
+          atUserIds = msg.at_userid;
+        }
+      }
       const baseMessage = {
-        ...msg,
-        groupId: safeGroupId
+        id: msg.id,
+        userId: msg.userId,
+        nickname: msg.nickname,
+        avatarUrl: msg.avatarUrl,
+        content: msg.content,
+        at_userid: atUserIds,
+        messageType: msg.messageType,
+        groupId: safeGroupId,
+        timestamp: msg.timestamp
       };
       
       // 处理图片消息：从content字段解析图片URL
@@ -2442,12 +2474,9 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ status: 'error', message: '用户名或密码非法' });
     }
 
-    const cleanUsername = sanitizeInput(username);
-    const cleanNickname = sanitizeInput(nickname);
-
     const [existingUsers] = await pool.execute(
         'SELECT id FROM chat_users WHERE username = ?',
-        [cleanUsername]
+        [username]
     );
 
     if (existingUsers.length > 0) {
@@ -2458,7 +2487,7 @@ app.post('/api/register', async (req, res) => {
 
     const [result] = await pool.execute(
         'INSERT INTO chat_users (username, password, nickname, gender, last_online) VALUES (?, ?, ?, ?, NOW())',
-        [cleanUsername, hashedPassword, cleanNickname, genderNum]
+        [username, hashedPassword, nickname, genderNum]
     );
 
     await logIPAction(result.insertId, clientIP, 'register');
@@ -2500,7 +2529,7 @@ app.post('/api/update-signature', async (req, res) => {
     }
 
     // 验证个性签名长度
-    const cleanSignature = signature ? sanitizeInput(signature).substring(0, 500) : null;
+    const cleanSignature = signature ? signature.substring(0, 500) : null;
 
     // 更新用户个性签名
     await pool.execute(
@@ -2609,26 +2638,54 @@ app.post('/api/user/update-nickname', async (req, res) => {
       return res.status(400).json({ status: 'error', message: '昵称不能为空' });
     }
 
-    const cleanNickname = sanitizeInput(newNickname);
-
     await pool.execute(
       'UPDATE chat_users SET nickname = ? WHERE id = ?',
-      [cleanNickname, userId]
+      [newNickname, userId]
+    );
+
+    // 获取用户信息
+    const [users] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      [userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ status: 'error', message: '用户不存在' });
+    }
+
+    const user = users[0];
+
+    // 插入102消息到主消息表
+    const [nicknameUpdateResult] = await pool.execute(
+      'INSERT INTO chat_messages (user_id, content, message_type, timestamp) VALUES (?, ?, ?, NOW())',
+      [userId, JSON.stringify({ type: 'nickname', nickname: newNickname }), 102]
     );
 
     // 更新在线用户列表中的昵称
-    await updateOnlineUserByUserId(userId, { nickname: cleanNickname });
+    await updateOnlineUserByUserId(userId, { nickname: newNickname });
 
-    // 只向已认证用户广播昵称更新事件
+    // 构造102消息
+    const now = new Date();
+    const timestampMs = now.getTime();
+    const type102Message = {
+      id: nicknameUpdateResult.insertId,
+      userId: userId,
+      nickname: user.nickname,
+      avatarUrl: user.avatar_url,
+      content: JSON.stringify({ type: 'nickname', nickname: newNickname }),
+      messageType: 102,
+      groupId: null,
+      timestamp: timestampMs,
+      timestampISO: now.toISOString()
+    };
+
+    // 只向已认证用户广播102消息事件
     const authenticatedUserIds = await redisClient.sMembers('scr:authenticated_users');
     for (const authUserId of authenticatedUserIds) {
-      io.to(`user_${authUserId}`).emit('nickname-updated', {
-        userId: userId,
-        nickname: cleanNickname
-      });
+      io.to(`user_${authUserId}`).emit('message-received', type102Message);
     }
 
-    res.json({ status: 'success', message: '昵称修改成功', nickname: cleanNickname });
+    res.json({ status: 'success', message: '昵称修改成功', nickname: newNickname });
   } catch (err) {
     console.error('修改昵称失败:', err.message);
     res.status(500).json({ status: 'error', message: '修改昵称失败' });
@@ -2838,11 +2895,9 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ status: 'error', message: '用户名或密码非法' });
     }
 
-    const cleanUsername = sanitizeInput(username);
-
     const [users] = await pool.execute(
         'SELECT id, username, password, nickname, gender, avatar_url FROM chat_users WHERE username = ?',
-        [cleanUsername]
+        [username]
     );
 
     if (users.length === 0) {
@@ -3205,16 +3260,34 @@ app.post('/api/upload-avatar', avatarUpload.single('avatar'), async (req, res, n
         [avatarUrlWithVersion, userId]
     );
 
+    // 插入102消息到主消息表
+    const [avatarUpdateResult] = await pool.execute(
+      'INSERT INTO chat_messages (user_id, content, message_type, timestamp) VALUES (?, ?, ?, NOW())',
+      [userId, JSON.stringify({ type: 'avatar', avatarUrl: avatarUrlWithVersion }), 102]
+    );
+
     // 更新在线用户列表中的头像
     await updateOnlineUserByUserId(userId, { avatarUrl: avatarUrlWithVersion });
 
-    // 只向已认证用户广播头像更新事件
+    // 构造102消息
+    const now = new Date();
+    const timestampMs = now.getTime();
+    const type102Message = {
+      id: avatarUpdateResult.insertId,
+      userId: userId,
+      nickname: user.nickname,
+      avatarUrl: avatarUrlWithVersion,
+      content: JSON.stringify({ type: 'avatar', avatarUrl: avatarUrlWithVersion }),
+      messageType: 102,
+      groupId: null,
+      timestamp: timestampMs,
+      timestampISO: now.toISOString()
+    };
+
+    // 只向已认证用户广播102消息事件
     const authenticatedUserIds = await redisClient.sMembers('scr:authenticated_users');
     for (const authUserId of authenticatedUserIds) {
-      io.to(`user_${authUserId}`).emit('avatar-updated', {
-        userId: userId,
-        avatarUrl: avatarUrlWithVersion
-      });
+      io.to(`user_${authUserId}`).emit('message-received', type102Message);
     }
 
     res.json({
@@ -3242,42 +3315,6 @@ app.get('/api/avatar-storage', async (req, res) => {
   }
 });
 
-// 获取用户未读消息统计
-app.get('/api/unread-messages', async (req, res) => {
-  try {
-    const userId = req.userId;
-    
-    // 查询用户的未读消息
-    const [users] = await pool.execute(
-      'SELECT unread_group_messages FROM chat_users WHERE id = ?',
-      [parseInt(userId)]
-    );
-    
-    if (users.length === 0) {
-      return res.status(404).json({ status: 'error', message: '用户不存在' });
-    }
-    
-    const unreadMessages = users[0].unread_group_messages || {};
-    
-    // 统计总未读消息数量
-    let totalUnread = 0;
-    for (const groupId in unreadMessages) {
-      if (unreadMessages.hasOwnProperty(groupId)) {
-        totalUnread += parseInt(unreadMessages[groupId]) || 0;
-      }
-    }
-    
-    res.json({
-      status: 'success',
-      unreadMessages: unreadMessages,
-      totalUnread: totalUnread
-    });
-  } catch (err) {
-    console.error('获取未读消息失败:', err.message);
-    res.status(500).json({ status: 'error', message: '获取未读消息失败' });
-  }
-});
-
 // 获取离线消息接口
 app.get('/api/offline-messages', async (req, res) => {
   try {
@@ -3297,6 +3334,7 @@ app.get('/api/offline-messages', async (req, res) => {
         u.nickname, 
         u.avatar_url as avatarUrl, 
         m.content, 
+        m.at_userid,
         m.message_type as messageType, 
         m.timestamp,
         'public' as type
@@ -3305,7 +3343,7 @@ app.get('/api/offline-messages', async (req, res) => {
       WHERE m.group_id IS NULL 
         AND m.timestamp >= ?
         AND m.id > ?
-      ORDER BY m.timestamp DESC
+      ORDER BY m.timestamp DESC, m.id DESC
       LIMIT 200
     `, [threeMonthsAgo, publicAndGroupMinId]);
     
@@ -3326,6 +3364,7 @@ app.get('/api/offline-messages', async (req, res) => {
           u.nickname, 
           u.avatar_url as avatarUrl, 
           m.content, 
+          m.at_userid,
           m.message_type as messageType, 
           m.timestamp,
           'group' as type,
@@ -3337,7 +3376,7 @@ app.get('/api/offline-messages', async (req, res) => {
         WHERE m.group_id IN (${placeholders})
           AND m.timestamp >= ?
           AND m.id > ?
-        ORDER BY m.timestamp DESC
+        ORDER BY m.timestamp DESC, m.id DESC
         LIMIT 200
       `, [...groupIds, threeMonthsAgo, publicAndGroupMinId]);
     }
@@ -3350,6 +3389,7 @@ app.get('/api/offline-messages', async (req, res) => {
         u.nickname, 
         u.avatar_url as avatarUrl, 
         pm.content, 
+        pm.at_userid,
         pm.message_type as messageType, 
         pm.timestamp,
         'private' as type,
@@ -3361,15 +3401,86 @@ app.get('/api/offline-messages', async (req, res) => {
       WHERE (pm.sender_id = ? OR pm.receiver_id = ?)
         AND pm.timestamp >= ?
         AND pm.id > ?
-      ORDER BY pm.timestamp DESC
+      ORDER BY pm.timestamp DESC, pm.id DESC
       LIMIT 200
     `, [userId, userId, threeMonthsAgo, privateMinId]);
     
+    const processedPublicMessages = publicMessages.map(msg => {
+      let atUserIds = null;
+      if (msg.at_userid) {
+        try {
+          atUserIds = JSON.parse(msg.at_userid);
+        } catch (e) {
+          atUserIds = msg.at_userid;
+        }
+      }
+      return {
+        id: msg.id,
+        userId: msg.userId,
+        nickname: msg.nickname,
+        avatarUrl: msg.avatarUrl,
+        content: msg.content,
+        at_userid: atUserIds,
+        messageType: msg.messageType,
+        timestamp: msg.timestamp,
+        type: msg.type
+      };
+    });
+
+    const processedGroupMessages = groupMessages.map(msg => {
+      let atUserIds = null;
+      if (msg.at_userid) {
+        try {
+          atUserIds = JSON.parse(msg.at_userid);
+        } catch (e) {
+          atUserIds = msg.at_userid;
+        }
+      }
+      return {
+        id: msg.id,
+        userId: msg.userId,
+        nickname: msg.nickname,
+        avatarUrl: msg.avatarUrl,
+        content: msg.content,
+        at_userid: atUserIds,
+        messageType: msg.messageType,
+        timestamp: msg.timestamp,
+        type: msg.type,
+        groupId: msg.groupId,
+        groupName: msg.groupName
+      };
+    });
+
+    const processedPrivateMessages = privateMessages.map(msg => {
+      let atUserIds = null;
+      if (msg.at_userid) {
+        try {
+          atUserIds = JSON.parse(msg.at_userid);
+        } catch (e) {
+          atUserIds = msg.at_userid;
+        }
+      }
+      return {
+        id: msg.id,
+        userId: msg.userId,
+        nickname: msg.nickname,
+        avatarUrl: msg.avatarUrl,
+        content: msg.content,
+        at_userid: atUserIds,
+        messageType: msg.messageType,
+        timestamp: msg.timestamp,
+        type: msg.type,
+        senderId: msg.senderId,
+        receiverId: msg.receiverId,
+        isRead: msg.isRead
+      };
+    });
+
     res.json({
       status: 'success',
-      publicMessages: publicMessages,
-      groupMessages: groupMessages,
-      privateMessages: privateMessages
+      publicMessages: processedPublicMessages,
+      groupMessages: processedGroupMessages,
+      privateMessages: processedPrivateMessages
     });
   } catch (err) {
     console.error('获取离线消息失败:', err.message);
@@ -3406,9 +3517,6 @@ app.post('/api/create-group', async (req, res) => {
       return res.status(400).json({ status: 'error', message: '群组描述非法' });
     }
 
-    const cleanGroupName = sanitizeInput(groupName);
-    const cleanDescription = description ? sanitizeInput(description) : '';
-
     // 移除3人限制，改为1人
     const allMemberIds = [...new Set([parseInt(userId), ...memberIds.map(id => parseInt(id))])];
     
@@ -3438,7 +3546,7 @@ app.post('/api/create-group', async (req, res) => {
 
     const [groupResult] = await pool.execute(
         'INSERT INTO chat_groups (name, description, creator_id) VALUES (?, ?, ?)',
-        [cleanGroupName, cleanDescription, userId]
+        [groupName, description || '', userId]
     );
 
     const groupId = groupResult.insertId;
@@ -3480,7 +3588,7 @@ app.post('/api/create-group', async (req, res) => {
     // 向所有群组成员广播群组创建事件（使用群组房间）
     io.to(`group_${groupId}`).emit('group-created', {
       groupId: groupId,
-      groupName: cleanGroupName,
+      groupName: groupName,
       creatorId: userId,
       members: groupMembers
     });
@@ -3825,32 +3933,7 @@ app.post('/api/add-group-members', async (req, res) => {
   }
 });
 
-// 获取群组消息接口
-app.get('/api/group-messages/:groupId', async (req, res) => {
-  try {
-    const groupId = req.params.groupId;
-
-    const [messages] = await pool.execute(`
-      SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl, 
-             m.content, m.image_url as imageUrl, m.message_type as messageType, m.timestamp 
-      FROM chat_messages m 
-      JOIN chat_users u ON m.user_id = u.id 
-      WHERE m.group_id = ? 
-      ORDER BY m.timestamp DESC LIMIT 200
-    `, [groupId]);
-
-    // 不再在后端对消息内容进行marked解析，直接返回原始内容
-    // 前端将负责使用safeMarkdownParse函数进行安全的解析和渲染
-
-    res.json({
-      status: 'success',
-      messages: messages.reverse()
-    });
-  } catch (err) {
-    console.error('获取群组消息失败:', err.message);
-    res.status(500).json({ status: 'error', message: '获取群组消息失败' });
-  }
-});
+// 删除获取群组消息接口（已废弃，使用离线消息接口）
 
 // 生成群组邀请Token
 app.post('/api/generate-group-token', async (req, res) => {
@@ -3991,7 +4074,7 @@ app.post('/api/upload', checkFileRequestLimit, upload.fields([{ name: 'file' }, 
       return res.status(400).json({ status: 'error', message: '没有上传文件' });
     }
 
-    const { userId, groupId, fileType, privateChat } = req.body;
+    const { userId, groupId, fileType, privateChat, at_userid } = req.body;
 
     const sessionUserId = req.userId;
     if (parseInt(userId) !== parseInt(sessionUserId)) {
@@ -4050,8 +4133,8 @@ app.post('/api/upload', checkFileRequestLimit, upload.fields([{ name: 'file' }, 
       content = JSON.stringify(imageContent);
       messageType = 1;
       
-      insertQuery = 'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())';
-      insertParams = [userId, content, messageType, safeGroupId || null];
+      insertQuery = 'INSERT INTO chat_messages (user_id, content, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, NOW())';
+      insertParams = [userId, content, at_userid ? JSON.stringify(at_userid) : null, messageType, safeGroupId || null];
       
       newMessage = {
         id: null, // 稍后设置
@@ -4059,6 +4142,7 @@ app.post('/api/upload', checkFileRequestLimit, upload.fields([{ name: 'file' }, 
         nickname: user.nickname,
         avatarUrl: user.avatar_url,
         content: content,
+        at_userid: at_userid,
         messageType: messageType,
         groupId: safeGroupId || null,
         timestamp: null, // 稍后设置
@@ -4072,8 +4156,8 @@ app.post('/api/upload', checkFileRequestLimit, upload.fields([{ name: 'file' }, 
       content = JSON.stringify({ url: fileUrl, filename: originalFilename });
       messageType = 2;
       
-      insertQuery = 'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())';
-      insertParams = [userId, content, messageType, safeGroupId || null];
+      insertQuery = 'INSERT INTO chat_messages (user_id, content, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, NOW())';
+      insertParams = [userId, content, at_userid ? JSON.stringify(at_userid) : null, messageType, safeGroupId || null];
       
       newMessage = {
         id: null, // 稍后设置
@@ -4081,6 +4165,7 @@ app.post('/api/upload', checkFileRequestLimit, upload.fields([{ name: 'file' }, 
         nickname: user.nickname,
         avatarUrl: user.avatar_url,
         content: content,
+        at_userid: at_userid,
         messageType: messageType,
         groupId: safeGroupId || null,
         timestamp: null, // 稍后设置
@@ -4104,32 +4189,6 @@ app.post('/api/upload', checkFileRequestLimit, upload.fields([{ name: 'file' }, 
     if (safeGroupId) {
       io.to(`group_${safeGroupId}`).emit('message-received', newMessage);
       
-      // 更新群组成员的未读消息计数
-      try {
-        // 获取群组成员列表，跳过消息发送者
-        const [members] = await pool.execute(
-          'SELECT user_id FROM chat_group_members WHERE group_id = ? AND user_id != ?',
-          [safeGroupId, parseInt(userId)]
-        );
-        
-        // 遍历群组成员，更新未读消息计数
-        for (const member of members) {
-          const memberId = member.user_id;
-          
-          // 使用JSON_MERGE_PATCH函数来更新未读消息计数
-          await pool.execute(
-            `UPDATE chat_users 
-             SET unread_group_messages = JSON_MERGE_PATCH(
-               COALESCE(unread_group_messages, '{}'), 
-               JSON_OBJECT(?, COALESCE(CAST(JSON_EXTRACT(unread_group_messages, CONCAT('$."', ?, '"')) AS UNSIGNED), 0) + 1)
-             ) 
-             WHERE id = ?`,
-            [groupIdStr, groupIdStr, memberId]
-          );
-        }
-      } catch (unreadErr) {
-        console.error('更新未读消息计数失败:', unreadErr.message);
-    }
   } else {
       // 只发送给已认证的用户（发送过 user-joined 事件的用户）
       const allOnlineUsers = await getAllOnlineUsers();
@@ -4556,7 +4615,7 @@ io.on('connection', (socket) => {
         
         // 从数据库中获取真实的用户信息
         const [users] = await pool.execute(
-            'SELECT nickname, avatar_url as avatarUrl, gender, unread_group_messages, unread_private_messages FROM chat_users WHERE id = ?',
+            'SELECT nickname, avatar_url as avatarUrl, gender FROM chat_users WHERE id = ?',
             [userId]
         );
         
@@ -4569,7 +4628,7 @@ io.on('connection', (socket) => {
         }
         
         const user = users[0];
-        const { nickname, avatarUrl, gender, unread_group_messages, unread_private_messages } = user;
+        const { nickname, avatarUrl, gender } = user;
     
         // 检查用户是否已经在线，如果在线则移除旧连接
         const allOnlineUsers = await getAllOnlineUsers();
@@ -4682,7 +4741,7 @@ io.on('connection', (socket) => {
   // 发送消息
   socket.on('send-message', async (messageData) => {
       try {
-        const { userId, content, groupId, sessionToken } = messageData;
+        const { userId, content, groupId, sessionToken, at_userid } = messageData;
     
         // console.log('💬 发送消息请求:', {
         //   userId: userId,
@@ -4762,26 +4821,11 @@ io.on('connection', (socket) => {
         // 使用前端发送的消息类型，默认为文字消息类型
         const messageType = messageData.message_type || messageData.messageType || 0;
         
-        let messageContent = cleanContent;
-        if (messageData.quotedMessage) {
-          const quotedData = {
-            id: messageData.quotedMessage.id,
-            userId: messageData.quotedMessage.userId || messageData.quotedMessage.user_id,
-            nickname: messageData.quotedMessage.nickname,
-            content: messageData.quotedMessage.content,
-            messageType: messageData.quotedMessage.messageType || messageData.quotedMessage.message_type || 0
-          };
-          messageContent = JSON.stringify({
-            type: 'quoted',
-            quoted: quotedData,
-            text: cleanContent,
-            markdone: messageData.quotedMessage.markdone || false
-          });
-        }
+        const messageContent = cleanContent;
         
         const [result] = await pool.execute(
-            'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
-            [userId, messageContent, messageType, groupId || null]
+            'INSERT INTO chat_messages (user_id, content, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, NOW())',
+            [userId, messageContent, at_userid ? JSON.stringify(at_userid) : null, messageType, groupId || null]
         );
         
         // 广播消息 - 使用已经过HTML转义的内容
@@ -4791,6 +4835,7 @@ io.on('connection', (socket) => {
           nickname: user.nickname,
           avatarUrl: user.avatar_url,
           content: messageContent,
+          at_userid: at_userid,
           messageType: messageType,
           groupId: groupId ? parseInt(groupId) : null,
           timestamp: timestampMs,
@@ -4828,32 +4873,6 @@ io.on('connection', (socket) => {
           
 
           
-          // 更新群组成员的未读消息计数
-          try {
-            // 获取群组成员列表
-            const [members] = await pool.execute(
-              'SELECT user_id FROM chat_group_members WHERE group_id = ? AND user_id != ?',
-              [parseInt(groupId), parseInt(userId)]
-            );
-            
-            // 遍历群组成员，更新未读消息计数
-            for (const member of members) {
-              const memberId = member.user_id;
-              
-              // 使用JSON_MERGE_PATCH函数来更新未读消息计数
-              await pool.execute(
-                `UPDATE chat_users 
-                 SET unread_group_messages = JSON_MERGE_PATCH(
-                   COALESCE(unread_group_messages, '{}'), 
-                   JSON_OBJECT(?, COALESCE(CAST(JSON_EXTRACT(unread_group_messages, CONCAT('$."', ?, '"')) AS UNSIGNED), 0) + 1)
-                 ) 
-                 WHERE id = ?`,
-                [groupIdStr, groupIdStr, memberId]
-              );
-            }
-          } catch (unreadErr) {
-            console.error('更新未读消息计数失败:', unreadErr.message);
-          }
         } else {
           // 全局消息：发送给所有用户（避开发送者）
           // 遍历所有在线用户，跳过发送者
@@ -4883,7 +4902,7 @@ io.on('connection', (socket) => {
   // 发送私信
   socket.on('send-private-message', async (messageData) => {
     try {
-      const { userId, content, receiverId, sessionToken } = messageData;
+      const { userId, content, receiverId, sessionToken, at_userid } = messageData;
 
       // 速率限制检查
       const rateLimitResult = await checkRateLimit(userId);
@@ -4932,26 +4951,11 @@ io.on('connection', (socket) => {
       // 插入私信到数据库
       const messageType = messageData.message_type || messageData.messageType || 0;
       
-      let messageContent = cleanContent;
-      if (messageData.quotedMessage) {
-        const quotedData = {
-          id: messageData.quotedMessage.id,
-          userId: messageData.quotedMessage.userId || messageData.quotedMessage.user_id,
-          nickname: messageData.quotedMessage.nickname,
-          content: messageData.quotedMessage.content,
-          messageType: messageData.quotedMessage.messageType || messageData.quotedMessage.message_type || 0
-        };
-        messageContent = JSON.stringify({
-          type: 'quoted',
-          quoted: quotedData,
-          text: cleanContent,
-          markdone: messageData.quotedMessage.markdone || false
-        });
-      }
+      const messageContent = cleanContent;
       
       const [result] = await pool.execute(
-          'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, is_read, timestamp) VALUES (?, ?, ?, ?, 0, NOW())',
-          [userId, receiverId, messageContent, messageType]
+          'INSERT INTO chat_private_messages (sender_id, receiver_id, content, at_userid, message_type, is_read, timestamp) VALUES (?, ?, ?, ?, ?, 0, NOW())',
+          [userId, receiverId, messageContent, at_userid ? JSON.stringify(at_userid) : null, messageType]
       );
 
       // 构建私信消息对象
@@ -4962,6 +4966,7 @@ io.on('connection', (socket) => {
         senderNickname: user.nickname,
         senderAvatarUrl: user.avatar_url,
         content: messageContent,
+        at_userid: at_userid,
         messageType: messageType,
         isRead: 0,
         timestamp: timestampMs,
@@ -4983,23 +4988,6 @@ io.on('connection', (socket) => {
       // 发送私信给接收者
       io.to(`user_${parseInt(receiverId)}`).emit('private-message-received', newMessage);
 
-      // 更新接收者的未读私信计数，无论是否在线
-      // 当接收者打开聊天窗口时，会通过 join-private-chat 事件清除未读计数
-      try {
-        const userIdStr = userId.toString();
-        await pool.execute(
-          `UPDATE chat_users 
-           SET unread_private_messages = JSON_MERGE_PATCH(
-             COALESCE(unread_private_messages, '{}'), 
-             JSON_OBJECT(?, COALESCE(CAST(JSON_EXTRACT(unread_private_messages, CONCAT('$."', ?, '"')) AS UNSIGNED), 0) + 1)
-           ) 
-           WHERE id = ?`,
-          [userIdStr, userIdStr, parseInt(receiverId)]
-        );
-      } catch (unreadErr) {
-        console.error('更新私信未读计数失败:', unreadErr.message);
-      }
-      
       // 确认私信已发送，只给发送者发送确认事件（不再发送 private-message-received 给发送者）
       socket.emit('private-message-sent', { messageId: result.insertId, message: newMessage });
 
@@ -5112,15 +5100,6 @@ io.on('connection', (socket) => {
           messages = await getGlobalMessages(limit);
         }
         
-        // 获取用户的未读消息统计
-        const [users] = await pool.execute(
-          'SELECT unread_group_messages, unread_private_messages FROM chat_users WHERE id = ?',
-          [numericUserId]
-        );
-        
-        const unreadMessages = users[0].unread_group_messages || {};
-        const unreadPrivateMessages = users[0].unread_private_messages || {};
-        
         // 收集群组最后消息时间（从消息表中动态获取）
         const groupLastMessageTimes = {};
         const [groupMessages] = await pool.execute(
@@ -5146,10 +5125,6 @@ io.on('connection', (socket) => {
         });
         
         responseData.messages = messages;
-        responseData.unreadMessages = {
-          groups: unreadMessages
-        };
-        responseData.unreadPrivateMessages = unreadPrivateMessages;
         responseData.groupLastMessageTimes = groupLastMessageTimes;
         responseData.privateLastMessageTimes = privateLastMessageTimes;
         socket.emit('messages-loaded', responseData);
@@ -5168,34 +5143,6 @@ io.on('connection', (socket) => {
           return;
         }
         
-        // 自动已读该群组消息
-        const groupIdStr = String(numericGroupId);
-        await pool.execute(
-          `UPDATE chat_users 
-           SET unread_group_messages = JSON_REMOVE(
-             COALESCE(unread_group_messages, '{}'), 
-             CONCAT('$."', ?, '"')
-           ) 
-           WHERE id = ?`,
-          [groupIdStr, numericUserId]
-        );
-        
-        // 获取用户的未读消息统计
-        const [users] = await pool.execute(
-          'SELECT unread_group_messages, unread_private_messages FROM chat_users WHERE id = ?',
-          [numericUserId]
-        );
-        
-        const unreadMessages = users[0].unread_group_messages || {};
-        
-        // 统计总未读消息数量
-        let totalUnread = 0;
-        for (const gid in unreadMessages) {
-          if (unreadMessages.hasOwnProperty(gid)) {
-            totalUnread += parseInt(unreadMessages[gid]) || 0;
-          }
-        }
-        
         // 获取群组消息
         if (loadMore && olderThan) {
           messages = await getGroupMessages(numericGroupId, limit, olderThan);
@@ -5206,8 +5153,6 @@ io.on('connection', (socket) => {
         
         responseData.messages = messages;
         responseData.groupId = numericGroupId;
-        responseData.unreadMessages = unreadMessages;
-        responseData.totalUnread = totalUnread;
         socket.emit('messages-loaded', responseData);
       } else if (type === 'private') {
         // 加载私信消息 - 完全复刻 private-chat-history 事件
@@ -5224,48 +5169,9 @@ io.on('connection', (socket) => {
           return;
         }
         
-        // 清除该好友的未读私信计数
-        try {
-          const friendIdStr = numericFriendId.toString();
-          await pool.execute(
-            `UPDATE chat_users 
-             SET unread_private_messages = JSON_REMOVE(
-               COALESCE(unread_private_messages, '{}'), 
-               CONCAT('$."', ?, '"')
-             ) 
-             WHERE id = ?`,
-            [friendIdStr, numericUserId]
-          );
-          
-          // 将该好友发来的消息标记为已读
-          await pool.execute(
-            `UPDATE chat_private_messages 
-             SET is_read = 1 
-             WHERE sender_id = ? AND receiver_id = ? AND is_read = 0`,
-            [numericFriendId, numericUserId]
-          );
-          
-          // 通知发送者其消息已被读取
-          const allOnlineUsers = await getAllOnlineUsers();
-          for (const onlineUser of allOnlineUsers) {
-            if (String(onlineUser.id) === String(numericFriendId)) {
-              const senderSocket = io.sockets.sockets.get(onlineUser.socketId);
-              if (senderSocket) {
-                senderSocket.emit('private-message-read', {
-                  fromUserId: numericUserId,
-                  friendId: numericFriendId
-                });
-              }
-              break;
-            }
-          }
-        } catch (unreadErr) {
-          console.error('清除未读私信计数失败:', unreadErr.message);
-        }
-        
         let query = `
           SELECT p.id, p.sender_id as senderId, p.receiver_id as receiverId, 
-                 p.content, p.message_type as messageType, p.is_read as isRead, p.timestamp,
+                 p.content, p.at_userid, p.message_type as messageType, p.is_read as isRead, p.timestamp,
                  u1.nickname as senderNickname, u1.avatar_url as senderAvatarUrl,
                  u2.nickname as receiverNickname, u2.avatar_url as receiverAvatarUrl
           FROM chat_private_messages p
@@ -5292,6 +5198,14 @@ io.on('connection', (socket) => {
         const [results] = await pool.query(query, params);
         
         messages = results.map(msg => {
+          let atUserIds = null;
+          if (msg.at_userid) {
+            try {
+              atUserIds = JSON.parse(msg.at_userid);
+            } catch (e) {
+              atUserIds = msg.at_userid;
+            }
+          }
           const message = {
             id: msg.id,
             senderId: msg.senderId,
@@ -5301,6 +5215,7 @@ io.on('connection', (socket) => {
             receiverNickname: msg.receiverNickname,
             receiverAvatarUrl: msg.receiverAvatarUrl,
             content: msg.content,
+            at_userid: atUserIds,
             messageType: msg.messageType,
             isRead: msg.isRead || 0,
             timestamp: new Date(msg.timestamp).getTime(),
@@ -5563,62 +5478,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// 撤回群组中所有消息
-app.post('/api/recall-group-messages', async (req, res) => {
-  try {
-    const { groupId } = req.body;
-    const userId = req.userId; // 从validateSession中间件获取
-    
-    // 验证请求参数
-    if (!groupId) {
-      return res.status(400).json({ status: 'error', message: '缺少必要参数' });
-    }
-    
-    // 检查用户是否是群主
-    const [groupResults] = await pool.execute(
-      'SELECT creator_id FROM chat_groups WHERE id = ?',
-      [groupId]
-    );
-    
-    if (groupResults.length === 0) {
-      return res.status(404).json({ status: 'error', message: '群组不存在' });
-    }
-    
-    // 验证用户是否是群组成员
-    const [memberCheck] = await pool.execute(
-      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
-      [parseInt(groupId), parseInt(userId)]
-    );
-    
-    if (memberCheck.length === 0) {
-      return res.status(403).json({ status: 'error', message: '您不在该群组中' });
-    }
-    
-    const group = groupResults[0];
-    if (group.creator_id !== parseInt(userId)) {
-      return res.status(403).json({ success: false, message: '只有群主可以撤回全部消息' });
-    }
-    
-    // 删除群组中所有消息
-    await pool.execute(
-      'DELETE FROM chat_messages WHERE group_id = ?',
-      [groupId]
-    );
-    
-    // console.log(`🗑️ 群组 ${groupId} 的所有消息已被群主 ${userId} 撤回`);
-    
-    // 清空 Redis 消息缓存
-    await redisClient.del(`scr:message:group:${groupId}`);
-    
-    // 通知群组内所有用户
-    io.to(`group_${groupId}`).emit('all-group-messages-recalled', { groupId });
-    
-    res.json({ success: true, message: '所有群消息已成功撤回' });
-  } catch (error) {
-    console.error('❌ 撤回群消息失败:', error);
-    res.status(500).json({ success: false, message: '服务器错误，请重试' });
-  }
-});
+// 删除撤回群组中所有消息接口（已废弃）
 
 // 解散群组
 app.post('/api/dissolve-group', async (req, res) => {
@@ -5682,19 +5542,6 @@ app.post('/api/dissolve-group', async (req, res) => {
         'DELETE FROM chat_groups WHERE id = ?',
         [groupId]
       );
-      
-      // 删除所有成员的该群组未读记录
-      for (const member of members) {
-        await connection.execute(
-          `UPDATE chat_users 
-          SET unread_group_messages = JSON_REMOVE(
-            COALESCE(unread_group_messages, '{}'), 
-            CONCAT('$.', JSON_QUOTE(?))
-          ) 
-          WHERE id = ?`,
-          [String(groupId), member.user_id]
-        );
-      }
       
       // 提交事务
       await connection.commit();
@@ -5766,23 +5613,21 @@ app.post('/api/update-group-name', async (req, res) => {
       return res.status(403).json({ status: 'error', message: '只有群主可以修改群组名称' });
     }
 
-    const cleanGroupName = sanitizeInput(newGroupName);
-
     // 更新群组名称
     await pool.execute(
       'UPDATE chat_groups SET name = ? WHERE id = ?',
-      [cleanGroupName, groupId]
+      [newGroupName, groupId]
     );
 
-    // console.log(`📝 群组 ${groupId} 的名称已更新为: ${cleanGroupName}`);
+    // console.log(`📝 群组 ${groupId} 的名称已更新为: ${newGroupName}`);
 
     // 向所有群组成员广播群组名称更新事件（使用群组房间）
     io.to(`group_${groupId}`).emit('group-name-updated', {
       groupId: groupId,
-      newGroupName: cleanGroupName
+      newGroupName: newGroupName
     });
 
-    res.json({ status: 'success', message: '群组名称已更新', newGroupName: cleanGroupName });
+    res.json({ status: 'success', message: '群组名称已更新', newGroupName: newGroupName });
   } catch (err) {
     console.error('修改群组名称失败:', err.message);
     res.status(500).json({ status: 'error', message: '服务器错误，请重试' });
@@ -5814,23 +5659,21 @@ app.post('/api/update-group-description', async (req, res) => {
       return res.status(403).json({ status: 'error', message: '只有群主可以修改群组公告' });
     }
 
-    const cleanDescription = sanitizeInput(newDescription);
-
     // 更新群组描述
     await pool.execute(
       'UPDATE chat_groups SET description = ? WHERE id = ?',
-      [cleanDescription, groupId]
+      [newDescription, groupId]
     );
 
-    // console.log(`📝 群组 ${groupId} 的公告已更新为: ${cleanDescription}`);
+    // console.log(`📝 群组 ${groupId} 的公告已更新为: ${newDescription}`);
 
     // 向所有群组成员广播群组公告更新事件（使用群组房间）
     io.to(`group_${groupId}`).emit('group-description-updated', {
       groupId: groupId,
-      newDescription: cleanDescription
+      newDescription: newDescription
     });
 
-    res.json({ status: 'success', message: '群组公告已更新', newDescription: cleanDescription });
+    res.json({ status: 'success', message: '群组公告已更新', newDescription: newDescription });
   } catch (err) {
     console.error('修改群组公告失败:', err.message);
     res.status(500).json({ status: 'error', message: '服务器错误，请重试' });
@@ -5920,7 +5763,7 @@ app.post('/api/leave-group', async (req, res) => {
 // 处理 POST 请求
 app.post('/api/send-message', async (req, res) => {
   try {
-    const { content, groupId } = req.body;
+    const { content, groupId, at_userid } = req.body;
     const userId = req.userId; // 从 validateSession 中间件获取
 
     // console.log('💬 HTTP 发送消息请求:', {
@@ -5959,13 +5802,10 @@ app.post('/api/send-message', async (req, res) => {
 
     const user = users[0];
 
-    // 清理输入 - 进行HTML转义
-    const cleanContent = sanitizeInput(content);
-
     // 插入消息到数据库
     const [result] = await pool.execute(
-        'INSERT INTO chat_messages (user_id, content, group_id, timestamp) VALUES (?, ?, ?, NOW())',
-        [userId, cleanContent, groupId || null]
+        'INSERT INTO chat_messages (user_id, content, at_userid, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+        [userId, content, at_userid ? JSON.stringify(at_userid) : null, groupId || null]
     );
 
     // 创建消息对象
@@ -5974,7 +5814,8 @@ app.post('/api/send-message', async (req, res) => {
       userId,
       nickname: user.nickname,
       avatarUrl: user.avatar_url,
-      content: cleanContent,
+      content: content,
+      at_userid: at_userid,
       groupId: groupId || null,
       timestamp: new Date()
     };
@@ -5983,35 +5824,6 @@ app.post('/api/send-message', async (req, res) => {
     if (groupId) {
       io.to(`group_${groupId}`).emit('message-received', newMessage);
       
-      // 更新群组成员的未读消息计数
-      try {
-        // 获取群组成员列表，跳过消息发送者
-        const [members] = await pool.execute(
-          'SELECT user_id FROM chat_group_members WHERE group_id = ? AND user_id != ?',
-          [parseInt(groupId), parseInt(userId)]
-        );
-        
-        // 确保groupId是字符串类型，避免Map键类型不一致
-        const groupIdStr = String(groupId);
-        
-        // 遍历群组成员，更新未读消息计数
-        for (const member of members) {
-          const memberId = member.user_id;
-          
-          // 使用JSON_MERGE_PATCH函数来更新未读消息计数
-          await pool.execute(
-            `UPDATE chat_users 
-             SET unread_group_messages = JSON_MERGE_PATCH(
-               COALESCE(unread_group_messages, '{}'), 
-               JSON_OBJECT(?, COALESCE(CAST(JSON_EXTRACT(unread_group_messages, CONCAT('$."', ?, '"')) AS UNSIGNED), 0) + 1)
-             ) 
-             WHERE id = ?`,
-            [groupIdStr, groupIdStr, memberId]
-          );
-        }
-      } catch (unreadErr) {
-        console.error('更新未读消息计数失败:', unreadErr.message);
-      }
     } else {
       // 只发送给已认证的用户（发送过 user-joined 事件的用户）
       const allOnlineUsers = await getAllOnlineUsers();
@@ -6079,7 +5891,7 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
       console.log(`🔐 会话检查地址: http://localhost:${PORT}/session-check`);
       console.log(`📊 会话调试地址: http://localhost:${PORT}/sessions`);
       console.log('🌐 允许所有来源访问');
-      console.log('💡 会话模式: 永不过期');
+      console.log('💡 会话模式: 20分钟过期');
 
       // 检查头像存储状态
       const storageStatus = checkAvatarStorage();
@@ -6091,7 +5903,7 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
       console.log(`   - 连接超时: ${io.engine.opts.connectTimeout}ms`);
       console.log(`   - 升级超时: ${io.engine.opts.upgradeTimeout}ms`);
       console.log(`   - 传输方式: ${io.engine.opts.transports.join(', ')}`);
-      console.log(`   - 会话模式: 永不过期（100年）`);
+      console.log(`   - 会话模式: 20分钟过期`);
 
       console.log(`---------------------------------------------------------`);
     });

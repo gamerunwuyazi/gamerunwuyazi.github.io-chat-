@@ -1,4 +1,5 @@
 import { SERVER_URL, toast } from './config.js';
+import { updateUnreadCountsDisplay, setActiveChatDirect } from './ui.js';
 import { 
   getStore, 
   getCurrentUser, 
@@ -18,6 +19,19 @@ function initializeFriendsListListeners() {
 
 function switchToPrivateChat(userId, nickname, username, avatarUrl) {
   // console.log(`🔄 [切换私信] 切换到私信会话 - userId=${userId}, nickname=${nickname}`);
+  const store = getStore();
+  
+  // 保存当前私信的草稿并重新设置侧边栏的 [草稿] 标记
+  const currentPrivateUserId = store?.currentPrivateChatUserId?.value ?? store?.currentPrivateChatUserId;
+  if (currentPrivateUserId) {
+    const privateMessageInput = document.getElementById('privateMessageInput');
+    if (privateMessageInput) {
+      const content = privateMessageInput.textContent || privateMessageInput.innerHTML || '';
+      store.saveDraft('private', currentPrivateUserId, content);
+    }
+    // 离开当前会话时，重新设置侧边栏的 [草稿] 标记
+    store.setLastMessageToDraft('private', currentPrivateUserId);
+  }
   
   const currentPrivateChatUserId = userId;
   const currentPrivateChatUsername = username;
@@ -39,8 +53,6 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
   }
   delete window.privateChatAllLoaded[userId];
   
-  // 同步到 store
-  const store = getStore();
   if (store) {
     // 同时重置 chatStore 中的标记
     if (store.setPrivateAllLoaded) {
@@ -59,9 +71,8 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
     }
   }
 
-  if (typeof window.setActiveChat === 'function') {
-    window.setActiveChat('private', userId, true);
-  }
+  // 直接调用 setActiveChatDirect，不保存新私信的草稿
+  setActiveChatDirect('private', userId, true);
 
   // 跳转到私信页面
   if (window.router && window.router.currentRoute.value.path !== '/chat/private') {
@@ -165,15 +176,11 @@ async function updateFriendsList(friends) {
   if (window.chatStore) {
     const userId = window.chatStore.currentUser?.id || 'guest';
     const prefix = `chats-${userId}`;
-    
-    // 应用 localStorage 缓存的最后消息时间和从IndexedDB加载最后消息
+
+    // 从IndexedDB加载最后消息并设置时间
     const updatedFriends = await Promise.all(friends.map(async (friend) => {
       const result = { ...friend };
-      const cachedTime = window.chatStore.getFriendLastMessageTime(friend.id);
-      if (cachedTime) {
-        result.last_message_time = cachedTime;
-      }
-      
+
       // 从IndexedDB加载最后消息
       try {
         const key = `${prefix}-private-${friend.id}`;
@@ -181,16 +188,17 @@ async function updateFriendsList(friends) {
         if (data && data.messages && data.messages.length > 0) {
           const validMessages = data.messages.filter(m => m.messageType !== 101);
           if (validMessages.length > 0) {
-            result.lastMessage = validMessages[validMessages.length - 1];
+            result.lastMessage = validMessages[0];
+            result.last_message_time = validMessages[0].timestamp || new Date().toISOString();
           }
         }
       } catch (e) {
         console.error('加载好友最后消息失败:', e);
       }
-      
+
       return result;
     }));
-    
+
     window.chatStore.friendsList = updatedFriends;
     // 按最后消息时间排序
     window.chatStore.sortFriendsByLastMessageTime();
@@ -419,7 +427,7 @@ function showUserAvatarPopup(event, user) {
     if (popupSignatureSection && popupSignature) {
       const signature = displayUser.signature || '';
       if (signature && signature.trim()) {
-        popupSignature.textContent = unescapeHtml(signature);
+        popupSignature.textContent = signature;
         popupSignatureSection.style.display = 'block';
       } else {
         popupSignatureSection.style.display = 'none';
@@ -447,8 +455,8 @@ function showUserAvatarPopup(event, user) {
       });
       popupInitials.style.display = 'none';
     } else {
-      const unescapedNickname = unescapeHtml(displayUser.nickname || '');
-      const initials = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
+      const nickname = displayUser.nickname || '';
+      const initials = nickname ? nickname.charAt(0).toUpperCase() : 'U';
       popupInitials.textContent = initials;
       popupInitials.style.display = 'block';
       popupAvatarImg.style.display = 'none';
@@ -603,29 +611,29 @@ function displaySearchResults(users) {
       }
     }
 
-    const unescapedNickname = unescapeHtml(user.nickname || '');
-    const unescapedUsername = unescapeHtml(user.username || '');
+    const nickname = user.nickname || '';
+    const username = user.username || '';
 
     let avatarHtml = '';
     if (avatarUrl) {
       const isSvgAvatar = /\.svg$/i.test(avatarUrl);
       if (isSvgAvatar) {
-        const initials = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
+        const initials = nickname ? nickname.charAt(0).toUpperCase() : 'U';
         avatarHtml = `<span class="user-avatar">${initials}</span>`;
       } else {
         const fullAvatarUrl = `${SERVER_URL}${avatarUrl}`;
-        avatarHtml = `<span class="user-avatar"><img src="${fullAvatarUrl}" alt="${unescapedNickname}"></span>`;
+        avatarHtml = `<span class="user-avatar"><img src="${fullAvatarUrl}" alt="${nickname}"></span>`;
       }
     } else {
-      const initials = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
+      const initials = nickname ? nickname.charAt(0).toUpperCase() : 'U';
       avatarHtml = `<span class="user-avatar">${initials}</span>`;
     }
 
     resultItem.innerHTML = `
       ${avatarHtml}
       <div class="search-result-info">
-        <div class="search-result-nickname">${unescapedNickname}</div>
-        <div class="search-result-username">@${unescapedUsername}</div>
+        <div class="search-result-nickname">${nickname}</div>
+        <div class="search-result-username">@${username}</div>
       </div>
       <button class="add-friend-btn" data-user-id="${user.id}" data-user-nickname="${user.nickname}" data-user-avatar="${avatarUrl}">+</button>
     `;

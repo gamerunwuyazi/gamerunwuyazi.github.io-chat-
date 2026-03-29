@@ -425,16 +425,12 @@ function handleGroupCardAvatarError() {
 
 const groupCardGroupName = computed(() => {
   if (!groupCardData.value || !groupCardData.value.group_name) return '';
-  const text = document.createElement('textarea');
-  text.innerHTML = groupCardData.value.group_name;
-  return text.value;
+  return groupCardData.value.group_name;
 });
 
 const groupCardGroupDescription = computed(() => {
   if (!groupCardData.value || !groupCardData.value.group_description) return '暂无公告';
-  const text = document.createElement('textarea');
-  text.innerHTML = groupCardData.value.group_description;
-  return text.value;
+  return groupCardData.value.group_description;
 });
 
 const groupCardInitials = computed(() => {

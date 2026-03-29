@@ -221,7 +221,7 @@
                 <label 
                   :for="`group-${group.id}`"
                   style="margin-left: 10px; cursor: pointer; flex: 1;"
-                >{{ unescapeHtml(group.group_name || group.name || '未命名群组') }}</label>
+                >{{ group.group_name || group.name || '未命名群组' }}</label>
               </div>
             </div>
           </div>
@@ -464,14 +464,14 @@
           </div>
           <div class="popup-info">
             <div class="popup-info-top">
-              <div class="popup-nickname">{{ unescapeHtml(groupCardPopupData?.group_name || '未知群组') }}</div>
+              <div class="popup-nickname">{{ groupCardPopupData?.group_name || '未知群组' }}</div>
             </div>
             <div class="popup-username">ID: {{ groupCardPopupData?.group_id || '未知' }}</div>
           </div>
         </div>
         <div v-if="groupCardPopupData?.group_description" class="popup-signature-section">
           <div class="signature-label">公告</div>
-          <div class="signature-content">{{ unescapeHtml(groupCardPopupData.group_description) }}</div>
+          <div class="signature-content">{{ groupCardPopupData.group_description }}</div>
         </div>
         <div class="popup-actions">
           <button 
@@ -854,16 +854,11 @@ const groupCardPopupStyle = computed(() => ({
   maxWidth: '300px',
 }));
 
-function unescapeHtml(html) {
-  if (!html || typeof html !== 'string') return html;
-  const text = document.createElement('textarea');
-  text.innerHTML = html;
-  return text.value;
-}
+
 
 const userAvatarPopupNickname = computed(() => {
   const nickname = chatStore.modalData.userAvatarPopup?.nickname || '未知昵称';
-  return unescapeHtml(nickname);
+  return nickname;
 });
 
 const userAvatarPopupUsername = computed(() => {
@@ -872,7 +867,7 @@ const userAvatarPopupUsername = computed(() => {
 
 const userAvatarPopupSignature = computed(() => {
   const signature = chatStore.modalData.userAvatarPopup?.signature || '';
-  return unescapeHtml(signature);
+  return signature;
 });
 
 const userAvatarPopupGender = computed(() => {
@@ -988,12 +983,12 @@ const isCurrentUserGroupOwner = computed(() => {
 
 const groupInfoName = computed(() => {
   const name = chatStore.modalData.groupInfo?.name || '';
-  return unescapeHtml(name);
+  return name;
 });
 
 const groupInfoDescription = computed(() => {
   const desc = chatStore.modalData.groupInfo?.description || '暂无公告';
-  return unescapeHtml(desc);
+  return desc;
 });
 
 const groupInfoInitials = computed(() => {
@@ -1007,8 +1002,7 @@ const groupCardPopupData = computed(() => {
 
 const groupCardPopupInitials = computed(() => {
   const name = groupCardPopupData.value?.group_name || '';
-  const unescapedName = unescapeHtml(name);
-  return unescapedName ? unescapedName.charAt(0).toUpperCase() : 'G';
+  return name ? name.charAt(0).toUpperCase() : 'G';
 });
 
 const groupCardPopupAvatarLoadFailed = ref(false);
@@ -1161,8 +1155,7 @@ function getFullAvatarUrl(url) {
 
 function getUserInitials(name) {
   if (!name) return 'U';
-  const unescapedName = unescapeHtml(name);
-  return unescapedName.charAt(0).toUpperCase();
+  return name.charAt(0).toUpperCase();
 }
 
 function getGenderText(gender) {
@@ -1286,8 +1279,11 @@ async function loadGroupMembers(groupId) {
     });
     
     const data = await response.json();
-    if (data.status === 'success') {
-      groupMembers.value = data.members || [];
+    if (data.status === 'success' && data.members) {
+      groupMembers.value = data.members.map(member => ({
+        ...member,
+        nickname: member.nickname || member.username || ''
+      }));
     }
   } catch (error) {
     console.error('加载群组成员失败:', error);
@@ -1315,7 +1311,11 @@ async function loadAvailableMembers() {
         .filter(friend => String(friend.id) !== String(user?.id))
         .filter((friend, index, self) => 
           index === self.findIndex(f => String(f.id) === String(friend.id))
-        );
+        )
+        .map(friend => ({
+          ...friend,
+          nickname: friend.nickname || friend.username || ''
+        }));
     } else {
       availableMembers.value = [];
     }
@@ -1707,12 +1707,17 @@ async function loadAvailableFriendsForAdd() {
       const membersData = await membersResponse.json();
       const groupMemberIds = new Set((membersData.members || []).map(m => String(m.id)));
       
-      availableFriendsForAdd.value = friendsData.friends.filter(friend => {
-        const friendId = String(friend.id);
-        const isNotCurrentUser = friendId !== String(user?.id);
-        const isNotInGroup = !groupMemberIds.has(friendId);
-        return isNotCurrentUser && isNotInGroup;
-      });
+      availableFriendsForAdd.value = friendsData.friends
+        .filter(friend => {
+          const friendId = String(friend.id);
+          const isNotCurrentUser = friendId !== String(user?.id);
+          const isNotInGroup = !groupMemberIds.has(friendId);
+          return isNotCurrentUser && isNotInGroup;
+        })
+        .map(friend => ({
+          ...friend,
+          nickname: friend.nickname || friend.username || ''
+        }));
     }
   } catch (error) {
     console.error('加载好友列表失败:', error);
@@ -1804,6 +1809,12 @@ async function handleGroupAvatarChange(event) {
   }
 }
 
+function unescapeHtml(html) {
+  const text = document.createElement('textarea');
+  text.innerHTML = html;
+  return text.value;
+}
+
 async function fetchUserInfo(userId) {
   try {
     const response = await fetch(`${SERVER_URL}/api/user/${userId}`, {
@@ -1813,8 +1824,15 @@ async function fetchUserInfo(userId) {
       }
     });
     const data = await response.json();
-    if (data.status === 'success') {
-      return data.user;
+    if (data.status === 'success' && data.user) {
+      return {
+        id: data.user.id,
+        username: data.user.username,
+        nickname: data.user.nickname || '',
+        signature: data.user.signature || '',
+        gender: data.user.gender,
+        avatarUrl: data.user.avatar_url || data.user.avatarUrl || data.user.avatar
+      };
     }
   } catch (error) {
     console.error('获取用户信息失败:', error);

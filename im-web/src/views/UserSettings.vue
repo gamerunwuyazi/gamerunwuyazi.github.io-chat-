@@ -1,6 +1,6 @@
 <script setup>
 import {ref, computed, onMounted, onUnmounted} from "vue";
-import {currentUser, currentSessionToken, unescapeHtml} from "@/utils/chat";
+import {currentUser, currentSessionToken} from "@/utils/chat";
 import VueTurnstile from 'vue-turnstile';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn'
@@ -63,7 +63,7 @@ const avatarLoadFailed = ref(false)
 // 用户首字母
 const userInitials = computed(() => {
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}')
-  const nickname = unescapeHtml(user.nickname || '');
+  const nickname = user.nickname || '';
   return nickname ? nickname.charAt(0).toUpperCase() : 'U'
 })
 

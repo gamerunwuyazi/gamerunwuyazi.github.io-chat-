@@ -371,6 +371,7 @@ noscript {
 #privateMessageContainer {
     flex: 1 1 auto; /* 确保消息容器能填充剩余空间 */
     overflow-y: auto;
+    -webkit-overflow-scrolling: auto; /* 禁用触控板惯性滚动 */
     margin-bottom: 0;
     padding: 10px;
     background-color: #fafafa;
@@ -713,6 +714,7 @@ noscript {
 #messageContainer, #groupMessageContainer {
     flex: 1 1 auto; /* 确保消息容器能填充剩余空间 */
     overflow-y: auto;
+    -webkit-overflow-scrolling: auto; /* 禁用触控板惯性滚动 */
     margin-bottom: 0;
     padding: 10px;
     background-color: #fafafa;
@@ -2944,4 +2946,10 @@ noscript {
     100% {
         background-color: transparent;
     }
+}
+
+/* 艾特用户样式 */
+.chat-at-user {
+    color: #00f;
+    border-radius: 3px;
 }

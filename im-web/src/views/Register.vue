@@ -404,6 +404,7 @@ async function handleRegister() {
     if (loginData.success || loginData.status === 'success' || loginData.code === 200) {
       const userId = loginData.userId || (loginData.user && loginData.user.id) || (loginData.data && loginData.data.id) || '';
       const nickname = loginData.nickname || (loginData.user && loginData.user.nickname) || (loginData.data && loginData.data.nickname) || '';
+      const signature = loginData.signature || (loginData.user && loginData.user.signature) || (loginData.data && loginData.data.signature) || '';
       const avatarUrl = loginData.avatarUrl || (loginData.user && loginData.user.avatarUrl) || (loginData.data && loginData.data.avatarUrl) || (loginData.user && loginData.user.avatar) || (loginData.data && loginData.data.avatar) || null;
       const gender = loginData.gender || (loginData.user && loginData.user.gender) || (loginData.data && loginData.data.gender) || 0;
       const sessionToken = loginData.sessionToken || loginData.token || loginData.session_token;
@@ -421,6 +422,7 @@ async function handleRegister() {
       const userData = {
         id: userId ? String(userId) : '',
         nickname: nickname,
+        signature: signature,
         gender: gender,
         avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
       };

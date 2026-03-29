@@ -12,13 +12,7 @@ onMounted(() => {
 // 私信搜索状态
 const privateChatSearchKeyword = ref('');
 
-// 工具函数：HTML反转义
-function unescapeHtml(html) {
-  if (typeof html !== 'string') return html;
-  const text = document.createElement('textarea');
-  text.innerHTML = html;
-  return text.value;
-}
+
 
 // 工具函数：获取用户头像 URL（带版本号参数）
 function getAvatarUrl(user) {
@@ -46,15 +40,23 @@ function isSvgAvatar(url) {
 
 // 获取私信最后消息
 function getPrivateLastMessage(friend) {
+  // 优先检查是否有草稿
+  if (chatStore.drafts && chatStore.drafts.private && chatStore.drafts.private[friend.id]) {
+    const draftContent = chatStore.drafts.private[friend.id];
+    if (draftContent) {
+      return `[草稿] ${draftContent}`;
+    }
+  }
+  
   const lastMessage = friend.lastMessage || chatStore.getPrivateLastMessage(friend.id);
   if (!lastMessage) return '';
   
-  let content = chatStore.formatMessageContent(lastMessage);
-  const isSelfSend = String(lastMessage.sender_id) === String(chatStore.currentUser?.id) || 
-                       String(lastMessage.user_id) === String(chatStore.currentUser?.id);
-  const prefix = isSelfSend ? '你: ' : '';
-  
-  return `${prefix}${content}`;
+  return chatStore.formatMessageContent(lastMessage);
+}
+
+// 检查是否有草稿
+function hasDraft(friend) {
+  return chatStore.drafts && chatStore.drafts.private && chatStore.drafts.private[friend.id];
 }
 
 // 工具函数：检查用户是否在线
@@ -69,7 +71,7 @@ const filteredFriendsList = computed(() => {
   }
   const keyword = privateChatSearchKeyword.value.toLowerCase();
   return chatStore.friendsList.filter(friend => {
-    return (unescapeHtml(friend.nickname) || '').toLowerCase().includes(keyword);
+    return (friend.nickname || '').toLowerCase().includes(keyword);
   });
 });
 
@@ -82,7 +84,7 @@ function clearPrivateChatSearch() {
 function handleFriendClick(friend) {
   if (window.switchToPrivateChat) {
     const avatarUrl = friend.avatarUrl || friend.avatar_url || friend.avatar || '';
-    window.switchToPrivateChat(friend.id, unescapeHtml(friend.nickname), friend.username, avatarUrl);
+    window.switchToPrivateChat(friend.id, friend.nickname, friend.username, avatarUrl);
   }
 }
 
@@ -94,7 +96,7 @@ function handleUserAvatarClick(event, user) {
   } else {
     const userData = {
       id: user.id,
-      nickname: unescapeHtml(user.nickname),
+      nickname: user.nickname,
       username: user.username,
       avatarUrl: getAvatarUrl(user)
     };
@@ -134,20 +136,21 @@ function handleSearchUserClick() {
                 <li v-else v-for="friend in filteredFriendsList" :key="friend.id" 
                     class="friend-item"
                     :data-user-id="friend.id"
-                    :data-user-nickname="unescapeHtml(friend.nickname)"
+                    :data-user-nickname="friend.nickname"
                     @click="handleFriendClick(friend)">
                     <span class="user-avatar-wrapper" @click.stop="handleUserAvatarClick($event, friend)">
                         <span v-if="getAvatarUrl(friend) && !isSvgAvatar(getAvatarUrl(friend))" class="user-avatar">
-                            <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(friend)}`" :alt="unescapeHtml(friend.nickname)" @error="handleAvatarError($event, friend)">
+                            <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(friend)}`" :alt="friend.nickname" @error="handleAvatarError($event, friend)">
                         </span>
                         <span v-else class="user-avatar">
-                            {{ unescapeHtml(friend.nickname) ? unescapeHtml(friend.nickname).charAt(0).toUpperCase() : 'U' }}
+                            {{ friend.nickname ? friend.nickname.charAt(0).toUpperCase() : 'U' }}
                         </span>
                         <span v-if="isUserOnline(friend.id)" class="online-indicator"></span>
                     </span>
                     <div class="friend-info">
-                        <span class="friend-name">{{ unescapeHtml(friend.nickname) }}</span>
-                        <span class="friend-last-message">{{ getPrivateLastMessage(friend) }}</span>
+                        <span class="friend-name">{{ friend.nickname }}</span>
+                        <span v-if="hasDraft(friend)" class="friend-last-message draft-text">{{ getPrivateLastMessage(friend) }}</span>
+                        <span v-else class="friend-last-message">{{ getPrivateLastMessage(friend) }}</span>
                     </div>
                     <span class="friend-status" :class="isUserOnline(friend.id) ? 'online' : 'offline'"></span>
                     <div class="unread-count private-unread-count" v-if="chatStore.unreadMessages.private && chatStore.unreadMessages.private[friend.id]">
@@ -200,5 +203,10 @@ function handleSearchUserClick() {
   overflow: hidden;
   text-overflow: ellipsis;
   margin-top: 2px;
+}
+
+.draft-text {
+  color: #ff0000 !important;
+  font-weight: 500;
 }
 </style>

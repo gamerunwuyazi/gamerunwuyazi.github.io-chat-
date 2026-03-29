@@ -29,6 +29,15 @@ export function unescapeHtml(html) {
   return text.value;
 }
 
+function setCursorToEnd(element) {
+  const range = document.createRange();
+  const sel = window.getSelection();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 export function formatFileSize(bytes) {
   if (bytes < 1024) {
     return bytes + ' B';
@@ -54,14 +63,25 @@ export function sendMessage() {
   const messageInput = document.getElementById('messageInput');
   if (!messageInput) return;
   
-  let content = messageInput.innerHTML.trim();
+  // 创建一个临时容器处理内容，确保@标签转换为纯文本
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = messageInput.innerHTML;
+  
+  // 处理所有@用户标签，将它们转为纯文本
+  const atUserElements = tempDiv.querySelectorAll('.chat-at-user');
+  atUserElements.forEach(el => {
+    const textNode = document.createTextNode(el.textContent);
+    el.parentNode.replaceChild(textNode, el);
+  });
+  
+  let content = tempDiv.innerHTML.trim();
   if (content) {
     content = content.replace(/<div>/g, '\n').replace(/<\/div>/g, '').replace(/<br>/g, '\n').replace(/<br\s*\/?>/g, '\n');
     content = content.trim();
     content = unescapeHtml(content);
   }
   if (!content) {
-    content = messageInput.textContent.trim() || '';
+    content = tempDiv.textContent.trim() || '';
   }
   
   const currentUser = getCurrentUser();
@@ -83,11 +103,37 @@ export function sendMessage() {
     // 获取 Markdown 工具栏状态
     const showMarkdownToolbar = document.querySelector('.toggle-btn')?.textContent?.includes('隐藏') || false;
     
+    // 提取 @用户 ID
+    const atUserElements = messageInput.querySelectorAll('.chat-at-user');
+    const atUserIds = [];
+    atUserElements.forEach(el => {
+      if (el.dataset.id) {
+        atUserIds.push(el.dataset.id);
+      }
+    });
+    
+    let messageContent = content;
+    if (quotedMessage) {
+      messageContent = JSON.stringify({
+        type: 'quoted',
+        text: content,
+        quoted: {
+          id: quotedMessage.id,
+          userId: quotedMessage.userId,
+          nickname: quotedMessage.nickname,
+          content: quotedMessage.content,
+          messageType: quotedMessage.messageType || 0
+        },
+        markdone: showMarkdownToolbar
+      });
+    }
+    
     const messageData = {
-      content: content,
+      content: messageContent,
       groupId: groupId,
       sessionToken: currentSessionToken,
-      userId: currentUser.id
+      userId: currentUser.id,
+      at_userid: atUserIds
     };
     
     // 消息类型逻辑：
@@ -95,18 +141,9 @@ export function sendMessage() {
     // 2. 如果展开了 MD 工具栏且没有引用消息，类型为 5（MD 消息）
     // 3. 否则类型为 0（普通文本）
     if (quotedMessage) {
-      messageData.message_type = 4;
-      
-      messageData.quotedMessage = {
-        id: quotedMessage.id,
-        userId: quotedMessage.userId,
-        nickname: quotedMessage.nickname,
-        content: quotedMessage.content,
-        messageType: quotedMessage.messageType || 0,
-        markdone: showMarkdownToolbar
-      };
+      messageData.messageType = 4;
     } else if (showMarkdownToolbar) {
-      messageData.message_type = 5;
+      messageData.messageType = 5;
     }
     
     // 清空输入框
@@ -122,6 +159,7 @@ export function sendMessage() {
       const input = document.getElementById('messageInput');
       if (input) {
         input.innerHTML = failedContent;
+        setCursorToEnd(input);
       }
       // 显示失败提示
       toast.error('消息发送超时，请检查网络后重试');
@@ -146,6 +184,7 @@ export function sendMessage() {
         const input = document.getElementById('messageInput');
         if (input) {
           input.innerHTML = failedContent;
+          setCursorToEnd(input);
         }
         // 显示速率限制提示
         toast.error(data.error.message);
@@ -162,6 +201,12 @@ export function sendMessage() {
         }
         // 移除事件监听
         window.chatSocket.off('message-sent', messageSentHandler);
+        
+        // 清除主聊天室草稿
+        const store = getChatStore();
+        if (store && store.clearDraft) {
+          store.clearDraft('main');
+        }
       }
     };
     window.chatSocket.on('message-sent', messageSentHandler);
@@ -189,14 +234,25 @@ export function sendGroupMessage() {
 
   let content = '';
   if (groupMessageInput.tagName === 'DIV' && groupMessageInput.isContentEditable) {
-    let htmlContent = groupMessageInput.innerHTML.trim();
+    // 创建一个临时容器处理内容，确保@标签转换为纯文本
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = groupMessageInput.innerHTML;
+    
+    // 处理所有@用户标签，将它们转为纯文本
+    const atUserElements = tempDiv.querySelectorAll('.chat-at-user');
+    atUserElements.forEach(el => {
+      const textNode = document.createTextNode(el.textContent);
+      el.parentNode.replaceChild(textNode, el);
+    });
+    
+    let htmlContent = tempDiv.innerHTML.trim();
     if (htmlContent) {
       htmlContent = htmlContent.replace(/<div>/g, '\n').replace(/<\/div>/g, '').replace(/<br>/g, '\n').replace(/<br\s*\/?>/g, '\n');
       content = htmlContent.trim();
       content = unescapeHtml(content);
     }
     if (!content) {
-      content = groupMessageInput.textContent.trim();
+      content = tempDiv.textContent.trim();
     }
   } else {
     content = groupMessageInput.value || groupMessageInput.innerHTML || '';
@@ -212,11 +268,37 @@ export function sendGroupMessage() {
     // 检查 MD 工具栏是否展开
     const showMarkdownToolbar = document.querySelector('.toggle-btn')?.textContent?.includes('隐藏') || false;
     
+    // 提取 @用户 ID
+    const atUserElements = groupMessageInput.querySelectorAll('.chat-at-user');
+    const atUserIds = [];
+    atUserElements.forEach(el => {
+      if (el.dataset.id) {
+        atUserIds.push(el.dataset.id);
+      }
+    });
+    
+    let messageContent = content;
+    if (quotedMessage) {
+      messageContent = JSON.stringify({
+        type: 'quoted',
+        text: content,
+        quoted: {
+          id: quotedMessage.id,
+          userId: quotedMessage.userId,
+          nickname: quotedMessage.nickname,
+          content: quotedMessage.content,
+          messageType: quotedMessage.messageType || 0
+        },
+        markdone: showMarkdownToolbar
+      });
+    }
+    
     const messageData = {
       groupId: currentGroupId,
-      content: content,
+      content: messageContent,
       sessionToken: currentSessionToken,
-      userId: currentUser.id
+      userId: currentUser.id,
+      at_userid: atUserIds
     };
     
     // 消息类型逻辑：
@@ -224,18 +306,9 @@ export function sendGroupMessage() {
     // 2. 如果展开了 MD 工具栏且没有引用消息，类型为 5（MD 消息）
     // 3. 否则类型为 0（普通文本）
     if (quotedMessage) {
-      messageData.message_type = 4;
-      
-      messageData.quotedMessage = {
-        id: quotedMessage.id,
-        userId: quotedMessage.userId,
-        nickname: quotedMessage.nickname,
-        content: quotedMessage.content,
-        messageType: quotedMessage.messageType || 0,
-        markdone: showMarkdownToolbar
-      };
+      messageData.messageType = 4;
     } else if (showMarkdownToolbar) {
-      messageData.message_type = 5;
+      messageData.messageType = 5;
     }
     
     // 清空输入框
@@ -256,8 +329,11 @@ export function sendGroupMessage() {
       if (input) {
         if (input.tagName === 'TEXTAREA') {
           input.value = failedContent;
+          input.focus();
+          input.setSelectionRange(failedContent.length, failedContent.length);
         } else {
           input.innerHTML = failedContent;
+          setCursorToEnd(input);
         }
       }
       // 显示失败提示
@@ -284,8 +360,11 @@ export function sendGroupMessage() {
         if (input) {
           if (input.tagName === 'TEXTAREA') {
             input.value = failedContent;
+            input.focus();
+            input.setSelectionRange(failedContent.length, failedContent.length);
           } else {
             input.innerHTML = failedContent;
+            setCursorToEnd(input);
           }
         }
         // 显示速率限制提示
@@ -303,6 +382,12 @@ export function sendGroupMessage() {
         }
         // 移除事件监听
         window.chatSocket.off('message-sent', messageSentHandler);
+        
+        // 清除群组草稿
+        const store = getChatStore();
+        if (store && store.clearDraft) {
+          store.clearDraft('group', currentGroupId);
+        }
       }
     };
     window.chatSocket.on('message-sent', messageSentHandler);
@@ -325,14 +410,25 @@ export function sendPrivateMessage() {
   const privateMessageInput = document.getElementById('privateMessageInput');
   if (!privateMessageInput) return;
 
-  let content = privateMessageInput.innerHTML.trim();
+  // 创建一个临时容器处理内容，确保@标签转换为纯文本
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = privateMessageInput.innerHTML;
+  
+  // 处理所有@用户标签，将它们转为纯文本
+  const atUserElements = tempDiv.querySelectorAll('.chat-at-user');
+  atUserElements.forEach(el => {
+    const textNode = document.createTextNode(el.textContent);
+    el.parentNode.replaceChild(textNode, el);
+  });
+  
+  let content = tempDiv.innerHTML.trim();
   if (content) {
     content = content.replace(/<div>/g, '\n').replace(/<\/div>/g, '').replace(/<br>/g, '\n').replace(/<br\s*\/?>/g, '\n');
     content = content.trim();
     content = unescapeHtml(content);
   }
   if (!content) {
-    content = privateMessageInput.innerText.trim();
+    content = tempDiv.textContent.trim();
   }
   if (!content) return;
   
@@ -340,12 +436,35 @@ export function sendPrivateMessage() {
 
   // 检查 MD 工具栏是否展开
   const showMarkdownToolbar = document.querySelector('#privateInputButtons .toggle-btn')?.textContent?.includes('隐藏') || false;
+  
+  const atUserIds = [];
+  atUserElements.forEach(el => {
+    if (el.dataset.id) {
+      atUserIds.push(el.dataset.id);
+    }
+  });
 
+  let messageContent = content;
+  if (quotedMessage) {
+    messageContent = JSON.stringify({
+      content: content,
+      quotedMessage: {
+        id: quotedMessage.id,
+        userId: quotedMessage.userId,
+        nickname: quotedMessage.nickname,
+        content: quotedMessage.content,
+        messageType: quotedMessage.messageType || 0,
+        markdone: showMarkdownToolbar
+      }
+    });
+  }
+  
   const messageData = {
     userId: currentUser.id,
-    content: content,
+    content: messageContent,
     receiverId: currentPrivateChatUserId,
-    sessionToken: currentSessionToken
+    sessionToken: currentSessionToken,
+    at_userid: atUserIds
   };
   
   // 消息类型逻辑：
@@ -354,15 +473,6 @@ export function sendPrivateMessage() {
   // 3. 否则类型为 0（普通文本）
   if (quotedMessage) {
     messageData.message_type = 4;
-    
-    messageData.quotedMessage = {
-      id: quotedMessage.id,
-      userId: quotedMessage.userId,
-      nickname: quotedMessage.nickname,
-      content: quotedMessage.content,
-      messageType: quotedMessage.messageType || 0,
-      markdone: showMarkdownToolbar
-    };
   } else if (showMarkdownToolbar) {
     messageData.message_type = 5;
   }
@@ -381,6 +491,7 @@ export function sendPrivateMessage() {
       const input = document.getElementById('privateMessageInput');
       if (input) {
         input.innerHTML = failedContent;
+        setCursorToEnd(input);
       }
       // 显示失败提示
       toast.error('消息发送超时，请检查网络后重试');
@@ -405,6 +516,7 @@ export function sendPrivateMessage() {
         const input = document.getElementById('privateMessageInput');
         if (input) {
           input.innerHTML = failedContent;
+          setCursorToEnd(input);
         }
         // 显示速率限制提示
         toast.error(data.error.message);
@@ -421,6 +533,12 @@ export function sendPrivateMessage() {
         }
         // 移除事件监听
         window.chatSocket.off('private-message-sent', privateMessageSentHandler);
+        
+        // 清除私信草稿
+        const store = getChatStore();
+        if (store && store.clearDraft) {
+          store.clearDraft('private', currentPrivateChatUserId);
+        }
       }
     };
     window.chatSocket.on('private-message-sent', privateMessageSentHandler);

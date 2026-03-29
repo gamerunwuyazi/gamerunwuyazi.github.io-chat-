@@ -24,13 +24,7 @@ const currentContextMenuGroup = ref(null);
 // 群组搜索状态
 const groupSearchKeyword = ref('');
 
-// 工具函数：HTML 反转义
-function unescapeHtml(html) {
-  if (typeof html !== 'string') return html;
-  const text = document.createElement('textarea');
-  text.innerHTML = html;
-  return text.value;
-}
+
 
 // 工具函数：获取群组头像 URL（带版本号参数）
 function getGroupAvatarUrl(group) {
@@ -56,8 +50,22 @@ function isSvgAvatar(url) {
   return url && /\.svg$/i.test(url);
 }
 
+function unescapeHtml(html) {
+  const text = document.createElement('textarea');
+  text.innerHTML = html;
+  return text.value;
+}
+
 // 获取群组最后消息
 function getGroupLastMessage(group) {
+  // 优先检查是否有草稿
+  if (chatStore.drafts && chatStore.drafts.groups && chatStore.drafts.groups[group.id]) {
+    const draftContent = chatStore.drafts.groups[group.id];
+    if (draftContent) {
+      return `[草稿] ${draftContent}`;
+    }
+  }
+  
   const lastMessage = group.lastMessage || chatStore.getGroupLastMessage(group.id);
   if (!lastMessage) return '';
   
@@ -65,6 +73,11 @@ function getGroupLastMessage(group) {
   const senderName = lastMessage.nickname || '群成员';
   
   return `${senderName}: ${content}`;
+}
+
+// 检查是否有草稿
+function hasDraft(group) {
+  return chatStore.drafts && chatStore.drafts.groups && chatStore.drafts.groups[group.id];
 }
 
 // 获取免打扰群组列表
@@ -107,7 +120,7 @@ const filteredGroupsList = computed(() => {
   }
   const keyword = groupSearchKeyword.value.toLowerCase();
   return chatStore.groupsList.filter(group => {
-    const groupName = unescapeHtml(group.name || '');
+    const groupName = group.name || '';
     return groupName.toLowerCase().includes(keyword);
   });
 });
@@ -121,7 +134,7 @@ function clearGroupSearch() {
 function handleGroupClick(group) {
   hideContextMenu();
   if (window.switchToGroupChat) {
-    const originalGroupName = unescapeHtml(group.name || '');
+    const originalGroupName = group.name || '';
     window.switchToGroupChat(group.id, originalGroupName, group.avatar_url || group.avatarUrl || '');
   }
 }
@@ -209,18 +222,20 @@ function handleGroupAvatarError(event, group) {
                 </li>
                 <li v-else v-for="group in filteredGroupsList" :key="group.id" 
                     :data-group-id="group.id" 
-                    :data-group-name="unescapeHtml(group.name)"
+                    :data-group-name="group.name"
                     @click="handleGroupClick(group)"
                     @contextmenu.prevent="handleGroupRightClick($event, group)">
                     <span v-if="getGroupAvatarUrl(group) && !isSvgAvatar(getGroupAvatarUrl(group))" class="group-avatar" @click.stop="handleGroupAvatarClick($event, group)">
-                        <img :src="`${chatStore.SERVER_URL}${getGroupAvatarUrl(group)}`" :alt="unescapeHtml(group.name)" @error="handleGroupAvatarError($event, group)">
+                        <img :src="`${chatStore.SERVER_URL}${getGroupAvatarUrl(group)}`" :alt="group.name" @error="handleGroupAvatarError($event, group)">
                     </span>
                     <span v-else class="group-avatar" @click.stop="handleGroupAvatarClick($event, group)">
-                        {{ unescapeHtml(group.name).charAt(0).toUpperCase() }}
+                        {{ group.name.charAt(0).toUpperCase() }}
                     </span>
                     <div class="group-info">
-                        <span class="group-name">{{ unescapeHtml(group.name) }}</span>
-                        <span class="group-last-message">{{ getGroupLastMessage(group) }}</span>
+                        <span class="group-name">{{ group.name }}</span>
+                        <span v-if="chatStore.hasGroupAtMe && chatStore.hasGroupAtMe(group.id)" class="group-last-message at-me-text">[有人@我]</span>
+                        <span v-else-if="hasDraft(group)" class="group-last-message draft-text">{{ getGroupLastMessage(group) }}</span>
+                        <span v-else class="group-last-message">{{ getGroupLastMessage(group) }}</span>
                     </div>
                     <span v-if="isGroupMuted(group.id)" class="mute-icon" style="margin-left: 5px; font-size: 12px;" title="已免打扰">🔕</span>
                     <div class="unread-count group-unread-count" v-if="chatStore.unreadMessages.groups && chatStore.unreadMessages.groups[group.id] && !isGroupMuted(group.id)">
@@ -287,5 +302,15 @@ function handleGroupAvatarError(event, group) {
     overflow: hidden;
     text-overflow: ellipsis;
     margin-top: 2px;
+}
+
+.at-me-text {
+    color: #ff4757 !important;
+    font-weight: 500;
+}
+
+.draft-text {
+    color: #ff0000 !important;
+    font-weight: 500;
 }
 </style>

@@ -77,7 +77,6 @@ async function login() {
             signature: data.user.signature,
             avatar_url: data.user.avatar_url
           };
-          console.log('✅ 已通过 /self API 获取完整用户信息:', data.user.id);
         }
       } catch (error) {
         console.error('获取用户信息失败:', error);
@@ -113,7 +112,6 @@ export {
   deleteGroupMessage,
   deletePrivateMessage,
   escapeHtml,
-  unescapeHtml,
   formatFileSize,
   sendMessage,
   sendGroupMessage,

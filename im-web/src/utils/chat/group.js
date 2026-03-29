@@ -8,10 +8,11 @@ import {
 } from './store.js';
 import { unescapeHtml } from './message.js';
 import modal from '../modal.js';
-import { 
-  updateUnreadCountsDisplay, 
-  currentGroupId, 
+import {
+  updateUnreadCountsDisplay,
+  currentGroupId,
   setActiveChat,
+  setActiveChatDirect,
   updateGroupListDisplay
 } from './ui.js';
 import { isConnected } from './websocket.js';
@@ -148,8 +149,9 @@ function setupGroupInfoButton(groupInfoButton) {
                 }
 
                 if (data.status === 'success') {
+                    const group = data.group;
                     if (window.displayGroupInfoModalVue) {
-                        window.displayGroupInfoModalVue(data.group, currentGroupId);
+                        window.displayGroupInfoModalVue(group, currentGroupId);
                     }
                 } else {
                     toast.error('获取群组信息失败: ' + (data.message || '未知错误'));
@@ -568,15 +570,35 @@ function updateGroupName(groupId, newGroupName) {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                const unescapedGroupName = unescapeHtml(data.newGroupName);
+                const groupName = data.newGroupName;
                 const currentGroupNameElement = document.getElementById('currentGroupName');
                 if (currentGroupNameElement) {
-                    currentGroupNameElement.textContent = unescapedGroupName;
+                    currentGroupNameElement.textContent = groupName;
                 }
                 const modalGroupName = document.getElementById('modalGroupName');
                 if (modalGroupName) {
-                    modalGroupName.textContent = `${unescapedGroupName} - 群组信息`;
+                    modalGroupName.textContent = `${groupName} - 群组信息`;
                 }
+                
+                // 更新 chatStore 中的当前群组名称
+                const store = getStore();
+                if (store && String(store.currentGroupId) === String(groupId)) {
+                    store.currentGroupName = groupName;
+                }
+                
+                // 更新 groupsList 中的群组名称
+                if (window.chatStore && window.chatStore.groupsList) {
+                    const group = window.chatStore.groupsList.find(g => String(g.id) === String(groupId));
+                    if (group) {
+                        group.name = groupName;
+                    }
+                }
+                
+                // 更新 sessionStore 中的群组名称
+                if (sessionStore && String(sessionStore.currentGroupId) === String(groupId)) {
+                    sessionStore.currentGroupName = groupName;
+                }
+                
                 toast.success('群组名称已成功更新');
                 const manageGroupModal = document.getElementById('manageGroupModal');
                 if (manageGroupModal && manageGroupModal.style.display !== 'none') {
@@ -740,7 +762,7 @@ function displayShareGroupCardModal() {
 
                         groupItem.innerHTML = `
                         <input type="checkbox" id="target-group-${group.id}" value="group-${group.id}" class="share-target-checkbox">
-                        <label for="target-group-${group.id}" style="margin-left: 10px; cursor: pointer;">${unescapeHtml(group.name)}</label>
+                        <label for="target-group-${group.id}" style="margin-left: 10px; cursor: pointer;">${group.name}</label>
                     `;
 
                         shareGroupList.appendChild(groupItem);
@@ -883,6 +905,22 @@ function moveGroupToTop(groupId) {
 function switchToGroupChat(groupId, groupName) {
     const store = getStore();
     
+    // 保存当前群组的草稿并重新设置侧边栏的 [草稿] 标记
+    // 注意：必须先保存旧群组的草稿，再更新 currentActiveChat
+    const currentGroupId = store?.currentGroupId?.value ?? store?.currentGroupId;
+    if (currentGroupId) {
+      const groupMessageInput = document.getElementById('groupMessageInput');
+      if (groupMessageInput) {
+        const content = groupMessageInput.textContent || groupMessageInput.innerHTML || '';
+        store.saveDraft('group', currentGroupId, content);
+      }
+      // 离开当前会话时，重新设置侧边栏的 [草稿] 标记
+      store.setLastMessageToDraft('group', currentGroupId);
+    }
+    
+    // 先保存旧的 currentActiveChat
+    const oldCurrentActiveChat = sessionStore.currentActiveChat;
+    
     sessionStore.currentGroupId = groupId;
     sessionStore.currentGroupName = groupName;
     sessionStore.currentActiveChat = `group_${groupId}`;
@@ -911,12 +949,18 @@ function switchToGroupChat(groupId, groupName) {
         if (store.clearGroupUnread) {
             store.clearGroupUnread(groupId);
         }
+
+        // 清除该群组的@我标记
+        if (store.clearGroupHasAtMe) {
+            store.clearGroupHasAtMe(groupId);
+        }
     }
     
     window.currentGroupId = groupId;
     window.currentActiveChat = `group_${groupId}`;
     
-    setActiveChat('group', groupId, true);
+    // 直接调用 setActiveChat，但不保存新群组的草稿
+    setActiveChatDirect('group', groupId, true);
 
     if (window.router && window.router.currentRoute.value.path !== '/chat/group') {
         window.router.push('/chat/group');
@@ -948,15 +992,11 @@ async function updateGroupList(groups) {
     if (window.chatStore) {
         const userId = window.chatStore.currentUser?.id || 'guest';
         const prefix = `chats-${userId}`;
-        
-        // 应用 localStorage 缓存的最后消息时间和从IndexedDB加载最后消息
+
+        // 从IndexedDB加载最后消息并设置时间
         const updatedGroups = await Promise.all(groups.map(async (group) => {
             const result = { ...group };
-            const cachedTime = window.chatStore.getGroupLastMessageTime(group.id);
-            if (cachedTime) {
-                result.last_message_time = cachedTime;
-            }
-            
+
             // 从IndexedDB加载最后消息
             try {
                 const key = `${prefix}-group-${group.id}`;
@@ -964,16 +1004,17 @@ async function updateGroupList(groups) {
                 if (data && data.messages && data.messages.length > 0) {
                     const validMessages = data.messages.filter(m => m.messageType !== 101);
                     if (validMessages.length > 0) {
-                        result.lastMessage = validMessages[validMessages.length - 1];
+                        result.lastMessage = validMessages[0];
+                        result.last_message_time = validMessages[0].timestamp || new Date().toISOString();
                     }
                 }
             } catch (e) {
                 console.error('加载群组最后消息失败:', e);
             }
-            
+
             return result;
         }));
-        
+
         window.chatStore.groupsList = updatedGroups;
         // 按最后消息时间排序
         window.chatStore.sortGroupsByLastMessageTime();
@@ -1041,12 +1082,12 @@ function sendGroupCard() {
                     .then(groupData => {
                         if (groupData.status === 'success') {
                             const group = groupData.group;
-
+                            
                             // 构建群名片消息内容
                             const groupCardContent = JSON.stringify({
                                 type: 'group_card',
                                 group_id: group.id,
-                                group_name: group.name,
+                                group_name: group.name || '',
                                 group_description: group.description || '',
                                 invite_token: token,
                                 avatar_url: group.avatar_url || group.avatarUrl || ''

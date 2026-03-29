@@ -157,9 +157,7 @@ const messageUser = computed(() => {
 const senderId = computed(() => messageUser.value.id);
 const senderNickname = computed(() => {
   const nickname = messageUser.value.nickname || '未知用户';
-  const text = document.createElement('textarea');
-  text.innerHTML = nickname;
-  return text.value;
+  return nickname;
 });
 const senderInitials = computed(() => senderNickname.value ? senderNickname.value.charAt(0).toUpperCase() : 'U');
 const senderAvatarUrl = computed(() => messageUser.value.avatarUrl);
@@ -468,16 +466,12 @@ function handleGroupCardAvatarError() {
 
 const groupCardGroupName = computed(() => {
   if (!groupCardData.value || !groupCardData.value.group_name) return '';
-  const text = document.createElement('textarea');
-  text.innerHTML = groupCardData.value.group_name;
-  return text.value;
+  return groupCardData.value.group_name;
 });
 
 const groupCardGroupDescription = computed(() => {
   if (!groupCardData.value || !groupCardData.value.group_description) return '暂无公告';
-  const text = document.createElement('textarea');
-  text.innerHTML = groupCardData.value.group_description;
-  return text.value;
+  return groupCardData.value.group_description;
 });
 
 const groupCardInitials = computed(() => {

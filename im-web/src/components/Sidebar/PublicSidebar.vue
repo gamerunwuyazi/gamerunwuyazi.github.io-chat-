@@ -9,13 +9,7 @@ onMounted(() => {
   window.chatStore = chatStore;
 });
 
-// 工具函数：HTML反转义
-function unescapeHtml(html) {
-  if (typeof html !== 'string') return html;
-  const text = document.createElement('textarea');
-  text.innerHTML = html;
-  return text.value;
-}
+
 
 // 工具函数：获取用户头像URL
 function getAvatarUrl(user) {
@@ -38,7 +32,7 @@ function isSvgAvatar(url) {
 // 工具函数：获取用户显示名称
 function getUserDisplayName(user) {
   const isCurrentUser = chatStore.currentUser && String(chatStore.currentUser.id) === String(user.id);
-  const nickname = unescapeHtml(user.nickname);
+  const nickname = user.nickname;
   if (isCurrentUser) {
     return `${nickname} (我)`;
   }
@@ -53,7 +47,7 @@ function handleUserAvatarClick(event, user) {
   } else {
     const userData = {
       id: user.id,
-      nickname: unescapeHtml(user.nickname),
+      nickname: user.nickname,
       username: user.username,
       avatarUrl: getAvatarUrl(user)
     };
@@ -80,10 +74,10 @@ function handleAvatarError(event, user) {
                 <li v-else v-for="user in chatStore.onlineUsers" :key="user.id" class="user-item" 
                     :style="{ padding: '8px 0px', display: 'flex', alignItems: 'center', fontWeight: 'normal' }">
                     <span v-if="getAvatarUrl(user) && !isSvgAvatar(getAvatarUrl(user))" class="user-avatar" @click="handleUserAvatarClick($event, user)">
-                        <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(user)}`" :alt="unescapeHtml(user.nickname)" @error="handleAvatarError($event, user)">
+                        <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(user)}`" :alt="user.nickname" @error="handleAvatarError($event, user)">
                     </span>
                     <span v-else class="user-avatar" @click="handleUserAvatarClick($event, user)">
-                        {{ unescapeHtml(user.nickname) ? unescapeHtml(user.nickname).charAt(0).toUpperCase() : 'U' }}
+                        {{ user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U' }}
                     </span>
                     <span class="user-name" :class="{ 'current-user': chatStore.currentUser && String(chatStore.currentUser.id) === String(user.id) }">{{ getUserDisplayName(user) }}</span>
                     <span class="user-status online"></span>
@@ -100,12 +94,12 @@ function handleAvatarError(event, user) {
                 <li v-else v-for="user in chatStore.offlineUsers" :key="user.id" class="user-item"
                     :style="{ padding: '8px 0px', display: 'flex', alignItems: 'center', fontWeight: 'normal' }">
                     <span v-if="getAvatarUrl(user) && !isSvgAvatar(getAvatarUrl(user))" class="user-avatar" @click="handleUserAvatarClick($event, user)">
-                        <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(user)}`" :alt="unescapeHtml(user.nickname)" @error="handleAvatarError($event, user)">
+                        <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(user)}`" :alt="user.nickname" @error="handleAvatarError($event, user)">
                     </span>
                     <span v-else class="user-avatar" @click="handleUserAvatarClick($event, user)">
-                        {{ unescapeHtml(user.nickname) ? unescapeHtml(user.nickname).charAt(0).toUpperCase() : 'U' }}
+                        {{ user.nickname ? user.nickname.charAt(0).toUpperCase() : 'U' }}
                     </span>
-                    <span class="user-name">{{ unescapeHtml(user.nickname) }}</span>
+                    <span class="user-name">{{ user.nickname }}</span>
                 </li>
             </ul>
         </div>

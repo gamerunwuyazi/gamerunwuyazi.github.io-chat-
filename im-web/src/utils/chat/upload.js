@@ -457,7 +457,6 @@ function initializeScrollLoading(force = false) {
       }
       
       if (isAllLoaded) {
-        
         return;
       }
       
@@ -465,7 +464,7 @@ function initializeScrollLoading(force = false) {
         window.isLoadingMoreMessages = true;
 
         const prevScrollHeight = container.scrollHeight;
-        const prevScrollTop = 0;
+        const prevScrollTop = container.scrollTop;
         
         if (isPrivate) {
           window.prevPrivateScrollHeight = prevScrollHeight;
@@ -504,9 +503,9 @@ function initializeScrollLoading(force = false) {
         }
         
         if (fullMessages && fullMessages.length > messages.length) {
-          // 找出完整消息列表中有更多消息，优先使用
+          // 找出完整消息列表中有更多消息，优先使用（只选ID小于olderThan的消息，即更旧的消息）
           const storeIds = new Set(messages.map(m => m.id));
-          const newLocalMessages = fullMessages.filter(m => !storeIds.has(m.id));
+          const newLocalMessages = fullMessages.filter(m => !storeIds.has(m.id) && olderThan !== null && m.id < olderThan);
           
           if (newLocalMessages.length > 0) {
             // 按 ID 降序排序（从大到小，最新的在前）
@@ -535,9 +534,9 @@ function initializeScrollLoading(force = false) {
         }
         
         // 如果内存中没有更多消息，检查 IndexedDB
-        const prefix = store.getStorageKeyPrefix ? store.getStorageKeyPrefix() : `chats-${currentUser?.id || 'guest'}`;
+        const currentUserForStorage = getCurrentUser();
+        const prefix = `chats-${currentUserForStorage?.id || 'guest'}`;
         let localMessages = [];
-        let hasMoreLocalMessages = false;
         
         try {
           let storageKey = '';
@@ -552,9 +551,10 @@ function initializeScrollLoading(force = false) {
           const localData = await localForage.getItem(storageKey);
           if (localData && localData.messages) {
             localMessages = localData.messages || [];
-            // 找出本地有但 store 中没有的消息
+            
+            // 找出本地有但 store 中没有的消息，且消息ID小于 olderThan（更旧的消息）
             const storeIds = new Set(messages.map(m => m.id));
-            const newLocalMessages = localMessages.filter(m => !storeIds.has(m.id));
+            const newLocalMessages = localMessages.filter(m => !storeIds.has(m.id) && olderThan !== null && m.id < olderThan);
             
             if (newLocalMessages.length > 0) {
               // 按 ID 降序排序（从大到小，最新的在前）
@@ -582,11 +582,10 @@ function initializeScrollLoading(force = false) {
             }
           }
         } catch (err) {
-          console.error(`[加载更多] ${containerId} 聊天 - 检查本地消息失败:`, err);
+          console.error(`[加载更多] 检查本地消息失败:`, err);
         }
         
         // 如果本地没有更多消息，从服务器加载
-        
         const user = getCurrentUser();
         const token = getCurrentSessionToken();
 

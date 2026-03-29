@@ -174,8 +174,7 @@ import {
   initializePrivateChatInterface,
   initializeScrollLoading,
   uploadPrivateImage,
-  uploadPrivateFile,
-  unescapeHtml
+  uploadPrivateFile
 } from "@/utils/chat";
 
 const chatStore = useChatStore();
@@ -265,7 +264,7 @@ const showMarkdownToolbar = ref(false);
 const showMoreFunctions = ref(false);
 
 const displayCurrentUserName = computed(() => {
-  return unescapeHtml(currentUserName.value || '好友昵称');
+  return currentUserName.value || '好友昵称';
 });
 
 function applySavedPrivateState() {
@@ -279,11 +278,24 @@ function applySavedPrivateState() {
       currentUserAvatarUrl.value = avatarUrl.startsWith('http') ? avatarUrl : `${SERVER_URL}${avatarUrl}`;
     } else {
       currentUserAvatarUrl.value = '';
-      const unescapedNickname = unescapeHtml(chatStore.currentPrivateChatNickname || '');
-      currentUserInitials.value = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
+      const nickname = chatStore.currentPrivateChatNickname || '';
+      currentUserInitials.value = nickname ? nickname.charAt(0).toUpperCase() : 'U';
     }
     
     initializePrivateChatInterface();
+    
+    // 恢复当前私信的草稿
+    const draftContent = chatStore.getDraft('private', chatStore.currentPrivateChatUserId);
+    if (draftContent) {
+      window.restoringPrivateDraft = true;
+      nextTick(() => {
+        const messageInput = document.getElementById('privateMessageInput');
+        if (messageInput) {
+          messageInput.innerHTML = draftContent;
+        }
+        window.restoringPrivateDraft = false;
+      });
+    }
     
     // 重新初始化滚动监听器
     nextTick(() => {
@@ -312,6 +324,11 @@ function handlePrivateMessageInput() {
     // 注意：textContent 包含空格时长度不为0，所以不会误清空
     if (textContent === '' && (!htmlContent || htmlContent === '<br>' || htmlContent === '<br/>' || htmlContent === '<br />')) {
       input.innerHTML = '';
+      return;
+    }
+    
+    // 如果正在恢复草稿，不保存草稿
+    if (window.restoringPrivateDraft) {
       return;
     }
     
@@ -630,11 +647,21 @@ async function executeSearch() {
 }
 
 function highlightKeyword(content) {
-  if (!content || !searchKeyword.value) return content;
+  if (!content || !searchKeyword.value) {
+    if (!content) return content;
+    const div = document.createElement('div');
+    div.textContent = content;
+    return div.innerHTML;
+  }
   
   const keyword = searchKeyword.value.trim();
+  
+  const div = document.createElement('div');
+  div.textContent = content;
+  let escapedContent = div.innerHTML;
+  
   const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-  return content.replace(regex, '<mark class="search-highlight">$1</mark>');
+  return escapedContent.replace(regex, '<mark class="search-highlight">$1</mark>');
 }
 
 function formatTime(timestamp) {
@@ -693,9 +720,41 @@ function handlePrivateSwitched() {
       currentUserAvatarUrl.value = avatarUrl.startsWith('http') ? avatarUrl : `${SERVER_URL}${avatarUrl}`;
     } else {
       currentUserAvatarUrl.value = '';
-      const unescapedNickname = unescapeHtml(chatStore.currentPrivateChatNickname || '');
-      currentUserInitials.value = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
+      const nickname = chatStore.currentPrivateChatNickname || '';
+      currentUserInitials.value = nickname ? nickname.charAt(0).toUpperCase() : 'U';
     }
+    
+    // 设置标志，防止恢复草稿时触发 handlePrivateMessageInput 保存草稿
+    window.restoringPrivateDraft = true;
+    
+    // 恢复草稿并设置光标在文字后
+    nextTick(() => {
+      const messageInput = document.getElementById('privateMessageInput');
+      if (messageInput) {
+        // 先清空输入框
+        messageInput.innerHTML = '';
+        
+        // 从 drafts 中获取草稿
+        const draftContent = chatStore.getDraft('private', chatStore.currentPrivateChatUserId);
+        if (draftContent) {
+          messageInput.innerHTML = draftContent;
+          
+          // 恢复完成后，清除草稿状态
+          chatStore.saveDraft('private', chatStore.currentPrivateChatUserId, '');
+          chatStore.tempRestoreLastMessage('private', chatStore.currentPrivateChatUserId);
+          
+          const range = document.createRange();
+          const sel = window.getSelection();
+          range.selectNodeContents(messageInput);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        
+        // 恢复完成后清除标志
+        window.restoringPrivateDraft = false;
+      }
+    });
     
     // 切换私信后，重新初始化滚动监听器
     setTimeout(() => {
@@ -766,6 +825,11 @@ watch(
         window.privateChatAllLoaded[newUserId] = false;
       }
       
+      // 清空输入框
+      if (privateMessageInputRef.value) {
+        privateMessageInputRef.value.innerHTML = '';
+      }
+      
       nextTick(() => {
         if (privateMessageContainerRef.value) {
           privateMessageContainerRef.value.scrollTop = 0;
@@ -809,13 +873,38 @@ watch(
 
 watch(
   () => route.path,
-  (newPath) => {
+  (newPath, oldPath) => {
+    if (oldPath && oldPath.startsWith('/chat/private') && !newPath.startsWith('/chat/private')) {
+      const currentPrivateUserId = chatStore.currentPrivateChatUserId;
+      if (currentPrivateUserId) {
+        const privateMessageInput = document.getElementById('privateMessageInput');
+        if (privateMessageInput) {
+          const content = privateMessageInput.textContent || privateMessageInput.innerHTML || '';
+          chatStore.saveDraft('private', currentPrivateUserId, content);
+          chatStore.setLastMessageToDraft('private', currentPrivateUserId);
+        }
+      }
+    }
+    
     if (newPath.startsWith('/chat/private')) {
       window.prevPrivateScrollHeight = undefined;
       window.prevPrivateScrollTop = undefined;
       window.isLoadingMoreMessages = false;
       if (window.scrollingInitialized) {
         window.scrollingInitialized.private = false;
+      }
+      
+      // 恢复当前私信的草稿
+      const draftContent = chatStore.getDraft('private', chatStore.currentPrivateChatUserId);
+      if (draftContent) {
+        window.restoringPrivateDraft = true;
+        nextTick(() => {
+          const messageInput = document.getElementById('privateMessageInput');
+          if (messageInput) {
+            messageInput.innerHTML = draftContent;
+          }
+          window.restoringPrivateDraft = false;
+        });
       }
       
       scrollToBottom();

@@ -27,10 +27,8 @@ export default defineConfig(({ command, mode }) => {
           pure_funcs: ['console.log']
         },
         mangle: {
-          toplevel: true,
-          properties: {
-            regex: /^_/
-          }
+          toplevel: false,
+          properties: false
         },
         format: {
           comments: false

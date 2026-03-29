@@ -55,9 +55,14 @@ function updateUserList(users) {
   if (store) {
     const currentUserId = store.currentUser?.id;
     
-    const onlineUsers = users.filter(u => u.isOnline !== false);
+    const processedUsers = users.map(user => ({
+      ...user,
+      nickname: user.nickname
+    }));
+    
+    const onlineUsers = processedUsers.filter(u => u.isOnline !== false);
     // 离线用户列表过滤掉当前用户
-    const offlineUsers = users.filter(u => u.isOnline === false && String(u.id) !== String(currentUserId));
+    const offlineUsers = processedUsers.filter(u => u.isOnline === false && String(u.id) !== String(currentUserId));
     store.onlineUsers = onlineUsers;
     store.offlineUsers = offlineUsers;
   }
@@ -187,6 +192,72 @@ function initializeWebSocket() {
             }
             return;
         }
+
+        // 检查是否是类型102用户信息更新消息
+        if (message.messageType === 102) {
+            try {
+                const updateData = JSON.parse(message.content);
+                const userId = message.userId;
+                if (updateData.type === 'nickname' && updateData.nickname) {
+                    if (store && store.onlineUsers) {
+                        const userIndex = store.onlineUsers.findIndex(u => String(u.id) === String(userId));
+                        if (userIndex !== -1) {
+                            store.onlineUsers[userIndex].nickname = updateData.nickname;
+                        }
+                    }
+                    if (store && store.friendsList) {
+                        const friendIndex = store.friendsList.findIndex(f => String(f.id) === String(userId));
+                        if (friendIndex !== -1) {
+                            store.friendsList[friendIndex].nickname = updateData.nickname;
+                            store.friendsList = [...store.friendsList];
+                        }
+                    }
+                    if (store && store.updateUserInfoInMessages) {
+                        store.updateUserInfoInMessages(userId, { nickname: updateData.nickname });
+                    }
+                } else if (updateData.type === 'avatar' && updateData.avatarUrl) {
+                    if (store && store.onlineUsers) {
+                        const userIndex = store.onlineUsers.findIndex(u => String(u.id) === String(userId));
+                        if (userIndex !== -1) {
+                            store.onlineUsers[userIndex].avatar = updateData.avatarUrl;
+                            store.onlineUsers[userIndex].avatarUrl = updateData.avatarUrl;
+                            store.onlineUsers[userIndex].avatar_url = updateData.avatarUrl;
+                        }
+                    }
+                    if (store && store.friendsList) {
+                        const friendIndex = store.friendsList.findIndex(f => String(f.id) === String(userId));
+                        if (friendIndex !== -1) {
+                            store.friendsList[friendIndex].avatarUrl = updateData.avatarUrl;
+                            store.friendsList[friendIndex].avatar_url = updateData.avatarUrl;
+                            store.friendsList[friendIndex].avatar = updateData.avatarUrl;
+                            store.friendsList = [...store.friendsList];
+                        }
+                    }
+                    if (store && store.updateUserInfoInMessages) {
+                        store.updateUserInfoInMessages(userId, { avatarUrl: updateData.avatarUrl });
+                    }
+                }
+            } catch (e) {
+                console.error('解析102消息失败:', e);
+            }
+            
+            // 添加102消息到store（公共消息）
+            if (store && store.addPublicMessage) {
+                store.addPublicMessage(message);
+            }
+            
+            // 更新对应的 minId
+            if (message.id && store && store.publicAndGroupMinId !== undefined) {
+                if (message.id > store.publicAndGroupMinId) {
+                    store.publicAndGroupMinId = message.id;
+                    if (store.saveMinIds) {
+                        store.saveMinIds();
+                    }
+                }
+            }
+            
+            return;
+        }
         
         // 更新对应的 minId（只对非撤回消息）
         if (message.id && store && store.publicAndGroupMinId !== undefined) {
@@ -197,6 +268,8 @@ function initializeWebSocket() {
                 }
             }
         }
+        
+        const currentUser = getCurrentUser();
         
         // 检查消息是否包含群组 ID
         if (message.groupId) {
@@ -209,6 +282,26 @@ function initializeWebSocket() {
             // 添加消息到 store
             if (store && store.addGroupMessage) {
                 store.addGroupMessage(message.groupId, message);
+            }
+            
+            if (message.at_userid && currentUser && !message.isHistory) {
+                const atUserIds = Array.isArray(message.at_userid) ? message.at_userid : [message.at_userid];
+                const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.id));
+                if (isCurrentUserAt) {
+                    // 查找群组名称
+                    let groupName = '未知群组';
+                    if (store && store.groupsList) {
+                        const group = store.groupsList.find(g => String(g.id) === String(message.groupId));
+                        if (group) {
+                            groupName = group.name;
+                        }
+                    }
+                    toast.info(`群组 ${groupName} 有@你的消息`);
+                    // 设置该群组有@我的消息标记
+                    if (store && store.setGroupHasAtMe) {
+                        store.setGroupHasAtMe(message.groupId);
+                    }
+                }
             }
             
             // 更新群组最后消息时间并重新排序
@@ -229,9 +322,10 @@ function initializeWebSocket() {
             // 更新群组未读计数
             // 规则：如果不是自己发送的消息，且 (不在当前群组页面 或 页面不可见 或 浏览器没有焦点)，则增加未读计数
             // 另外：如果是免打扰群组，则不增加未读计数
-            const currentUser = getCurrentUser();
+            
             const isOwnMessage = String(currentUser.id) === String(message.userId);
-            const isCurrentGroup = currentActiveChat === `group_${message.groupId}`;
+            const groupIdStr = String(message.groupId);
+            const isCurrentGroup = currentActiveChat === `group_${groupIdStr}`;
             const isGroupMuted = typeof window.isGroupMuted === 'function' && window.isGroupMuted(message.groupId);
             
             // 只有在当前群组页面且浏览器有焦点且页面可见时，才不增加未读计数
@@ -255,7 +349,7 @@ function initializeWebSocket() {
             }
             
             // 如果当前焦点在群组页面，将群组移到顶部
-            if (pageVisible && currentActiveChat === `group_${message.groupId}`) {
+            if (pageVisible && currentActiveChat === `group_${groupIdStr}`) {
                 if (store && store.moveGroupToTop) {
                     store.moveGroupToTop(message.groupId);
                 }
@@ -266,9 +360,18 @@ function initializeWebSocket() {
                 store.addPublicMessage(message);
             }
             
+            // 检查@通知
+            const currentUser = getCurrentUser();
+            if (message.at_userid && currentUser && !message.isHistory) {
+                const atUserIds = Array.isArray(message.at_userid) ? message.at_userid : [message.at_userid];
+                const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.id));
+                if (isCurrentUserAt) {
+                    toast.info('主聊天室有@你的消息');
+                }
+            }
+            
             // 更新公共聊天未读计数
             // 规则：如果不是自己发送的消息，且 (不在主聊天室路由 或 页面不可见 或 浏览器没有焦点)，则增加未读计数
-            const currentUser = getCurrentUser();
             const isOwnMessage = String(currentUser.id) === String(message.userId);
             
             // 检查当前路由是否在主聊天室（/chat 或 /chat/）
@@ -954,12 +1057,35 @@ function initializeWebSocket() {
         }
     });
     // 监听群组名称更新事件
-    socket.on('group-name-updated', () => {
+    socket.on('group-name-updated', (data) => {
         // 只有登录状态才刷新群组列表
         const currentUser = getCurrentUser();
         const currentSessionToken = getCurrentSessionToken();
         if (currentUser && currentSessionToken) {
             loadGroupList();
+            
+            // 如果有数据并且是当前群组，更新相关状态
+            if (data && data.groupId && data.newGroupName) {
+                const store = window.chatStore;
+                if (store && String(store.currentGroupId) === String(data.groupId)) {
+                    store.currentGroupName = data.newGroupName;
+                }
+                
+                // 更新 sessionStore
+                if (sessionStore && String(sessionStore.currentGroupId) === String(data.groupId)) {
+                    sessionStore.currentGroupName = data.newGroupName;
+                }
+                
+                // 更新 DOM 元素
+                const currentGroupNameElement = document.getElementById('currentGroupName');
+                if (currentGroupNameElement) {
+                    currentGroupNameElement.textContent = data.newGroupName;
+                }
+                const modalGroupName = document.getElementById('modalGroupName');
+                if (modalGroupName) {
+                    modalGroupName.textContent = `${data.newGroupName} - 群组信息`;
+                }
+            }
         }
     });
 
@@ -976,7 +1102,7 @@ function initializeWebSocket() {
             if (modal && modal.style.display === 'flex') {
                 const modalGroupNoticeValue = document.getElementById('modalGroupNoticeValue');
                 if (modalGroupNoticeValue) {
-                    modalGroupNoticeValue.textContent = data.newDescription ? unescapeHtml(data.newDescription) : '暂无群组公告';
+                    modalGroupNoticeValue.textContent = data.newDescription ? data.newDescription : '暂无群组公告';
                 }
             }
         }

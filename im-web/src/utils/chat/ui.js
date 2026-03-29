@@ -739,7 +739,7 @@ function handlePageVisibilityChange() {
         store.clearPrivateUnread(userId);
       }
     }
-    
+
     // 更新未读计数显示和标题
     updateUnreadCountsDisplay();
     updateTitleWithUnreadCount();
@@ -783,7 +783,7 @@ function handleFocusChange() {
         store.clearPrivateUnread(userId);
       }
     }
-    
+
     // 更新未读计数显示和标题
     updateUnreadCountsDisplay();
     updateTitleWithUnreadCount();
@@ -847,17 +847,44 @@ function updateUnreadCountsDisplay() {
 // 来源: 显示错误消息.txt
 function setActiveChat(chatType, id = null, clearUnread = false) {
   const store = window.chatStore;
+  let oldChatType = null;
+  let oldChatId = null;
+  
+  if (store && store.currentActiveChat) {
+    const activeChat = store.currentActiveChat;
+    if (activeChat === 'main') {
+      oldChatType = 'main';
+    } else if (activeChat.startsWith('group_')) {
+      oldChatType = 'group';
+      oldChatId = activeChat.replace('group_', '');
+    } else if (activeChat.startsWith('private_')) {
+      oldChatType = 'private';
+      oldChatId = activeChat.replace('private_', '');
+    }
+  }
+  
+  if (store && oldChatType && store.saveDraft) {
+    let draftContent = '';
+    if (oldChatType === 'main' && store.mainMessageInput) {
+      draftContent = store.mainMessageInput;
+    } else if (oldChatType === 'group' && store.groupMessageInput) {
+      draftContent = store.groupMessageInput;
+    } else if (oldChatType === 'private' && store.privateMessageInput) {
+      draftContent = store.privateMessageInput;
+    }
+    store.saveDraft(oldChatType, oldChatId, draftContent);
+  }
+  
   if (chatType === 'main') {
     currentActiveChat = 'main';
     window.currentActiveChat = 'main';
     if (store) {
       store.currentActiveChat = 'main';
-      // 切换聊天类型时清除引用消息
       if (store.setCurrentActiveChat) {
         store.setCurrentActiveChat('main');
       }
+      // 移除设置 mainMessageInput 的逻辑，由组件 handle
     }
-    // 清除全局未读消息计数
     if (clearUnread && store && store.clearGlobalUnread) {
       store.clearGlobalUnread();
       updateTitleWithUnreadCount();
@@ -867,12 +894,11 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
     window.currentActiveChat = `group_${id}`;
     if (store) {
       store.currentActiveChat = `group_${id}`;
-      // 切换聊天类型时清除引用消息
       if (store.setCurrentActiveChat) {
         store.setCurrentActiveChat(`group_${id}`);
       }
+      // 移除设置 groupMessageInput 的逻辑，由组件 handle
     }
-    // 清除该群组未读消息计数
     if (clearUnread && store && store.clearGroupUnread) {
       store.clearGroupUnread(id);
       updateTitleWithUnreadCount();
@@ -882,12 +908,58 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
     window.currentActiveChat = `private_${id}`;
     if (store) {
       store.currentActiveChat = `private_${id}`;
-      // 切换聊天类型时清除引用消息
+      if (store.setCurrentActiveChat) {
+        store.setCurrentActiveChat(`private_${id}`);
+      }
+      // 移除设置 privateMessageInput 的逻辑，由组件 handle
+    }
+    if (clearUnread && store && store.clearPrivateUnread) {
+      store.clearPrivateUnread(id);
+      updateTitleWithUnreadCount();
+    }
+  }
+}
+
+// 直接设置当前活动聊天室，但不保存旧会话的草稿
+// 由调用者负责保存草稿
+function setActiveChatDirect(chatType, id = null, clearUnread = false) {
+  const store = window.chatStore;
+  
+  if (chatType === 'main') {
+    currentActiveChat = 'main';
+    window.currentActiveChat = 'main';
+    if (store) {
+      store.currentActiveChat = 'main';
+      if (store.setCurrentActiveChat) {
+        store.setCurrentActiveChat('main');
+      }
+    }
+    if (clearUnread && store && store.clearGlobalUnread) {
+      store.clearGlobalUnread();
+      updateTitleWithUnreadCount();
+    }
+  } else if (chatType === 'group' && id) {
+    currentActiveChat = `group_${id}`;
+    window.currentActiveChat = `group_${id}`;
+    if (store) {
+      store.currentActiveChat = `group_${id}`;
+      if (store.setCurrentActiveChat) {
+        store.setCurrentActiveChat(`group_${id}`);
+      }
+    }
+    if (clearUnread && store && store.clearGroupUnread) {
+      store.clearGroupUnread(id);
+      updateTitleWithUnreadCount();
+    }
+  } else if (chatType === 'private' && id) {
+    currentActiveChat = `private_${id}`;
+    window.currentActiveChat = `private_${id}`;
+    if (store) {
+      store.currentActiveChat = `private_${id}`;
       if (store.setCurrentActiveChat) {
         store.setCurrentActiveChat(`private_${id}`);
       }
     }
-    // 清除该好友未读消息计数
     if (clearUnread && store && store.clearPrivateUnread) {
       store.clearPrivateUnread(id);
       updateTitleWithUnreadCount();
@@ -1066,8 +1138,15 @@ async function initializeChat() {
             currentSessionToken = store.currentSessionToken;
             window.currentSessionToken = currentSessionToken;
             
-            // 调用 /self API 获取完整的用户信息
+            // 先刷新 Token，再调用 /self API 获取完整的用户信息
             try {
+                const refreshed = await refreshToken();
+                if (!refreshed) {
+                    console.error('Token 刷新失败，无法获取用户信息');
+                    return;
+                }
+                
+                // Token 刷新后会更新 currentSessionToken，使用更新后的 token 请求 /self
                 const response = await fetch(`${SERVER_URL}/api/self`, {
                     headers: {
                         'user-id': currentUser.id,
@@ -1085,7 +1164,6 @@ async function initializeChat() {
                         avatar_url: data.user.avatar_url
                     };
                     store.currentUser = currentUser;
-                    console.log('✅ initializeChat() 通过 /self API 获取完整用户信息:', currentUser.id);
                 }
             } catch (error) {
                 console.error('获取用户信息失败:', error);
@@ -1112,12 +1190,18 @@ async function initializeChat() {
                     store.setCurrentSessionToken(sessionToken);
                 }
                 
-                // 调用 /self API 获取完整的用户信息
+                // 先刷新 Token，再调用 /self API 获取完整的用户信息
                 try {
+                    const refreshed = await refreshToken();
+                    if (!refreshed) {
+                        console.error('Token 刷新失败，无法获取用户信息');
+                        return;
+                    }
+                    
                     const response = await fetch(`${SERVER_URL}/api/self`, {
                         headers: {
                             'user-id': userId,
-                            'session-token': sessionToken
+                            'session-token': currentSessionToken
                         }
                     });
                     const data = await response.json();
@@ -1133,7 +1217,6 @@ async function initializeChat() {
                         if (store) {
                             store.currentUser = currentUser;
                         }
-                        console.log('✅ initializeChat() 通过 /self API 获取完整用户信息:', currentUser.id);
                     }
                 } catch (error) {
                     console.error('获取用户信息失败:', error);
@@ -1152,10 +1235,19 @@ async function initializeChat() {
                 return;
             }
           } else console.warn('刷新 Token 函数不存在');
-          if (typeof getStore().initializeMessages === 'function') getStore().initializeMessages(); else console.warn('拉取消息失败');
+          
+          // 先等待消息完全加载完成
+          if (typeof getStore().initializeMessages === 'function') {
+            await getStore().initializeMessages(); 
+          } else {
+            console.warn('拉取消息失败');
+          }
+          
           if (typeof initializeWebSocket === 'function') initializeWebSocket(); else console.warn('初始化 WebSocket 失败');
           if (typeof enableMessageSending === 'function') enableMessageSending(); else console.warn('启用消息发送失败');
           if (typeof initializeFocusListeners === 'function') initializeFocusListeners(); else console.warn('初始化焦点监听失败');
+          
+          // 消息加载完成后再初始化群组/私信会话列表（包含最后消息）
           if (typeof loadFriendsList === 'function') loadFriendsList(); else console.warn('加载好友列表失败');
           if (typeof loadGroupList === 'function') loadGroupList(); else console.warn('加载群组列表失败');
         } catch (error) {
@@ -1219,8 +1311,8 @@ function updateUserAvatar() {
         userInitials.style.display = 'none';
     } else {
         // 显示用户首字母，隐藏真实头像（包括SVG格式头像）
-        const unescapedNickname = unescapeHtml(currentUser.nickname || '');
-        const initials = unescapedNickname ? unescapedNickname.charAt(0).toUpperCase() : 'U';
+        const nickname = currentUser.nickname || '';
+        const initials = nickname ? nickname.charAt(0).toUpperCase() : 'U';
         userInitials.textContent = initials;
         userInitials.style.display = 'block';
         currentUserAvatar.style.display = 'none';
@@ -1379,6 +1471,7 @@ export {
   handleFocusChange,
   updateUnreadCountsDisplay,
   setActiveChat,
+  setActiveChatDirect,
   addImageClickEvents,
   addAvatarClickEvents,
   addGroupAvatarClickEvents,
