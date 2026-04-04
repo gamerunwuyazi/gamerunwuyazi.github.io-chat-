@@ -15,7 +15,11 @@ const redis = require('redis');
 // 创建 Redis 客户端（本地无密码）
 const redisClient = redis.createClient({
   host: 'localhost',
-  port: 6379
+  port: 6379,
+  socket: {
+    connectTimeout: 10000,
+    keepAlive: 60000
+  }
 });
 
 // Redis 连接事件处理
@@ -65,9 +69,16 @@ const dbConfig = {
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+  connectionLimit: 20,
+  queueLimit: 0,
+  acquireTimeout: 30000,
+  idleTimeout: 60000,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 30000
 };
+
+// 密码哈希配置
+const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
@@ -897,7 +908,7 @@ function validateMessageContent(content) {
     return true;
   }
   // 允许空内容的消息（用于图片消息）
-  return ip;
+  return true;
 }
 
 // API请求日志记录中间件
@@ -2478,7 +2489,7 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ status: 'error', message: '用户名已存在' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     const [result] = await pool.execute(
         'INSERT INTO chat_users (username, password, nickname, gender, last_online) VALUES (?, ?, ?, ?, NOW())',
@@ -2610,7 +2621,7 @@ app.post('/api/user/change-password', async (req, res) => {
       return res.status(400).json({ status: 'error', message: '原密码错误' });
     }
 
-    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+    const hashedNewPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await pool.execute(
       'UPDATE chat_users SET password = ? WHERE id = ?',
       [hashedNewPassword, userId]

@@ -308,31 +308,34 @@ const quotedMessageParsedContent = computed(() => {
     contentToParse = contentToParse.replace(/!\[([^\]]+)\]\(([^)]+)\)/g, (match, alt, url) => {
       const trimmedUrl = url.trim();
       if (trimmedUrl && !trimmedUrl.startsWith('http') && !trimmedUrl.startsWith('//')) {
-        return `![${alt}](${chatStore.SERVER_URL}${trimmedUrl})`;
+        return `![${escapeHtml(alt)}](${chatStore.SERVER_URL}${escapeHtml(trimmedUrl)})`;
       }
-      return match;
+      return `![${escapeHtml(alt)}](${escapeHtml(url)})`;
     });
 
     contentToParse = contentToParse.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
       const trimmedUrl = url.trim();
       if (trimmedUrl && !trimmedUrl.startsWith('http') && !trimmedUrl.startsWith('//')) {
         if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})?(:\d+)?/.test(trimmedUrl)) {
-          return `[${text}](https://${trimmedUrl})`;
+          return `[${escapeHtml(text)}](https://${escapeHtml(trimmedUrl)})`;
         } else {
-          return `[${text}](${chatStore.SERVER_URL}${trimmedUrl})`;
+          return `[${escapeHtml(text)}](${chatStore.SERVER_URL}${escapeHtml(trimmedUrl)})`;
         }
       }
-      return match;
+      return `[${escapeHtml(text)}](${escapeHtml(url)})`;
     });
 
     const urlRegex = /(?<!\]\()(?<!\[)(?<!https?:\/\/[^?&"'<>\s]+\?.*)(?<!https?:\/\/[^?&"'<>\s]+&.*)(https?:\/\/(?:[^\s"'<>]+))/g;
-    contentToParse = contentToParse.replace(urlRegex, '[$1]($1)');
+    contentToParse = contentToParse.replace(urlRegex, (url) => {
+      const safeUrl = escapeHtml(url);
+      return `[${safeUrl}](${safeUrl})`;
+    });
   }
 
   const renderer = new marked.Renderer();
   renderer.code = function({ text, lang }) {
-    const language = lang || 'text';
-    const code = text;
+    const language = escapeHtml(lang || 'text');
+    const code = escapeHtml(text);
     const encodedCode = encodeURIComponent(code);
     
     const lines = code.split('\n');
@@ -474,9 +477,10 @@ const parsedContent = computed(() => {
     // 使用正则表达式识别 URL 并转换为可点击链接
     const urlRegex = /(https?:\/\/[^\s<>"']+)/g;
     escapedContent = escapedContent.replace(urlRegex, (url) => {
-      return `<a href="${url}" class="message-link" target="_blank" rel="noopener noreferrer" style="color: #3498db; text-decoration: none;">${url}</a>`;
+      const safeUrl = escapeHtml(url);
+      return `<a href="${safeUrl}" class="message-link" target="_blank" rel="noopener noreferrer" style="color: #3498db; text-decoration: none;">${safeUrl}</a>`;
     });
-    return `<p>${escapedContent}</p>`;
+    return DOMPurify.sanitize(`<p>${escapedContent}</p>`);
   }
 
   let contentToParse = textContent.value;
@@ -486,31 +490,34 @@ const parsedContent = computed(() => {
     contentToParse = contentToParse.replace(/!\[([^\]]+)\]\(([^)]+)\)/g, (match, alt, url) => {
       const trimmedUrl = url.trim();
       if (trimmedUrl && !trimmedUrl.startsWith('http') && !trimmedUrl.startsWith('//')) {
-        return `![${alt}](${chatStore.SERVER_URL}${trimmedUrl})`;
+        return `![${escapeHtml(alt)}](${chatStore.SERVER_URL}${escapeHtml(trimmedUrl)})`;
       }
-      return match;
+      return `![${escapeHtml(alt)}](${escapeHtml(url)})`;
     });
 
     contentToParse = contentToParse.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
       const trimmedUrl = url.trim();
       if (trimmedUrl && !trimmedUrl.startsWith('http') && !trimmedUrl.startsWith('//')) {
         if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})?(:\d+)?/.test(trimmedUrl)) {
-          return `[${text}](https://${trimmedUrl})`;
+          return `[${escapeHtml(text)}](https://${escapeHtml(trimmedUrl)})`;
         } else {
-          return `[${text}](${chatStore.SERVER_URL}${trimmedUrl})`;
+          return `[${escapeHtml(text)}](${chatStore.SERVER_URL}${escapeHtml(trimmedUrl)})`;
         }
       }
-      return match;
+      return `[${escapeHtml(text)}](${escapeHtml(url)})`;
     });
 
     const urlRegex = /(?<!\]\()(?<!\[)(?<!https?:\/\/[^?&"'<>\s]+\?.*)(?<!https?:\/\/[^?&"'<>\s]+&.*)(https?:\/\/(?:[^\s"'<>]+))/g;
-    contentToParse = contentToParse.replace(urlRegex, '[$1]($1)');
+    contentToParse = contentToParse.replace(urlRegex, (url) => {
+      const safeUrl = escapeHtml(url);
+      return `[${safeUrl}](${safeUrl})`;
+    });
   }
 
   const renderer = new marked.Renderer();
   renderer.code = function({ text, lang }) {
-    const language = lang || 'text';
-    const code = text;
+    const language = escapeHtml(lang || 'text');
+    const code = escapeHtml(text);
     const encodedCode = encodeURIComponent(code);
     
     const lines = code.split('\n');
