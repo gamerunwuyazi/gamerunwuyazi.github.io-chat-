@@ -108,8 +108,11 @@
             📷 <span class="button-text">发送图片</span>
           </button>
           <button id="groupFileUploadButton" title="上传文件" @click="handleGroupFileUploadClick">
-            📤 <span class="button-text">发送文件</span>
-          </button>
+          📤 <span class="button-text">发送文件</span>
+        </button>
+        <button id="groupVideoUploadButton" title="上传视频" @click="handleGroupVideoUploadClick">
+          🎬 <span class="button-text">发送视频</span>
+        </button>
           <button id="sendGroupCardButtonGroup" title="发送群名片" @click="handleSendGroupCard">
             📱 <span class="button-text">发送群名片</span>
           </button>
@@ -119,6 +122,7 @@
         </div>
         <input v-if="showImageInput" type="file" ref="groupImageInputRef" id="groupImageInput" style="display: none;" accept="image/*" @change="handleGroupImageUpload" @cancel="handleGroupImageCancel">
         <input v-if="showFileInput" type="file" ref="groupFileInputRef" id="groupFileInput" style="display: none;" @change="handleGroupFileUpload" @cancel="handleGroupFileCancel">
+        <input v-if="showVideoInput" type="file" ref="groupVideoInputRef" id="groupVideoInput" style="display: none;" accept="video/*" @change="handleGroupVideoUpload" @cancel="handleGroupVideoCancel">
       </div>
 
       <div v-if="chatStore.showUploadProgress" class="upload-progress" id="groupUploadProgress">
@@ -260,7 +264,7 @@ import { useRoute } from "vue-router";
 import localForage from "localforage";
 import GroupMessageItem from "@/components/MessageItem/GroupMessageItem.vue";
 import QuotedMessagePreview from "@/components/MessageItem/QuotedMessagePreview.vue";
-import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile, clearContentEditable } from "@/utils/chat";
+import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile, uploadVideo, clearContentEditable } from "@/utils/chat";
 import toast from "@/utils/toast";
 
 const chatStore = useChatStore();
@@ -268,9 +272,11 @@ const route = useRoute();
 const groupMessageInputRef = ref(null);
 const groupImageInputRef = ref(null);
 const groupFileInputRef = ref(null);
+const groupVideoInputRef = ref(null);
 const groupMessageContainerRef = ref(null);
 const showImageInput = ref(false);
 const showFileInput = ref(false);
+const showVideoInput = ref(false);
 const isDragOver = ref(false);
 let dragCounter = 0;
 let previousGroupMessageLength = 0;
@@ -1068,6 +1074,30 @@ function handleGroupFileUpload(e) {
 
 function handleGroupFileCancel() {
   showFileInput.value = false;
+}
+
+function handleGroupVideoUploadClick() {
+  showVideoInput.value = true;
+  nextTick(() => {
+    if (groupVideoInputRef.value) {
+      groupVideoInputRef.value.click();
+    }
+  });
+}
+
+function handleGroupVideoUpload(e) {
+  const file = e.target.files[0];
+  if (file) {
+    uploadVideo(file);
+  }
+  showVideoInput.value = false;
+  if (groupVideoInputRef.value) {
+    groupVideoInputRef.value.value = '';
+  }
+}
+
+function handleGroupVideoCancel() {
+  showVideoInput.value = false;
 }
 
 // 查找消息功能

@@ -207,8 +207,8 @@ app.use((req, res, next) => {
 const pool = mysql.createPool(dbConfig);
 
 // 中间件
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // 获取真实IP地址
 function getClientIP(req) {
@@ -295,7 +295,8 @@ const excludedPaths = {
     '/api/admin/banned-ips',
     '/api/register',
     '/api/login',
-    '/api/refresh-token'
+    '/api/refresh-token',
+    '/api/check-username'
   ],
   'GET': [
     '/avatars',
@@ -539,7 +540,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024
+    fileSize: 15 * 1024 * 1024
   },
   fileFilter: function (req, file, cb) {
     const ext = path.extname(file.originalname).toLowerCase();
@@ -1335,13 +1336,10 @@ app.post('/api/admin/ban-ip', async (req, res) => {
         }));
 
       // 只向已认证用户广播用户列表
-      const authenticatedUserIds = await redisClient.sMembers('scr:authenticated_users');
-      for (const authUserId of authenticatedUserIds) {
-        io.to(`user_${authUserId}`).emit('users-list', {
-          online: onlineUsersArray,
-          offline: offlineUsersArray
-        });
-      }
+      io.to('authenticated_users').emit('users-list', {
+        online: onlineUsersArray,
+        offline: offlineUsersArray
+      });
     }
     
     // 再处理用户ID封禁（如果提供了）
@@ -1371,7 +1369,7 @@ app.post('/api/admin/ban-ip', async (req, res) => {
         const user = await getOnlineUser(socket.id);
         if (user) {
           await removeOnlineUser(socket.id);
-          await removeAuthenticatedUser(user.id);
+          await removeAuthenticatedUser(user.id, socket);
           
           try {
             await pool.execute(
@@ -1417,13 +1415,10 @@ app.post('/api/admin/ban-ip', async (req, res) => {
           }));
 
         // 只向已认证用户广播用户列表
-        const authenticatedUserIds = await redisClient.sMembers('scr:authenticated_users');
-        for (const authUserId of authenticatedUserIds) {
-          io.to(`user_${authUserId}`).emit('users-list', {
-            online: onlineUsersArray,
-            offline: offlineUsersArray
-          });
-        }
+        io.to('authenticated_users').emit('users-list', {
+          online: onlineUsersArray,
+          offline: offlineUsersArray
+        });
       }
     }
     
@@ -2258,7 +2253,7 @@ async function getGlobalMessages(limit = 50, olderThan = null) {
     // 对于user-joined事件，我们不需要更新缓存，因为它会覆盖之前添加的图片消息
     // 所以这里不再总是更新缓存
     
-    return processedMessages;
+    return processedMessages.reverse();
   } catch (err) {
     console.error('获取全局消息失败:', err.message);
     return [];
@@ -2356,7 +2351,7 @@ async function getGroupMessages(groupId, limit = 50, olderThan = null) {
       return baseMessage;
     });
     
-    return processedMessages;
+    return processedMessages.reverse();
   } catch (err) {
     console.error('获取群组消息失败:', err.message);
     return [];
@@ -2680,10 +2675,7 @@ app.post('/api/user/update-nickname', async (req, res) => {
     };
 
     // 只向已认证用户广播102消息事件
-    const authenticatedUserIds = await redisClient.sMembers('scr:authenticated_users');
-    for (const authUserId of authenticatedUserIds) {
-      io.to(`user_${authUserId}`).emit('message-received', type102Message);
-    }
+    io.to('authenticated_users').emit('message-received', type102Message);
 
     res.json({ status: 'success', message: '昵称修改成功', nickname: newNickname });
   } catch (err) {
@@ -3285,10 +3277,7 @@ app.post('/api/upload-avatar', avatarUpload.single('avatar'), async (req, res, n
     };
 
     // 只向已认证用户广播102消息事件
-    const authenticatedUserIds = await redisClient.sMembers('scr:authenticated_users');
-    for (const authUserId of authenticatedUserIds) {
-      io.to(`user_${authUserId}`).emit('message-received', type102Message);
-    }
+    io.to('authenticated_users').emit('message-received', type102Message);
 
     res.json({
       status: 'success',
@@ -3344,7 +3333,7 @@ app.get('/api/offline-messages', async (req, res) => {
         AND m.timestamp >= ?
         AND m.id > ?
       ORDER BY m.timestamp DESC, m.id DESC
-      LIMIT 200
+      LIMIT 2500
     `, [threeMonthsAgo, publicAndGroupMinId]);
     
     // 2. 获取用户所在群组的消息
@@ -3377,7 +3366,7 @@ app.get('/api/offline-messages', async (req, res) => {
           AND m.timestamp >= ?
           AND m.id > ?
         ORDER BY m.timestamp DESC, m.id DESC
-        LIMIT 200
+        LIMIT 8000
       `, [...groupIds, threeMonthsAgo, publicAndGroupMinId]);
     }
     
@@ -3402,7 +3391,7 @@ app.get('/api/offline-messages', async (req, res) => {
         AND pm.timestamp >= ?
         AND pm.id > ?
       ORDER BY pm.timestamp DESC, pm.id DESC
-      LIMIT 200
+      LIMIT 5000
     `, [userId, userId, threeMonthsAgo, privateMinId]);
     
     const processedPublicMessages = publicMessages.map(msg => {
@@ -3478,9 +3467,9 @@ app.get('/api/offline-messages', async (req, res) => {
 
     res.json({
       status: 'success',
-      publicMessages: processedPublicMessages,
-      groupMessages: processedGroupMessages,
-      privateMessages: processedPrivateMessages
+      publicMessages: processedPublicMessages.reverse(),
+      groupMessages: processedGroupMessages.reverse(),
+      privateMessages: processedPrivateMessages.reverse()
     });
   } catch (err) {
     console.error('获取离线消息失败:', err.message);
@@ -4320,22 +4309,32 @@ async function isUserOnline(socketId) {
   }
 }
 
-// 已认证用户管理（使用 Redis）
-// 存储在 Redis key: scr:authenticated_users (Set)
+// 已认证用户管理（使用 socket.io 原生房间）
+// 房间名：authenticated_users
 
-// 添加已认证用户
-async function addAuthenticatedUser(userId) {
+// 添加已认证用户到房间
+async function addAuthenticatedUser(userId, socket) {
   try {
+    // 添加到 Redis Set（保留用于兼容性检查）
     await redisClient.sAdd('scr:authenticated_users', String(userId));
+    // 添加到 socket.io 房间
+    if (socket) {
+      socket.join('authenticated_users');
+    }
   } catch (err) {
     console.error('添加已认证用户失败:', err.message);
   }
 }
 
-// 移除已认证用户
-async function removeAuthenticatedUser(userId) {
+// 从房间移除已认证用户
+async function removeAuthenticatedUser(userId, socket) {
   try {
+    // 从 Redis Set 移除
     await redisClient.sRem('scr:authenticated_users', String(userId));
+    // 从 socket.io 房间移除
+    if (socket) {
+      socket.leave('authenticated_users');
+    }
   } catch (err) {
     console.error('移除已认证用户失败:', err.message);
   }
@@ -4465,13 +4464,10 @@ async function forceDisconnectUser(socket, reason = 'session-expired') {
       }));
 
     // 只向已认证用户广播用户列表
-    const authenticatedUserIds = await redisClient.sMembers('scr:authenticated_users');
-    for (const authUserId of authenticatedUserIds) {
-      io.to(`user_${authUserId}`).emit('users-list', {
-        online: onlineUsersArray,
-        offline: offlineUsersArray
-      });
-    }
+    io.to('authenticated_users').emit('users-list', {
+      online: onlineUsersArray,
+      offline: offlineUsersArray
+    });
   }
   
   // 发送事件并断开连接
@@ -4651,8 +4647,8 @@ io.on('connection', (socket) => {
           sessionToken: userData.sessionToken
         });
     
-        // 将用户添加到已认证集合，只有发送过 user-joined 的用户才能收到主聊天室消息
-        await addAuthenticatedUser(userId);
+        // 将用户添加到已认证集合和房间，只有发送过 user-joined 的用户才能收到主聊天室消息
+        await addAuthenticatedUser(userId, socket);
     
         // 更新用户最后在线时间
         await pool.execute(
@@ -4716,13 +4712,10 @@ io.on('connection', (socket) => {
           }));
 
         // 只向已认证用户广播用户列表
-        const authenticatedUserIds = await redisClient.sMembers('scr:authenticated_users');
-        for (const authUserId of authenticatedUserIds) {
-          io.to(`user_${authUserId}`).emit('users-list', {
-            online: onlineUsersArray,
-            offline: offlineUsersArray
-          });
-        }
+        io.to('authenticated_users').emit('users-list', {
+          online: onlineUsersArray,
+          offline: offlineUsersArray
+        });
 
         // 发送加入确认事件
         socket.emit('user-joined-confirmed', {
@@ -5080,6 +5073,67 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 消息已读事件（支持私信和群组）
+  socket.on('message-read', async (data) => {
+    try {
+      if (!data) {
+        return;
+      }
+      
+      const { type, userId, friendId, groupId } = data;
+      
+      // 验证必需参数
+      if (!type || !userId) {
+        return;
+      }
+      
+      const numericUserId = parseInt(userId);
+      if (isNaN(numericUserId)) {
+        return;
+      }
+      
+      if (type === 'private') {
+        if (!friendId) {
+          return;
+        }
+        
+        const numericFriendId = parseInt(friendId);
+        if (isNaN(numericFriendId)) {
+          return;
+        }
+        
+        // 处理私信已读
+        // 更新数据库中对方发给自己的未读消息为已读
+        await pool.execute(
+          'UPDATE chat_private_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0',
+          [numericFriendId, numericUserId]
+        );
+        
+        // 发送已读事件给对方
+        io.to(`user_${numericFriendId}`).emit('private-message-read', {
+          fromUserId: numericUserId,
+          friendId: numericFriendId
+        });
+        
+      } else if (type === 'group') {
+        if (!groupId) {
+          return;
+        }
+        
+        // 处理群组已读（预留，后续实现）
+        const numericGroupId = parseInt(groupId);
+        if (isNaN(numericGroupId)) {
+          return;
+        }
+      } else {
+        return;
+      }
+      
+    } catch (err) {
+      console.error('❌ 处理消息已读事件失败:', err.message);
+      console.error('❌ 错误详情:', err);
+    }
+  });
 
 
   // 统一加载消息事件（支持全局、群组、私信）
@@ -5236,7 +5290,7 @@ io.on('connection', (socket) => {
           return message;
         });
         
-        responseData.messages = messages;
+        responseData.messages = messages.reverse();
         responseData.friendId = numericFriendId;
         socket.emit('messages-loaded', responseData);
       } else {
@@ -5413,10 +5467,10 @@ io.on('connection', (socket) => {
 
   // 用户断开连接
   socket.on('disconnect', async (reason) => {
-    // 从已认证用户集合中移除
+    // 从已认证用户集合和房间中移除
     const user = await getOnlineUser(socket.id);
     if (user) {
-      await removeAuthenticatedUser(user.id);
+      await removeAuthenticatedUser(user.id, socket);
     }
 
     // 从在线用户列表中移除
@@ -5463,13 +5517,10 @@ io.on('connection', (socket) => {
         }));
 
       // 只向已认证用户广播用户列表
-      const authenticatedUserIds = await redisClient.sMembers('scr:authenticated_users');
-      for (const authUserId of authenticatedUserIds) {
-        io.to(`user_${authUserId}`).emit('users-list', {
-          online: onlineUsersArray,
-          offline: offlineUsersArray
-        });
-      }
+      io.to('authenticated_users').emit('users-list', {
+        online: onlineUsersArray,
+        offline: offlineUsersArray
+      });
     }
   });
 

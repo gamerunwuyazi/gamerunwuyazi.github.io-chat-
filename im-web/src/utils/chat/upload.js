@@ -198,7 +198,7 @@ function uploadFile(file) {
   }
 
   uploadWithProgress(
-    `${SERVER_URL}/upload`,
+    `${SERVER_URL}/api/upload`,
     formData,
     store,
     () => {},
@@ -234,7 +234,7 @@ function uploadPrivateImage(file) {
   }
 
   uploadWithProgress(
-    `${SERVER_URL}/upload`,
+    `${SERVER_URL}/api/upload`,
     formData,
     store,
     (data) => {
@@ -282,7 +282,99 @@ function uploadPrivateFile(file) {
   }
 
   uploadWithProgress(
-    `${SERVER_URL}/upload`,
+    `${SERVER_URL}/api/upload`,
+    formData,
+    store,
+    (data) => {
+      const messageData = {
+        userId: user.id,
+        content: JSON.stringify({ url: data.url, name: file.name, size: file.size }),
+        receiverId: privateChatUserId,
+        sessionToken: token,
+        messageType: 2
+      };
+
+      if (window.chatSocket) {
+        window.chatSocket.emit('send-private-message', messageData);
+      }
+    },
+    () => showError('上传失败')
+  );
+}
+
+function uploadVideo(file) {
+  syncCurrentActiveChat();
+  
+  const chat = String(window.currentActiveChat || 'main');
+  
+  if (chat.startsWith('private_')) {
+    uploadPrivateVideo(file);
+    return;
+  }
+  
+  const user = getCurrentUser();
+  const token = getCurrentSessionToken();
+  if (!user || !token) {
+    return;
+  }
+  const store = getStore();
+  
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('userId', user.id);
+
+  const isGroupChat = chat !== 'main';
+  if (isGroupChat) {
+    let groupId = chat;
+    if (typeof groupId === 'string' && groupId.startsWith('group_')) {
+      groupId = groupId.replace('group_', '');
+    }
+    formData.append('groupId', groupId);
+  }
+
+  if (store) {
+    store.showUploadProgress = true;
+    store.uploadProgress = 0;
+  }
+
+  uploadWithProgress(
+    `${SERVER_URL}/api/upload`,
+    formData,
+    store,
+    () => {},
+    () => showError('上传失败')
+  );
+}
+
+function uploadPrivateVideo(file) {
+  const user = getCurrentUser();
+  const token = getCurrentSessionToken();
+  
+  if (!user || !token) return;
+
+  const privateChatUserId = window.currentPrivateChatUserId;
+  if (!privateChatUserId) return;
+
+  const store = getStore();
+  const friendsList = store?.friendsList || [];
+  const isFriend = friendsList.some(friend => String(friend.id) === String(privateChatUserId));
+  if (!isFriend) {
+    showError('您与该用户不是好友，无法发送私信');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('userId', user.id);
+  formData.append('privateChat', true);
+
+  if (store) {
+    store.showUploadProgress = true;
+    store.uploadProgress = 0;
+  }
+
+  uploadWithProgress(
+    `${SERVER_URL}/api/upload`,
     formData,
     store,
     (data) => {
@@ -383,6 +475,17 @@ function initializeUpload() {
     });
   }
 
+  const videoInput = document.getElementById('videoInput');
+  if (videoInput) {
+    videoInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        uploadVideo(file);
+        videoInput.value = '';
+      }
+    });
+  }
+
   const privateImageInput = document.getElementById('privateImageInput');
   if (privateImageInput) {
     privateImageInput.addEventListener('change', function(e) {
@@ -399,6 +502,46 @@ function initializeUpload() {
       const file = e.target.files[0];
       if (file) {
         uploadPrivateFile(file);
+      }
+    });
+  }
+
+  const privateVideoInput = document.getElementById('privateVideoInput');
+  if (privateVideoInput) {
+    privateVideoInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        uploadPrivateVideo(file);
+      }
+    });
+  }
+
+  const groupImageInput = document.getElementById('groupImageInput');
+  if (groupImageInput) {
+    groupImageInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        uploadImage(file);
+      }
+    });
+  }
+
+  const groupFileInput = document.getElementById('groupFileInput');
+  if (groupFileInput) {
+    groupFileInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        uploadFile(file);
+      }
+    });
+  }
+
+  const groupVideoInput = document.getElementById('groupVideoInput');
+  if (groupVideoInput) {
+    groupVideoInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        uploadVideo(file);
       }
     });
   }
@@ -508,12 +651,15 @@ function initializeScrollLoading(force = false) {
           const newLocalMessages = fullMessages.filter(m => !storeIds.has(m.id) && olderThan !== null && m.id < olderThan);
           
           if (newLocalMessages.length > 0) {
-            // 按 ID 降序排序（从大到小，最新的在前）
+            // 按 ID 降序排序（从大到小，最接近 olderThan 的在前）
             newLocalMessages.sort((a, b) => b.id - a.id);
             
             // 每次只加载 20 条
             const pageSize = 20;
             const messagesToAdd = newLocalMessages.slice(0, pageSize);
+            
+            // 按 ID 升序排序后再添加（从小到大，最旧的在前）
+            messagesToAdd.sort((a, b) => a.id - b.id);
             
             // 添加到 store
             if (isPrivate && store.prependPrivateMessages) {
@@ -557,12 +703,15 @@ function initializeScrollLoading(force = false) {
             const newLocalMessages = localMessages.filter(m => !storeIds.has(m.id) && olderThan !== null && m.id < olderThan);
             
             if (newLocalMessages.length > 0) {
-              // 按 ID 降序排序（从大到小，最新的在前）
+              // 按 ID 降序排序（从大到小，最接近 olderThan 的在前）
               newLocalMessages.sort((a, b) => b.id - a.id);
               
               // 每次只加载 20 条
               const pageSize = 20;
               const messagesToAdd = newLocalMessages.slice(0, pageSize);
+              
+              // 按 ID 升序排序后再添加（从小到大，最旧的在前）
+              messagesToAdd.sort((a, b) => a.id - b.id);
               
               // 添加到 store
               if (isPrivate && store.prependPrivateMessages) {
@@ -829,8 +978,10 @@ function initializeEventDelegation() {
 export {
   uploadImage,
   uploadFile,
+  uploadVideo,
   uploadPrivateImage,
   uploadPrivateFile,
+  uploadPrivateVideo,
   uploadUserAvatar,
   initializeUpload,
   initializeScrollLoading,

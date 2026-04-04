@@ -2,12 +2,6 @@ import { defineStore } from 'pinia';
 import { ref, toRaw } from 'vue';
 import localForage from 'localforage';
 
-function unescapeHtml(html) {
-  const text = document.createElement('textarea');
-  text.innerHTML = html;
-  return text.value;
-}
-
 let cachePublicMessages = [];
 let cacheGroupMessages = {};
 let cachePrivateMessages = {};
@@ -301,13 +295,13 @@ export const useChatStore = defineStore('chat', () => {
     if (!exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
       messages.push(message);
     }
-    // 同时更新完整消息列表（包括101和102消息），新消息在前
+    // 同时更新完整消息列表（包括101和102消息），新消息在后
     if (fullPublicMessages === null) {
       fullPublicMessages = [message];
     } else {
       const fullExists = fullPublicMessages.some(m => m.id === message.id);
       if (!fullExists) {
-        fullPublicMessages.unshift(message);
+        fullPublicMessages.push(message);
       }
     }
     // 更新 minId
@@ -330,13 +324,13 @@ export const useChatStore = defineStore('chat', () => {
     if (!exists && !isWithdrawMessage) {
       messages.push(message);
     }
-    // 同时更新完整消息列表（包括101消息），新消息在前
+    // 同时更新完整消息列表（包括101消息），新消息在后
     if (fullGroupMessages[groupId] === null || fullGroupMessages[groupId] === undefined) {
       fullGroupMessages[groupId] = [message];
     } else {
       const fullExists = fullGroupMessages[groupId].some(m => m.id === message.id);
       if (!fullExists) {
-        fullGroupMessages[groupId].unshift(message);
+        fullGroupMessages[groupId].push(message);
       }
     }
     // 更新 minId
@@ -359,13 +353,13 @@ export const useChatStore = defineStore('chat', () => {
     if (!exists && !isWithdrawMessage) {
       messages.push(message);
     }
-    // 同时更新完整消息列表（包括101消息），新消息在前
+    // 同时更新完整消息列表（包括101消息），新消息在后
     if (fullPrivateMessages[userId] === null || fullPrivateMessages[userId] === undefined) {
       fullPrivateMessages[userId] = [message];
     } else {
       const fullExists = fullPrivateMessages[userId].some(m => m.id === message.id);
       if (!fullExists) {
-        fullPrivateMessages[userId].unshift(message);
+        fullPrivateMessages[userId].push(message);
       }
     }
     // 更新 minId
@@ -381,26 +375,22 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function sortMessages(messages) {
-    return [...messages].reverse();
-  }
-
   function setPublicMessages(messages) {
-    const sortedMessages = sortMessages(messages);
     if (loading.value) {
-      cachePublicMessages = sortedMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+      cachePublicMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
     } else {
       // 更新完整消息列表（保存原始顺序）
       if (fullPublicMessages === null) {
         fullPublicMessages = [...messages];
       } else {
-        // 合并现有消息和新消息（新消息在前，保持原始顺序）
-        const existingIds = new Set(fullPublicMessages.map(m => m.id));
-        const newMessages = messages.filter(m => !existingIds.has(m.id));
-        fullPublicMessages = [...newMessages, ...fullPublicMessages];
+        // 合并现有消息和新消息（新消息在后，保持原始顺序）
+        const fullExistingIds = new Set(fullPublicMessages.map(m => m.id));
+        const fullNewMessages = messages.filter(m => !fullExistingIds.has(m.id));
+        fullPublicMessages = [...fullPublicMessages, ...fullNewMessages];
       }
-      // 只在 store 中保存最近 20 条非101、非102消息（反转后用于显示）
-      publicMessages.value = sortedMessages.filter(m => m.messageType !== 101 && m.messageType !== 102).slice(-20);
+      // 只在 store 中保存最近 20 条非101、非102消息（用于显示）
+      const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+      publicMessages.value = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
       publicStored.value = false;
       saveToStorage();
     }
@@ -416,48 +406,47 @@ export const useChatStore = defineStore('chat', () => {
           const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.value.id));
           if (isCurrentUserAt) {
             setGroupHasAtMe(groupId);
-            break;
           }
         }
       }
     }
     
-    const sortedMessages = sortMessages(messages);
     if (loading.value) {
-      cacheGroupMessages[groupId] = sortedMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+      cacheGroupMessages[groupId] = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
     } else {
       // 更新完整消息列表（保存原始顺序）
       if (fullGroupMessages[groupId] === null || fullGroupMessages[groupId] === undefined) {
         fullGroupMessages[groupId] = [...messages];
       } else {
-        // 合并现有消息和新消息（新消息在前，保持原始顺序）
-        const existingIds = new Set(fullGroupMessages[groupId].map(m => m.id));
-        const newMessages = messages.filter(m => !existingIds.has(m.id));
-        fullGroupMessages[groupId] = [...newMessages, ...fullGroupMessages[groupId]];
+        // 合并现有消息和新消息（新消息在后，保持原始顺序）
+        const fullExistingIds = new Set(fullGroupMessages[groupId].map(m => m.id));
+        const fullNewMessages = messages.filter(m => !fullExistingIds.has(m.id));
+        fullGroupMessages[groupId] = [...fullGroupMessages[groupId], ...fullNewMessages];
       }
-      // 只在 store 中保存最近 20 条非101、非102消息（反转后用于显示）
-      groupMessages.value[groupId] = sortedMessages.filter(m => m.messageType !== 101 && m.messageType !== 102).slice(-20);
+      // 只在 store 中保存最近 20 条非101、非102消息（用于显示）
+      const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+      groupMessages.value[groupId] = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
       groupStored.value[groupId] = false;
       saveToStorage();
     }
   }
 
   function setPrivateMessages(userId, messages) {
-    const sortedMessages = sortMessages(messages);
     if (loading.value) {
-      cachePrivateMessages[userId] = sortedMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+      cachePrivateMessages[userId] = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
     } else {
       // 更新完整消息列表（保存原始顺序）
       if (fullPrivateMessages[userId] === null || fullPrivateMessages[userId] === undefined) {
         fullPrivateMessages[userId] = [...messages];
       } else {
-        // 合并现有消息和新消息（新消息在前，保持原始顺序）
-        const existingIds = new Set(fullPrivateMessages[userId].map(m => m.id));
-        const newMessages = messages.filter(m => !existingIds.has(m.id));
-        fullPrivateMessages[userId] = [...newMessages, ...fullPrivateMessages[userId]];
+        // 合并现有消息和新消息（新消息在后，保持原始顺序）
+        const fullExistingIds = new Set(fullPrivateMessages[userId].map(m => m.id));
+        const fullNewMessages = messages.filter(m => !fullExistingIds.has(m.id));
+        fullPrivateMessages[userId] = [...fullPrivateMessages[userId], ...fullNewMessages];
       }
-      // 只在 store 中保存最近 20 条非101、非102消息（反转后用于显示）
-      privateMessages.value[userId] = sortedMessages.filter(m => m.messageType !== 101 && m.messageType !== 102).slice(-20);
+      // 只在 store 中保存最近 20 条非101、非102消息（用于显示）
+      const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+      privateMessages.value[userId] = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
       privateStored.value[userId] = false;
       saveToStorage();
     }
@@ -466,18 +455,22 @@ export const useChatStore = defineStore('chat', () => {
   function prependPublicMessages(messages) {
     const targetMessages = loading.value ? cachePublicMessages : publicMessages.value;
     const existingIds = new Set(targetMessages.map(m => m.id));
-    const newMessages = messages.filter(m => !existingIds.has(m.id)).sort((a, b) => a.id - b.id);
+    const newMessages = messages.filter(m => !existingIds.has(m.id));
     const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
     
     if (loading.value) {
       cachePublicMessages = [...displayNewMessages, ...cachePublicMessages];
     } else {
-      // 更新完整消息列表
+      // 更新完整消息列表 - 新消息（加载的是更旧的消息）放在前面
       if (fullPublicMessages !== null) {
         const fullIds = new Set(fullPublicMessages.map(m => m.id));
         const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
+        // 确保按 ID 升序排序（从小到大，最旧的在前）
+        fullNewMessages.sort((a, b) => a.id - b.id);
         fullPublicMessages = [...fullNewMessages, ...fullPublicMessages];
       }
+      // 确保按 ID 升序排序（从小到大，最旧的在前）
+      displayNewMessages.sort((a, b) => a.id - b.id);
       publicMessages.value = [...displayNewMessages, ...publicMessages.value];
       publicStored.value = false;
       saveToStorage();
@@ -502,17 +495,21 @@ export const useChatStore = defineStore('chat', () => {
     
     const targetMessages = loading.value ? (cacheGroupMessages[groupId] || (cacheGroupMessages[groupId] = [])) : (groupMessages.value[groupId] || (groupMessages.value[groupId] = []));
     const existingIds = new Set(targetMessages.map(m => m.id));
-    const newMessages = messages.filter(m => !existingIds.has(m.id)).sort((a, b) => a.id - b.id);
+    const newMessages = messages.filter(m => !existingIds.has(m.id));
     const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
     if (loading.value) {
       cacheGroupMessages[groupId] = [...displayNewMessages, ...(cacheGroupMessages[groupId] || [])];
     } else {
-      // 更新完整消息列表
+      // 更新完整消息列表 - 新消息（加载的是更旧的消息）放在前面
       if (fullGroupMessages[groupId] !== null && fullGroupMessages[groupId] !== undefined) {
         const fullIds = new Set(fullGroupMessages[groupId].map(m => m.id));
         const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
+        // 确保按 ID 升序排序（从小到大，最旧的在前）
+        fullNewMessages.sort((a, b) => a.id - b.id);
         fullGroupMessages[groupId] = [...fullNewMessages, ...fullGroupMessages[groupId]];
       }
+      // 确保按 ID 升序排序（从小到大，最旧的在前）
+      displayNewMessages.sort((a, b) => a.id - b.id);
       groupMessages.value[groupId] = [...displayNewMessages, ...groupMessages.value[groupId]];
       groupStored.value[groupId] = false;
       saveToStorage();
@@ -522,17 +519,21 @@ export const useChatStore = defineStore('chat', () => {
   function prependPrivateMessages(userId, messages) {
     const targetMessages = loading.value ? (cachePrivateMessages[userId] || (cachePrivateMessages[userId] = [])) : (privateMessages.value[userId] || (privateMessages.value[userId] = []));
     const existingIds = new Set(targetMessages.map(m => m.id));
-    const newMessages = messages.filter(m => !existingIds.has(m.id)).sort((a, b) => a.id - b.id);
+    const newMessages = messages.filter(m => !existingIds.has(m.id));
     const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
     if (loading.value) {
       cachePrivateMessages[userId] = [...displayNewMessages, ...(cachePrivateMessages[userId] || [])];
     } else {
-      // 更新完整消息列表
+      // 更新完整消息列表 - 新消息（加载的是更旧的消息）放在前面
       if (fullPrivateMessages[userId] !== null && fullPrivateMessages[userId] !== undefined) {
         const fullIds = new Set(fullPrivateMessages[userId].map(m => m.id));
         const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
+        // 确保按 ID 升序排序（从小到大，最旧的在前）
+        fullNewMessages.sort((a, b) => a.id - b.id);
         fullPrivateMessages[userId] = [...fullNewMessages, ...fullPrivateMessages[userId]];
       }
+      // 确保按 ID 升序排序（从小到大，最旧的在前）
+      displayNewMessages.sort((a, b) => a.id - b.id);
       privateMessages.value[userId] = [...displayNewMessages, ...privateMessages.value[userId]];
       privateStored.value[userId] = false;
       saveToStorage();
@@ -707,6 +708,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function clearGroupUnread(groupId) {
+    // 先从 localStorage 加载最新数据，避免覆盖
+    loadUnreadCountsFromLocalStorage();
     const groupIdStr = String(groupId);
     if (unreadMessages.value.groups && unreadMessages.value.groups[groupIdStr]) {
       delete unreadMessages.value.groups[groupIdStr];
@@ -716,15 +719,23 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function clearPrivateUnread(userId) {
+    // 先从 localStorage 加载最新数据，避免覆盖
+    loadUnreadCountsFromLocalStorage();
     const userIdStr = String(userId);
     if (unreadMessages.value.private && unreadMessages.value.private[userIdStr]) {
       delete unreadMessages.value.private[userIdStr];
     }
     // 保存到 localStorage
     saveUnreadCountsToLocalStorage();
+    // 发送已读消息事件到后端
+    if (window.sendReadMessageEvent) {
+      window.sendReadMessageEvent('private', { friendId: userId });
+    }
   }
   
   function incrementGroupUnread(groupId) {
+    // 先从 localStorage 加载最新数据，避免覆盖
+    loadUnreadCountsFromLocalStorage();
     const groupIdStr = String(groupId);
     if (!unreadMessages.value.groups[groupIdStr]) {
       unreadMessages.value.groups[groupIdStr] = 0;
@@ -735,12 +746,16 @@ export const useChatStore = defineStore('chat', () => {
   }
   
   function incrementGlobalUnread() {
+    // 先从 localStorage 加载最新数据，避免覆盖
+    loadUnreadCountsFromLocalStorage();
     unreadMessages.value.global++;
     // 保存到 localStorage
     saveUnreadCountsToLocalStorage();
   }
   
   function incrementPrivateUnread(userId) {
+    // 先从 localStorage 加载最新数据，避免覆盖
+    loadUnreadCountsFromLocalStorage();
     const userIdStr = String(userId);
     if (!unreadMessages.value.private[userIdStr]) {
       unreadMessages.value.private[userIdStr] = 0;
@@ -751,6 +766,8 @@ export const useChatStore = defineStore('chat', () => {
   }
   
   function clearGlobalUnread() {
+    // 先从 localStorage 加载最新数据，避免覆盖
+    loadUnreadCountsFromLocalStorage();
     unreadMessages.value.global = 0;
     // 保存到 localStorage
     saveUnreadCountsToLocalStorage();
@@ -1039,7 +1056,7 @@ export const useChatStore = defineStore('chat', () => {
     allGroupIds.forEach(groupId => {
       if (String(groupId) !== String(currentGroupId)) {
         if (groupMessages.value[groupId] && groupMessages.value[groupId].length > 20) {
-          groupMessages.value[groupId] = groupMessages.value[groupId].slice(-20);
+          groupMessages.value[groupId] = groupMessages.value[groupId].slice(Math.max(0, groupMessages.value[groupId].length - 20), groupMessages.value[groupId].length);
         }
       }
     });
@@ -1050,7 +1067,7 @@ export const useChatStore = defineStore('chat', () => {
     allUserIds.forEach(userId => {
       if (String(userId) !== String(currentUserId)) {
         if (privateMessages.value[userId] && privateMessages.value[userId].length > 20) {
-          privateMessages.value[userId] = privateMessages.value[userId].slice(-20);
+          privateMessages.value[userId] = privateMessages.value[userId].slice(Math.max(0, privateMessages.value[userId].length - 20), privateMessages.value[userId].length);
         }
       }
     });
@@ -1058,7 +1075,7 @@ export const useChatStore = defineStore('chat', () => {
   
   function clearPublicMessagesExceptRecent() {
     if (publicMessages.value.length > 20) {
-      publicMessages.value = publicMessages.value.slice(-20);
+      publicMessages.value = publicMessages.value.slice(Math.max(0, publicMessages.value.length - 20), publicMessages.value.length);
     }
   }
 
@@ -1108,25 +1125,19 @@ export const useChatStore = defineStore('chat', () => {
         publicStored.value = true;
       }
 
-      for (const [groupId, messages] of Object.entries(groupMessages.value)) {
+      // 保存所有完整群组消息，包括不在 store 中的
+      for (const [groupId, messages] of Object.entries(fullGroupMessages)) {
         if (!groupStored.value[groupId]) {
-          // 保存完整群组消息
-          const messagesToSave = fullGroupMessages[groupId] != null 
-            ? fullGroupMessages[groupId] 
-            : messages;
-          const msgs = messagesToSave.map(msg => toRaw(msg));
+          const msgs = messages.map(msg => toRaw(msg));
           await localForage.setItem(`${prefix}-group-${groupId}`, { messages: msgs });
           groupStored.value[groupId] = true;
         }
       }
 
-      for (const [userId, messages] of Object.entries(privateMessages.value)) {
+      // 保存所有完整私信消息，包括不在 store 中的
+      for (const [userId, messages] of Object.entries(fullPrivateMessages)) {
         if (!privateStored.value[userId]) {
-          // 保存完整私信消息
-          const messagesToSave = fullPrivateMessages[userId] != null 
-            ? fullPrivateMessages[userId] 
-            : messages;
-          const msgs = messagesToSave.map(msg => toRaw(msg));
+          const msgs = messages.map(msg => toRaw(msg));
           await localForage.setItem(`${prefix}-private-${userId}`, { messages: msgs });
           privateStored.value[userId] = true;
         }
@@ -1134,8 +1145,8 @@ export const useChatStore = defineStore('chat', () => {
 
       const chatKeys = [
         `${prefix}-public`,
-        ...Object.keys(groupMessages.value).map(id => `${prefix}-group-${id}`),
-        ...Object.keys(privateMessages.value).map(id => `${prefix}-private-${id}`),
+        ...Object.keys(fullGroupMessages).map(id => `${prefix}-group-${id}`),
+        ...Object.keys(fullPrivateMessages).map(id => `${prefix}-private-${id}`),
       ];
       await localForage.setItem(prefix, { chatKeys });
     } catch (err) {
@@ -1143,7 +1154,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function loadMessages() {
+  function loadMessages(loadToStore = true) {
     return new Promise(async (resolve, reject) => {
       try {
         const prefix = getStorageKeyPrefix();
@@ -1167,25 +1178,31 @@ export const useChatStore = defineStore('chat', () => {
           const messages = itemData.messages || [];
           
           if (key.includes('-public')) {
-            // 保存原始顺序的消息到内存变量（不反转）
+            // 保存原始顺序的消息到内存变量
             fullPublicMessages = [...messages];
-            // 只在 store 中保存反转后的最近 20 条非101、非102消息
-            const sortedMessages = sortMessages(messages);
-            publicMessages.value = sortedMessages.filter(m => m.messageType !== 101 && m.messageType !== 102).slice(-20);
+            if (loadToStore) {
+              // 只在 store 中保存最近 20 条非101、非102消息（从长度-21到长度-1）
+              const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+              publicMessages.value = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
+            }
           } else if (key.includes('-group-')) {
             const groupId = key.split('-group-')[1];
-            // 保存原始顺序的消息到内存变量（不反转）
+            // 保存原始顺序的消息到内存变量
             fullGroupMessages[groupId] = [...messages];
-            // 只在 store 中保存反转后的最近 20 条非101、非102消息
-            const sortedMessages = sortMessages(messages);
-            groupMessages.value[groupId] = sortedMessages.filter(m => m.messageType !== 101 && m.messageType !== 102).slice(-20);
+            if (loadToStore) {
+              // 只在 store 中保存最近 20 条非101、非102消息（从长度-21到长度-1）
+              const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+              groupMessages.value[groupId] = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
+            }
           } else if (key.includes('-private-')) {
             const userId = key.split('-private-')[1];
-            // 保存原始顺序的消息到内存变量（不反转）
+            // 保存原始顺序的消息到内存变量
             fullPrivateMessages[userId] = [...messages];
-            // 只在 store 中保存反转后的最近 20 条非101、非102消息
-            const sortedMessages = sortMessages(messages);
-            privateMessages.value[userId] = sortedMessages.filter(m => m.messageType !== 101 && m.messageType !== 102).slice(-20);
+            if (loadToStore) {
+              // 只在 store 中保存最近 20 条非101、非102消息（从长度-21到长度-1）
+              const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+              privateMessages.value[userId] = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
+            }
           }
         }
         
@@ -1217,7 +1234,7 @@ export const useChatStore = defineStore('chat', () => {
     fullPrivateMessages = {};
   }
   
-  function processOfflineMessage(message) {
+  function processOfflineMessage(message, onlySaveToDB = false) {
     const processedMessage = {
       ...message,
       id: message.id,
@@ -1283,21 +1300,21 @@ export const useChatStore = defineStore('chat', () => {
       const exists = targetMessages.some(m => m.id === processedMessage.id);
       const fullExists = fullPublicMessages?.some(m => m.id === processedMessage.id) || false;
       
-      // 更新完整消息列表（包括 101 撤回消息），新消息在前
+      // 更新完整消息列表（包括 101 撤回消息），新消息在后
       if (!fullExists) {
         if (fullPublicMessages === null) {
           fullPublicMessages = [processedMessage];
         } else {
-          fullPublicMessages.unshift(processedMessage);
+          fullPublicMessages.push(processedMessage);
         }
         publicStored.value = false;
       }
       
-      if (!exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
+      if (!onlySaveToDB && !exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
         if (loading.value) {
-          cachePublicMessages.unshift(processedMessage);
+          cachePublicMessages.push(processedMessage);
         } else {
-          publicMessages.value.unshift(processedMessage);
+          publicMessages.value.push(processedMessage);
           publicStored.value = false;
         }
       } else if (exists) {
@@ -1332,25 +1349,25 @@ export const useChatStore = defineStore('chat', () => {
       const exists = targetMessages.some(m => m.id === processedMessage.id);
       const fullExists = fullGroupMessages[groupId]?.some(m => m.id === processedMessage.id) || false;
       
-      // 更新完整消息列表（包括 101 撤回消息），新消息在前
+      // 更新完整消息列表（包括 101 撤回消息），新消息在后
       if (!fullExists) {
         if (fullGroupMessages[groupId] === null || fullGroupMessages[groupId] === undefined) {
           fullGroupMessages[groupId] = [processedMessage];
         } else {
-          fullGroupMessages[groupId].unshift(processedMessage);
+          fullGroupMessages[groupId].push(processedMessage);
         }
         groupStored.value[groupId] = false;
       }
       
-      if (!exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
+      if (!onlySaveToDB && !exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
         if (loading.value) {
-          cacheGroupMessages[groupId].unshift({
+          cacheGroupMessages[groupId].push({
             ...processedMessage,
             group_id: groupId,
             group_name: message.groupName
           });
         } else {
-          groupMessages.value[groupId].unshift({
+          groupMessages.value[groupId].push({
             ...processedMessage,
             group_id: groupId,
             group_name: message.groupName
@@ -1386,7 +1403,7 @@ export const useChatStore = defineStore('chat', () => {
       const exists = targetMessages.some(m => m.id === processedMessage.id);
       const fullExists = fullPrivateMessages[otherUserId]?.some(m => m.id === processedMessage.id) || false;
       
-      // 更新完整消息列表（包括 101 撤回消息），新消息在前
+      // 更新完整消息列表（包括 101 撤回消息），新消息在后
       if (!fullExists) {
         const fullMsg = {
           ...processedMessage,
@@ -1396,20 +1413,20 @@ export const useChatStore = defineStore('chat', () => {
         if (!fullPrivateMessages[otherUserId]) {
           fullPrivateMessages[otherUserId] = [fullMsg];
         } else {
-          fullPrivateMessages[otherUserId].unshift(fullMsg);
+          fullPrivateMessages[otherUserId].push(fullMsg);
         }
         privateStored.value[otherUserId] = false;
       }
       
-      if (!exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
+      if (!onlySaveToDB && !exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
         if (loading.value) {
-          cachePrivateMessages[otherUserId].unshift({
+          cachePrivateMessages[otherUserId].push({
             ...processedMessage,
             receiver_id: message.receiverId || message.receiver_id,
             is_read: message.isRead !== undefined ? message.isRead : (message.is_read !== undefined ? message.is_read : 0)
           });
         } else {
-          privateMessages.value[otherUserId].unshift({
+          privateMessages.value[otherUserId].push({
             ...processedMessage,
             receiver_id: message.receiverId || message.receiver_id,
             is_read: message.isRead !== undefined ? message.isRead : (message.is_read !== undefined ? message.is_read : 0)
@@ -1426,16 +1443,35 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function fetchAndMergeOfflineMessages() {
+  async function fetchAndMergeOfflineMessages(onlySaveToDB = false) {
     if (!currentUser.value || !currentSessionToken.value) {
       return;
     }
 
+    // 先从 localStorage 读取已有的未读计数
+    loadUnreadCountsFromLocalStorage();
+
     isFetchingOfflineMessages.value = true;
-    showFetchingMessage.value = true;
-    loading.value = true;
+    if (!onlySaveToDB) {
+      showFetchingMessage.value = true;
+      loading.value = true;
+    }
 
     const userInfoUpdateMessages = [];
+    
+    // 记录开始时已存在的消息ID集合，用于后续判断哪些是真正的新消息
+    const existingPublicMessageIds = new Set(fullPublicMessages ? fullPublicMessages.map(m => m.id) : []);
+    const existingGroupMessageIds = {};
+    Object.keys(fullGroupMessages).forEach(groupId => {
+      existingGroupMessageIds[groupId] = new Set(fullGroupMessages[groupId].map(m => m.id));
+    });
+    const existingPrivateMessageIds = {};
+    Object.keys(fullPrivateMessages).forEach(userId => {
+      existingPrivateMessageIds[userId] = new Set(fullPrivateMessages[userId].map(m => m.id));
+    });
+    
+    // 记录开始时的未读计数
+    const startUnreadCounts = loadUnreadCountsFromStorage();
 
     try {
       const publicAndGroupMinIdParam = publicAndGroupMinId.value;
@@ -1456,7 +1492,7 @@ export const useChatStore = defineStore('chat', () => {
             if (message.messageType === 102) {
               userInfoUpdateMessages.push({ ...message, type: 'public' });
             } else {
-              processOfflineMessage({ ...message, type: 'public' });
+              processOfflineMessage({ ...message, type: 'public' }, onlySaveToDB);
             }
           });
         }
@@ -1465,7 +1501,7 @@ export const useChatStore = defineStore('chat', () => {
             if (message.messageType === 102) {
               userInfoUpdateMessages.push({ ...message, type: 'group' });
             } else {
-              processOfflineMessage({ ...message, type: 'group' });
+              processOfflineMessage({ ...message, type: 'group' }, onlySaveToDB);
             }
           });
         }
@@ -1474,7 +1510,7 @@ export const useChatStore = defineStore('chat', () => {
             if (message.messageType === 102) {
               userInfoUpdateMessages.push({ ...message, type: 'private' });
             } else {
-              processOfflineMessage({ ...message, type: 'private' });
+              processOfflineMessage({ ...message, type: 'private' }, onlySaveToDB);
             }
           });
         }
@@ -1482,160 +1518,292 @@ export const useChatStore = defineStore('chat', () => {
     } catch (error) {
       console.error('获取离线消息失败:', error);
     } finally {
-      loading.value = false;
-      isFetchingOfflineMessages.value = false;
-      
-      if (cachePublicMessages.length > 0) {
-        const existingIds = new Set(publicMessages.value.map(m => m.id));
-        const newMessages = cachePublicMessages.filter(m => !existingIds.has(m.id));
+      if (!onlySaveToDB) {
+        loading.value = false;
+        isFetchingOfflineMessages.value = false;
         
-        // 更新未读计数（主聊天室）
-        if (newMessages.length > 0) {
-          const currentUserId = currentUser.value?.id;
-          const isMainChatActive = currentActiveChat.value === 'main';
-          const isPageVisible = window.isPageVisible !== false && document.hasFocus();
+        if (cachePublicMessages.length > 0) {
+          // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
+          const newMessages = cachePublicMessages.filter(m => !existingPublicMessageIds.has(m.id));
           
-          // 如果不在主聊天室页面或页面不可见，增加未读计数
-          if (!isMainChatActive || !isPageVisible) {
-            unreadMessages.value.global += newMessages.length;
-            // 保存到 localStorage
-            saveUnreadCountsToLocalStorage();
-          }
-        }
-        
-        // 更新完整消息列表（包括 101 撤回消息）- 新消息放在后面（因为是离线期间的消息）
-        if (fullPublicMessages === null) {
-          fullPublicMessages = [...publicMessages.value, ...newMessages];
-        } else {
-          const fullIds = new Set(fullPublicMessages.map(m => m.id));
-          const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
-          fullPublicMessages = [...fullPublicMessages, ...fullNewMessages];
-        }
-        
-        // 更新显示消息列表（只显示非 101 消息，最多 20 条）- 新消息放在后面
-        const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-        publicMessages.value = [...publicMessages.value, ...displayNewMessages].slice(-20);
-        cachePublicMessages = [];
-      }
-      
-      Object.keys(cacheGroupMessages).forEach(groupId => {
-        if (cacheGroupMessages[groupId]) {
-          const existingIds = new Set((groupMessages.value[groupId] || []).map(m => m.id));
-          const newMessages = cacheGroupMessages[groupId].filter(m => !existingIds.has(m.id));
-          
-          // 更新未读计数（群组）
+          // 更新未读计数（主聊天室）- 直接操作 localStorage
           if (newMessages.length > 0) {
             const currentUserId = currentUser.value?.id;
-            const isGroupChatActive = currentActiveChat.value === `group_${groupId}`;
+            const isMainChatActive = currentActiveChat.value === 'main';
             const isPageVisible = window.isPageVisible !== false && document.hasFocus();
             
-            // 获取免打扰群组列表
-            const mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
-            const isMuted = mutedGroups.includes(groupId.toString());
-            
-            // 如果不在当前群组页面或页面不可见，且不是免打扰群组，增加未读计数
-            if (!isMuted && (!isGroupChatActive || !isPageVisible)) {
-              if (!unreadMessages.value.groups[groupId]) {
-                unreadMessages.value.groups[groupId] = 0;
-              }
-              unreadMessages.value.groups[groupId] += newMessages.length;
-              // 保存到 localStorage
-              saveUnreadCountsToLocalStorage();
+            // 如果不在主聊天室页面或页面不可见，增加未读计数
+            if (!isMainChatActive || !isPageVisible) {
+              // 先从 localStorage 读取
+              const savedUnreadCounts = loadUnreadCountsFromStorage();
+              savedUnreadCounts.global += newMessages.length;
+              // 保存回 localStorage
+              saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
             }
           }
           
-          // 更新群组最后消息时间并重新排序
-          if (newMessages.length > 0 && groupsList.value) {
-            const group = groupsList.value.find(g => String(g.id) === String(groupId));
-            if (group) {
-              const lastMessage = newMessages[0];
-              const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
-              group.last_message_time = newTime;
-            }
-            sortGroupsByLastMessageTime();
-          }
-          
-          // 更新完整消息列表（包括 101 撤回消息）- 新消息放在后面
-          if (!fullGroupMessages[groupId]) {
-            fullGroupMessages[groupId] = [...(groupMessages.value[groupId] || []), ...newMessages];
+          // 更新完整消息列表（包括 101 撤回消息）- 新消息放在前面
+          if (fullPublicMessages === null) {
+            fullPublicMessages = [...newMessages, ...publicMessages.value];
           } else {
-            const fullIds = new Set(fullGroupMessages[groupId].map(m => m.id));
+            const fullIds = new Set(fullPublicMessages.map(m => m.id));
             const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
-            fullGroupMessages[groupId] = [...fullGroupMessages[groupId], ...fullNewMessages];
+            fullPublicMessages = [...fullNewMessages, ...fullPublicMessages];
           }
           
           // 更新显示消息列表（只显示非 101 消息，最多 20 条）- 新消息放在后面
           const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-          groupMessages.value[groupId] = [...(groupMessages.value[groupId] || []), ...displayNewMessages].slice(-20);
+          const combinedMessages = [...publicMessages.value, ...displayNewMessages];
+          publicMessages.value = combinedMessages.slice(Math.max(0, combinedMessages.length - 20), combinedMessages.length);
+          cachePublicMessages = [];
         }
-      });
-      cacheGroupMessages = {};
-      
-      Object.keys(cachePrivateMessages).forEach(userId => {
-        if (cachePrivateMessages[userId]) {
-          const existingIds = new Set((privateMessages.value[userId] || []).map(m => m.id));
-          const newMessages = cachePrivateMessages[userId].filter(m => !existingIds.has(m.id));
-          
-          // 更新未读计数（私信）
-          if (newMessages.length > 0) {
-            const currentUserId = currentUser.value?.id;
-            const isPrivateChatActive = currentActiveChat.value === `private_${userId}`;
-            const isPageVisible = window.isPageVisible !== false && document.hasFocus();
+        
+        Object.keys(cacheGroupMessages).forEach(groupId => {
+          if (cacheGroupMessages[groupId]) {
+            // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
+            const existingIds = existingGroupMessageIds[groupId] || new Set();
+            const newMessages = cacheGroupMessages[groupId].filter(m => !existingIds.has(m.id));
             
-            // 如果不在当前私信页面或页面不可见，增加未读计数
-            if (!isPrivateChatActive || !isPageVisible) {
-              if (!unreadMessages.value.private[userId]) {
-                unreadMessages.value.private[userId] = 0;
+            // 更新未读计数（群组）- 直接操作 localStorage
+            if (newMessages.length > 0) {
+              const currentUserId = currentUser.value?.id;
+              const isGroupChatActive = currentActiveChat.value === `group_${groupId}`;
+              const isPageVisible = window.isPageVisible !== false && document.hasFocus();
+              
+              // 获取免打扰群组列表
+              const mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
+              const isMuted = mutedGroups.includes(groupId.toString());
+              
+              // 如果不在当前群组页面或页面不可见，且不是免打扰群组，增加未读计数
+              if (!isMuted && (!isGroupChatActive || !isPageVisible)) {
+                // 先从 localStorage 读取
+                const savedUnreadCounts = loadUnreadCountsFromStorage();
+                if (!savedUnreadCounts.groups[groupId]) {
+                  savedUnreadCounts.groups[groupId] = 0;
+                }
+                savedUnreadCounts.groups[groupId] += newMessages.length;
+                // 保存回 localStorage
+                saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
               }
-              unreadMessages.value.private[userId] += newMessages.length;
-              // 保存到 localStorage
-              saveUnreadCountsToLocalStorage();
             }
-          }
-          
-          // 更新私信最后消息时间并重新排序
-          if (newMessages.length > 0 && friendsList.value) {
-            const friend = friendsList.value.find(f => String(f.id) === String(userId));
-            if (friend) {
-              const lastMessage = newMessages[0];
-              const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
-              friend.last_message_time = newTime;
+            
+            // 更新群组最后消息时间并重新排序
+            if (newMessages.length > 0 && groupsList.value) {
+              const group = groupsList.value.find(g => String(g.id) === String(groupId));
+              if (group) {
+                const lastMessage = newMessages[0];
+                const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
+                group.last_message_time = newTime;
+              }
+              sortGroupsByLastMessageTime();
             }
-            sortFriendsByLastMessageTime();
+            
+            // 更新完整消息列表（包括 101 撤回消息）- 新消息放在前面
+            if (!fullGroupMessages[groupId]) {
+              fullGroupMessages[groupId] = [...newMessages, ...(groupMessages.value[groupId] || [])];
+            } else {
+              const fullIds = new Set(fullGroupMessages[groupId].map(m => m.id));
+              const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
+              fullGroupMessages[groupId] = [...fullNewMessages, ...fullGroupMessages[groupId]];
+            }
+            
+            // 更新显示消息列表（只显示非 101 消息，最多 20 条）- 新消息放在后面
+            const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+            const combinedMessages = [...(groupMessages.value[groupId] || []), ...displayNewMessages];
+            groupMessages.value[groupId] = combinedMessages.slice(Math.max(0, combinedMessages.length - 20), combinedMessages.length);
           }
-          
-          // 更新完整消息列表（包括 101 撤回消息）- 新消息放在后面
-          if (!fullPrivateMessages[userId]) {
-            fullPrivateMessages[userId] = [...(privateMessages.value[userId] || []), ...newMessages];
-          } else {
-            const fullIds = new Set(fullPrivateMessages[userId].map(m => m.id));
-            const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
-            fullPrivateMessages[userId] = [...fullPrivateMessages[userId], ...fullNewMessages];
-          }
-          
-          // 更新显示消息列表（只显示非 101 消息，最多 20 条）- 新消息放在后面
-          const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-          privateMessages.value[userId] = [...(privateMessages.value[userId] || []), ...displayNewMessages].slice(-20);
-        }
-      });
-      cachePrivateMessages = {};
-
-      publicStored.value = false;
-      Object.keys(groupMessages.value).forEach(id => groupStored.value[id] = false);
-      Object.keys(privateMessages.value).forEach(id => privateStored.value[id] = false);
-      saveToStorage();
-
-      if (userInfoUpdateMessages.length > 0) {
-        userInfoUpdateMessages.forEach(message => {
-          processOfflineMessage(message);
         });
+        cacheGroupMessages = {};
+        
+        Object.keys(cachePrivateMessages).forEach(userId => {
+          if (cachePrivateMessages[userId]) {
+            // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
+            const existingIds = existingPrivateMessageIds[userId] || new Set();
+            const newMessages = cachePrivateMessages[userId].filter(m => !existingIds.has(m.id));
+            
+            // 更新未读计数（私信）- 直接操作 localStorage
+            if (newMessages.length > 0) {
+              const currentUserId = currentUser.value?.id;
+              const isPrivateChatActive = currentActiveChat.value === `private_${userId}`;
+              const isPageVisible = window.isPageVisible !== false && document.hasFocus();
+              
+              // 如果不在当前私信页面或页面不可见，增加未读计数
+              if (!isPrivateChatActive || !isPageVisible) {
+                // 先从 localStorage 读取
+                const savedUnreadCounts = loadUnreadCountsFromStorage();
+                if (!savedUnreadCounts.private[userId]) {
+                  savedUnreadCounts.private[userId] = 0;
+                }
+                savedUnreadCounts.private[userId] += newMessages.length;
+                // 保存回 localStorage
+                saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
+              }
+            }
+            
+            // 更新私信最后消息时间并重新排序
+            if (newMessages.length > 0 && friendsList.value) {
+              const friend = friendsList.value.find(f => String(f.id) === String(userId));
+              if (friend) {
+                const lastMessage = newMessages[0];
+                const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
+                friend.last_message_time = newTime;
+              }
+              sortFriendsByLastMessageTime();
+            }
+            
+            // 更新完整消息列表（包括 101 撤回消息）- 新消息放在前面
+            if (!fullPrivateMessages[userId]) {
+              fullPrivateMessages[userId] = [...newMessages, ...(privateMessages.value[userId] || [])];
+            } else {
+              const fullIds = new Set(fullPrivateMessages[userId].map(m => m.id));
+              const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
+              fullPrivateMessages[userId] = [...fullNewMessages, ...fullPrivateMessages[userId]];
+            }
+            
+            // 更新显示消息列表（只显示非 101 消息，最多 20 条）- 新消息放在后面
+            const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+            const combinedMessages = [...(privateMessages.value[userId] || []), ...displayNewMessages];
+            privateMessages.value[userId] = combinedMessages.slice(Math.max(0, combinedMessages.length - 20), combinedMessages.length);
+          }
+        });
+        cachePrivateMessages = {};
+
+        publicStored.value = false;
+        Object.keys(groupMessages.value).forEach(id => groupStored.value[id] = false);
+        Object.keys(privateMessages.value).forEach(id => privateStored.value[id] = false);
+        await saveToStorage();
+
+        if (userInfoUpdateMessages.length > 0) {
+          userInfoUpdateMessages.forEach(message => {
+            processOfflineMessage(message, onlySaveToDB);
+          });
+        }
+        
+        setTimeout(() => {
+          showFetchingMessage.value = false;
+        }, 500);
+        
+        await saveMinIds();
+      } else {
+        // onlySaveToDB 模式下，直接保存到 indexedDB，同时也计算未读计数
+        if (cachePublicMessages.length > 0) {
+          // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
+          const newMessages = cachePublicMessages.filter(m => !existingPublicMessageIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
+          
+          // 更新未读计数（主聊天室）
+          if (newMessages.length > 0) {
+            const isMainChatActive = currentActiveChat.value === 'main';
+            const isPageVisible = window.isPageVisible !== false && document.hasFocus();
+            
+            if (!isMainChatActive || !isPageVisible) {
+              // 先从 localStorage 读取
+              const savedUnreadCounts = loadUnreadCountsFromStorage();
+              savedUnreadCounts.global += newMessages.length;
+              // 保存回 localStorage
+              saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
+            }
+          }
+          
+          if (fullPublicMessages === null) {
+            fullPublicMessages = [...cachePublicMessages];
+          } else {
+            const fullIds = new Set(fullPublicMessages.map(m => m.id));
+            const fullNewMessages = cachePublicMessages.filter(m => !fullIds.has(m.id));
+            fullPublicMessages = [...fullPublicMessages, ...fullNewMessages];
+          }
+          cachePublicMessages = [];
+        }
+        
+        Object.keys(cacheGroupMessages).forEach(groupId => {
+          if (cacheGroupMessages[groupId]) {
+            // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
+            const existingIds = existingGroupMessageIds[groupId] || new Set();
+            const newMessages = cacheGroupMessages[groupId].filter(m => !existingIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
+            
+            // 更新未读计数（群组）
+            if (newMessages.length > 0) {
+              const isGroupChatActive = currentActiveChat.value === `group_${groupId}`;
+              const isPageVisible = window.isPageVisible !== false && document.hasFocus();
+              
+              // 获取免打扰群组列表
+              const mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
+              const isMuted = mutedGroups.includes(groupId.toString());
+              
+              if (!isMuted && (!isGroupChatActive || !isPageVisible)) {
+                // 先从 localStorage 读取
+                const savedUnreadCounts = loadUnreadCountsFromStorage();
+                if (!savedUnreadCounts.groups[groupId]) {
+                  savedUnreadCounts.groups[groupId] = 0;
+                }
+                savedUnreadCounts.groups[groupId] += newMessages.length;
+                // 保存回 localStorage
+                saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
+              }
+            }
+            
+            if (!fullGroupMessages[groupId]) {
+              fullGroupMessages[groupId] = [...cacheGroupMessages[groupId]];
+            } else {
+              const fullIds = new Set(fullGroupMessages[groupId].map(m => m.id));
+              const fullNewMessages = cacheGroupMessages[groupId].filter(m => !fullIds.has(m.id));
+              fullGroupMessages[groupId] = [...fullGroupMessages[groupId], ...fullNewMessages];
+            }
+          }
+        });
+        cacheGroupMessages = {};
+        
+        Object.keys(cachePrivateMessages).forEach(userId => {
+          if (cachePrivateMessages[userId]) {
+            // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
+            const existingIds = existingPrivateMessageIds[userId] || new Set();
+            const newMessages = cachePrivateMessages[userId].filter(m => !existingIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
+            
+            // 更新未读计数（私信）
+            if (newMessages.length > 0) {
+              const isPrivateChatActive = currentActiveChat.value === `private_${userId}`;
+              const isPageVisible = window.isPageVisible !== false && document.hasFocus();
+              
+              if (!isPrivateChatActive || !isPageVisible) {
+                // 先从 localStorage 读取
+                const savedUnreadCounts = loadUnreadCountsFromStorage();
+                if (!savedUnreadCounts.private[userId]) {
+                  savedUnreadCounts.private[userId] = 0;
+                }
+                savedUnreadCounts.private[userId] += newMessages.length;
+                // 保存回 localStorage
+                saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
+              }
+            }
+            
+            if (!fullPrivateMessages[userId]) {
+              fullPrivateMessages[userId] = [...cachePrivateMessages[userId]];
+            } else {
+              const fullIds = new Set(fullPrivateMessages[userId].map(m => m.id));
+              const fullNewMessages = cachePrivateMessages[userId].filter(m => !fullIds.has(m.id));
+              fullPrivateMessages[userId] = [...fullPrivateMessages[userId], ...fullNewMessages];
+            }
+          }
+        });
+        cachePrivateMessages = {};
+
+        publicStored.value = false;
+        Object.keys(fullGroupMessages).forEach(id => groupStored.value[id] = false);
+        Object.keys(fullPrivateMessages).forEach(id => privateStored.value[id] = false);
+        await saveToStorage();
+
+        if (userInfoUpdateMessages.length > 0) {
+          userInfoUpdateMessages.forEach(message => {
+            processOfflineMessage(message, onlySaveToDB);
+          });
+        }
+        
+        await saveMinIds();
+        
+        isFetchingOfflineMessages.value = false;
       }
       
-      setTimeout(() => {
-        showFetchingMessage.value = false;
-      }, 500);
-      
-      saveMinIds();
+      // 无论 onlySaveToDB 是 true 还是 false，都从 localStorage 同步未读计数到 store
+      loadUnreadCountsFromLocalStorage();
     }
   }
   
@@ -1679,16 +1847,16 @@ export const useChatStore = defineStore('chat', () => {
   
   function getGroupLastMessage(groupId) {
     const messages = fullGroupMessages[groupId] || groupMessages.value[groupId] || [];
-    const validMessages = messages.filter(m => m.messageType !== 101);
+    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
     if (validMessages.length === 0) return null;
-    return validMessages[0];
+    return validMessages[validMessages.length - 1];
   }
 
   function getPrivateLastMessage(userId) {
     const messages = fullPrivateMessages[userId] || privateMessages.value[userId] || [];
-    const validMessages = messages.filter(m => m.messageType !== 101);
+    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
     if (validMessages.length === 0) return null;
-    return validMessages[0];
+    return validMessages[validMessages.length - 1];
   }
 
   function formatMessageContent(message) {
@@ -1781,10 +1949,10 @@ export const useChatStore = defineStore('chat', () => {
     if (!group) return;
 
     const messages = fullGroupMessages[groupId] || [];
-    const validMessages = messages.filter(m => m.messageType !== 101);
+    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
 
     if (validMessages.length > 0) {
-      const lastMessage = validMessages[0];
+      const lastMessage = validMessages[validMessages.length - 1];
       group.lastMessage = lastMessage;
       const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
       group.last_message_time = newTime;
@@ -1802,10 +1970,10 @@ export const useChatStore = defineStore('chat', () => {
     if (!friend) return;
 
     const messages = fullPrivateMessages[userId] || [];
-    const validMessages = messages.filter(m => m.messageType !== 101);
+    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
 
     if (validMessages.length > 0) {
-      const lastMessage = validMessages[0];
+      const lastMessage = validMessages[validMessages.length - 1];
       friend.lastMessage = lastMessage;
       const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
       friend.last_message_time = newTime;
@@ -1828,6 +1996,32 @@ export const useChatStore = defineStore('chat', () => {
       }
     } catch (err) {
       console.error('加载未读计数失败:', err);
+    }
+  }
+
+  // 直接从 localStorage 读取未读计数（不更新 store）
+  function loadUnreadCountsFromStorage() {
+    try {
+      const data = localStorage.getItem(`unread_counts_${currentUser.value?.id}`);
+      if (data) {
+        return JSON.parse(data);
+      }
+    } catch (err) {
+      console.error('读取未读计数失败:', err);
+    }
+    return { global: 0, groups: {}, private: {} };
+  }
+
+  // 直接保存到 localStorage（不使用 store 的值）并更新 store 状态
+  function saveUnreadCountsToLocalStorageDirect(counts) {
+    try {
+      localStorage.setItem(`unread_counts_${currentUser.value?.id}`, JSON.stringify(counts));
+      // 同时更新 store 状态，确保状态一致
+      unreadMessages.value.global = counts.global || 0;
+      unreadMessages.value.groups = counts.groups || {};
+      unreadMessages.value.private = counts.private || {};
+    } catch (err) {
+      console.error('保存未读计数失败:', err);
     }
   }
 
@@ -1859,37 +2053,16 @@ export const useChatStore = defineStore('chat', () => {
     showFetchingMessage.value = true;
 
     try {
-      // 先加载未读计数
+      // 先加载已有的未读计数
       loadUnreadCountsFromLocalStorage();
-      await loadMessages();
-
-      // 调用 /self API 获取最新的用户信息
-      if (currentUser.value && currentSessionToken.value) {
-        try {
-          const response = await fetch(`${SERVER_URL}/api/self`, {
-            headers: {
-              'user-id': currentUser.value.id,
-              'session-token': currentSessionToken.value
-            }
-          });
-          const data = await response.json();
-          if (data.status === 'success' && data.user) {
-            currentUser.value = {
-              id: data.user.id,
-              username: data.user.username,
-              nickname: data.user.nickname,
-              gender: data.user.gender,
-              signature: data.user.signature,
-              avatar_url: data.user.avatar_url
-            };
-          }
-        } catch (error) {
-          console.error('获取用户信息失败:', error);
-        }
-      }
-
-      await fetchAndMergeOfflineMessages();
-      await saveToStorage();
+      // 先加载 minIds
+      await loadMinIds();
+      // 先从 indexedDB 加载已有消息到 fullMessages（不加入 store）
+      await loadMessages(false);
+      // 拉取离线消息并加入 store（同时计算未读计数，且内部会调用 saveToStorage()）
+      await fetchAndMergeOfflineMessages(false);
+      // 加载所有消息到 store（包括已有的未读计数）
+      await loadMessages(true);
       showFetchingMessage.value = false;
     } catch (error) {
       console.error('初始化消息流程失败:', error);
@@ -1981,6 +2154,10 @@ export const useChatStore = defineStore('chat', () => {
     clearGroupUnread,
     clearPrivateUnread,
     clearGlobalUnread,
+    loadUnreadCountsFromLocalStorage,
+    loadUnreadCountsFromStorage,
+    saveUnreadCountsToLocalStorage,
+    saveUnreadCountsToLocalStorageDirect,
     incrementGroupUnread,
     incrementGlobalUnread,
     incrementPrivateUnread,
@@ -1988,7 +2165,6 @@ export const useChatStore = defineStore('chat', () => {
     saveFriendLastMessageTimes,
     sortFriendsByLastMessageTime,
     sortGroupsByLastMessageTime,
-    sortMessages,
     setLoading,
     refreshMessages,
     saveToStorage,
@@ -2025,6 +2201,8 @@ export const useChatStore = defineStore('chat', () => {
     setGroupHasAtMe,
     clearGroupHasAtMe,
     hasGroupAtMe,
+    loadGroupsWithAtMeFromLocalStorage,
+    saveGroupsWithAtMeToLocalStorage,
     updateGroupLastMessageAfterDelete,
     updateFriendLastMessageAfterDelete,
     findUserById,

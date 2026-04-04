@@ -93,8 +93,11 @@
             📷 <span class="button-text">发送图片</span>
           </button>
           <button id="privateFileUploadButton" title="上传文件" @click="handlePrivateFileUploadClick">
-            📤 <span class="button-text">发送文件</span>
-          </button>
+          📤 <span class="button-text">发送文件</span>
+        </button>
+        <button id="privateVideoUploadButton" title="上传视频" @click="handlePrivateVideoUploadClick">
+          🎬 <span class="button-text">发送视频</span>
+        </button>
           <button id="privateSendGroupCardButton" title="发送群名片" @click="handleSendGroupCard">
             📱 <span class="button-text">发送群名片</span>
           </button>
@@ -104,6 +107,7 @@
         </div>
         <input v-if="showImageInput" type="file" ref="privateImageInputRef" id="privateImageInput" style="display: none;" accept="image/*" @change="handlePrivateImageUpload" @cancel="handlePrivateImageCancel">
         <input v-if="showFileInput" type="file" ref="privateFileInputRef" id="privateFileInput" style="display: none;" @change="handlePrivateFileUpload" @cancel="handlePrivateFileCancel">
+        <input v-if="showVideoInput" type="file" ref="privateVideoInputRef" id="privateVideoInput" style="display: none;" accept="video/*" @change="handlePrivateVideoUpload" @cancel="handlePrivateVideoCancel">
       </div>
 
       <div v-if="chatStore.showUploadProgress" class="upload-progress" id="privateUploadProgress">
@@ -174,7 +178,8 @@ import {
   initializePrivateChatInterface,
   initializeScrollLoading,
   uploadPrivateImage,
-  uploadPrivateFile
+  uploadPrivateFile,
+  uploadPrivateVideo
 } from "@/utils/chat";
 
 const chatStore = useChatStore();
@@ -184,10 +189,12 @@ const route = useRoute();
 const privateMessageInputRef = ref(null);
 const privateImageInputRef = ref(null);
 const privateFileInputRef = ref(null);
+const privateVideoInputRef = ref(null);
 const privateMessageContainerRef = ref(null);
 const isDragOver = ref(false);
 const showImageInput = ref(false);
 const showFileInput = ref(false);
+const showVideoInput = ref(false);
 let dragCounter = 0;
 let previousPrivateMessageLength = 0;
 
@@ -560,6 +567,30 @@ function handlePrivateFileUpload(e) {
 
 function handlePrivateFileCancel() {
   showFileInput.value = false;
+}
+
+function handlePrivateVideoUploadClick() {
+  showVideoInput.value = true;
+  nextTick(() => {
+    if (privateVideoInputRef.value) {
+      privateVideoInputRef.value.click();
+    }
+  });
+}
+
+function handlePrivateVideoUpload(e) {
+  const file = e.target.files[0];
+  if (file) {
+    uploadPrivateVideo(file);
+  }
+  showVideoInput.value = false;
+  if (privateVideoInputRef.value) {
+    privateVideoInputRef.value.value = '';
+  }
+}
+
+function handlePrivateVideoCancel() {
+  showVideoInput.value = false;
 }
 
 // 查找消息功能

@@ -12,8 +12,8 @@
           <div v-if="chatStore.modalData.groupInfo">
             <!-- 群头像和上传按钮 -->
             <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 20px;">
-              <div style="width: 100px; height: 100px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                <img v-if="groupInfoAvatarUrl" :src="groupInfoAvatarUrl" :alt="groupInfoName" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" @error="handleGroupInfoAvatarError">
+              <div style="width: 100px; height: 100px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer;">
+                <img v-if="groupInfoAvatarUrl" :src="groupInfoAvatarUrl" :alt="groupInfoName" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" @click="openGroupInfoAvatarPreview" @error="handleGroupInfoAvatarError">
                 <span v-else style="font-size: 40px; color: white; font-weight: bold;">{{ groupInfoInitials }}</span>
               </div>
               <div v-if="isCurrentUserGroupOwner">
@@ -244,8 +244,8 @@
         </div>
         <div class="modal-body">
           <div v-if="chatStore.modalData.userProfile" class="user-profile-container">
-            <div class="user-profile-avatar" style="width: 80px; height: 80px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-              <img v-if="userProfileAvatarUrl" :src="userProfileAvatarUrl" alt="用户头像" class="user-avatar-img" loading="lazy" width="80" height="80" style="aspect-ratio: 1/1; object-fit: cover; border-radius: 50%;" @error="handleUserProfileAvatarError">
+            <div class="user-profile-avatar" style="width: 80px; height: 80px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer;">
+              <img v-if="userProfileAvatarUrl" :src="userProfileAvatarUrl" alt="用户头像" class="user-avatar-img" loading="lazy" width="80" height="80" style="aspect-ratio: 1/1; object-fit: cover; border-radius: 50%;" @click="openUserProfileAvatarPreview" @error="handleUserProfileAvatarError">
               <span v-else class="user-initials" style="font-size: 32px; color: white; font-weight: bold;">{{ getUserInitials(chatStore.modalData.userProfile.nickname) }}</span>
             </div>
             <div class="user-profile-info">
@@ -385,6 +385,7 @@
               <div class="popup-avatar">
                 <img 
                   id="popupAvatarImg" 
+                  :key="userAvatarPopupUserId"
                   :src="userAvatarPopupAvatarUrl" 
                   alt="用户头像"
                   :style="{ display: userAvatarPopupAvatarUrl ? 'block' : 'none' }"
@@ -1888,6 +1889,9 @@ function hideUserAvatarPopupVue() {
 async function showUserAvatarPopupVue(event, user) {
   event.stopPropagation();
   
+  // 先关闭之前的弹窗
+  hideUserAvatarPopupVue();
+  
   userAvatarPopupEvent.value = event;
   userAvatarPopupUserId.value = user.id;
   
@@ -1930,7 +1934,19 @@ async function showUserAvatarPopupVue(event, user) {
 
 function openUserAvatarPopupAvatarPreview() {
   if (userAvatarPopupAvatarUrl.value) {
-    chatStore.openModal('imagePreview', userAvatarPopupAvatarUrl.value);
+    chatStore.openModal('avatarPreview', userAvatarPopupAvatarUrl.value);
+  }
+}
+
+function openUserProfileAvatarPreview() {
+  if (userProfileAvatarUrl.value) {
+    chatStore.openModal('avatarPreview', userProfileAvatarUrl.value);
+  }
+}
+
+function openGroupInfoAvatarPreview() {
+  if (groupInfoAvatarUrl.value) {
+    chatStore.openModal('avatarPreview', groupInfoAvatarUrl.value);
   }
 }
 

@@ -993,6 +993,11 @@ async function updateGroupList(groups) {
         const userId = window.chatStore.currentUser?.id || 'guest';
         const prefix = `chats-${userId}`;
 
+        // 从 localStorage 加载 groups_with_at_me
+        if (window.chatStore.loadGroupsWithAtMeFromLocalStorage) {
+            window.chatStore.loadGroupsWithAtMeFromLocalStorage();
+        }
+
         // 从IndexedDB加载最后消息并设置时间
         const updatedGroups = await Promise.all(groups.map(async (group) => {
             const result = { ...group };
@@ -1002,10 +1007,10 @@ async function updateGroupList(groups) {
                 const key = `${prefix}-group-${group.id}`;
                 const data = await localForage.getItem(key);
                 if (data && data.messages && data.messages.length > 0) {
-                    const validMessages = data.messages.filter(m => m.messageType !== 101);
+                    const validMessages = data.messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
                     if (validMessages.length > 0) {
-                        result.lastMessage = validMessages[0];
-                        result.last_message_time = validMessages[0].timestamp || new Date().toISOString();
+                        result.lastMessage = validMessages[validMessages.length - 1];
+                        result.last_message_time = validMessages[validMessages.length - 1].timestamp || new Date().toISOString();
                     }
                 }
             } catch (e) {

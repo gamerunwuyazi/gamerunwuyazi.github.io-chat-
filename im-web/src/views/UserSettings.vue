@@ -2,6 +2,8 @@
 import {ref, computed, onMounted, onUnmounted} from "vue";
 import {currentUser, currentSessionToken} from "@/utils/chat";
 import VueTurnstile from 'vue-turnstile';
+import localForage from 'localforage';
+import modal from "@/utils/modal";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn'
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || ''
@@ -398,6 +400,40 @@ function handleSettingsItemClick(event) {
   }
 }
 
+// 重载消息 - 清空本地消息并重新加载
+async function handleReloadMessages() {
+  const confirmed = await modal.confirm('确定要重载消息吗？\n这将清空本地所有消息数据并重新加载所有消息。', '确认重载')
+  if (!confirmed) {
+    return
+  }
+  
+  try {
+    // 获取当前用户ID
+    const userId = getCurrentUserId()
+    if (!userId) {
+      await modal.error('用户未登录', '错误')
+      return
+    }
+    
+    // 直接清空 indexedDB 中的所有数据
+    await localForage.clear()
+    
+    // 清空 localStorage 中的未读计数
+    localStorage.removeItem(`unread_counts_${userId}`)
+    
+    // 清空 localStorage 中的 groups_with_at_me
+    localStorage.removeItem(`groups_with_at_me_${userId}`)
+    
+    await modal.success('本地消息已清空，即将重新加载...', '成功')
+    
+    // 跳转到 /chat 页面
+    window.location.pathname = '/chat'
+  } catch (error) {
+    console.error('重载消息失败:', error)
+    await modal.error('重载消息失败，请稍后重试', '错误')
+  }
+}
+
 onMounted(() => {
   if (window.__currentSetting) {
     handleSettingClick(window.__currentSetting)
@@ -554,6 +590,19 @@ onUnmounted(() => {
         </div>
         <div class="form-actions" style="margin-top: 20px;">
           <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
+        </div>
+      </div>
+
+      <!-- 重载消息 -->
+      <div v-if="currentSetting === 'reload-messages'" class="settings-detail">
+        <h2>重载消息</h2>
+        <div style="margin-bottom: 20px;">
+          <p>此操作将清空本地所有消息数据（包括未读计数、@消息标记等），然后重新从服务器加载所有消息。</p>
+          <p style="color: #ff6b6b; margin-top: 10px;">⚠️ 此操作不可逆，请谨慎使用。</p>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="save-btn" style="background: #ff6b6b;" @click="handleReloadMessages">重载消息</button>
+          <button type="button" class="cancel-btn" @click="currentSetting = ''">取消</button>
         </div>
       </div>
 

@@ -98,6 +98,9 @@
         <button id="fileUploadButton" title="上传文件" @click="handleFileUploadClick">
           📤 <span class="button-text">发送文件</span>
         </button>
+        <button id="videoUploadButton" title="上传视频" @click="handleVideoUploadClick">
+          🎬 <span class="button-text">发送视频</span>
+        </button>
         <button id="sendGroupCardButton" title="发送群名片" @click="handleSendGroupCard">
           📱 <span class="button-text">发送群名片</span>
         </button>
@@ -107,6 +110,7 @@
       </div>
       <input v-if="showImageInput" type="file" ref="imageInputRef" id="imageInput" style="display: none;" accept="image/*" @change="handleImageUpload" @cancel="handleImageCancel">
       <input v-if="showFileInput" type="file" ref="fileInputRef" id="fileInput" style="display: none;" @change="handleFileUpload" @cancel="handleFileCancel">
+      <input v-if="showVideoInput" type="file" ref="videoInputRef" id="videoInput" style="display: none;" accept="video/*" @change="handleVideoUpload" @cancel="handleVideoCancel">
     </div>
 
     <div v-if="chatStore.showUploadProgress" class="upload-progress" id="uploadProgress">
@@ -238,6 +242,7 @@ import QuotedMessagePreview from "@/components/MessageItem/QuotedMessagePreview.
 import { 
   uploadImage,
   uploadFile,
+  uploadVideo,
   initializeScrollLoading
 } from "@/utils/chat";
 
@@ -246,10 +251,12 @@ const route = useRoute();
 const messageInputRef = ref(null);
 const imageInputRef = ref(null);
 const fileInputRef = ref(null);
+const videoInputRef = ref(null);
 const messageContainerRef = ref(null);
 const isDragOver = ref(false);
 const showImageInput = ref(false);
 const showFileInput = ref(false);
+const showVideoInput = ref(false);
 let dragCounter = 0;
 let previousPublicMessageLength = 0;
 
@@ -339,7 +346,9 @@ watch(
     if ((oldPath === '/chat' || oldPath === '/chat/') && newPath !== '/chat' && newPath !== '/chat/') {
       const mainMessageInput = document.getElementById('messageInput');
       if (mainMessageInput) {
-        const content = mainMessageInput.textContent || mainMessageInput.innerHTML || '';
+        const textContent = mainMessageInput.textContent;
+        const innerHTML = mainMessageInput.innerHTML;
+        const content = textContent || innerHTML || '';
         chatStore.saveDraft('main', null, content);
       }
     }
@@ -1059,6 +1068,30 @@ function handleFileUpload(e) {
 
 function handleFileCancel() {
   showFileInput.value = false;
+}
+
+function handleVideoUploadClick() {
+  showVideoInput.value = true;
+  nextTick(() => {
+    if (videoInputRef.value) {
+      videoInputRef.value.click();
+    }
+  });
+}
+
+function handleVideoUpload(e) {
+  const file = e.target.files[0];
+  if (file) {
+    uploadVideo(file);
+  }
+  showVideoInput.value = false;
+  if (videoInputRef.value) {
+    videoInputRef.value.value = '';
+  }
+}
+
+function handleVideoCancel() {
+  showVideoInput.value = false;
 }
 
 const showSearchModal = ref(false);

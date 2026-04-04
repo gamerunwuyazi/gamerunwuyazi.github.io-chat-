@@ -57,6 +57,18 @@ export function clearContentEditable(element) {
     element.removeChild(element.firstChild);
   }
   element.textContent = '';
+  
+  // 同步更新 store 中的 messageInput
+  const store = window.chatStore;
+  if (store) {
+    if (element.id === 'messageInput') {
+      store.mainMessageInput = '';
+    } else if (element.id === 'groupMessageInput') {
+      store.groupMessageInput = '';
+    } else if (element.id === 'privateMessageInput') {
+      store.privateMessageInput = '';
+    }
+  }
 }
 
 export function sendMessage() {

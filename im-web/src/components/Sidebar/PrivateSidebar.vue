@@ -91,16 +91,22 @@ function handleFriendClick(friend) {
 // 处理用户头像点击
 function handleUserAvatarClick(event, user) {
   event.stopPropagation();
-  if (window.showUserAvatarPopupVue) {
-    window.showUserAvatarPopupVue(event, user);
+  const avatarUrl = getAvatarUrl(user);
+  if (avatarUrl) {
+    const fullAvatarUrl = avatarUrl.startsWith('http') ? avatarUrl : `${chatStore.SERVER_URL}${avatarUrl}`;
+    chatStore.openModal('avatarPreview', fullAvatarUrl);
   } else {
-    const userData = {
-      id: user.id,
-      nickname: user.nickname,
-      username: user.username,
-      avatarUrl: getAvatarUrl(user)
-    };
-    chatStore.openModal('userAvatarPopup', userData);
+    if (window.showUserAvatarPopupVue) {
+      window.showUserAvatarPopupVue(event, user);
+    } else {
+      const userData = {
+        id: user.id,
+        nickname: user.nickname,
+        username: user.username,
+        avatarUrl: getAvatarUrl(user)
+      };
+      chatStore.openModal('userAvatarPopup', userData);
+    }
   }
 }
 

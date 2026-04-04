@@ -40,6 +40,7 @@ function handleSettingItemClick(settingId) {
             <ul class="settings-list">
                 <li class="settings-item" style="color: #999;">主题设置 <span style="color: #ff6b6b;">(未实现)</span></li>
                 <li class="settings-item" data-setting-id="shortcut-settings" @click="handleSettingItemClick('shortcut-settings')">快捷键</li>
+                <li class="settings-item" data-setting-id="reload-messages" @click="handleSettingItemClick('reload-messages')">重载消息</li>
             </ul>
         </div>
         

@@ -1228,14 +1228,6 @@ async function initializeChat() {
         }
         // 执行初始化逻辑
         try {
-          if (typeof refreshToken === 'function') {
-            const refreshSuccess = await refreshToken();
-            if (!refreshSuccess) {
-                console.warn('刷新 Token 失败');
-                return;
-            }
-          } else console.warn('刷新 Token 函数不存在');
-          
           // 先等待消息完全加载完成
           if (typeof getStore().initializeMessages === 'function') {
             await getStore().initializeMessages(); 

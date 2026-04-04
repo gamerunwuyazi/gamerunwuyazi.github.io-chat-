@@ -28,6 +28,17 @@
           @click="handleImageClick(fullImageUrl)"
         >
       </div>
+      <div v-else-if="isVideoFile" class="video-container" style="width: 300px; max-width: 400px;">
+        <video 
+          :src="fullFileUrl" 
+          controls 
+          style="width: 100%;"
+          preload="metadata"
+        >
+          您的浏览器不支持视频播放
+        </video>
+        <div style="font-size: 12px; color: #999; margin-top: 5px;">{{ displayFilename }}</div>
+      </div>
       <div v-else-if="isAudioFile" class="audio-container" style="width: 300px; max-width: 400px;">
         <audio 
           :src="fullFileUrl" 
@@ -280,6 +291,12 @@ const isAudioFile = computed(() => {
   if (!filename.value) return false;
   const ext = filename.value.split('.').pop().toLowerCase();
   return ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma'].includes(ext);
+});
+
+const isVideoFile = computed(() => {
+  if (!filename.value) return false;
+  const ext = filename.value.split('.').pop().toLowerCase();
+  return ['mp4', 'webm', 'ogg', 'avi', 'mov', 'mkv', 'flv', 'wmv', 'm4v'].includes(ext);
 });
 
 const quotedMessageParsedContent = computed(() => {

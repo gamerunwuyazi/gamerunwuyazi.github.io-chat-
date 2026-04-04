@@ -224,13 +224,15 @@ export const {
 export const {
   uploadImage,
   uploadFile,
+  uploadVideo,
   uploadPrivateImage,
   uploadPrivateFile,
+  uploadPrivateVideo,
   uploadUserAvatar,
   initializeUpload,
   initializeScrollLoading,
   initializeImageClickEvents,
-  initializeEventDelegation
+  initializeEventDelegation,
 } = uploadModule;
 
 export const {

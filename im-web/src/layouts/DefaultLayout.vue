@@ -24,31 +24,31 @@ import ChatModal from "@/components/ChatModal.vue";
 const chatStore = useChatStore();
 const route = useRoute();
 
-function updateCurrentActiveChat() {
+function updateCurrentActiveChat(clearUnread = false) {
   const path = route.path;
   
   if (path === '/chat' || path === '/chat/') {
-    setActiveChat('main', null, true);
+    setActiveChat('main', null, clearUnread);
   } else if (path.startsWith('/chat/group')) {
     if (chatStore.currentGroupId) {
-      setActiveChat('group', chatStore.currentGroupId, true);
+      setActiveChat('group', chatStore.currentGroupId, clearUnread);
     }
   } else if (path.startsWith('/chat/private')) {
     if (chatStore.currentPrivateChatUserId) {
-      setActiveChat('private', chatStore.currentPrivateChatUserId, true);
+      setActiveChat('private', chatStore.currentPrivateChatUserId, clearUnread);
     }
   }
 }
 
 onMounted(() => {
   initChatStore(chatStore);
-  updateCurrentActiveChat();
+  updateCurrentActiveChat(false);
 });
 
 watch(
   () => route.path,
   () => {
-    updateCurrentActiveChat();
+    updateCurrentActiveChat(true);
   }
 );
 </script>

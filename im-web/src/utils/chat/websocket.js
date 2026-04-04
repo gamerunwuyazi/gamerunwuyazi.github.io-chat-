@@ -440,11 +440,21 @@ function initializeWebSocket() {
                 if (store && store.moveGroupToTop) {
                     store.moveGroupToTop(groupId);
                 }
+                
+                // 清空群组草稿
+                if (store && store.clearDraft) {
+                    store.clearDraft('group', groupId);
+                }
             } else {
                 // 公共消息
                 // 添加确认后的消息到 store
                 if (store && store.addPublicMessage) {
                     store.addPublicMessage(confirmedMessage);
+                }
+                
+                // 清空公共聊天草稿
+                if (store && store.clearDraft) {
+                    store.clearDraft('main', null);
                 }
             }
         }
@@ -1152,6 +1162,14 @@ function initializeWebSocket() {
                     store.moveFriendToTop(currentPrivateUserId);
                 }
             }
+            
+            // 清空私信草稿
+            if (store && store.clearDraft) {
+                const currentPrivateUserId = sessionStore.currentPrivateChatUserId;
+                if (currentPrivateUserId) {
+                    store.clearDraft('private', currentPrivateUserId);
+                }
+            }
         }
     });
 
@@ -1330,6 +1348,8 @@ function initializeWebSocket() {
 
     // 保存socket实例
     window.chatSocket = socket;
+    // 暴露发送已读消息事件函数到window
+    window.sendReadMessageEvent = sendReadMessageEvent;
 
     // 统一加载消息函数（支持全局、群组、私信）
     window.loadMessages = function(type, options = {}) {
@@ -2020,6 +2040,36 @@ function disconnectWebSocket() {
     }
 }
 
+// 发送已读消息事件
+function sendReadMessageEvent(type, options = {}) {
+    if (!socket) {
+        console.warn('WebSocket 未连接，无法发送已读消息事件');
+        return;
+    }
+
+    const currentUser = getCurrentUser();
+    const currentSessionToken = getCurrentSessionToken();
+
+    if (!currentUser || !currentSessionToken) {
+        console.warn('用户未登录，无法发送已读消息事件');
+        return;
+    }
+
+    const data = {
+        type: type,
+        userId: currentUser.id,
+        sessionToken: currentSessionToken
+    };
+
+    if (type === 'private' && options.friendId) {
+        data.friendId = options.friendId;
+    } else if (type === 'group' && options.groupId) {
+        data.groupId = options.groupId;
+    }
+
+    socket.emit('message-read', data);
+}
+
 export {
   initializeWebSocket,
   enableMessageSending,
@@ -2027,5 +2077,6 @@ export {
   checkUserAndIPStatus,
   disconnectWebSocket,
   isConnected,
-  avatarVersions
+  avatarVersions,
+  sendReadMessageEvent
 };
