@@ -32,14 +32,22 @@
           >
         </div>
         <div class="input-group">
-          <label>人机验证</label>
-          <div class="turnstile-container">
-            <VueTurnstile 
-              ref="turnstileRef"
-              :site-key="TURNSTILE_SITE_KEY"
-              v-model="turnstileToken"
-              theme="light"
-            />
+          <label for="captcha">验证码</label>
+          <div class="captcha-group">
+            <input 
+              type="text" 
+              id="captcha" 
+              v-model="formData.captchaCode" 
+              name="captcha" 
+              required 
+              placeholder="请输入验证码"
+            >
+            <div 
+              class="captcha-image" 
+              v-html="captchaSvg" 
+              @click="getCaptcha"
+              style="cursor: pointer;"
+            ></div>
           </div>
         </div>
         <button type="submit" :disabled="!isFormValid || isSubmitting">
@@ -55,20 +63,19 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { login } from "@/utils/chat";
-import VueTurnstile from 'vue-turnstile';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
-const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
 
 const formData = reactive({
   username: '',
-  password: ''
+  password: '',
+  captchaCode: '',
+  captchaId: ''
 });
 
-const turnstileRef = ref(null);
-const turnstileToken = ref('');
+const captchaSvg = ref('');
 const message = ref('');
 const messageType = ref('error');
 const isSubmitting = ref(false);
@@ -76,8 +83,8 @@ const isSubmitting = ref(false);
 const isFormValid = computed(() => {
   const usernameValid = !!formData.username && String(formData.username).trim().length > 0;
   const passwordValid = !!formData.password && String(formData.password).trim().length > 0;
-  const turnstileValid = !!turnstileToken.value && String(turnstileToken.value).length > 0;
-  return usernameValid && passwordValid && turnstileValid;
+  const captchaValid = !!formData.captchaCode && !!formData.captchaId;
+  return usernameValid && passwordValid && captchaValid;
 });
 
 function showMessage(msg, type) {
@@ -88,10 +95,16 @@ function showMessage(msg, type) {
   }, 5000);
 }
 
-function resetTurnstile() {
-  if (turnstileRef.value) {
-    turnstileToken.value = '';
-    turnstileRef.value.reset();
+async function getCaptcha() {
+  try {
+    const response = await fetch(`${SERVER_URL}/captcha`);
+    const data = await response.json();
+    if (data.captchaSvg) {
+      captchaSvg.value = data.captchaSvg;
+      formData.captchaId = data.captchaId;
+    }
+  } catch (error) {
+    console.error('获取验证码失败:', error);
   }
 }
 
@@ -101,8 +114,8 @@ async function handleLogin() {
     return;
   }
 
-  if (!turnstileToken.value) {
-    showMessage('请完成人机验证', 'error');
+  if (!formData.captchaCode || !formData.captchaId) {
+    showMessage('请完成验证码验证', 'error');
     return;
   }
 
@@ -117,7 +130,8 @@ async function handleLogin() {
       body: JSON.stringify({
         username: formData.username,
         password: formData.password,
-        turnstileToken: turnstileToken.value
+        captchaId: formData.captchaId,
+        captchaCode: formData.captchaCode
       })
     });
 
@@ -129,7 +143,7 @@ async function handleLogin() {
     } catch (parseError) {
       showMessage('服务器响应格式错误，请稍后重试', 'error');
       isSubmitting.value = false;
-      resetTurnstile();
+      getCaptcha();
       return;
     }
 
@@ -144,7 +158,7 @@ async function handleLogin() {
 
       if (!userId || !sessionToken) {
         showMessage('登录响应数据不完整，请稍后重试', 'error');
-        resetTurnstile();
+        getCaptcha();
         isSubmitting.value = false;
         return;
       }
@@ -175,15 +189,19 @@ async function handleLogin() {
     } else {
       const errorMessage = data.message || data.msg || '登录失败，请检查用户名和密码';
       showMessage(errorMessage, 'error');
-      resetTurnstile();
+      getCaptcha();
       isSubmitting.value = false;
     }
   } catch (error) {
     showMessage('登录请求失败，请检查用户名/密码是否合法，并稍后重试', 'error');
-    resetTurnstile();
+    getCaptcha();
     isSubmitting.value = false;
   }
 }
+
+onMounted(() => {
+  getCaptcha();
+});
 </script>
 
 <style scoped>
@@ -321,10 +339,32 @@ input:focus {
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-/* Turnstile 容器样式 */
-.turnstile-container {
+/* 验证码容器样式 */
+.captcha-group {
   display: flex;
-  justify-content: flex-start;
+  gap: 10px;
+  align-items: center;
+}
+
+.captcha-group input {
+  flex: 1;
+}
+
+.captcha-image {
+  width: 120px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e1e5e9;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.captcha-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* 按钮样式 */

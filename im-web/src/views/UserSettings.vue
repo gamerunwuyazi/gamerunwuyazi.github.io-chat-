@@ -1,12 +1,10 @@
 <script setup>
 import {ref, computed, onMounted, onUnmounted} from "vue";
 import {currentUser, currentSessionToken} from "@/utils/chat";
-import VueTurnstile from 'vue-turnstile';
 import localForage from 'localforage';
 import modal from "@/utils/modal";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn'
-const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || ''
 
 // 当前显示的设置项
 const currentSetting = ref('')
@@ -15,22 +13,23 @@ const currentSetting = ref('')
 const passwordForm = ref({
   oldPassword: '',
   newPassword: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  captchaCode: '',
+  captchaId: ''
 })
 const passwordMessage = ref('')
 const passwordMessageClass = ref('')
 
-// Turnstile 相关
-const turnstileRef = ref(null)
-const turnstileToken = ref('')
+// 验证码相关
+const captchaSvg = ref('')
 
 // 修改密码表单验证
 const isPasswordFormValid = computed(() => {
   const oldPasswordValid = !!passwordForm.value.oldPassword && String(passwordForm.value.oldPassword).trim().length > 0;
   const newPasswordValid = !!passwordForm.value.newPassword && String(passwordForm.value.newPassword).trim().length >= 6;
   const confirmPasswordValid = !!passwordForm.value.confirmPassword && String(passwordForm.value.confirmPassword).trim().length >= 6 && passwordForm.value.newPassword === passwordForm.value.confirmPassword;
-  const turnstileValid = !!turnstileToken.value && String(turnstileToken.value).length > 0;
-  return oldPasswordValid && newPasswordValid && confirmPasswordValid && turnstileValid;
+  const captchaValid = !!passwordForm.value.captchaCode && !!passwordForm.value.captchaId;
+  return oldPasswordValid && newPasswordValid && confirmPasswordValid && captchaValid;
 })
 
 // 修改昵称表单
@@ -86,11 +85,17 @@ function getCurrentSessionToken() {
   return localStorage.getItem('currentSessionToken') || ''
 }
 
-// 重置 Turnstile
-function resetTurnstile() {
-  if (turnstileRef.value) {
-    turnstileToken.value = ''
-    turnstileRef.value.reset()
+// 获取验证码
+async function getCaptcha() {
+  try {
+    const response = await fetch(`${SERVER_URL}/captcha`);
+    const data = await response.json();
+    if (data.captchaSvg) {
+      captchaSvg.value = data.captchaSvg;
+      passwordForm.value.captchaId = data.captchaId;
+    }
+  } catch (error) {
+    console.error('获取验证码失败:', error);
   }
 }
 
@@ -126,8 +131,8 @@ async function handleChangePassword() {
     return
   }
 
-  if (!turnstileToken.value) {
-    passwordMessage.value = '请完成人机验证'
+  if (!passwordForm.value.captchaCode || !passwordForm.value.captchaId) {
+    passwordMessage.value = '请完成验证码验证'
     passwordMessageClass.value = 'error'
     return
   }
@@ -152,7 +157,8 @@ async function handleChangePassword() {
       body: JSON.stringify({
         oldPassword: passwordForm.value.oldPassword,
         newPassword: passwordForm.value.newPassword,
-        turnstileToken: turnstileToken.value
+        captchaId: passwordForm.value.captchaId,
+        captchaCode: passwordForm.value.captchaCode
       })
     })
     
@@ -161,18 +167,18 @@ async function handleChangePassword() {
     if (data.status === 'success') {
       passwordMessage.value = '密码修改成功'
       passwordMessageClass.value = 'success'
-      passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
-      resetTurnstile()
+      passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '', captchaCode: '', captchaId: '' }
+      getCaptcha()
     } else {
       passwordMessage.value = data.message || '密码修改失败'
       passwordMessageClass.value = 'error'
-      resetTurnstile()
+      getCaptcha()
     }
   } catch (error) {
     console.error('修改密码失败:', error)
     passwordMessage.value = '网络错误'
     passwordMessageClass.value = 'error'
-    resetTurnstile()
+    getCaptcha()
   }
 }
 
@@ -441,6 +447,9 @@ onMounted(() => {
   }
   
   window.addEventListener('settings-item-click', handleSettingsItemClick)
+  
+  // 获取验证码
+  getCaptcha()
 })
 
 onUnmounted(() => {
@@ -475,14 +484,22 @@ onUnmounted(() => {
             <input type="password" id="confirmPassword" v-model="passwordForm.confirmPassword" placeholder="请再次输入新密码" required>
           </div>
           <div class="form-group">
-            <label>人机验证</label>
-            <div class="turnstile-container">
-              <VueTurnstile 
-                ref="turnstileRef"
-                :site-key="TURNSTILE_SITE_KEY"
-                v-model="turnstileToken"
-                theme="light"
-              />
+            <label for="captcha">验证码</label>
+            <div class="captcha-group">
+              <input 
+                type="text" 
+                id="captcha" 
+                v-model="passwordForm.captchaCode" 
+                name="captcha" 
+                required 
+                placeholder="请输入验证码"
+              >
+              <div 
+                class="captcha-image" 
+                v-html="captchaSvg" 
+                @click="getCaptcha"
+                style="cursor: pointer;"
+              ></div>
             </div>
           </div>
           <div v-if="passwordMessage" :class="'form-message ' + passwordMessageClass">{{ passwordMessage }}</div>
@@ -650,10 +667,32 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.turnstile-container {
+.captcha-group {
   display: flex;
-  justify-content: flex-start;
+  gap: 10px;
+  align-items: center;
   margin-top: 8px;
+}
+
+.captcha-group input {
+  flex: 1;
+}
+
+.captcha-image {
+  width: 120px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e1e5e9;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.captcha-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .save-btn:disabled {

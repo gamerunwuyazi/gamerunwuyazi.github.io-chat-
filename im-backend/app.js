@@ -217,6 +217,12 @@ app.use((req, res, next) => {
 // 创建连接池
 const pool = mysql.createPool(dbConfig);
 
+// 初始化数据库表
+const { initDatabase } = require('./database/init');
+initDatabase(pool).catch(err => {
+  console.error('数据库初始化失败:', err.message);
+});
+
 // 中间件
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
@@ -440,12 +446,21 @@ async function validateIPAndSession(req, res, next) {
 // 确保上传目录存在
 const uploadDir = path.join(__dirname, 'public', 'uploads');
 const avatarDir = path.join(__dirname, 'public', 'avatars');
+const userFilesDir = path.join(__dirname, 'public', 'user-files');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 if (!fs.existsSync(avatarDir)) {
   fs.mkdirSync(avatarDir, { recursive: true });
 }
+if (!fs.existsSync(userFilesDir)) {
+  fs.mkdirSync(userFilesDir, { recursive: true });
+}
+
+// 静态文件服务
+app.use('/uploads', express.static(uploadDir));
+app.use('/avatars', express.static(avatarDir));
+app.use('/user-files', express.static(userFilesDir));
 
 // 头像存储配置
 // 用户头像存储配置
@@ -552,6 +567,46 @@ const upload = multer({
   storage: storage,
   limits: {
     fileSize: 15 * 1024 * 1024
+  },
+  fileFilter: function (req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const prohibitedExts = ['.php', '.php3', '.php4', '.php5', '.phtml', '.phar'];
+    
+    if (prohibitedExts.includes(ext)) {
+      cb(null, false);
+    } else {
+      cb(null, true);
+    }
+  }
+});
+
+// 用户文件存储配置
+const userFileStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, userFilesDir);
+  },
+  filename: function (req, file, cb) {
+    const timestamp = Date.now();
+    const uniqueSuffix = timestamp + '-' + Math.round(Math.random() * 1E9);
+    // 处理原始文件名，确保正确解码UTF-8编码
+    let originalName = file.originalname;
+    // 尝试解码URL编码的中文字符
+    try {
+      originalName = decodeURIComponent(escape(originalName));
+    } catch (e) {
+      // 如果解码失败，保留原始名称
+    }
+    // 生成安全的ASCII文件名用于存储
+    const ext = path.extname(originalName);
+    const safeFilename = uniqueSuffix + ext;
+    cb(null, safeFilename);
+  }
+});
+
+const userFileUpload = multer({
+  storage: userFileStorage,
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB 限制
   },
   fileFilter: function (req, file, cb) {
     const ext = path.extname(file.originalname).toLowerCase();
@@ -724,23 +779,32 @@ async function getSessionCount() {
   }
 }
 
-// Cloudflare Turnstile 配置
-const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
+// 新验证码系统配置
+const CAPTCHA_API_ID = '10013231';
+const CAPTCHA_API_KEY = '0ee4a1a573e0eabb28394a0b4262ecac';
+const CAPTCHA_GET_URL = 'https://cn.apihz.cn/api/xingkong/xk1get.php';
+const CAPTCHA_VERIFY_URL = 'https://cn.apihz.cn/api/xingkong/xk1yz.php';
 
-// 验证 Cloudflare Turnstile Token
-async function verifyTurnstileToken(token, clientIP) {
+// 获取验证码
+async function getCaptcha() {
   try {
-    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: `secret=${encodeURIComponent(TURNSTILE_SECRET_KEY)}&response=${encodeURIComponent(token)}&remoteip=${encodeURIComponent(clientIP)}`
-    });
-
+    const response = await fetch(`${CAPTCHA_GET_URL}?id=${CAPTCHA_API_ID}&key=${CAPTCHA_API_KEY}`);
     const data = await response.json();
-    return { success: data.success === true, message: null };
+    return data;
   } catch (error) {
+    console.error('获取验证码失败:', error);
+    return { code: 400, msg: '获取验证码失败' };
+  }
+}
+
+// 验证验证码
+async function verifyCaptcha(code, md5key) {
+  try {
+    const response = await fetch(`${CAPTCHA_VERIFY_URL}?id=${CAPTCHA_API_ID}&key=${CAPTCHA_API_KEY}&code=${encodeURIComponent(code)}&md5key=${encodeURIComponent(md5key)}`);
+    const data = await response.json();
+    return { success: data.code === 200, message: data.msg };
+  } catch (error) {
+    console.error('验证验证码失败:', error);
     return { success: false, message: '网络不佳，请稍后再试' };
   }
 }
@@ -825,6 +889,57 @@ async function cleanupExpiredSessions() {
         }
     } catch (err) {
         console.error('清理过期会话失败:', err.message);
+    }
+}
+
+// 检查并更新过期的投票状态
+async function checkExpiredPolls() {
+    try {
+        // 更新过期的投票状态
+        const [result] = await pool.execute(
+            'UPDATE chat_group_polls SET status = 1 WHERE status = 0 AND expires_at IS NOT NULL AND expires_at < NOW()'
+        );
+        
+        if (result.affectedRows > 0) {
+            console.log(`📊 已自动结束 ${result.affectedRows} 个过期投票`);
+        }
+    } catch (err) {
+        console.error('检查过期投票失败:', err.message);
+    }
+}
+
+// 检查并发送日程提醒
+async function checkEventReminders() {
+    try {
+        // 查询需要发送的提醒
+        const [reminders] = await pool.execute(
+            'SELECT r.id, r.event_id, r.user_id, e.title, e.start_time FROM chat_event_reminders r JOIN chat_user_events e ON r.event_id = e.id WHERE r.is_sent = false AND r.reminder_time <= NOW()'
+        );
+        
+        for (const reminder of reminders) {
+            try {
+                // 向用户发送提醒通知
+                io.to(`user_${reminder.user_id}`).emit('event-reminder', {
+                    eventId: reminder.event_id,
+                    title: reminder.title,
+                    startTime: reminder.start_time,
+                    reminderTime: new Date().toISOString(),
+                    message: `您的日程 "${reminder.title}" 即将开始`
+                });
+                
+                // 标记提醒为已发送
+                await pool.execute(
+                    'UPDATE chat_event_reminders SET is_sent = true WHERE id = ?',
+                    [reminder.id]
+                );
+                
+                console.log(`🔔 已发送日程提醒给用户 ${reminder.user_id}，事件: ${reminder.title}`);
+            } catch (err) {
+                console.error(`发送提醒失败: ${err.message}`);
+            }
+        }
+    } catch (err) {
+        console.error('检查日程提醒失败:', err.message);
     }
 }
 
@@ -968,6 +1083,736 @@ app.get('/api/health', async (req, res) => {
     activeSessions: sessionCount,
     message: '会话20分钟过期模式'
   });
+});
+
+// 处理验证码请求
+app.get('/captcha', async (req, res) => {
+  try {
+    const captchaData = await getCaptcha();
+    if (captchaData.code === 200) {
+      res.json({ 
+        captchaSvg: `<img src="${captchaData.imgurl}" alt="验证码" style="width: 120px; height: 40px;" />`, 
+        captchaId: captchaData.md5key 
+      });
+    } else {
+      res.status(500).json({ error: captchaData.msg || '生成验证码失败' });
+    }
+  } catch (error) {
+    console.error('生成验证码失败:', error);
+    res.status(500).json({ error: '生成验证码失败' });
+  }
+});
+
+// 文件上传接口
+app.post('/api/files/upload', checkFileRequestLimit, userFileUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ status: 'error', message: '请选择要上传的文件' });
+    }
+    
+    const userId = parseInt(req.userId);
+    const { description } = req.body;
+    
+    // 检测文件类型
+    const fileType = req.file.mimetype;
+    const fileName = req.file.originalname;
+    const filePath = `/user-files/${req.file.filename}`;
+    const fileSize = req.file.size;
+    
+    // 保存文件信息到数据库
+    const [result] = await pool.execute(
+      'INSERT INTO chat_user_files (user_id, file_name, file_path, file_size, file_type, description) VALUES (?, ?, ?, ?, ?, ?)',
+      [userId, fileName, filePath, fileSize, fileType, description]
+    );
+    
+    res.json({
+      status: 'success',
+      message: '文件上传成功',
+      data: {
+        id: result.insertId,
+        file_name: fileName,
+        file_path: filePath,
+        file_size: fileSize,
+        file_type: fileType,
+        description: description,
+        created_at: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('文件上传失败:', err.message);
+    res.status(500).json({ status: 'error', message: '文件上传失败' });
+  }
+});
+
+// 文件列表接口
+app.get('/api/files/list', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const { page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+    
+    // 查询用户的文件列表
+    const [files] = await pool.execute(
+      'SELECT id, file_name, file_path, file_size, file_type, description, download_count, created_at FROM chat_user_files WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      [userId, parseInt(limit), offset]
+    );
+    
+    // 查询总数
+    const [countResult] = await pool.execute(
+      'SELECT COUNT(*) as count FROM chat_user_files WHERE user_id = ?',
+      [userId]
+    );
+    const total = countResult[0].count;
+    
+    res.json({
+      status: 'success',
+      message: '获取文件列表成功',
+      data: {
+        files: files,
+        pagination: {
+          total: total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages: Math.ceil(total / limit)
+        }
+      }
+    });
+  } catch (err) {
+    console.error('获取文件列表失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取文件列表失败' });
+  }
+});
+
+// 文件下载接口
+app.get('/api/files/download/:id', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const fileId = parseInt(req.params.id);
+    
+    // 查询文件信息
+    const [files] = await pool.execute(
+      'SELECT file_name, file_path, file_type FROM chat_user_files WHERE id = ? AND user_id = ?',
+      [fileId, userId]
+    );
+    
+    if (files.length === 0) {
+      return res.status(404).json({ status: 'error', message: '文件不存在' });
+    }
+    
+    const file = files[0];
+    const fullPath = path.join(__dirname, 'public', file.file_path);
+    
+    // 检查文件是否存在
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ status: 'error', message: '文件不存在' });
+    }
+    
+    // 记录下载次数
+    await pool.execute(
+      'UPDATE chat_user_files SET download_count = download_count + 1 WHERE id = ?',
+      [fileId]
+    );
+    
+    // 记录下载记录
+    await pool.execute(
+      'INSERT INTO chat_user_file_downloads (file_id, user_id) VALUES (?, ?)',
+      [fileId, userId]
+    );
+    
+    // 设置响应头
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.file_name)}"`);
+    res.setHeader('Content-Type', file.file_type);
+    
+    // 发送文件
+    const fileStream = fs.createReadStream(fullPath);
+    fileStream.pipe(res);
+  } catch (err) {
+    console.error('文件下载失败:', err.message);
+    res.status(500).json({ status: 'error', message: '文件下载失败' });
+  }
+});
+
+// 文件删除接口
+app.delete('/api/files/delete/:id', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const fileId = parseInt(req.params.id);
+    
+    // 查询文件信息
+    const [files] = await pool.execute(
+      'SELECT file_path FROM chat_user_files WHERE id = ? AND user_id = ?',
+      [fileId, userId]
+    );
+    
+    if (files.length === 0) {
+      return res.status(404).json({ status: 'error', message: '文件不存在' });
+    }
+    
+    const file = files[0];
+    const fullPath = path.join(__dirname, 'public', file.file_path);
+    
+    // 删除数据库记录
+    await pool.execute(
+      'DELETE FROM chat_user_files WHERE id = ? AND user_id = ?',
+      [fileId, userId]
+    );
+    
+    // 删除文件
+    if (fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
+    }
+    
+    res.json({ status: 'success', message: '文件删除成功' });
+  } catch (err) {
+    console.error('文件删除失败:', err.message);
+    res.status(500).json({ status: 'error', message: '文件删除失败' });
+  }
+});
+
+// 文件预览接口
+app.get('/api/files/preview/:id', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const fileId = parseInt(req.params.id);
+    
+    // 查询文件信息
+    const [files] = await pool.execute(
+      'SELECT file_name, file_path, file_type FROM chat_user_files WHERE id = ? AND user_id = ?',
+      [fileId, userId]
+    );
+    
+    if (files.length === 0) {
+      return res.status(404).json({ status: 'error', message: '文件不存在' });
+    }
+    
+    const file = files[0];
+    const fullPath = path.join(__dirname, 'public', file.file_path);
+    
+    // 检查文件是否存在
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ status: 'error', message: '文件不存在' });
+    }
+    
+    // 设置响应头
+    res.setHeader('Content-Type', file.file_type);
+    
+    // 发送文件
+    const fileStream = fs.createReadStream(fullPath);
+    fileStream.pipe(res);
+  } catch (err) {
+    console.error('文件预览失败:', err.message);
+    res.status(500).json({ status: 'error', message: '文件预览失败' });
+  }
+});
+
+// 文件信息接口
+app.get('/api/files/info/:id', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const fileId = parseInt(req.params.id);
+    
+    // 查询文件信息
+    const [files] = await pool.execute(
+      'SELECT id, file_name, file_path, file_size, file_type, description, download_count, created_at FROM chat_user_files WHERE id = ? AND user_id = ?',
+      [fileId, userId]
+    );
+    
+    if (files.length === 0) {
+      return res.status(404).json({ status: 'error', message: '文件不存在' });
+    }
+    
+    res.json({
+      status: 'success',
+      message: '获取文件信息成功',
+      data: files[0]
+    });
+  } catch (err) {
+    console.error('获取文件信息失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取文件信息失败' });
+  }
+});
+
+// 创建个人日程接口
+app.post('/api/events', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const { title, description, start_time, end_time, location, is_all_day, reminder_time, recurrence_type, recurrence_end_date, recurrence_interval } = req.body;
+    
+    // 验证必填字段
+    if (!title || !start_time || !end_time) {
+      return res.status(400).json({ status: 'error', message: '标题、开始时间和结束时间不能为空' });
+    }
+    
+    // 验证时间格式
+    const startTime = new Date(start_time);
+    const endTime = new Date(end_time);
+    if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+      return res.status(400).json({ status: 'error', message: '时间格式错误' });
+    }
+    
+    // 验证开始时间不能晚于结束时间
+    if (startTime > endTime) {
+      return res.status(400).json({ status: 'error', message: '开始时间不能晚于结束时间' });
+    }
+    
+    // 插入日程记录
+    const [result] = await pool.execute(
+      'INSERT INTO chat_user_events (user_id, title, description, start_time, end_time, location, is_all_day, reminder_time, recurrence_type, recurrence_end_date, recurrence_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [userId, title, description, start_time, end_time, location, is_all_day || false, reminder_time || 30, recurrence_type || 'none', recurrence_end_date, recurrence_interval || 1]
+    );
+    
+    const eventId = result.insertId;
+    
+    // 计算提醒时间并创建提醒记录
+    if (reminder_time && reminder_time > 0) {
+      const reminderDateTime = new Date(startTime);
+      reminderDateTime.setMinutes(reminderDateTime.getMinutes() - reminder_time);
+      
+      if (reminderDateTime > new Date()) {
+        await pool.execute(
+          'INSERT INTO chat_event_reminders (event_id, user_id, reminder_time) VALUES (?, ?, ?)',
+          [eventId, userId, reminderDateTime]
+        );
+      }
+    }
+    
+    res.json({
+      status: 'success',
+      message: '日程创建成功',
+      data: {
+        id: eventId,
+        title,
+        description,
+        start_time,
+        end_time,
+        location,
+        is_all_day: is_all_day || false,
+        reminder_time: reminder_time || 30,
+        recurrence_type: recurrence_type || 'none',
+        recurrence_end_date,
+        recurrence_interval: recurrence_interval || 1,
+        created_at: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('创建日程失败:', err.message);
+    res.status(500).json({ status: 'error', message: '创建日程失败' });
+  }
+});
+
+// 获取个人日程列表接口
+app.get('/api/events', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const { start_date, end_date, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+    
+    let query = 'SELECT * FROM chat_user_events WHERE user_id = ?';
+    const params = [userId];
+    
+    // 添加时间范围过滤
+    if (start_date) {
+      query += ' AND start_time >= ?';
+      params.push(start_date);
+    }
+    if (end_date) {
+      query += ' AND end_time <= ?';
+      params.push(end_date);
+    }
+    
+    query += ' ORDER BY start_time DESC LIMIT ? OFFSET ?';
+    params.push(parseInt(limit), offset);
+    
+    // 查询日程列表
+    const [events] = await pool.execute(query, params);
+    
+    // 查询总数
+    let countQuery = 'SELECT COUNT(*) as count FROM chat_user_events WHERE user_id = ?';
+    const countParams = [userId];
+    
+    if (start_date) {
+      countQuery += ' AND start_time >= ?';
+      countParams.push(start_date);
+    }
+    if (end_date) {
+      countQuery += ' AND end_time <= ?';
+      countParams.push(end_date);
+    }
+    
+    const [countResult] = await pool.execute(countQuery, countParams);
+    const total = countResult[0].count;
+    
+    res.json({
+      status: 'success',
+      message: '获取日程列表成功',
+      data: {
+        events: events,
+        pagination: {
+          total: total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages: Math.ceil(total / limit)
+        }
+      }
+    });
+  } catch (err) {
+    console.error('获取日程列表失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取日程列表失败' });
+  }
+});
+
+// 获取单个日程详情接口
+app.get('/api/events/:id', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const eventId = parseInt(req.params.id);
+    
+    // 查询日程详情
+    const [events] = await pool.execute(
+      'SELECT * FROM chat_user_events WHERE id = ? AND user_id = ?',
+      [eventId, userId]
+    );
+    
+    if (events.length === 0) {
+      return res.status(404).json({ status: 'error', message: '日程不存在' });
+    }
+    
+    res.json({
+      status: 'success',
+      message: '获取日程详情成功',
+      data: events[0]
+    });
+  } catch (err) {
+    console.error('获取日程详情失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取日程详情失败' });
+  }
+});
+
+// 更新个人日程接口
+app.put('/api/events/:id', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const eventId = parseInt(req.params.id);
+    const { title, description, start_time, end_time, location, is_all_day, reminder_time, recurrence_type, recurrence_end_date, recurrence_interval } = req.body;
+    
+    // 验证必填字段
+    if (!title || !start_time || !end_time) {
+      return res.status(400).json({ status: 'error', message: '标题、开始时间和结束时间不能为空' });
+    }
+    
+    // 验证时间格式
+    const startTime = new Date(start_time);
+    const endTime = new Date(end_time);
+    if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+      return res.status(400).json({ status: 'error', message: '时间格式错误' });
+    }
+    
+    // 验证开始时间不能晚于结束时间
+    if (startTime > endTime) {
+      return res.status(400).json({ status: 'error', message: '开始时间不能晚于结束时间' });
+    }
+    
+    // 检查日程是否存在且属于当前用户
+    const [existingEvents] = await pool.execute(
+      'SELECT * FROM chat_user_events WHERE id = ? AND user_id = ?',
+      [eventId, userId]
+    );
+    
+    if (existingEvents.length === 0) {
+      return res.status(404).json({ status: 'error', message: '日程不存在' });
+    }
+    
+    // 更新日程记录
+    await pool.execute(
+      'UPDATE chat_user_events SET title = ?, description = ?, start_time = ?, end_time = ?, location = ?, is_all_day = ?, reminder_time = ?, recurrence_type = ?, recurrence_end_date = ?, recurrence_interval = ? WHERE id = ? AND user_id = ?',
+      [title, description, start_time, end_time, location, is_all_day || false, reminder_time || 30, recurrence_type || 'none', recurrence_end_date, recurrence_interval || 1, eventId, userId]
+    );
+    
+    // 删除旧的提醒记录
+    await pool.execute(
+      'DELETE FROM chat_event_reminders WHERE event_id = ?',
+      [eventId]
+    );
+    
+    // 创建新的提醒记录
+    if (reminder_time && reminder_time > 0) {
+      const reminderDateTime = new Date(startTime);
+      reminderDateTime.setMinutes(reminderDateTime.getMinutes() - reminder_time);
+      
+      if (reminderDateTime > new Date()) {
+        await pool.execute(
+          'INSERT INTO chat_event_reminders (event_id, user_id, reminder_time) VALUES (?, ?, ?)',
+          [eventId, userId, reminderDateTime]
+        );
+      }
+    }
+    
+    res.json({
+      status: 'success',
+      message: '日程更新成功',
+      data: {
+        id: eventId,
+        title,
+        description,
+        start_time,
+        end_time,
+        location,
+        is_all_day: is_all_day || false,
+        reminder_time: reminder_time || 30,
+        recurrence_type: recurrence_type || 'none',
+        recurrence_end_date,
+        recurrence_interval: recurrence_interval || 1,
+        updated_at: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('更新日程失败:', err.message);
+    res.status(500).json({ status: 'error', message: '更新日程失败' });
+  }
+});
+
+// 删除个人日程接口
+app.delete('/api/events/:id', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const eventId = parseInt(req.params.id);
+    
+    // 检查日程是否存在且属于当前用户
+    const [existingEvents] = await pool.execute(
+      'SELECT * FROM chat_user_events WHERE id = ? AND user_id = ?',
+      [eventId, userId]
+    );
+    
+    if (existingEvents.length === 0) {
+      return res.status(404).json({ status: 'error', message: '日程不存在' });
+    }
+    
+    // 删除日程记录（级联删除相关的提醒记录）
+    await pool.execute(
+      'DELETE FROM chat_user_events WHERE id = ? AND user_id = ?',
+      [eventId, userId]
+    );
+    
+    res.json({ status: 'success', message: '日程删除成功' });
+  } catch (err) {
+    console.error('删除日程失败:', err.message);
+    res.status(500).json({ status: 'error', message: '删除日程失败' });
+  }
+});
+
+// 群组公告相关接口
+
+// 获取群组公告列表
+app.get('/api/group-announcements/:groupId', async (req, res) => {
+  try {
+    const groupId = parseInt(req.params.groupId);
+    
+    // 查询公告列表，按创建时间倒序
+    const [announcements] = await pool.execute(
+      `SELECT a.id, a.group_id, a.user_id, a.title, a.content, a.created_at, a.updated_at, 
+              u.nickname as authorName 
+       FROM chat_group_announcements a 
+       LEFT JOIN chat_users u ON a.user_id = u.id 
+       WHERE a.group_id = ? 
+       ORDER BY a.created_at DESC`,
+      [groupId]
+    );
+    
+    res.json({
+      status: 'success',
+      message: '获取公告列表成功',
+      announcements: announcements
+    });
+  } catch (err) {
+    console.error('获取公告列表失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取公告列表失败' });
+  }
+});
+
+// 创建群组公告
+app.post('/api/group-announcements', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const { groupId, title, content } = req.body;
+    
+    // 验证必填字段
+    if (!groupId || !title || !content) {
+      return res.status(400).json({ status: 'error', message: '群组ID、标题和内容不能为空' });
+    }
+    
+    // 检查用户是否是群组成员
+    const [members] = await pool.execute(
+      'SELECT * FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      [groupId, userId]
+    );
+    
+    if (members.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群组成员' });
+    }
+    
+    // 检查用户是否是群组管理员或群主
+    const [groupInfo] = await pool.execute(
+      'SELECT owner_id, admins FROM chat_groups WHERE id = ?',
+      [groupId]
+    );
+    
+    if (groupInfo.length === 0) {
+      return res.status(404).json({ status: 'error', message: '群组不存在' });
+    }
+    
+    const group = groupInfo[0];
+    const isOwner = group.owner_id === userId;
+    const isAdmin = group.admins && group.admins.includes(userId.toString());
+    
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ status: 'error', message: '只有群组管理员或群主可以发布公告' });
+    }
+    
+    // 插入公告
+    const [result] = await pool.execute(
+      'INSERT INTO chat_group_announcements (group_id, user_id, title, content) VALUES (?, ?, ?, ?)',
+      [groupId, userId, title, content]
+    );
+    
+    // 获取创建的公告详情
+    const [newAnnouncement] = await pool.execute(
+      `SELECT a.id, a.group_id, a.user_id, a.title, a.content, a.created_at, a.updated_at, 
+              u.nickname as authorName 
+       FROM chat_group_announcements a 
+       LEFT JOIN chat_users u ON a.user_id = u.id 
+       WHERE a.id = ?`,
+      [result.insertId]
+    );
+    
+    res.json({
+      status: 'success',
+      message: '公告发布成功',
+      announcement: newAnnouncement[0]
+    });
+  } catch (err) {
+    console.error('创建公告失败:', err.message);
+    res.status(500).json({ status: 'error', message: '创建公告失败' });
+  }
+});
+
+// 更新群组公告
+app.put('/api/group-announcements/:id', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const announcementId = parseInt(req.params.id);
+    const { title, content } = req.body;
+    
+    // 验证必填字段
+    if (!title || !content) {
+      return res.status(400).json({ status: 'error', message: '标题和内容不能为空' });
+    }
+    
+    // 检查公告是否存在
+    const [announcements] = await pool.execute(
+      'SELECT * FROM chat_group_announcements WHERE id = ?',
+      [announcementId]
+    );
+    
+    if (announcements.length === 0) {
+      return res.status(404).json({ status: 'error', message: '公告不存在' });
+    }
+    
+    const announcement = announcements[0];
+    
+    // 检查用户是否是公告作者、群组管理员或群主
+    const [groupInfo] = await pool.execute(
+      'SELECT owner_id, admins FROM chat_groups WHERE id = ?',
+      [announcement.group_id]
+    );
+    
+    if (groupInfo.length === 0) {
+      return res.status(404).json({ status: 'error', message: '群组不存在' });
+    }
+    
+    const group = groupInfo[0];
+    const isOwner = group.owner_id === userId;
+    const isAdmin = group.admins && group.admins.includes(userId.toString());
+    const isAuthor = announcement.user_id === userId;
+    
+    if (!isOwner && !isAdmin && !isAuthor) {
+      return res.status(403).json({ status: 'error', message: '只有公告作者、群组管理员或群主可以编辑公告' });
+    }
+    
+    // 更新公告
+    await pool.execute(
+      'UPDATE chat_group_announcements SET title = ?, content = ? WHERE id = ?',
+      [title, content, announcementId]
+    );
+    
+    // 获取更新后的公告详情
+    const [updatedAnnouncement] = await pool.execute(
+      `SELECT a.id, a.group_id, a.user_id, a.title, a.content, a.created_at, a.updated_at, 
+              u.nickname as authorName 
+       FROM chat_group_announcements a 
+       LEFT JOIN chat_users u ON a.user_id = u.id 
+       WHERE a.id = ?`,
+      [announcementId]
+    );
+    
+    res.json({
+      status: 'success',
+      message: '公告更新成功',
+      announcement: updatedAnnouncement[0]
+    });
+  } catch (err) {
+    console.error('更新公告失败:', err.message);
+    res.status(500).json({ status: 'error', message: '更新公告失败' });
+  }
+});
+
+// 删除群组公告
+app.delete('/api/group-announcements/:id', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const announcementId = parseInt(req.params.id);
+    
+    // 检查公告是否存在
+    const [announcements] = await pool.execute(
+      'SELECT * FROM chat_group_announcements WHERE id = ?',
+      [announcementId]
+    );
+    
+    if (announcements.length === 0) {
+      return res.status(404).json({ status: 'error', message: '公告不存在' });
+    }
+    
+    const announcement = announcements[0];
+    
+    // 检查用户是否是公告作者、群组管理员或群主
+    const [groupInfo] = await pool.execute(
+      'SELECT owner_id, admins FROM chat_groups WHERE id = ?',
+      [announcement.group_id]
+    );
+    
+    if (groupInfo.length === 0) {
+      return res.status(404).json({ status: 'error', message: '群组不存在' });
+    }
+    
+    const group = groupInfo[0];
+    const isOwner = group.owner_id === userId;
+    const isAdmin = group.admins && group.admins.includes(userId.toString());
+    const isAuthor = announcement.user_id === userId;
+    
+    if (!isOwner && !isAdmin && !isAuthor) {
+      return res.status(403).json({ status: 'error', message: '只有公告作者、群组管理员或群主可以删除公告' });
+    }
+    
+    // 删除公告
+    await pool.execute(
+      'DELETE FROM chat_group_announcements WHERE id = ?',
+      [announcementId]
+    );
+    
+    res.json({ status: 'success', message: '公告删除成功' });
+  } catch (err) {
+    console.error('删除公告失败:', err.message);
+    res.status(500).json({ status: 'error', message: '删除公告失败' });
+  }
 });
 
 // IP和用户状态检查接口
@@ -1665,6 +2510,286 @@ app.get('/api/user/search', async (req, res) => {
   }
 });
 
+// 投票相关API
+
+// 创建投票
+app.post('/api/group/:groupId/polls', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const groupId = parseInt(req.params.groupId);
+    const { title, description, options, expiresAt } = req.body;
+    
+    if (!title || !options || !Array.isArray(options) || options.length < 2) {
+      return res.status(400).json({ status: 'error', message: '标题和选项不能为空，且至少需要2个选项' });
+    }
+    
+    // 检查用户是否是群成员
+    const [members] = await pool.execute(
+      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      [groupId, userId]
+    );
+    if (members.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群成员' });
+    }
+    
+    const optionsJson = JSON.stringify(options);
+    const expiresDate = expiresAt ? new Date(expiresAt) : null;
+    
+    // 创建投票
+    const [result] = await pool.execute(
+      'INSERT INTO chat_group_polls (group_id, title, description, options, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [groupId, title, description, optionsJson, userId, expiresDate]
+    );
+    
+    res.json({
+      status: 'success',
+      pollId: result.insertId,
+      message: '投票创建成功'
+    });
+  } catch (err) {
+    console.error('创建投票失败:', err.message);
+    res.status(500).json({ status: 'error', message: '创建投票失败' });
+  }
+});
+
+// 获取群组投票列表
+app.get('/api/group/:groupId/polls', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const groupId = parseInt(req.params.groupId);
+    
+    // 检查用户是否是群成员
+    const [members] = await pool.execute(
+      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      [groupId, userId]
+    );
+    if (members.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群成员' });
+    }
+    
+    // 获取投票列表
+    const [polls] = await pool.execute(
+      'SELECT id, title, description, options, status, created_by, created_at, expires_at FROM chat_group_polls WHERE group_id = ? ORDER BY created_at DESC',
+      [groupId]
+    );
+    
+    // 处理投票数据
+    const pollsWithDetails = await Promise.all(polls.map(async (poll) => {
+      // 获取当前用户的投票
+      const [votes] = await pool.execute(
+        'SELECT option_index FROM chat_group_poll_votes WHERE poll_id = ? AND user_id = ?',
+        [poll.id, userId]
+      );
+      
+      return {
+        id: poll.id,
+        title: poll.title,
+        description: poll.description,
+        options: JSON.parse(poll.options),
+        status: poll.status,
+        createdBy: poll.created_by,
+        createdAt: poll.created_at,
+        expiresAt: poll.expires_at,
+        userVote: votes.length > 0 ? votes[0].option_index : null
+      };
+    }));
+    
+    res.json({
+      status: 'success',
+      polls: pollsWithDetails,
+      message: '获取投票列表成功'
+    });
+  } catch (err) {
+    console.error('获取投票列表失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取投票列表失败' });
+  }
+});
+
+// 投票
+app.post('/api/group/:groupId/polls/:pollId/vote', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const groupId = parseInt(req.params.groupId);
+    const pollId = parseInt(req.params.pollId);
+    const { optionIndex } = req.body;
+    
+    if (optionIndex === undefined || optionIndex < 0) {
+      return res.status(400).json({ status: 'error', message: '选项索引不能为空' });
+    }
+    
+    // 检查用户是否是群成员
+    const [members] = await pool.execute(
+      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      [groupId, userId]
+    );
+    if (members.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群成员' });
+    }
+    
+    // 检查投票是否存在且状态为进行中
+    const [polls] = await pool.execute(
+      'SELECT status, options FROM chat_group_polls WHERE id = ? AND group_id = ?',
+      [pollId, groupId]
+    );
+    if (polls.length === 0) {
+      return res.status(404).json({ status: 'error', message: '投票不存在' });
+    }
+    
+    const poll = polls[0];
+    if (poll.status === 1) {
+      return res.status(400).json({ status: 'error', message: '投票已结束' });
+    }
+    
+    // 检查选项索引是否有效
+    const options = JSON.parse(poll.options);
+    if (optionIndex >= options.length) {
+      return res.status(400).json({ status: 'error', message: '无效的选项索引' });
+    }
+    
+    try {
+      // 尝试插入投票记录
+      await pool.execute(
+        'INSERT INTO chat_group_poll_votes (poll_id, user_id, option_index) VALUES (?, ?, ?)',
+        [pollId, userId, optionIndex]
+      );
+      
+      res.json({
+        status: 'success',
+        message: '投票成功'
+      });
+    } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        return res.status(400).json({ status: 'error', message: '您已经投过票了' });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error('投票失败:', err.message);
+    res.status(500).json({ status: 'error', message: '投票失败' });
+  }
+});
+
+// 获取投票结果
+app.get('/api/group/:groupId/polls/:pollId/results', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const groupId = parseInt(req.params.groupId);
+    const pollId = parseInt(req.params.pollId);
+    
+    // 检查用户是否是群成员
+    const [members] = await pool.execute(
+      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      [groupId, userId]
+    );
+    if (members.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群成员' });
+    }
+    
+    // 获取投票信息
+    const [polls] = await pool.execute(
+      'SELECT title, description, options, status, created_by, created_at, expires_at FROM chat_group_polls WHERE id = ? AND group_id = ?',
+      [pollId, groupId]
+    );
+    if (polls.length === 0) {
+      return res.status(404).json({ status: 'error', message: '投票不存在' });
+    }
+    
+    const poll = polls[0];
+    const options = JSON.parse(poll.options);
+    
+    // 获取投票结果
+    const [votes] = await pool.execute(
+      'SELECT option_index, COUNT(*) as count FROM chat_group_poll_votes WHERE poll_id = ? GROUP BY option_index',
+      [pollId]
+    );
+    
+    // 构建结果数据
+    const voteCounts = {};
+    votes.forEach(vote => {
+      voteCounts[vote.option_index] = vote.count;
+    });
+    
+    const results = options.map((option, index) => ({
+      option: option,
+      count: voteCounts[index] || 0,
+      percentage: 0 // 稍后计算
+    }));
+    
+    // 计算总票数和百分比
+    const totalVotes = votes.reduce((sum, vote) => sum + vote.count, 0);
+    results.forEach(result => {
+      result.percentage = totalVotes > 0 ? (result.count / totalVotes) * 100 : 0;
+    });
+    
+    // 获取当前用户的投票
+    const [userVotes] = await pool.execute(
+      'SELECT option_index FROM chat_group_poll_votes WHERE poll_id = ? AND user_id = ?',
+      [pollId, userId]
+    );
+    
+    res.json({
+      status: 'success',
+      poll: {
+        id: pollId,
+        title: poll.title,
+        description: poll.description,
+        status: poll.status,
+        createdBy: poll.created_by,
+        createdAt: poll.created_at,
+        expiresAt: poll.expires_at
+      },
+      results: results,
+      totalVotes: totalVotes,
+      userVote: userVotes.length > 0 ? userVotes[0].option_index : null,
+      message: '获取投票结果成功'
+    });
+  } catch (err) {
+    console.error('获取投票结果失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取投票结果失败' });
+  }
+});
+
+// 结束投票
+app.post('/api/group/:groupId/polls/:pollId/end', async (req, res) => {
+  try {
+    const userId = parseInt(req.userId);
+    const groupId = parseInt(req.params.groupId);
+    const pollId = parseInt(req.params.pollId);
+    
+    // 检查用户是否是群成员
+    const [members] = await pool.execute(
+      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      [groupId, userId]
+    );
+    if (members.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群成员' });
+    }
+    
+    // 检查投票是否存在且是用户创建的
+    const [polls] = await pool.execute(
+      'SELECT id FROM chat_group_polls WHERE id = ? AND group_id = ? AND created_by = ?',
+      [pollId, groupId, userId]
+    );
+    if (polls.length === 0) {
+      return res.status(404).json({ status: 'error', message: '投票不存在或您不是创建者' });
+    }
+    
+    // 结束投票
+    await pool.execute(
+      'UPDATE chat_group_polls SET status = 1 WHERE id = ?',
+      [pollId]
+    );
+    
+    res.json({
+      status: 'success',
+      message: '投票已结束'
+    });
+  } catch (err) {
+    console.error('结束投票失败:', err.message);
+    res.status(500).json({ status: 'error', message: '结束投票失败' });
+  }
+});
+
 // 初始化数据库
 async function initializeDatabase() {
   try {
@@ -1816,6 +2941,22 @@ async function initializeDatabase() {
     `);
 
     await pool.execute(`
+      CREATE TABLE IF NOT EXISTS chat_group_announcements (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        group_id INT NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        content TEXT NOT NULL,
+        created_by INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX group_id_index (group_id),
+        INDEX created_by_index (created_by),
+        FOREIGN KEY (group_id) REFERENCES chat_groups(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES chat_users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.execute(`
       CREATE TABLE IF NOT EXISTS chat_ip_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT DEFAULT NULL,
@@ -1837,6 +2978,42 @@ async function initializeDatabase() {
         expires_at TIMESTAMP NULL DEFAULT NULL,
         INDEX ip_index (ip_address),
         INDEX user_id_index (user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 投票相关表
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS chat_group_polls (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        group_id INT NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        options TEXT NOT NULL COMMENT 'JSON格式的选项数组',
+        status TINYINT DEFAULT 0 COMMENT '0=进行中, 1=已结束',
+        created_by INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NULL DEFAULT NULL,
+        INDEX group_id_index (group_id),
+        INDEX created_by_index (created_by),
+        INDEX status_index (status),
+        INDEX expires_at_index (expires_at),
+        FOREIGN KEY (group_id) REFERENCES chat_groups(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES chat_users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS chat_group_poll_votes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        poll_id INT NOT NULL,
+        user_id INT NOT NULL,
+        option_index INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX poll_id_index (poll_id),
+        INDEX user_id_index (user_id),
+        UNIQUE KEY unique_user_poll (poll_id, user_id),
+        FOREIGN KEY (poll_id) REFERENCES chat_group_polls(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES chat_users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
@@ -2425,7 +3602,7 @@ async function logIPAction(userId, ip, action) {
 // 用户注册接口
 app.post('/api/register', async (req, res) => {
   try {
-    const { username, password, nickname, gender, turnstileToken } = req.body;
+    const { username, password, nickname, gender, captchaId, captchaCode } = req.body;
     const clientIP = getClientIP(req);
 
     console.log('注册请求 IP:', clientIP);
@@ -2452,8 +3629,8 @@ app.post('/api/register', async (req, res) => {
       return res.status(403).json({ status: 'error', message: '您的 IP 已被封禁', isBanned: true, remainingTime: banInfo.remainingTime });
     }
 
-    if (!username || !password || !nickname || !turnstileToken) {
-      return res.status(400).json({ status: 'error', message: '请填写所有字段并完成人机验证' });
+    if (!username || !password || !nickname || !captchaId || !captchaCode) {
+      return res.status(400).json({ status: 'error', message: '请填写所有字段并完成验证码验证' });
     }
 
     // 验证性别参数
@@ -2462,10 +3639,10 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ status: 'error', message: '性别参数非法' });
     }
 
-    // 验证 Turnstile Token
-    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIP);
-    if (!turnstileResult.success) {
-      return res.status(400).json({ status: 'error', message: turnstileResult.message || '人机验证失败，请重试' });
+    // 验证验证码
+    const captchaResult = await verifyCaptcha(captchaCode, captchaId);
+    if (!captchaResult.success) {
+      return res.status(400).json({ status: 'error', message: captchaResult.message || '验证码错误，请重试' });
     }
 
     if (!validateUsername(username)) {
@@ -2590,9 +3767,9 @@ app.post('/api/user/change-password', async (req, res) => {
   try {
     const userId = req.userId;
     const clientIP = getClientIP(req);
-    const { oldPassword, newPassword, turnstileToken } = req.body;
+    const { oldPassword, newPassword, captchaId, captchaCode } = req.body;
 
-    if (!oldPassword || !newPassword || !turnstileToken) {
+    if (!oldPassword || !newPassword || !captchaId || !captchaCode) {
       return res.status(400).json({ status: 'error', message: '缺少必要参数' });
     }
 
@@ -2600,10 +3777,10 @@ app.post('/api/user/change-password', async (req, res) => {
       return res.status(400).json({ status: 'error', message: '新密码格式错误' });
     }
 
-    // 验证 Turnstile Token
-    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIP);
-    if (!turnstileResult.success) {
-      return res.status(400).json({ status: 'error', message: turnstileResult.message || '人机验证失败，请重试' });
+    // 验证验证码
+    const captchaResult = await verifyCaptcha(captchaCode, captchaId);
+    if (!captchaResult.success) {
+      return res.status(400).json({ status: 'error', message: captchaResult.message || '验证码错误，请重试' });
     }
 
     const [users] = await pool.execute(
@@ -2879,15 +4056,15 @@ app.post('/api/login', async (req, res) => {
       return;
     }
 
-    // 普通登录流程（需要 Turnstile 验证）
-    if (!username || !password || !turnstileToken) {
-      return res.status(400).json({ status: 'error', message: '请填写所有字段并完成人机验证' });
+    // 普通登录流程（需要验证码验证）
+    if (!username || !password || !captchaId || !captchaCode) {
+      return res.status(400).json({ status: 'error', message: '请填写所有字段并完成验证码验证' });
     }
 
-    // 验证 Turnstile Token
-    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIP);
-    if (!turnstileResult.success) {
-      return res.status(400).json({ status: 'error', message: turnstileResult.message || '人机验证失败，请重试' });
+    // 验证验证码
+    const captchaResult = await verifyCaptcha(captchaCode, captchaId);
+    if (!captchaResult.success) {
+      return res.status(400).json({ status: 'error', message: captchaResult.message || '验证码错误，请重试' });
     }
 
     if (!validateUsername(username)) {
@@ -3602,6 +4779,254 @@ app.post('/api/create-group', async (req, res) => {
   } catch (err) {
     console.error('创建群组失败:', err.message);
     res.status(500).json({ status: 'error', message: '创建群组失败' });
+  }
+});
+
+// 群组公告相关接口
+
+// 创建群组公告
+app.post('/api/group/:groupId/announcements', async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const { title, content } = req.body;
+    const userId = req.userId;
+
+    if (!title || !content) {
+      return res.status(400).json({ status: 'error', message: '标题和内容不能为空' });
+    }
+
+    // 检查用户是否是群组的创建者（管理员）
+    const [groups] = await pool.execute(
+        'SELECT id, name, creator_id FROM chat_groups WHERE id = ? AND creator_id = ?',
+        [groupId, userId]
+    );
+
+    if (groups.length === 0) {
+      return res.status(403).json({ status: 'error', message: '只有群管理员可以创建公告' });
+    }
+
+    // 验证输入
+    const sanitizedTitle = sanitizeInput(title);
+    const sanitizedContent = sanitizeInput(content);
+
+    if (sanitizedTitle.length > 255) {
+      return res.status(400).json({ status: 'error', message: '标题长度不能超过255个字符' });
+    }
+
+    // 创建公告
+    const [result] = await pool.execute(
+        'INSERT INTO chat_group_announcements (group_id, title, content, created_by) VALUES (?, ?, ?, ?)',
+        [groupId, sanitizedTitle, sanitizedContent, userId]
+    );
+
+    // 获取创建的公告详情
+    const [announcements] = await pool.execute(
+        'SELECT a.*, u.nickname as creator_name FROM chat_group_announcements a JOIN chat_users u ON a.created_by = u.id WHERE a.id = ?',
+        [result.insertId]
+    );
+
+    const announcement = announcements[0];
+
+    // 广播公告创建事件给群组所有成员
+    io.to(`group_${groupId}`).emit('group-announcement-created', {
+      announcement: announcement
+    });
+
+    res.json({
+      status: 'success',
+      message: '公告创建成功',
+      announcement: announcement
+    });
+  } catch (err) {
+    console.error('创建公告失败:', err.message);
+    res.status(500).json({ status: 'error', message: '创建公告失败' });
+  }
+});
+
+// 获取群组公告列表
+app.get('/api/group/:groupId/announcements', async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const userId = req.userId;
+
+    // 检查用户是否是群组成员
+    const [members] = await pool.execute(
+        'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+        [groupId, userId]
+    );
+
+    if (members.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群组成员' });
+    }
+
+    // 获取公告列表
+    const [announcements] = await pool.execute(
+        'SELECT a.*, u.nickname as creator_name FROM chat_group_announcements a JOIN chat_users u ON a.created_by = u.id WHERE a.group_id = ? ORDER BY a.created_at DESC',
+        [groupId]
+    );
+
+    res.json({
+      status: 'success',
+      announcements: announcements
+    });
+  } catch (err) {
+    console.error('获取公告列表失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取公告列表失败' });
+  }
+});
+
+// 获取单个公告详情
+app.get('/api/group/:groupId/announcements/:id', async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const announcementId = req.params.id;
+    const userId = req.userId;
+
+    // 检查用户是否是群组成员
+    const [members] = await pool.execute(
+        'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+        [groupId, userId]
+    );
+
+    if (members.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群组成员' });
+    }
+
+    // 获取公告详情
+    const [announcements] = await pool.execute(
+        'SELECT a.*, u.nickname as creator_name FROM chat_group_announcements a JOIN chat_users u ON a.created_by = u.id WHERE a.id = ? AND a.group_id = ?',
+        [announcementId, groupId]
+    );
+
+    if (announcements.length === 0) {
+      return res.status(404).json({ status: 'error', message: '公告不存在' });
+    }
+
+    res.json({
+      status: 'success',
+      announcement: announcements[0]
+    });
+  } catch (err) {
+    console.error('获取公告详情失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取公告详情失败' });
+  }
+});
+
+// 更新群组公告
+app.put('/api/group/:groupId/announcements/:id', async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const announcementId = req.params.id;
+    const { title, content } = req.body;
+    const userId = req.userId;
+
+    if (!title || !content) {
+      return res.status(400).json({ status: 'error', message: '标题和内容不能为空' });
+    }
+
+    // 检查用户是否是群组的创建者（管理员）
+    const [groups] = await pool.execute(
+        'SELECT id, name, creator_id FROM chat_groups WHERE id = ? AND creator_id = ?',
+        [groupId, userId]
+    );
+
+    if (groups.length === 0) {
+      return res.status(403).json({ status: 'error', message: '只有群管理员可以修改公告' });
+    }
+
+    // 检查公告是否存在且属于该群组
+    const [announcements] = await pool.execute(
+        'SELECT id FROM chat_group_announcements WHERE id = ? AND group_id = ?',
+        [announcementId, groupId]
+    );
+
+    if (announcements.length === 0) {
+      return res.status(404).json({ status: 'error', message: '公告不存在' });
+    }
+
+    // 验证输入
+    const sanitizedTitle = sanitizeInput(title);
+    const sanitizedContent = sanitizeInput(content);
+
+    if (sanitizedTitle.length > 255) {
+      return res.status(400).json({ status: 'error', message: '标题长度不能超过255个字符' });
+    }
+
+    // 更新公告
+    await pool.execute(
+        'UPDATE chat_group_announcements SET title = ?, content = ? WHERE id = ? AND group_id = ?',
+        [sanitizedTitle, sanitizedContent, announcementId, groupId]
+    );
+
+    // 获取更新后的公告详情
+    const [updatedAnnouncements] = await pool.execute(
+        'SELECT a.*, u.nickname as creator_name FROM chat_group_announcements a JOIN chat_users u ON a.created_by = u.id WHERE a.id = ? AND a.group_id = ?',
+        [announcementId, groupId]
+    );
+
+    const updatedAnnouncement = updatedAnnouncements[0];
+
+    // 广播公告更新事件给群组所有成员
+    io.to(`group_${groupId}`).emit('group-announcement-updated', {
+      announcement: updatedAnnouncement
+    });
+
+    res.json({
+      status: 'success',
+      message: '公告更新成功',
+      announcement: updatedAnnouncement
+    });
+  } catch (err) {
+    console.error('更新公告失败:', err.message);
+    res.status(500).json({ status: 'error', message: '更新公告失败' });
+  }
+});
+
+// 删除群组公告
+app.delete('/api/group/:groupId/announcements/:id', async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const announcementId = req.params.id;
+    const userId = req.userId;
+
+    // 检查用户是否是群组的创建者（管理员）
+    const [groups] = await pool.execute(
+        'SELECT id, name, creator_id FROM chat_groups WHERE id = ? AND creator_id = ?',
+        [groupId, userId]
+    );
+
+    if (groups.length === 0) {
+      return res.status(403).json({ status: 'error', message: '只有群管理员可以删除公告' });
+    }
+
+    // 检查公告是否存在且属于该群组
+    const [announcements] = await pool.execute(
+        'SELECT id FROM chat_group_announcements WHERE id = ? AND group_id = ?',
+        [announcementId, groupId]
+    );
+
+    if (announcements.length === 0) {
+      return res.status(404).json({ status: 'error', message: '公告不存在' });
+    }
+
+    // 删除公告
+    await pool.execute(
+        'DELETE FROM chat_group_announcements WHERE id = ? AND group_id = ?',
+        [announcementId, groupId]
+    );
+
+    // 广播公告删除事件给群组所有成员
+    io.to(`group_${groupId}`).emit('group-announcement-deleted', {
+      announcementId: announcementId
+    });
+
+    res.json({
+      status: 'success',
+      message: '公告删除成功'
+    });
+  } catch (err) {
+    console.error('删除公告失败:', err.message);
+    res.status(500).json({ status: 'error', message: '删除公告失败' });
   }
 });
 
@@ -5958,6 +7383,15 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
       // 检查头像存储状态
       const storageStatus = checkAvatarStorage();
       console.log(`💾 ${storageStatus.message}`);
+
+      // 启动定时任务
+      // 每分钟检查一次过期投票
+      schedule.scheduleJob('* * * * *', checkExpiredPolls);
+      console.log('⏰ 定时任务已启动: 每分钟检查过期投票');
+      
+      // 每分钟检查一次日程提醒
+      schedule.scheduleJob('* * * * *', checkEventReminders);
+      console.log('⏰ 定时任务已启动: 每分钟检查日程提醒');
 
       console.log('\n📋 服务器配置信息:');
       console.log(`   - Ping超时: ${io.engine.opts.pingTimeout}ms`);

@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.trae/
 
 # Environment variables
 .env
@@ -7,6 +8,7 @@ node_modules/
 .env.development.local
 .env.test.local
 .env.production.local
+test-events.js
 
 # Logs
 logs

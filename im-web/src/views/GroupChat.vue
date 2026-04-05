@@ -9,6 +9,7 @@
       <div class="group-header">
         <h2>{{ displayGroupName }}</h2>
         <div class="group-actions">
+          <button id="groupAnnouncementButton" @click="handleGroupAnnouncementClick">群组公告</button>
           <button id="groupInfoButton" @click="handleGroupInfoClick">群组信息</button>
         </div>
       </div>
@@ -174,6 +175,25 @@
           </div>
         </div>
       </Teleport>
+      
+      <!-- 公告管理模态框 -->
+      <Teleport to="body" v-if="showAnnouncementModal">
+        <div class="announcement-modal-overlay" @click.self="closeAnnouncementModal">
+          <div class="announcement-modal">
+            <div class="announcement-modal-header">
+              <h3>群组公告管理</h3>
+              <button class="close-btn" @click="closeAnnouncementModal">×</button>
+            </div>
+            <div class="announcement-modal-body">
+              <AnnouncementManager 
+                :groupId="chatStore.currentGroupId"
+                :isGroupOwner="currentGroupInfo?.ownerId === chatStore.currentUser?.id"
+                :isGroupAdmin="currentGroupInfo?.admins?.includes(chatStore.currentUser?.id)"
+              />
+            </div>
+          </div>
+        </div>
+      </Teleport>
     </div>
   </div>
 </template>
@@ -255,6 +275,100 @@
   text-align: center;
   color: #999;
 }
+
+/* 公告管理模态框样式 */
+.announcement-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.announcement-modal {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-width: 800px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.announcement-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #e0e0e0;
+  background: #f9f9f9;
+}
+
+.announcement-modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #333;
+}
+
+.announcement-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* 群组操作按钮样式 */
+.group-actions {
+  display: flex;
+  gap: 10px;
+}
+
+#groupAnnouncementButton,
+#groupInfoButton {
+  background: #f1f1f1;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#groupAnnouncementButton:hover,
+#groupInfoButton:hover {
+  background: #e0e0e0;
+  border-color: #ccc;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .announcement-modal {
+    max-width: 100%;
+    margin: 0 15px;
+  }
+  
+  .announcement-modal-header,
+  .announcement-modal-body {
+    padding: 15px;
+  }
+  
+  .group-actions {
+    gap: 5px;
+  }
+  
+  #groupAnnouncementButton,
+  #groupInfoButton {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+}
 </style>
 
 <script setup>
@@ -264,6 +378,7 @@ import { useRoute } from "vue-router";
 import localForage from "localforage";
 import GroupMessageItem from "@/components/MessageItem/GroupMessageItem.vue";
 import QuotedMessagePreview from "@/components/MessageItem/QuotedMessagePreview.vue";
+import AnnouncementManager from "@/components/Announcement/AnnouncementManager.vue";
 import { setActiveChat, loadGroupMessages, initializeScrollLoading, uploadImage, uploadFile, uploadVideo, clearContentEditable } from "@/utils/chat";
 import toast from "@/utils/toast";
 
@@ -871,6 +986,20 @@ function handleGroupInfoClick() {
     });
 }
 
+// 处理群组公告点击
+function handleGroupAnnouncementClick() {
+  if (!chatStore.currentGroupId) {
+    toast.warning('请先选择一个群组');
+    return;
+  }
+  showAnnouncementModal.value = true;
+}
+
+// 关闭公告管理模态框
+function closeAnnouncementModal() {
+  showAnnouncementModal.value = false;
+}
+
 // 保存@触发器的位置信息
 let atTriggerInfo = null;
 
@@ -1107,6 +1236,9 @@ const searchResults = ref([]);
 const isSearching = ref(false);
 const hasSearched = ref(false);
 const searchInputRef = ref(null);
+
+// 公告管理
+const showAnnouncementModal = ref(false);
 
 function openSearchModal() {
   showSearchModal.value = true;
