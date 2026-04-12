@@ -164,8 +164,11 @@ export function sendMessage() {
     // 设置超时处理：5秒内没有收到确认则提示失败
     const failedContent = content;
     const timeoutKey = 'sendMessage_' + Date.now();
+    const sendTime = Date.now(); // 记录发送时间
     
     window._messageSendTimeouts = window._messageSendTimeouts || {};
+    window._lastMessageSendTime = sendTime; // 记录最后一次消息发送时间
+    
     window._messageSendTimeouts[timeoutKey] = setTimeout(() => {
       // 超时后将内容填充回输入框
       const input = document.getElementById('messageInput');

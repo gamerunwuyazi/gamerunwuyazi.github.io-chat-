@@ -1,0 +1,122 @@
+import { refreshToken as originalRefreshToken } from './ui.js';
+
+// Token 刷新状态
+let isRefreshing = false;
+let refreshPromise = null;
+
+// HTTP 请求队列
+let httpRequestQueue = [];
+
+/**
+ * 添加 HTTP 请求到队列
+ * @param {string} url - 请求 URL
+ * @param {object} options - 请求选项
+ * @param {Function} resolve - 成功回调
+ * @param {Function} reject - 失败回调
+ */
+export function addHttpRequestToQueue(url, options, resolve, reject) {
+  httpRequestQueue.push({ url, options, resolve, reject });
+}
+
+/**
+ * 更新请求头中的 token
+ * @param {object} options - 请求选项
+ * @returns {object} 更新后的请求选项
+ */
+function updateRequestToken(options) {
+  const newOptions = { ...options };
+  const newToken = localStorage.getItem('currentSessionToken');
+  
+  if (newToken && newOptions.headers) {
+    if (typeof newOptions.headers === 'object' && !Array.isArray(newOptions.headers)) {
+      newOptions.headers = {
+        ...newOptions.headers,
+        'Authorization': `Bearer ${newToken}`,
+        'session-token': newToken
+      };
+    }
+  }
+  
+  return newOptions;
+}
+
+/**
+ * 刷新 Token（带队列管理）
+ * @param {Function} [originalFetchFn] - 原始 fetch 函数（可选）
+ * @returns {Promise<boolean>} 是否刷新成功
+ */
+export async function refreshTokenWithQueue(originalFetchFn = null) {
+  // 如果正在刷新，返回等待中的 Promise
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise;
+  }
+
+  isRefreshing = true;
+
+  // 创建新的刷新 Promise
+  refreshPromise = (async () => {
+    let success = false;
+    let savedHttpQueue = null;
+    
+    try {
+      // 先保存队列
+      savedHttpQueue = [...httpRequestQueue];
+      httpRequestQueue = [];
+      
+      // 刷新 Token
+      success = await originalRefreshToken();
+      
+      // 处理 HTTP 请求队列
+      if (originalFetchFn && savedHttpQueue) {
+        for (const { url, options, resolve, reject } of savedHttpQueue) {
+          if (success) {
+            try {
+              const newOptions = updateRequestToken(options);
+              const result = await originalFetchFn(url, newOptions);
+              resolve(result);
+            } catch (error) {
+              reject(error);
+            }
+          } else {
+            reject(new Error('Token 刷新失败'));
+          }
+        }
+      }
+      
+      return success;
+    } catch (error) {
+      success = false;
+      
+      // 刷新失败，处理队列
+      if (originalFetchFn && savedHttpQueue) {
+        for (const { url, options, resolve, reject } of savedHttpQueue) {
+          reject(new Error('Token 刷新失败'));
+        }
+      }
+      
+      throw error;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
+/**
+ * 检查是否正在刷新 Token
+ * @returns {boolean}
+ */
+export function isTokenRefreshing() {
+  return isRefreshing;
+}
+
+/**
+ * 重置刷新状态和队列（用于特殊情况）
+ */
+export function resetRefreshState() {
+  isRefreshing = false;
+  refreshPromise = null;
+  httpRequestQueue = [];
+}

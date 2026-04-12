@@ -1,4 +1,4 @@
-import { SERVER_URL, io, toast, getModalNameFromId } from './config.js';
+import { SERVER_URL, io, toast, getModalNameFromId, originalFetch } from './config.js';
 import { 
   getStore, 
   getCurrentUser,
@@ -26,24 +26,11 @@ import {
 } from './group.js';
 import { loadFriendsList } from './private.js';
 import modal from '../modal.js';
-import { refreshToken } from './ui.js';
+import { refreshTokenWithQueue, isTokenRefreshing } from './tokenManager.js';
+import localForage from 'localforage';
 
 let isConnected = false;
 let avatarVersions = {};
-let tokenRefreshTimer = null;
-
-function startTokenRefreshTimer() {
-    if (tokenRefreshTimer) {
-        clearInterval(tokenRefreshTimer);
-    }
-    
-    tokenRefreshTimer = setInterval(async () => {
-        const currentUser = getCurrentUser();
-        if (currentUser && localStorage.getItem('refreshToken')) {
-            await refreshToken();
-        }
-    }, 19 * 60 * 1000 + 30 * 1000);
-}
 
 function updateUserList(users) {
   if (!Array.isArray(users)) {
@@ -70,8 +57,6 @@ function updateUserList(users) {
 
 // 保存 socket 实例以便断开连接
 let socket = null;
-let isTokenRefreshing = false;
-let tokenRefreshPromise = null;
 
 function initializeWebSocket() {
     // 使用 Socket.io 连接到服务器
@@ -88,11 +73,6 @@ function initializeWebSocket() {
     // 连接成功事件
     socket.on('connect', async () => {
         isConnected = true;
-
-        // 如果正在刷新 Token，等待刷新完成
-        if (isTokenRefreshing && tokenRefreshPromise) {
-            await tokenRefreshPromise;
-        }
 
         // 登录后先检查IP和用户状态，然后再加入聊天室
         const currentUser = getCurrentUser();
@@ -123,25 +103,6 @@ function initializeWebSocket() {
                 }
             });
         }
-        
-        // 启动 Token 刷新定时器
-        if (currentUser && localStorage.getItem('refreshToken')) {
-            startTokenRefreshTimer();
-        }
-    });
-
-    // 重连事件 - 注意：Socket.io 3.x+ 需要使用 socket.io.on 捕获重连事件
-    // 重连时会自动触发 socket.on('connect')，所以这里只需要刷新 Token
-    // 并设置标志让 connect 事件等待 Token 刷新完成
-    socket.io.on('reconnect', async () => {
-        // 重连时刷新 Token
-        if (currentUser && localStorage.getItem('refreshToken')) {
-            isTokenRefreshing = true;
-            tokenRefreshPromise = refreshToken();
-            await tokenRefreshPromise;
-            isTokenRefreshing = false;
-            tokenRefreshPromise = null;
-        }
     });
 
     // 断开连接事件
@@ -153,7 +114,7 @@ function initializeWebSocket() {
     });
 
     // 接收消息事件
-    socket.on('message-received', (message) => {
+    socket.on('message-received', async (message) => {
         // 检查消息中是否包含新的会话令牌
         if (message.sessionToken) {
             // 更新会话令牌
@@ -212,6 +173,21 @@ function initializeWebSocket() {
                             store.friendsList = [...store.friendsList];
                         }
                     }
+                    // 更新 IndexedDB 中的会话信息（无论好友是否已删除）
+                    try {
+                        const currentUser = getCurrentUser();
+                        const userIdForStorage = currentUser?.id || 'guest';
+                        const prefix = `chats-${userIdForStorage}`;
+                        const key = `${prefix}-private-${userId}`;
+                        const existingData = await localForage.getItem(key);
+                        if (existingData) {
+                            const updatedSessionData = { ...existingData };
+                            updatedSessionData.nickname = updateData.nickname;
+                            await localForage.setItem(key, updatedSessionData);
+                        }
+                    } catch (e) {
+                        console.error('更新IndexedDB中的好友昵称失败:', e);
+                    }
                     if (store && store.updateUserInfoInMessages) {
                         store.updateUserInfoInMessages(userId, { nickname: updateData.nickname });
                     }
@@ -232,6 +208,21 @@ function initializeWebSocket() {
                             store.friendsList[friendIndex].avatar = updateData.avatarUrl;
                             store.friendsList = [...store.friendsList];
                         }
+                    }
+                    // 更新 IndexedDB 中的会话信息（无论好友是否已删除）
+                    try {
+                        const currentUser = getCurrentUser();
+                        const userIdForStorage = currentUser?.id || 'guest';
+                        const prefix = `chats-${userIdForStorage}`;
+                        const key = `${prefix}-private-${userId}`;
+                        const existingData = await localForage.getItem(key);
+                        if (existingData) {
+                            const updatedSessionData = { ...existingData };
+                            updatedSessionData.avatarUrl = updateData.avatarUrl;
+                            await localForage.setItem(key, updatedSessionData);
+                        }
+                    } catch (e) {
+                        console.error('更新IndexedDB中的好友头像失败:', e);
                     }
                     if (store && store.updateUserInfoInMessages) {
                         store.updateUserInfoInMessages(userId, { avatarUrl: updateData.avatarUrl });
@@ -286,7 +277,7 @@ function initializeWebSocket() {
             
             if (message.at_userid && currentUser && !message.isHistory) {
                 const atUserIds = Array.isArray(message.at_userid) ? message.at_userid : [message.at_userid];
-                const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.id));
+                const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.id) || String(id) === '-1');
                 if (isCurrentUserAt) {
                     // 查找群组名称
                     let groupName = '未知群组';
@@ -472,7 +463,7 @@ function initializeWebSocket() {
     });
 
     // 群组创建事件
-    socket.on('group-created', (data) => {
+    socket.on('group-created', async (data) => {
         // 加载群组列表
         loadGroupList();
         // 保存群组创建时间到最后消息时间记录
@@ -481,6 +472,21 @@ function initializeWebSocket() {
             if (store && store.saveGroupLastMessageTime) {
                 const createTime = new Date().toISOString();
                 store.saveGroupLastMessageTime(data.groupId, createTime);
+            }
+            
+            // 保存群组名称和头像到 IndexedDB
+            try {
+                const userId = store.currentUser?.id || 'guest';
+                const prefix = `chats-${userId}`;
+                const key = `${prefix}-group-${data.groupId}`;
+                const existingData = await localForage.getItem(key);
+                const updatedSessionData = existingData ? { ...existingData } : { messages: [] };
+                if (data.groupName) updatedSessionData.name = data.groupName;
+                if (data.groupAvatarUrl) updatedSessionData.avatarUrl = data.groupAvatarUrl;
+                else if (data.group_avatar_url) updatedSessionData.avatarUrl = data.group_avatar_url;
+                await localForage.setItem(key, updatedSessionData);
+            } catch (e) {
+                console.error('保存群组信息到 IndexedDB 失败:', e);
             }
         }
     });
@@ -499,14 +505,27 @@ function initializeWebSocket() {
     });
 
     // 群组解散事件
-    socket.on('group-dissolved', (data) => {
+    socket.on('group-dissolved', async (data) => {
         // console.log('📥 [群组] 收到群组解散事件:', data);
-        loadGroupList();
-        // 清除群组的最后消息时间记录
         if (data && data.groupId) {
             const store = window.chatStore;
-            if (store && store.deleteGroupLastMessageTime) {
-                store.deleteGroupLastMessageTime(data.groupId);
+            if (store && store.markGroupAsDeleted) {
+                store.markGroupAsDeleted(data.groupId);
+            }
+            // 把解散状态记录到 IndexedDB
+            try {
+                const currentUser = getCurrentUser();
+                const userIdForStorage = currentUser?.id || 'guest';
+                const prefix = `chats-${userIdForStorage}`;
+                const key = `${prefix}-group-${data.groupId}`;
+                const existingData = await localForage.getItem(key);
+                if (existingData) {
+                    const updatedSessionData = { ...existingData };
+                    updatedSessionData.deleted_at = new Date().toISOString();
+                    await localForage.setItem(key, updatedSessionData);
+                }
+            } catch (e) {
+                console.error('记录群组解散状态到 IndexedDB 失败:', e);
             }
             // 清除该群组的未读消息记录
             if (store && store.clearGroupUnread) {
@@ -514,7 +533,6 @@ function initializeWebSocket() {
             }
             // 如果当前活动群组就是解散的群组，清空当前群组
             if (store && String(store.currentGroupId) === String(data.groupId)) {
-                // 
                 store.setCurrentGroupId(null);
             }
         }
@@ -542,21 +560,23 @@ function initializeWebSocket() {
         // console.log('📥 [群组] 收到成员移除事件:', data);
         // 刷新群组列表
         loadGroupList();
-        // 如果是自己被移除，清空当前群组
+        // 如果是自己被移除，清空当前群组并标记会话为已删除
         // 注意：后端发送的字段是 memberId，不是 userId
         const removedUserId = data.memberId || data.userId;
         if (data && data.groupId && removedUserId) {
             const store = window.chatStore;
-            // 如果当前活动群组就是这个群组，且被移除的是自己，清空当前群组
-            if (store && String(store.currentGroupId) === String(data.groupId) && 
-                String(store.currentUser?.id) === String(removedUserId)) {
-                // 
-                store.setCurrentGroupId(null);
-                return;
+            // 如果是自己被移除，标记会话为已删除
+            if (store && String(store.currentUser?.id) === String(removedUserId)) {
+                if (store.markGroupAsDeleted) {
+                    store.markGroupAsDeleted(data.groupId, false);
+                }
+                // 如果当前活动群组就是这个群组，清空当前群组
+                if (String(store.currentGroupId) === String(data.groupId)) {
+                    store.setCurrentGroupId(null);
+                }
             }
             // 如果是当前正在查看的群组，触发事件更新成员列表
             if (store && String(store.currentGroupId) === String(data.groupId)) {
-                // 
                 window.dispatchEvent(new CustomEvent('group-members-changed', { 
                     detail: { groupId: data.groupId, action: 'removed', data: data } 
                 }));
@@ -565,28 +585,94 @@ function initializeWebSocket() {
     });
 
     // 好友添加事件
-    socket.on('friend-added', (data) => {
+    socket.on('friend-added', async (data) => {
         // 刷新好友列表
         loadFriendsList();
         // 保存添加好友的时间到最后消息时间记录
         if (data && data.friendId) {
             const store = window.chatStore;
-            if (store && store.saveFriendLastMessageTime) {
-                const addTime = new Date(data.timestamp || Date.now()).toISOString();
-                store.saveFriendLastMessageTime(data.friendId, addTime);
+            if (store) {
+                // 如果该好友本地已标记删除，则删除deleted_at标记，并保存好友信息
+                try {
+                    const userId = store.currentUser?.id || 'guest';
+                    const prefix = `chats-${userId}`;
+                    const key = `${prefix}-private-${data.friendId}`;
+                    const existingData = await localForage.getItem(key);
+                    const updatedSessionData = existingData ? { ...existingData } : { messages: [] };
+                    
+                    // 保存好友信息到 IndexedDB
+                    if (data.nickname) updatedSessionData.nickname = data.nickname;
+                    if (data.username) updatedSessionData.username = data.username;
+                    if (data.avatarUrl) updatedSessionData.avatarUrl = data.avatarUrl;
+                    else if (data.avatar_url) updatedSessionData.avatarUrl = data.avatar_url;
+                    
+                    // 移除 deleted_at 标记
+                    delete updatedSessionData.deleted_at;
+                    
+                    await localForage.setItem(key, updatedSessionData);
+                } catch (e) {
+                    console.error('更新好友会话信息失败:', e);
+                }
+                
+                if (store.friendsList) {
+                    const friend = store.friendsList.find(f => String(f.id) === String(data.friendId));
+                    if (friend && friend.deleted_at) {
+                        delete friend.deleted_at;
+                    }
+                }
+                
+                if (store.saveFriendLastMessageTime) {
+                    const addTime = new Date(data.timestamp || Date.now()).toISOString();
+                    store.saveFriendLastMessageTime(data.friendId, addTime);
+                }
+            }
+        }
+    });
+
+    // 被添加到群组事件
+    socket.on('added-to-group', async (data) => {
+        // 刷新群组列表
+        loadGroupList();
+        // 如果该群组本地已标记删除，则删除deleted_at标记，并保存群组信息
+        if (data && data.groupId) {
+            const store = window.chatStore;
+            if (store) {
+                try {
+                    const userId = store.currentUser?.id || 'guest';
+                    const prefix = `chats-${userId}`;
+                    const key = `${prefix}-group-${data.groupId}`;
+                    const existingData = await localForage.getItem(key);
+                    const updatedSessionData = existingData ? { ...existingData } : { messages: [] };
+                    
+                    // 保存群组信息到 IndexedDB
+                    if (data.groupName) updatedSessionData.name = data.groupName;
+                    if (data.groupAvatarUrl) updatedSessionData.avatarUrl = data.groupAvatarUrl;
+                    
+                    // 移除 deleted_at 标记
+                    delete updatedSessionData.deleted_at;
+                    
+                    await localForage.setItem(key, updatedSessionData);
+                } catch (e) {
+                    console.error('更新群组会话信息失败:', e);
+                }
+                
+                if (store.groupsList) {
+                    const group = store.groupsList.find(g => String(g.id) === String(data.groupId));
+                    if (group && group.deleted_at) {
+                        delete group.deleted_at;
+                    }
+                }
             }
         }
     });
 
     // 好友删除事件
-    socket.on('friend-removed', (data) => {
-        // 刷新好友列表
-        loadFriendsList();
-        // 清除好友的最后消息时间记录
+    socket.on('friend-removed', async (data) => {
         if (data && data.friendId) {
             const store = window.chatStore;
-            if (store && store.deleteFriendLastMessageTime) {
-                store.deleteFriendLastMessageTime(data.friendId);
+            
+            if (store && store.markFriendAsDeleted) {
+                store.markFriendAsDeleted(data.friendId);
             }
             // 清除该好友的未读私信消息记录
             if (store && store.clearPrivateUnread) {
@@ -600,7 +686,7 @@ function initializeWebSocket() {
     });
 
     // 头像更新事件
-    socket.on('avatar-updated', (data) => {
+    socket.on('avatar-updated', async (data) => {
         // 刷新所有相关的头像显示
         if (data.userId && data.avatarUrl) {
             // 更新在线用户列表中的头像
@@ -633,6 +719,22 @@ function initializeWebSocket() {
                 store.updateUserInfoInMessages(data.userId, { avatarUrl: data.avatarUrl });
             }
             
+            // 更新 IndexedDB 中的会话信息（无论好友是否已删除）
+            try {
+                const currentUser = getCurrentUser();
+                const userIdForStorage = currentUser?.id || 'guest';
+                const prefix = `chats-${userIdForStorage}`;
+                const key = `${prefix}-private-${data.userId}`;
+                const existingData = await localForage.getItem(key);
+                if (existingData) {
+                    const updatedSessionData = { ...existingData };
+                    updatedSessionData.avatarUrl = data.avatarUrl;
+                    await localForage.setItem(key, updatedSessionData);
+                }
+            } catch (e) {
+                console.error('更新IndexedDB中的好友头像失败:', e);
+            }
+            
             // 刷新群组列表中的头像
             loadGroupList();
             // 刷新当前聊天界面中的头像
@@ -649,7 +751,7 @@ function initializeWebSocket() {
     });
 
     // 昵称更新事件
-    socket.on('nickname-updated', (data) => {
+    socket.on('nickname-updated', async (data) => {
         if (data.userId && data.nickname) {
             // 更新在线用户列表中的昵称
             const store = window.chatStore;
@@ -675,6 +777,22 @@ function initializeWebSocket() {
                 store.updateUserInfoInMessages(data.userId, { nickname: data.nickname });
             }
             
+            // 更新 IndexedDB 中的会话信息（无论好友是否已删除）
+            try {
+                const currentUser = getCurrentUser();
+                const userIdForStorage = currentUser?.id || 'guest';
+                const prefix = `chats-${userIdForStorage}`;
+                const key = `${prefix}-private-${data.userId}`;
+                const existingData = await localForage.getItem(key);
+                if (existingData) {
+                    const updatedSessionData = { ...existingData };
+                    updatedSessionData.nickname = data.nickname;
+                    await localForage.setItem(key, updatedSessionData);
+                }
+            } catch (e) {
+                console.error('更新IndexedDB中的好友昵称失败:', e);
+            }
+            
             // 如果当前在私信聊天且是更新的用户，刷新私信界面的昵称
             if (currentPrivateChatUserId && String(currentPrivateChatUserId) === String(data.userId)) {
                 const privateUserName = document.querySelector('#privateChatInterface .private-user-details h2');
@@ -686,7 +804,7 @@ function initializeWebSocket() {
     });
 
     // 群头像更新事件
-    socket.on('group-avatar-updated', (data) => {
+    socket.on('group-avatar-updated', async (data) => {
         if (data.groupId && data.avatarUrl) {
             const store = window.chatStore;
             
@@ -704,6 +822,22 @@ function initializeWebSocket() {
             // 更新群组消息中该群组的头像（群名片等）
             if (store && store.updateGroupInfoInMessages) {
                 store.updateGroupInfoInMessages(data.groupId, { avatarUrl: data.avatarUrl });
+            }
+            
+            // 更新 IndexedDB 中的群组会话信息
+            try {
+                const currentUser = getCurrentUser();
+                const userIdForStorage = currentUser?.id || 'guest';
+                const prefix = `chats-${userIdForStorage}`;
+                const key = `${prefix}-group-${data.groupId}`;
+                const existingData = await localForage.getItem(key);
+                if (existingData) {
+                    const updatedSessionData = { ...existingData };
+                    updatedSessionData.avatarUrl = data.avatarUrl;
+                    await localForage.setItem(key, updatedSessionData);
+                }
+            } catch (e) {
+                console.error('更新IndexedDB中的群组头像失败:', e);
             }
             
             // 如果当前正在该群组聊天中，更新群组信息模态框中的头像
@@ -767,7 +901,7 @@ function initializeWebSocket() {
     });
 
     // 统一加载消息事件（替代原来的三个事件）
-    socket.on('messages-loaded', (data) => {
+    socket.on('messages-loaded', async (data) => {
         const store = window.chatStore;
         
         // 检查响应中是否包含新的会话令牌
@@ -796,33 +930,61 @@ function initializeWebSocket() {
 
             if (data.groupLastMessageTimes && Object.keys(data.groupLastMessageTimes).length > 0) {
                 if (window.chatStore && window.chatStore.groupsList) {
+                    const userId = window.chatStore.currentUser?.id || 'guest';
+                    const prefix = `chats-${userId}`;
+                    
                     const groups = window.chatStore.groupsList;
-                    groups.forEach(group => {
+                    for (const group of groups) {
                         const lastTime = data.groupLastMessageTimes[group.id];
                         if (lastTime) {
-                            group.last_message_time = lastTime instanceof Date ? lastTime.toISOString() : new Date(lastTime).toISOString();
+                            const time = lastTime instanceof Date ? lastTime.toISOString() : new Date(lastTime).toISOString();
+                            group.last_message_time = time;
+                            
+                            // 保存到 IndexedDB
+                            try {
+                                const key = `${prefix}-group-${group.id}`;
+                                const existingData = await localForage.getItem(key);
+                                if (existingData) {
+                                    const updatedData = { ...existingData };
+                                    updatedData.last_message_time = time;
+                                    await localForage.setItem(key, updatedData);
+                                }
+                            } catch (e) {
+                                console.error('保存群组最后消息时间到IndexedDB失败:', e);
+                            }
                         }
-                    });
+                    }
                     window.chatStore.sortGroupsByLastMessageTime();
-                }
-                if (window.chatStore && window.chatStore.saveGroupLastMessageTimes) {
-                    window.chatStore.saveGroupLastMessageTimes(data.groupLastMessageTimes);
                 }
             }
 
             if (data.privateLastMessageTimes && Object.keys(data.privateLastMessageTimes).length > 0) {
                 if (window.chatStore && window.chatStore.friendsList) {
+                    const userId = window.chatStore.currentUser?.id || 'guest';
+                    const prefix = `chats-${userId}`;
+                    
                     const friends = window.chatStore.friendsList;
-                    friends.forEach(friend => {
+                    for (const friend of friends) {
                         const lastTime = data.privateLastMessageTimes[friend.id];
                         if (lastTime) {
-                            friend.last_message_time = lastTime instanceof Date ? lastTime.toISOString() : new Date(lastTime).toISOString();
+                            const time = lastTime instanceof Date ? lastTime.toISOString() : new Date(lastTime).toISOString();
+                            friend.last_message_time = time;
+                            
+                            // 保存到 IndexedDB
+                            try {
+                                const key = `${prefix}-private-${friend.id}`;
+                                const existingData = await localForage.getItem(key);
+                                if (existingData) {
+                                    const updatedData = { ...existingData };
+                                    updatedData.last_message_time = time;
+                                    await localForage.setItem(key, updatedData);
+                                }
+                            } catch (e) {
+                                console.error('保存好友最后消息时间到IndexedDB失败:', e);
+                            }
                         }
-                    });
+                    }
                     window.chatStore.sortFriendsByLastMessageTime();
-                }
-                if (window.chatStore && window.chatStore.saveFriendLastMessageTimes) {
-                    window.chatStore.saveFriendLastMessageTimes(data.privateLastMessageTimes);
                 }
             }
 
@@ -912,7 +1074,7 @@ function initializeWebSocket() {
     });
 
     // 聊天历史记录事件
-    socket.on('chat-history', (data) => {
+    socket.on('chat-history', async (data) => {
         // 检查历史记录响应中是否包含新的会话令牌
         if (data.sessionToken) {
             // 更新会话令牌
@@ -932,20 +1094,33 @@ function initializeWebSocket() {
         if (data.groupLastMessageTimes && Object.keys(data.groupLastMessageTimes).length > 0) {
             // 更新群组列表中的最后消息时间
             if (window.chatStore && window.chatStore.groupsList) {
+                const userId = window.chatStore.currentUser?.id || 'guest';
+                const prefix = `chats-${userId}`;
+                
                 const groups = window.chatStore.groupsList;
-                groups.forEach(group => {
+                for (const group of groups) {
                     const lastTime = data.groupLastMessageTimes[group.id];
                     if (lastTime) {
                         // 如果是字符串时间，转换为 ISO 格式
-                        group.last_message_time = lastTime instanceof Date ? lastTime.toISOString() : new Date(lastTime).toISOString();
+                        const time = lastTime instanceof Date ? lastTime.toISOString() : new Date(lastTime).toISOString();
+                        group.last_message_time = time;
+                        
+                        // 保存到 IndexedDB
+                        try {
+                            const key = `${prefix}-group-${group.id}`;
+                            const existingData = await localForage.getItem(key);
+                            if (existingData) {
+                                const updatedData = { ...existingData };
+                                updatedData.last_message_time = time;
+                                await localForage.setItem(key, updatedData);
+                            }
+                        } catch (e) {
+                            console.error('保存群组最后消息时间到IndexedDB失败:', e);
+                        }
                     }
-                });
+                }
                 // 重新排序
                 window.chatStore.sortGroupsByLastMessageTime();
-            }
-            // 保存到 localStorage
-            if (window.chatStore && window.chatStore.saveGroupLastMessageTimes) {
-                window.chatStore.saveGroupLastMessageTimes(data.groupLastMessageTimes);
             }
         }
 
@@ -953,20 +1128,33 @@ function initializeWebSocket() {
         if (data.privateLastMessageTimes && Object.keys(data.privateLastMessageTimes).length > 0) {
             // 更新好友列表中的最后消息时间
             if (window.chatStore && window.chatStore.friendsList) {
+                const userId = window.chatStore.currentUser?.id || 'guest';
+                const prefix = `chats-${userId}`;
+                
                 const friends = window.chatStore.friendsList;
-                friends.forEach(friend => {
+                for (const friend of friends) {
                     const lastTime = data.privateLastMessageTimes[friend.id];
                     if (lastTime) {
                         // 如果是字符串时间，转换为 ISO 格式
-                        friend.last_message_time = lastTime instanceof Date ? lastTime.toISOString() : new Date(lastTime).toISOString();
+                        const time = lastTime instanceof Date ? lastTime.toISOString() : new Date(lastTime).toISOString();
+                        friend.last_message_time = time;
+                        
+                        // 保存到 IndexedDB
+                        try {
+                            const key = `${prefix}-private-${friend.id}`;
+                            const existingData = await localForage.getItem(key);
+                            if (existingData) {
+                                const updatedData = { ...existingData };
+                                updatedData.last_message_time = time;
+                                await localForage.setItem(key, updatedData);
+                            }
+                        } catch (e) {
+                            console.error('保存好友最后消息时间到IndexedDB失败:', e);
+                        }
                     }
-                });
+                }
                 // 重新排序
                 window.chatStore.sortFriendsByLastMessageTime();
-            }
-            // 保存到 localStorage
-            if (window.chatStore && window.chatStore.saveFriendLastMessageTimes) {
-                window.chatStore.saveFriendLastMessageTimes(data.privateLastMessageTimes);
             }
         }
 
@@ -1023,16 +1211,78 @@ function initializeWebSocket() {
     socket.on('message', async (data) => {
         // 检查是否是会话过期消息
         if (Array.isArray(data) && data[0] === 'session-expired') {
-            await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
-            logout();
+            const eventData = data[1];
+            await handleSessionExpired(eventData);
         }
     });
 
     // 会话过期事件
-    socket.on('session-expired', async () => {
-        await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
-        logout();
+    socket.on('session-expired', async (eventData) => {
+        await handleSessionExpired(eventData);
     });
+
+    // 处理会话过期的公共函数
+    async function handleSessionExpired(eventData) {
+        // 检查是否在发送消息后 5 秒内
+        const now = Date.now();
+        const lastSendTime = window._lastMessageSendTime || 0;
+        const isWithin5Seconds = now - lastSendTime < 5000;
+        
+        if (isWithin5Seconds) {
+            // 重置所有消息发送计时器
+            if (window._messageSendTimeouts) {
+                for (const key in window._messageSendTimeouts) {
+                    clearTimeout(window._messageSendTimeouts[key]);
+                }
+                window._messageSendTimeouts = {};
+            }
+        }
+        
+        // 检查是否有原始事件信息（无论是否在 5 秒内都要处理）
+        if (eventData && eventData.originalEventName && eventData.originalEventData) {
+            // 有原始事件信息，刷新 Token 后重新发送
+            try {
+                const refreshSuccess = await refreshTokenWithQueue(originalFetch);
+                
+                if (refreshSuccess) {
+                    // 刷新成功，更新原始事件数据中的 token 并重新发送
+                    const newToken = localStorage.getItem('currentSessionToken');
+                    const newEventData = { ...eventData.originalEventData };
+                    
+                    // 更新 sessionToken
+                    if (newToken) {
+                        newEventData.sessionToken = newToken;
+                    }
+                    
+                    // 重新发送原始事件
+                    socket.emit(eventData.originalEventName, newEventData);
+                } else {
+                    // 刷新失败才退出登录
+                    await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
+                    logout();
+                }
+            } catch (error) {
+                console.error('刷新 Token 失败:', error);
+                await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
+                logout();
+            }
+        } else if (!isWithin5Seconds) {
+            // 没有原始事件信息且超过 5 秒，正常刷新 Token
+            try {
+                const refreshSuccess = await refreshTokenWithQueue(originalFetch);
+                
+                if (!refreshSuccess) {
+                    // 刷新失败才退出登录
+                    await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
+                    logout();
+                }
+            } catch (error) {
+                console.error('刷新 Token 失败:', error);
+                await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
+                logout();
+            }
+        }
+    }
 
     // 账户在其他设备登录事件（顶号）
     socket.on('account-logged-in-elsewhere', async (data) => {
@@ -1067,7 +1317,7 @@ function initializeWebSocket() {
         }
     });
     // 监听群组名称更新事件
-    socket.on('group-name-updated', (data) => {
+    socket.on('group-name-updated', async (data) => {
         // 只有登录状态才刷新群组列表
         const currentUser = getCurrentUser();
         const currentSessionToken = getCurrentSessionToken();
@@ -1094,6 +1344,21 @@ function initializeWebSocket() {
                 const modalGroupName = document.getElementById('modalGroupName');
                 if (modalGroupName) {
                     modalGroupName.textContent = `${data.newGroupName} - 群组信息`;
+                }
+                
+                // 更新 IndexedDB 中的群组会话信息
+                try {
+                    const userIdForStorage = currentUser?.id || 'guest';
+                    const prefix = `chats-${userIdForStorage}`;
+                    const key = `${prefix}-group-${data.groupId}`;
+                    const existingData = await localForage.getItem(key);
+                    if (existingData) {
+                        const updatedSessionData = { ...existingData };
+                        updatedSessionData.name = data.newGroupName;
+                        await localForage.setItem(key, updatedSessionData);
+                    }
+                } catch (e) {
+                    console.error('更新IndexedDB中的群组名称失败:', e);
                 }
             }
         }
@@ -1196,15 +1461,36 @@ function initializeWebSocket() {
                 store.deletePrivateMessage(chatPartnerId, messageIdToDelete);
                 // 添加101撤回消息
                 store.addPrivateMessage(chatPartnerId, message);
-                // 更新对应的 minId
-                if (message.id && store.privateMinId !== undefined) {
-                    if (message.id > store.privateMinId) {
-                        store.privateMinId = message.id;
-                        if (store.saveMinIds) {
-                            store.saveMinIds();
-                        }
-                    }
+                // 注意：在线101撤回消息不更新 minId，避免导致minId过大
+                // 只有通过拉取离线消息接口获得的101消息才会处理minId
+            }
+            return;
+        }
+        
+        // 检查是否是类型103已读回执消息
+        if (message.messageType === 103) {
+            const store = window.chatStore;
+            const currentUser = getCurrentUser();
+            console.log('[103消息] 收到在线103已读回执消息', message);
+            if (store) {
+                // 确定聊天对象ID
+                const msgSenderId = String(message.senderId);
+                const msgReceiverId = String(message.receiverId);
+                const chatPartnerId = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
+                
+                // 获取已读的最后一条消息ID
+                const readMessageId = message.content;
+                console.log('[103消息] chatPartnerId:', chatPartnerId, 'readMessageId:', readMessageId);
+                
+                // 更新该会话中自己发送的消息的已读状态
+                if (store.updatePrivateMessagesReadStatus) {
+                    console.log('[103消息] 开始调用 updatePrivateMessagesReadStatus');
+                    store.updatePrivateMessagesReadStatus(chatPartnerId, readMessageId);
                 }
+                
+                // 添加103已读回执消息到IndexedDB（但不加入store）
+                console.log('[103消息] 添加到IndexedDB');
+                store.addPrivateMessage(chatPartnerId, message);
             }
             return;
         }
@@ -1219,6 +1505,11 @@ function initializeWebSocket() {
         
         // 确定聊天对象ID（无论收到还是发送消息，聊天对象都是对方）
         const chatPartnerId = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
+
+        // 定义一些变量在后面使用
+        const isOwnMessage = String(currentUser.id) === String(msgSenderId);
+        const isWithdrawMessage = message.messageType === 101;
+        const isReadReceiptMessage = message.messageType === 103;
 
         // 如果当前正在该私信聊天中，自动将好友移到列表顶部
         // 条件：页面可见 + 当前聊天是私聊页面 + 消息是当前私聊对象发来的
@@ -1240,8 +1531,8 @@ function initializeWebSocket() {
             }
         }
 
-        // 更新好友最后消息时间并重新排序
-        if (store && store.friendsList) {
+        // 更新好友最后消息时间并重新排序（排除101和103消息）
+        if (store && store.friendsList && !isWithdrawMessage && !isReadReceiptMessage) {
             const friend = store.friendsList.find(f => String(f.id) === String(chatPartnerId));
             if (friend) {
                 const newTime = new Date(message.timestamp || Date.now()).toISOString();
@@ -1261,14 +1552,14 @@ function initializeWebSocket() {
 
         // 更新未读计数
         // 如果页面不可见，或者用户不在当前私信聊天中，或者浏览器没有焦点，添加未读计数
-        // 排除自己发送的消息
-        const isOwnMessage = String(currentUser.id) === String(msgSenderId);
+        // 排除自己发送的消息，排除101撤回消息和103已读回执消息
         const isPageInvisible = window.isPageVisible === false;
         const isBrowserNotFocused = !document.hasFocus();
         const isCurrentPrivateChat = currentActiveChat === `private_${chatPartnerId}`;
         
         // 只有在当前私信聊天且浏览器有焦点且页面可见时，才不增加未读计数
-        const shouldAddPrivateUnread = !isOwnMessage && !(isCurrentPrivateChat && !isPageInvisible && !isBrowserNotFocused);
+        // 同时排除撤回消息和已读回执消息
+        const shouldAddPrivateUnread = !isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && !(isCurrentPrivateChat && !isPageInvisible && !isBrowserNotFocused);
         
         if (shouldAddPrivateUnread) {
             // 更新未读消息计数 - 使用 chatPartnerId 作为键
@@ -1280,7 +1571,7 @@ function initializeWebSocket() {
         }
         
         // 如果用户当前正在该私信聊天中且浏览器有焦点且页面可见，自动清除未读
-        if (isCurrentPrivateChat && !isPageInvisible && !isBrowserNotFocused && !isOwnMessage) {
+        if (isCurrentPrivateChat && !isPageInvisible && !isBrowserNotFocused && !isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage) {
             // 清除私信未读计数
             if (store && store.clearPrivateUnread) {
                 store.clearPrivateUnread(chatPartnerId);
@@ -1290,7 +1581,7 @@ function initializeWebSocket() {
     });
 
     // 私信消息已读事件
-    socket.on('private-message-read', (data) => {
+    socket.on('private-message-read', async (data) => {
         if (!data || !data.fromUserId || !data.friendId) return;
         
         const store = getStore();
@@ -1301,6 +1592,7 @@ function initializeWebSocket() {
         
         // 更新自己发给对方的消息为已读
         // 私信消息存储在 privateMessages[对方ID] 中
+        let hasUpdates = false;
         if (store && store.privateMessages && store.privateMessages[readerId]) {
             const messages = store.privateMessages[readerId];
             for (let i = 0; i < messages.length; i++) {
@@ -1309,11 +1601,41 @@ function initializeWebSocket() {
                 if (String(msg.senderId) === String(myId) && String(msg.receiverId) === String(readerId)) {
                     if (msg.isRead !== 1) {
                         messages[i] = { ...msg, isRead: 1 };
+                        hasUpdates = true;
                     }
                 }
             }
             // 触发响应式更新
-            store.privateMessages[readerId] = [...messages];
+            if (hasUpdates) {
+                store.privateMessages[readerId] = [...messages];
+            }
+        }
+        
+        // 更新 IndexedDB 中的消息
+        if (hasUpdates && store && store.getStorageKeyPrefix) {
+            try {
+                const prefix = store.getStorageKeyPrefix();
+                const key = `${prefix}-private-${readerId}`;
+                const existingData = await localForage.getItem(key);
+                if (existingData && existingData.messages) {
+                    const dbMessages = existingData.messages;
+                    let dbHasUpdates = false;
+                    for (let i = 0; i < dbMessages.length; i++) {
+                        const msg = dbMessages[i];
+                        if (String(msg.senderId) === String(myId) && String(msg.receiverId) === String(readerId)) {
+                            if (msg.isRead !== 1) {
+                                dbMessages[i] = { ...msg, isRead: 1 };
+                                dbHasUpdates = true;
+                            }
+                        }
+                    }
+                    if (dbHasUpdates) {
+                        await localForage.setItem(key, { ...existingData, messages: dbMessages });
+                    }
+                }
+            } catch (e) {
+                console.error('更新IndexedDB中的私信已读状态失败:', e);
+            }
         }
     });
 

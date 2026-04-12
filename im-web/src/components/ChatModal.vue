@@ -10,122 +10,146 @@
         
         <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 16px;">
           <div v-if="chatStore.modalData.groupInfo">
-            <!-- 群头像和上传按钮 -->
-            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 20px;">
-              <div style="width: 100px; height: 100px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer;">
-                <img v-if="groupInfoAvatarUrl" :src="groupInfoAvatarUrl" :alt="groupInfoName" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" @click="openGroupInfoAvatarPreview" @error="handleGroupInfoAvatarError">
-                <span v-else style="font-size: 40px; color: white; font-weight: bold;">{{ groupInfoInitials }}</span>
-              </div>
-              <div v-if="isCurrentUserGroupOwner">
-                <input type="file" ref="groupAvatarInput" accept="image/*" style="display: none;" @change="handleGroupAvatarChange">
-                <button class="save-btn" @click="groupAvatarInput?.click()" style="background: #3498db; padding: 8px 16px; border-radius: 8px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600;">
-                  上传群头像
-                </button>
-              </div>
-            </div>
-
-            <!-- 群组名称 -->
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
-              <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">群组名称:</label>
-              <template v-if="!editingGroupName">
-                <span style="font-size: 16px; font-weight: 500; flex: 1;">{{ groupInfoName }}</span>
-                <button v-if="isCurrentUserGroupOwner" @click="startEditGroupName" style="background: #3498db; padding: 5px 10px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600;">
-                  编辑
-                </button>
-              </template>
-              <template v-else>
-                <input type="text" v-model="tempGroupName" style="flex: 1; padding: 6px 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
-                <button @click="saveGroupName" style="background: #2ed573; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600; margin-left: 8px;">
-                  保存
-                </button>
-                <button @click="cancelEditGroupName" style="background: #95a5a6; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600; margin-left: 8px;">
-                  取消
-                </button>
-              </template>
-            </div>
-
-            <!-- 群组ID -->
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
-              <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">群组ID:</label>
-              <span style="font-size: 16px;">{{ chatStore.modalData.groupInfo.id }}</span>
-            </div>
-
-            <!-- 群组公告 -->
-            <div style="display: flex; gap: 10px; margin-bottom: 16px; align-items: flex-start;">
-              <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px; margin-top: 2px;">群组公告:</label>
-              <template v-if="!editingGroupNotice">
-                <span style="flex: 1; font-size: 14px; word-break: break-word;">{{ groupInfoDescription }}</span>
-                <button v-if="isCurrentUserGroupOwner" @click="startEditGroupNotice" style="background: #3498db; padding: 5px 10px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600; flex-shrink: 0;">
-                  编辑
-                </button>
-              </template>
-              <template v-else>
-                <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
-                  <textarea v-model="tempGroupNotice" style="width: 100%; padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; min-height: 80px; resize: vertical; box-sizing: border-box;"></textarea>
-                  <div style="display: flex; gap: 6px;">
-                    <button @click="saveGroupNotice" style="background: #2ed573; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600;">
-                      保存
-                    </button>
-                    <button @click="cancelEditGroupNotice" style="background: #95a5a6; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600;">
-                      取消
-                    </button>
-                  </div>
+            <template v-if="!isGroupDeleted">
+              <!-- 群头像和上传按钮 -->
+              <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 20px;">
+                <div style="width: 100px; height: 100px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer;">
+                  <img v-if="groupInfoAvatarUrl" :src="groupInfoAvatarUrl" :alt="groupInfoName" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" @click="openGroupInfoAvatarPreview" @error="handleGroupInfoAvatarError">
+                  <span v-else style="font-size: 40px; color: white; font-weight: bold;">{{ groupInfoInitials }}</span>
                 </div>
-              </template>
-            </div>
-
-            <!-- 成员数量 -->
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
-              <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">成员数量:</label>
-              <span style="font-size: 16px;">{{ groupMembers.length }}</span>
-            </div>
-
-            <!-- 群主 -->
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
-              <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">群主:</label>
-              <span style="font-size: 16px;">群主ID: {{ chatStore.modalData.groupInfo.creator_id || '未知' }}</span>
-            </div>
-
-            <!-- 群组成员标题 -->
-            <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 12px;">群组成员</h3>
-
-            <!-- 群组成员列表 -->
-            <div v-if="groupMembers.length > 0" style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 12px; padding: 12px; margin-bottom: 24px;">
-              <div v-for="member in groupMembers" :key="member.id" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: white; border-radius: 10px; margin-bottom: 8px;">
-                <span style="font-size: 15px; font-weight: 500;">{{ member.nickname || member.username }}</span>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <span style="color: #666; font-size: 14px;">ID: {{ member.id }}</span>
-                  <span v-if="String(member.id) === String(chatStore.currentUser?.id)" style="color: #3498db; font-size: 14px; font-weight: 700;">（我）</span>
-                  <button v-if="isCurrentUserGroupOwner && String(member.id) !== String(chatStore.modalData.groupInfo.creator_id)" 
-                          @click="handleRemoveGroupMember(member)" 
-                          style="background: #e74c3c; padding: 5px 10px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600;">
-                    踢出
+                <div v-if="isCurrentUserGroupOwner">
+                  <input type="file" ref="groupAvatarInput" accept="image/*" style="display: none;" @change="handleGroupAvatarChange">
+                  <button class="save-btn" @click="groupAvatarInput?.click()" style="background: #3498db; padding: 8px 16px; border-radius: 8px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600;">
+                    上传群头像
                   </button>
                 </div>
               </div>
-            </div>
-            <div v-else style="text-align: center; color: #999; padding: 16px;">加载成员列表中...</div>
 
-            <!-- 群主管理区域 -->
-            <div v-if="isCurrentUserGroupOwner" style="border-top: 1px solid #e0e0e0; padding-top: 20px;">
-              <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 12px;">群组管理</h3>
-              <div style="display: flex; gap: 12px;">
-                <button @click="handleAddGroupMembers" style="background: #2ed573; padding: 8px 16px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600;">
-                  添加成员
-                </button>
-                <button @click="loadGroupMembers(chatStore.modalData.groupInfo.id)" style="background: #2ed573; padding: 8px 16px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600;">
-                  刷新成员列表
-                </button>
+              <!-- 群组名称 -->
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">群组名称:</label>
+                <template v-if="!editingGroupName">
+                  <span style="font-size: 16px; font-weight: 500; flex: 1;">{{ groupInfoName }}</span>
+                  <button v-if="isCurrentUserGroupOwner" @click="startEditGroupName" style="background: #3498db; padding: 5px 10px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600;">
+                    编辑
+                  </button>
+                </template>
+                <template v-else>
+                  <input type="text" v-model="tempGroupName" style="flex: 1; padding: 6px 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
+                  <button @click="saveGroupName" style="background: #2ed573; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600; margin-left: 8px;">
+                    保存
+                  </button>
+                  <button @click="cancelEditGroupName" style="background: #95a5a6; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600; margin-left: 8px;">
+                    取消
+                  </button>
+                </template>
               </div>
-            </div>
+
+              <!-- 群组ID -->
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">群组ID:</label>
+                <span style="font-size: 16px;">{{ chatStore.modalData.groupInfo.id }}</span>
+              </div>
+
+              <!-- 群组公告 -->
+              <div style="display: flex; gap: 10px; margin-bottom: 16px; align-items: flex-start;">
+                <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px; margin-top: 2px;">群组公告:</label>
+                <template v-if="!editingGroupNotice">
+                  <span style="flex: 1; font-size: 14px; word-break: break-word;">{{ groupInfoDescription }}</span>
+                  <button v-if="isCurrentUserGroupOwner" @click="startEditGroupNotice" style="background: #3498db; padding: 5px 10px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600; flex-shrink: 0;">
+                    编辑
+                  </button>
+                </template>
+                <template v-else>
+                  <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
+                    <textarea v-model="tempGroupNotice" style="width: 100%; padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; min-height: 80px; resize: vertical; box-sizing: border-box;"></textarea>
+                    <div style="display: flex; gap: 6px;">
+                      <button @click="saveGroupNotice" style="background: #2ed573; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600;">
+                        保存
+                      </button>
+                      <button @click="cancelEditGroupNotice" style="background: #95a5a6; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600;">
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
+              <!-- 成员数量 -->
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">成员数量:</label>
+                <span style="font-size: 16px;">{{ groupMembers.length }}</span>
+              </div>
+
+              <!-- 群主 -->
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
+                <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">群主:</label>
+                <span style="font-size: 16px;">群主ID: {{ chatStore.modalData.groupInfo.creator_id || '未知' }}</span>
+              </div>
+
+              <!-- 群组成员标题 -->
+              <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 12px;">群组成员</h3>
+
+              <!-- 群组成员列表 -->
+              <div v-if="groupMembers.length > 0" style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 12px; padding: 12px; margin-bottom: 24px;">
+                <div v-for="member in sortedGroupMembers" :key="member.id" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: white; border-radius: 10px; margin-bottom: 8px;">
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <!-- 成员头像 -->
+                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative;">
+                      <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" :alt="member.nickname" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
+                      <span v-else style="font-size: 16px; color: white; font-weight: bold;">{{ getMemberInitials(member) }}</span>
+                      <!-- 在线状态指示器 - 只显示在线的 -->
+                      <div v-if="isMemberOnline(member.id)" style="position: absolute; bottom: -2px; right: -2px; width: 14px; height: 14px; background: #2ed573; border: 2px solid white; border-radius: 50%;"></div>
+                    </div>
+                    <!-- 成员昵称 -->
+                    <span style="font-size: 15px; font-weight: 500;">{{ member.nickname || member.username }}</span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="color: #666; font-size: 14px;">ID: {{ member.id }}</span>
+                    <span v-if="String(member.id) === String(chatStore.currentUser?.id)" style="color: #3498db; font-size: 14px; font-weight: 700;">（我）</span>
+                    <button v-if="isCurrentUserGroupOwner && String(member.id) !== String(chatStore.modalData.groupInfo.creator_id)" 
+                            @click="handleRemoveGroupMember(member)" 
+                            style="background: #e74c3c; padding: 5px 10px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600;">
+                      踢出
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div v-else style="text-align: center; color: #999; padding: 16px;">加载成员列表中...</div>
+
+              <!-- 群主管理区域 -->
+              <div v-if="isCurrentUserGroupOwner" style="border-top: 1px solid #e0e0e0; padding-top: 20px;">
+                <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 12px;">群组管理</h3>
+                <div style="display: flex; gap: 12px;">
+                  <button @click="handleAddGroupMembers" style="background: #2ed573; padding: 8px 16px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600;">
+                    添加成员
+                  </button>
+                  <button @click="loadGroupMembers(chatStore.modalData.groupInfo.id)" style="background: #2ed573; padding: 8px 16px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600;">
+                    刷新成员列表
+                  </button>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <div style="text-align: center; padding: 40px 20px;">
+                <div style="font-size: 48px; margin-bottom: 16px;">🗑️</div>
+                <div style="font-size: 18px; font-weight: 600; color: #555; margin-bottom: 8px;">该群组已被删除</div>
+                <div style="font-size: 14px; color: #999;">您可以删除该群组的本地记录</div>
+              </div>
+            </template>
           </div>
           <div v-else style="text-align: center; color: #999; padding: 30px;">
             加载群组信息中...
           </div>
         </div>
         <div class="modal-footer" style="flex-shrink: 0; background: #f5f5f5; border-top: none; padding: 12px 16px; justify-content: space-between;">
-          <button v-if="isCurrentUserGroupOwner" @click="handleDissolveGroup" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">解散群组</button>
-          <button v-else @click="handleLeaveGroup" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">退出群组</button>
+          <template v-if="!isGroupDeleted">
+            <button v-if="isCurrentUserGroupOwner" @click="handleDissolveGroup" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">解散群组</button>
+            <button v-else @click="handleLeaveGroup" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">退出群组</button>
+          </template>
+          <template v-else>
+            <button @click="handleDeleteGroupLocalRecord" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">删除会话</button>
+          </template>
           <button id="modalCloseButton" class="cancel-btn" @click="chatStore.closeModal('groupInfo')" style="background: #95a5a6; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">关闭</button>
         </div>
       </div>
@@ -244,41 +268,55 @@
         </div>
         <div class="modal-body">
           <div v-if="chatStore.modalData.userProfile" class="user-profile-container">
-            <div class="user-profile-avatar" style="width: 80px; height: 80px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer;">
-              <img v-if="userProfileAvatarUrl" :src="userProfileAvatarUrl" alt="用户头像" class="user-avatar-img" loading="lazy" width="80" height="80" style="aspect-ratio: 1/1; object-fit: cover; border-radius: 50%;" @click="openUserProfileAvatarPreview" @error="handleUserProfileAvatarError">
-              <span v-else class="user-initials" style="font-size: 32px; color: white; font-weight: bold;">{{ getUserInitials(chatStore.modalData.userProfile.nickname) }}</span>
-            </div>
-            <div class="user-profile-info">
-              <div class="user-profile-item">
-                <label>昵称:</label>
-                <span>{{ chatStore.modalData.userProfile.nickname }}</span>
+            <template v-if="!isFriendDeleted">
+              <div class="user-profile-avatar" style="width: 80px; height: 80px; border-radius: 50%; background: #3498db; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer;">
+                <img v-if="userProfileAvatarUrl" :src="userProfileAvatarUrl" alt="用户头像" class="user-avatar-img" loading="lazy" width="80" height="80" style="aspect-ratio: 1/1; object-fit: cover; border-radius: 50%;" @click="openUserProfileAvatarPreview" @error="handleUserProfileAvatarError">
+                <span v-else class="user-initials" style="font-size: 32px; color: white; font-weight: bold;">{{ getUserInitials(chatStore.modalData.userProfile.nickname) }}</span>
               </div>
-              <div class="user-profile-item">
-                <label>用户名:</label>
-                <span>{{ chatStore.modalData.userProfile.username }}</span>
+              <div class="user-profile-info">
+                <div class="user-profile-item">
+                  <label>昵称:</label>
+                  <span>{{ chatStore.modalData.userProfile.nickname }}</span>
+                </div>
+                <div class="user-profile-item">
+                  <label>用户名:</label>
+                  <span>{{ chatStore.modalData.userProfile.username }}</span>
+                </div>
+                <div class="user-profile-item">
+                  <label>用户 ID:</label>
+                  <span>{{ chatStore.modalData.userProfile.id }}</span>
+                </div>
+                <div class="user-profile-item">
+                  <label>性别:</label>
+                  <span>{{ getGenderText(chatStore.modalData.userProfile.gender) }}</span>
+                </div>
+                <div class="user-profile-item">
+                  <label>状态:</label>
+                  <span class="user-status">
+                    {{ isUserOnline(chatStore.modalData.userProfile.id) ? '在线' : '离线' }}
+                  </span>
+                </div>
               </div>
-              <div class="user-profile-item">
-                <label>用户 ID:</label>
-                <span>{{ chatStore.modalData.userProfile.id }}</span>
+            </template>
+            <template v-else>
+              <div style="text-align: center; padding: 40px 20px;">
+                <div style="font-size: 48px; margin-bottom: 16px;">🗑️</div>
+                <div style="font-size: 18px; font-weight: 600; color: #555; margin-bottom: 8px;">该好友已被删除</div>
+                <div style="font-size: 14px; color: #999;">您可以删除该好友的本地记录</div>
               </div>
-              <div class="user-profile-item">
-                <label>性别:</label>
-                <span>{{ getGenderText(chatStore.modalData.userProfile.gender) }}</span>
-              </div>
-              <div class="user-profile-item">
-                <label>状态:</label>
-                <span class="user-status">
-                  {{ isUserOnline(chatStore.modalData.userProfile.id) ? '在线' : '离线' }}
-                </span>
-              </div>
-            </div>
+            </template>
           </div>
           <div v-else>
             <span>加载用户资料中...</span>
           </div>
         </div>
         <div class="modal-footer" style="justify-content: space-between;">
-          <button id="deleteFriendButton" @click="handleDeleteFriend" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">删除好友</button>
+          <template v-if="!isFriendDeleted">
+            <button id="deleteFriendButton" @click="handleDeleteFriend" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">删除好友</button>
+          </template>
+          <template v-else>
+            <button id="deleteFriendLocalRecordButton" @click="handleDeleteFriendLocalRecord" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">删除会话</button>
+          </template>
           <button id="closeUserProfileButton" class="cancel-btn" @click="chatStore.closeModal('userProfile')" style="background: #95a5a6; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">关闭</button>
         </div>
       </div>
@@ -982,6 +1020,14 @@ const isCurrentUserGroupOwner = computed(() => {
   return String(chatStore.modalData.groupInfo.creator_id) === String(chatStore.currentUser.id);
 });
 
+const isGroupDeleted = computed(() => {
+  return chatStore.modalData.groupInfo?.deleted_at != null;
+});
+
+const isFriendDeleted = computed(() => {
+  return chatStore.modalData.userProfile?.deleted_at != null;
+});
+
 const groupInfoName = computed(() => {
   const name = chatStore.modalData.groupInfo?.name || '';
   return name;
@@ -1122,7 +1168,7 @@ function handleGroupCardPopupSendMessage() {
 function handleGroupCardPopupJoinGroup() {
   const data = groupCardPopupData.value;
   if (data && data.invite_token && window.joinGroupWithToken) {
-    window.joinGroupWithToken(data.invite_token, data.group_id, data.group_name, null);
+    window.joinGroupWithToken(data.invite_token, data.group_id, data.group_name, null, true);
   }
   closeGroupCardPopup();
 }
@@ -1291,6 +1337,54 @@ async function loadGroupMembers(groupId) {
   }
 }
 
+// 群组成员排序：在线成员在前，按ID排序
+const sortedGroupMembers = computed(() => {
+  const online = [];
+  const offline = [];
+  
+  for (const member of groupMembers.value) {
+    if (isMemberOnline(member.id)) {
+      online.push(member);
+    } else {
+      offline.push(member);
+    }
+  }
+  
+  // 按ID排序
+  online.sort((a, b) => a.id - b.id);
+  offline.sort((a, b) => a.id - b.id);
+  
+  return [...online, ...offline];
+});
+
+// 判断成员是否在线
+function isMemberOnline(memberId) {
+  if (!chatStore.onlineUsers) return false;
+  return chatStore.onlineUsers.some(u => String(u.id) === String(memberId));
+}
+
+// 获取成员头像URL
+function getMemberAvatarUrl(member) {
+  let url = '';
+  if (member.avatarUrl && typeof member.avatarUrl === 'string') {
+    url = member.avatarUrl.trim();
+  } else if (member.avatar_url && typeof member.avatar_url === 'string') {
+    url = member.avatar_url.trim();
+  } else if (member.avatar && typeof member.avatar === 'string') {
+    url = member.avatar.trim();
+  }
+  
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  return `${SERVER_URL}${url}`;
+}
+
+// 获取成员昵称首字母
+function getMemberInitials(member) {
+  const name = member.nickname || member.username || 'U';
+  return name.charAt(0).toUpperCase();
+}
+
 async function loadAvailableMembers() {
   loadingMembers.value = true;
   try {
@@ -1380,6 +1474,11 @@ async function handleCreateGroup() {
       createGroupMessage.value = '群组创建成功';
       createGroupMessageType.value = 'success';
 
+      // 处理创建群组的100消息，保存到indexedDB
+      if (data.createMessage && data.createMessage.groupId && chatStore.addGroupMessage) {
+        chatStore.addGroupMessage(data.createMessage.groupId, data.createMessage);
+      }
+
       if (typeof window.loadGroupList === 'function') {
         window.loadGroupList();
       }
@@ -1404,7 +1503,10 @@ async function handleCreateGroup() {
 
 watch(() => chatStore.showGroupInfoModal, (newVal) => {
   if (newVal && chatStore.modalData.groupInfo) {
-    loadGroupMembers(chatStore.modalData.groupInfo.id);
+    // 如果是已删除的群组，不请求API
+    if (chatStore.modalData.groupInfo.deleted_at == null) {
+      loadGroupMembers(chatStore.modalData.groupInfo.id);
+    }
   } else {
     groupMembers.value = [];
   }
@@ -1584,6 +1686,12 @@ async function handleDissolveGroup() {
       toast.success('群组已解散');
       chatStore.closeModal('groupInfo');
       chatStore.setCurrentGroupId(null);
+      
+      // 群主自己操作解散，直接删除本地记录
+      if (chatStore.markGroupAsDeleted) {
+        await chatStore.markGroupAsDeleted(groupId, true);
+      }
+      
       if (window.loadGroupList) {
         window.loadGroupList();
       }
@@ -1620,10 +1728,16 @@ async function handleLeaveGroup() {
     });
     
     const data = await response.json();
-    if (data.status === 'success') {
+    if (data.success || data.status === 'success') {
       toast.success('已退出群组');
       chatStore.closeModal('groupInfo');
       chatStore.setCurrentGroupId(null);
+      
+      // 用户自己操作退出，只标记为已删除，不清空本地消息
+      if (chatStore.markGroupAsDeleted) {
+        await chatStore.markGroupAsDeleted(groupId, false);
+      }
+      
       if (window.loadGroupList) {
         window.loadGroupList();
       }
@@ -1663,6 +1777,12 @@ async function handleDeleteFriend() {
     if (data.status === 'success') {
       toast.success('删除好友成功');
       chatStore.closeModal('userProfile');
+      
+      // 用户自己操作删除，清空本地消息
+      if (chatStore.markFriendAsDeleted) {
+        await chatStore.markFriendAsDeleted(friendId, true);
+      }
+      
       if (window.loadFriendsList) {
         window.loadFriendsList();
       }
@@ -1708,17 +1828,47 @@ async function loadAvailableFriendsForAdd() {
       const membersData = await membersResponse.json();
       const groupMemberIds = new Set((membersData.members || []).map(m => String(m.id)));
       
-      availableFriendsForAdd.value = friendsData.friends
+      // 先过滤掉已删除会话的好友和当前用户及已在群的好友
+      let candidateFriends = friendsData.friends
         .filter(friend => {
           const friendId = String(friend.id);
           const isNotCurrentUser = friendId !== String(user?.id);
           const isNotInGroup = !groupMemberIds.has(friendId);
-          return isNotCurrentUser && isNotInGroup;
+          const isNotDeleted = !friend.deleted_at;
+          return isNotCurrentUser && isNotInGroup && isNotDeleted;
         })
         .map(friend => ({
           ...friend,
           nickname: friend.nickname || friend.username || ''
         }));
+      
+      // 按照私信列表的排序进行排序
+      if (chatStore.friendsList && Array.isArray(chatStore.friendsList)) {
+        // 创建一个好友ID到排序位置的映射
+        const sortMap = new Map();
+        chatStore.friendsList.forEach((friend, index) => {
+          sortMap.set(String(friend.id), index);
+        });
+        
+        // 按照排序位置排序
+        candidateFriends.sort((a, b) => {
+          const indexA = sortMap.get(String(a.id));
+          const indexB = sortMap.get(String(b.id));
+          // 如果在私信列表中，按照位置排序；否则放在后面
+          if (indexA !== undefined && indexB !== undefined) {
+            return indexA - indexB;
+          } else if (indexA !== undefined) {
+            return -1;
+          } else if (indexB !== undefined) {
+            return 1;
+          } else {
+            // 都不在私信列表中，按ID排序
+            return a.id - b.id;
+          }
+        });
+      }
+      
+      availableFriendsForAdd.value = candidateFriends;
     }
   } catch (error) {
     console.error('加载好友列表失败:', error);
@@ -1758,6 +1908,52 @@ async function confirmAddGroupMembers() {
   } catch (error) {
     console.error('添加成员失败:', error);
     toast.error('添加成员失败');
+  }
+}
+
+async function handleDeleteGroupLocalRecord() {
+  const groupId = chatStore.modalData.groupInfo?.id;
+  if (!groupId) {
+    toast.error('群组信息不存在');
+    return;
+  }
+  
+  const confirmed = await modal.confirm('确定要删除该群组的本地记录吗？', '删除会话');
+  if (!confirmed) {
+    return;
+  }
+  
+  try {
+    await chatStore.markGroupAsDeleted(groupId, true);
+    toast.success('本地记录已删除');
+    chatStore.closeModal('groupInfo');
+    chatStore.setCurrentGroupId(null);
+  } catch (error) {
+    console.error('删除本地记录失败:', error);
+    toast.error('删除本地记录失败');
+  }
+}
+
+async function handleDeleteFriendLocalRecord() {
+  const friendId = chatStore.modalData.userProfile?.id;
+  if (!friendId) {
+    toast.error('用户信息不存在');
+    return;
+  }
+  
+  const confirmed = await modal.confirm('确定要删除该好友的本地记录吗？', '删除会话');
+  if (!confirmed) {
+    return;
+  }
+  
+  try {
+    await chatStore.markFriendAsDeleted(friendId, true);
+    toast.success('本地记录已删除');
+    chatStore.closeModal('userProfile');
+    chatStore.setCurrentPrivateChatUserId(null);
+  } catch (error) {
+    console.error('删除本地记录失败:', error);
+    toast.error('删除本地记录失败');
   }
 }
 

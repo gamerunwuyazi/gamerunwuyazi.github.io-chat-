@@ -1,5 +1,14 @@
 <template>
   <div 
+    v-if="systemMessage"
+    class="system-message-wrapper"
+  >
+    <div class="system-message-container" :class="systemMessageType">
+      <div class="system-message-text">{{ systemMessage }}</div>
+    </div>
+  </div>
+  <div 
+    v-else
     :class="['message', isOwn ? 'own-message' : 'other-message', { 'active': isActive }]"
     :data-id="message.id"
     :data-identifier="messageIdentifier"
@@ -45,7 +54,10 @@
       </template>
     </div>
     <div class="message-content">
-      <div v-if="imageUrl" class="message-image-container">
+      <div v-if="systemMessage" class="system-message-container" :class="systemMessageType">
+        <div class="system-message-text">{{ systemMessage }}</div>
+      </div>
+      <div v-else-if="imageUrl" class="message-image-container">
         <img 
           :src="fullImageUrl" 
           :alt="filename || '图片'"
@@ -235,8 +247,6 @@ const messageIdentifier = computed(() => {
 const messageStyle = computed(() => {
   if (props.isOwn) {
     return {
-      marginLeft: '20%',
-      marginRight: '10px',
       backgroundColor: '#E8F5E8',
       borderRadius: '18px',
       padding: '10px 15px',
@@ -246,7 +256,6 @@ const messageStyle = computed(() => {
   } else {
     return {
       marginLeft: '10px',
-      marginRight: '20%',
       backgroundColor: '#FFFFFF',
       borderRadius: '18px',
       padding: '10px 15px',
@@ -266,6 +275,7 @@ const messageData = computed(() => {
   let quotedMessageData = null;
   let width = props.message.width;
   let height = props.message.height;
+  let systemMessage = null;
 
   if (props.message.messageType !== undefined) {
     switch (props.message.messageType) {
@@ -317,13 +327,47 @@ const messageData = computed(() => {
           console.error('解析引用消息JSON失败:', error);
         }
         break;
+      case 100:
+        // 系统消息
+        let sysContent = props.message.content;
+        if (typeof sysContent === 'string' && sysContent.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(sysContent);
+            sysContent = parsed.content || sysContent;
+          } catch {
+          }
+        }
+        systemMessage = sysContent;
+        break;
       default:
         textContent = props.message.content;
         break;
     }
   }
 
-  return { imageUrl, fileUrl, filename, textContent, groupCardData, quotedMessageData, width, height };
+  return { imageUrl, fileUrl, filename, textContent, groupCardData, quotedMessageData, width, height, systemMessage };
+});
+
+const systemMessage = computed(() => messageData.value.systemMessage);
+const systemMessageType = computed(() => {
+  if (!systemMessage.value) return '';
+  const content = systemMessage.value;
+  if (content.includes('加入了群组') || content.includes('已加入')) {
+    return 'system-join';
+  }
+  if (content.includes('退出了群组') || content.includes('已退出')) {
+    return 'system-leave';
+  }
+  if (content.includes('群组已解散') || content.includes('删除了群组')) {
+    return 'system-dismiss';
+  }
+  if (content.includes('已删除好友') || content.includes('解除好友关系')) {
+    return 'system-friend';
+  }
+  if (content.includes('撤回了一条消息')) {
+    return 'system-recall';
+  }
+  return 'system-default';
 });
 
 const imageUrl = computed(() => messageData.value.imageUrl);
@@ -795,6 +839,13 @@ function hideContextMenu() {
 </script>
 
 <style scoped>
+.system-message-wrapper {
+  word-break: break-word;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 10px;
+}
+
 .message {
   word-break: break-word;
   display: flex;
@@ -810,5 +861,58 @@ function hideContextMenu() {
   max-width: 100%;
   height: auto;
   cursor: pointer;
+}
+
+.system-message-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.system-message-text {
+  padding: 6px 16px;
+  border-radius: 16px;
+  font-size: 13px;
+  color: #999;
+  background-color: #f5f5f5;
+  text-align: center;
+  max-width: 80%;
+}
+
+.system-message-container.system-join .system-message-text {
+  color: #52c41a;
+  background-color: #f6ffed;
+  border: 1px solid #b7eb8f;
+}
+
+.system-message-container.system-leave .system-message-text {
+  color: #faad14;
+  background-color: #fffbe6;
+  border: 1px solid #ffe58f;
+}
+
+.system-message-container.system-dismiss .system-message-text {
+  color: #f5222d;
+  background-color: #fff1f0;
+  border: 1px solid #ffa39e;
+}
+
+.system-message-container.system-friend .system-message-text {
+  color: #1890ff;
+  background-color: #e6f7ff;
+  border: 1px solid #91d5ff;
+}
+
+.system-message-container.system-recall .system-message-text {
+  color: #722ed1;
+  background-color: #f9f0ff;
+  border: 1px solid #d3adf7;
+}
+
+.system-message-container.system-default .system-message-text {
+  color: #666;
+  background-color: #f0f0f0;
+  border: 1px solid #e0e0e0;
 }
 </style>

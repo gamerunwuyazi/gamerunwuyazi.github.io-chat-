@@ -113,13 +113,15 @@ function toggleGroupMute(groupId) {
   hideContextMenu();
 }
 
-// 计算属性：过滤后的群组列表
+// 计算属性：过滤后的群组列表（包括已删除的群组）
 const filteredGroupsList = computed(() => {
+  if (!chatStore.groupsList) return [];
+  const allGroups = [...chatStore.groupsList];
   if (!groupSearchKeyword.value) {
-    return chatStore.groupsList;
+    return allGroups;
   }
   const keyword = groupSearchKeyword.value.toLowerCase();
-  return chatStore.groupsList.filter(group => {
+  return allGroups.filter(group => {
     const groupName = group.name || '';
     return groupName.toLowerCase().includes(keyword);
   });
@@ -223,21 +225,25 @@ function handleGroupAvatarError(event, group) {
                 <li v-else v-for="group in filteredGroupsList" :key="group.id" 
                     :data-group-id="group.id" 
                     :data-group-name="group.name"
+                    :class="{ 'deleted-item': group.deleted_at }"
                     @click="handleGroupClick(group)"
                     @contextmenu.prevent="handleGroupRightClick($event, group)">
                     <span v-if="getGroupAvatarUrl(group) && !isSvgAvatar(getGroupAvatarUrl(group))" class="group-avatar" @click.stop="handleGroupAvatarClick($event, group)">
                         <img :src="`${chatStore.SERVER_URL}${getGroupAvatarUrl(group)}`" :alt="group.name" @error="handleGroupAvatarError($event, group)">
+                        <span v-if="group.deleted_at" class="deleted-icon">🗑️</span>
                     </span>
                     <span v-else class="group-avatar" @click.stop="handleGroupAvatarClick($event, group)">
                         {{ group.name.charAt(0).toUpperCase() }}
+                        <span v-if="group.deleted_at" class="deleted-icon">🗑️</span>
                     </span>
                     <div class="group-info">
-                        <span class="group-name">{{ group.name }}</span>
-                        <span v-if="chatStore.hasGroupAtMe && chatStore.hasGroupAtMe(group.id)" class="group-last-message at-me-text">[有人@我]</span>
-                        <span v-else-if="hasDraft(group)" class="group-last-message draft-text">{{ getGroupLastMessage(group) }}</span>
+                        <span class="group-name" :style="{ color: group.deleted_at ? '#000' : '' }">{{ group.name }} <span v-if="group.deleted_at" style="font-size: 12px;">(已删除)</span></span>
+                        <span v-if="chatStore.hasGroupAtMe && chatStore.hasGroupAtMe(group.id) && !group.deleted_at" class="group-last-message at-me-text">[有人@我]</span>
+                        <span v-else-if="hasDraft(group) && !group.deleted_at" class="group-last-message draft-text">{{ getGroupLastMessage(group) }}</span>
+                        <span v-else-if="group.deleted_at" class="group-last-message" style="color: #000;">该会话已被删除</span>
                         <span v-else class="group-last-message">{{ getGroupLastMessage(group) }}</span>
                     </div>
-                    <span v-if="isGroupMuted(group.id)" class="mute-icon" style="margin-left: 5px; font-size: 12px;" title="已免打扰">🔕</span>
+                    <span v-if="isGroupMuted(group.id) && !group.deleted_at" class="mute-icon" style="margin-left: 5px; font-size: 12px;" title="已免打扰">🔕</span>
                     <div class="unread-count group-unread-count" v-if="chatStore.unreadMessages.groups && chatStore.unreadMessages.groups[group.id] && !isGroupMuted(group.id)">
                         {{ chatStore.unreadMessages.groups[group.id] }}
                     </div>
@@ -266,6 +272,36 @@ function handleGroupAvatarError(event, group) {
     border-radius: 4px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     padding: 5px 0;
+}
+
+.deleted-item {
+    opacity: 0.7;
+    background-color: #f5f5f5 !important;
+    border-left: 3px solid #e74c3c;
+}
+
+.deleted-item:hover {
+    background-color: #ececec !important;
+}
+
+.deleted-item .group-avatar {
+    filter: grayscale(100%);
+    position: relative;
+}
+
+.deleted-icon {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    background: #fff;
+    border-radius: 50%;
+    font-size: 12px;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
 .context-menu-item {

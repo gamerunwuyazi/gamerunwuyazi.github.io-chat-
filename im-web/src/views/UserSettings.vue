@@ -400,37 +400,39 @@ function handleSettingsItemClick(event) {
   }
 }
 
-// 重载消息 - 清空本地消息并重新加载
-async function handleReloadMessages() {
-  const confirmed = await modal.confirm('确定要重载消息吗？\n这将清空本地所有消息数据并重新加载所有消息。', '确认重载')
+// 清除全部已删除会话
+async function handleClearDeletedSessions() {
+  const confirmed = await modal.confirm('确定要清除全部已删除会话吗？\n这将从本地清除所有标记为已删除的会话及其相关消息数据。', '确认清除')
   if (!confirmed) {
     return
   }
   
   try {
-    // 获取当前用户ID
-    const userId = getCurrentUserId()
-    if (!userId) {
-      await modal.error('用户未登录', '错误')
-      return
+    if (window.chatStore && window.chatStore.clearAllDeletedSessions) {
+      await window.chatStore.clearAllDeletedSessions()
+      await modal.success('已删除会话已成功清除！', '成功')
     }
-    
-    // 直接清空 indexedDB 中的所有数据
-    await localForage.clear()
-    
-    // 清空 localStorage 中的未读计数
-    localStorage.removeItem(`unread_counts_${userId}`)
-    
-    // 清空 localStorage 中的 groups_with_at_me
-    localStorage.removeItem(`groups_with_at_me_${userId}`)
-    
-    await modal.success('本地消息已清空，即将重新加载...', '成功')
-    
-    // 跳转到 /chat 页面
-    window.location.pathname = '/chat'
   } catch (error) {
-    console.error('重载消息失败:', error)
-    await modal.error('重载消息失败，请稍后重试', '错误')
+    console.error('清除已删除会话失败:', error)
+    await modal.error('清除已删除会话失败，请稍后重试', '错误')
+  }
+}
+
+// 清除全部未读计数
+async function handleClearUnreadCounts() {
+  const confirmed = await modal.confirm('确定要清除全部未读计数吗？\n这将清除所有会话的未读消息计数。', '确认清除')
+  if (!confirmed) {
+    return
+  }
+  
+  try {
+    if (window.chatStore && window.chatStore.clearAllUnreadCounts) {
+      window.chatStore.clearAllUnreadCounts()
+      await modal.success('未读计数已成功清除！', '成功')
+    }
+  } catch (error) {
+    console.error('清除未读计数失败:', error)
+    await modal.error('清除未读计数失败，请稍后重试', '错误')
   }
 }
 
@@ -593,15 +595,26 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 重载消息 -->
-      <div v-if="currentSetting === 'reload-messages'" class="settings-detail">
-        <h2>重载消息</h2>
+      <!-- 清除已删除会话 -->
+      <div v-if="currentSetting === 'clear-deleted-sessions'" class="settings-detail">
+        <h2>清除已删除会话</h2>
         <div style="margin-bottom: 20px;">
-          <p>此操作将清空本地所有消息数据（包括未读计数、@消息标记等），然后重新从服务器加载所有消息。</p>
-          <p style="color: #ff6b6b; margin-top: 10px;">⚠️ 此操作不可逆，请谨慎使用。</p>
+          <p>此操作将从本地清除所有标记为已删除的会话及其相关消息数据。</p>
         </div>
         <div class="form-actions">
-          <button type="button" class="save-btn" style="background: #ff6b6b;" @click="handleReloadMessages">重载消息</button>
+          <button type="button" class="save-btn" style="background: #3498db;" @click="handleClearDeletedSessions">清除已删除会话</button>
+          <button type="button" class="cancel-btn" @click="currentSetting = ''">取消</button>
+        </div>
+      </div>
+
+      <!-- 清除未读计数 -->
+      <div v-if="currentSetting === 'clear-unread-counts'" class="settings-detail">
+        <h2>清除未读计数</h2>
+        <div style="margin-bottom: 20px;">
+          <p>此操作将清除所有会话的未读消息计数。</p>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="save-btn" style="background: #3498db;" @click="handleClearUnreadCounts">清除未读计数</button>
           <button type="button" class="cancel-btn" @click="currentSetting = ''">取消</button>
         </div>
       </div>

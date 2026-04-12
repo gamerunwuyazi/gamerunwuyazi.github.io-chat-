@@ -64,13 +64,14 @@ function isUserOnline(userId) {
   return chatStore.onlineUsers.some(user => String(user.id) === String(userId));
 }
 
-// 计算属性：过滤后的好友列表
+// 计算属性：过滤后的好友列表（包括已删除的好友）
 const filteredFriendsList = computed(() => {
+  const allFriends = [...chatStore.friendsList];
   if (!privateChatSearchKeyword.value) {
-    return chatStore.friendsList;
+    return allFriends;
   }
   const keyword = privateChatSearchKeyword.value.toLowerCase();
-  return chatStore.friendsList.filter(friend => {
+  return allFriends.filter(friend => {
     return (friend.nickname || '').toLowerCase().includes(keyword);
   });
 });
@@ -143,22 +144,26 @@ function handleSearchUserClick() {
                     class="friend-item"
                     :data-user-id="friend.id"
                     :data-user-nickname="friend.nickname"
+                    :class="{ 'deleted-item': friend.deleted_at }"
                     @click="handleFriendClick(friend)">
                     <span class="user-avatar-wrapper" @click.stop="handleUserAvatarClick($event, friend)">
                         <span v-if="getAvatarUrl(friend) && !isSvgAvatar(getAvatarUrl(friend))" class="user-avatar">
                             <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(friend)}`" :alt="friend.nickname" @error="handleAvatarError($event, friend)">
+                            <span v-if="friend.deleted_at" class="deleted-icon">🗑️</span>
                         </span>
                         <span v-else class="user-avatar">
                             {{ friend.nickname ? friend.nickname.charAt(0).toUpperCase() : 'U' }}
+                            <span v-if="friend.deleted_at" class="deleted-icon">🗑️</span>
                         </span>
-                        <span v-if="isUserOnline(friend.id)" class="online-indicator"></span>
+                        <span v-if="isUserOnline(friend.id) && !friend.deleted_at" class="online-indicator"></span>
                     </span>
                     <div class="friend-info">
-                        <span class="friend-name">{{ friend.nickname }}</span>
-                        <span v-if="hasDraft(friend)" class="friend-last-message draft-text">{{ getPrivateLastMessage(friend) }}</span>
+                        <span class="friend-name" :style="{ color: friend.deleted_at ? '#000' : '' }">{{ friend.nickname }} <span v-if="friend.deleted_at" style="font-size: 12px;">(已删除)</span></span>
+                        <span v-if="hasDraft(friend) && !friend.deleted_at" class="friend-last-message draft-text">{{ getPrivateLastMessage(friend) }}</span>
+                        <span v-else-if="friend.deleted_at" class="friend-last-message" style="color: #000;">该会话已被删除</span>
                         <span v-else class="friend-last-message">{{ getPrivateLastMessage(friend) }}</span>
                     </div>
-                    <span class="friend-status" :class="isUserOnline(friend.id) ? 'online' : 'offline'"></span>
+                    <span v-if="!friend.deleted_at" class="friend-status" :class="isUserOnline(friend.id) ? 'online' : 'offline'"></span>
                     <div class="unread-count private-unread-count" v-if="chatStore.unreadMessages.private && chatStore.unreadMessages.private[friend.id]">
                         {{ chatStore.unreadMessages.private[friend.id] }}
                     </div>
@@ -173,6 +178,36 @@ function handleSearchUserClick() {
 .user-avatar-wrapper {
   position: relative;
   display: inline-flex;
+}
+
+.deleted-item {
+  opacity: 0.7;
+  background-color: #f5f5f5 !important;
+  border-left: 3px solid #e74c3c;
+}
+
+.deleted-item:hover {
+  background-color: #ececec !important;
+}
+
+.deleted-item .user-avatar {
+  filter: grayscale(100%);
+  position: relative;
+}
+
+.deleted-icon {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  background: #fff;
+  border-radius: 50%;
+  font-size: 12px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
 .online-indicator {

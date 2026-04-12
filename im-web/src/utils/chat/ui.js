@@ -1,4 +1,4 @@
-import { SERVER_URL, toast, getModalId, getModalNameFromId } from './config.js';
+import { SERVER_URL, toast, getModalId, getModalNameFromId, originalFetch } from './config.js';
 import { 
   getStore,
   unreadMessages,
@@ -74,7 +74,7 @@ async function refreshToken() {
     }
     
     try {
-        const response = await fetch(`${SERVER_URL}/api/refresh-token`, {
+        const response = await originalFetch(`${SERVER_URL}/api/refresh-token`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -865,8 +865,14 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
   
   if (store && oldChatType && store.saveDraft) {
     let draftContent = '';
-    if (oldChatType === 'main' && store.mainMessageInput) {
-      draftContent = store.mainMessageInput;
+    if (oldChatType === 'main') {
+      // 先尝试从 DOM 元素获取最新内容，如果获取不到就使用 store 中的值
+      const mainMessageInput = document.getElementById('messageInput');
+      if (mainMessageInput) {
+        draftContent = mainMessageInput.innerHTML;
+      } else if (store.mainMessageInput) {
+        draftContent = store.mainMessageInput;
+      }
     } else if (oldChatType === 'group' && store.groupMessageInput) {
       draftContent = store.groupMessageInput;
     } else if (oldChatType === 'private' && store.privateMessageInput) {

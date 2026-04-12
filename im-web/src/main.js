@@ -3,6 +3,9 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 
+// 导入配置文件（包含 fetch 拦截器）
+import './utils/chat/config.js';
+
 // 导入复制过来的 css 文件
 import './assets/css/index.css'
 import './assets/css/code-highlight.css'

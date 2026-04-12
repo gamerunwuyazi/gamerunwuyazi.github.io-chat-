@@ -154,6 +154,7 @@ function loadFriendsList() {
   
   if (!currentUser || !currentSessionToken) return;
 
+  // 异步请求服务器数据进行更新
   fetch(`${SERVER_URL}/api/user/friends`, {
     headers: {
       'user-id': currentUser.id,
@@ -177,29 +178,211 @@ async function updateFriendsList(friends) {
     const userId = window.chatStore.currentUser?.id || 'guest';
     const prefix = `chats-${userId}`;
 
-    // 从IndexedDB加载最后消息并设置时间
-    const updatedFriends = await Promise.all(friends.map(async (friend) => {
-      const result = { ...friend };
+    // 获取现有的好友列表，保留 deleted_at 字段
+    const existingFriends = window.chatStore.friendsList || [];
+    const existingFriendMap = new Map();
+    existingFriends.forEach(f => existingFriendMap.set(String(f.id), f));
 
-      // 从IndexedDB加载最后消息
+    // 收集服务器返回的好友ID
+    const serverFriendIds = new Set(friends.map(f => String(f.id)));
+
+    // 第一步：从 chatKeys 读取所有好友会话
+    let chatKeysData = null;
+    try {
+      chatKeysData = await localForage.getItem(prefix);
+    } catch (e) {
+      console.error('读取 chatKeys 失败:', e);
+    }
+    
+    // 收集所有本地存在的好友ID（从 chatKeys）
+    const localFriendIdsFromKeys = new Set();
+    if (chatKeysData && chatKeysData.chatKeys) {
+      chatKeysData.chatKeys.forEach(key => {
+        if (key.includes('-private-')) {
+          const friendId = key.split('-private-')[1];
+          localFriendIdsFromKeys.add(friendId);
+        }
+      });
+    }
+
+    // 第二步：确保服务器返回的所有好友都在 chatKeys 中
+    const newChatKeys = chatKeysData && chatKeysData.chatKeys ? [...chatKeysData.chatKeys] : [];
+    for (const friend of friends) {
+      const friendIdStr = String(friend.id);
+      const key = `${prefix}-private-${friendIdStr}`;
+      if (!localFriendIdsFromKeys.has(friendIdStr)) {
+        newChatKeys.push(key);
+        localFriendIdsFromKeys.add(friendIdStr);
+      }
+    }
+    // 更新 chatKeys
+    try {
+      await localForage.setItem(prefix, { chatKeys: newChatKeys });
+    } catch (e) {
+      console.error('更新 chatKeys 失败:', e);
+    }
+
+    // 第三步：把服务器返回的信息保存到 IndexedDB
+    for (const friend of friends) {
+      const existingFriend = existingFriendMap.get(String(friend.id));
+      
+      // 更新 IndexedDB 中的会话信息
       try {
         const key = `${prefix}-private-${friend.id}`;
-        const data = await localForage.getItem(key);
-        if (data && data.messages && data.messages.length > 0) {
-          const validMessages = data.messages.filter(m => m.messageType !== 101);
-          if (validMessages.length > 0) {
-            result.lastMessage = validMessages[0];
-            result.last_message_time = validMessages[0].timestamp || new Date().toISOString();
+        const existingData = await localForage.getItem(key) || { messages: [] };
+        const updatedSessionData = { ...existingData };
+        if (friend.nickname) updatedSessionData.nickname = friend.nickname;
+        if (friend.username) updatedSessionData.username = friend.username;
+        if (friend.avatar_url) updatedSessionData.avatarUrl = friend.avatar_url;
+        else if (friend.avatarUrl) updatedSessionData.avatarUrl = friend.avatarUrl;
+        
+        // 如果服务器返回了这个好友，但本地标记了deleted_at，取消标记
+        delete updatedSessionData.deleted_at;
+        
+        await localForage.setItem(key, updatedSessionData);
+      } catch (e) {
+        console.error('更新IndexedDB中的好友会话信息失败:', e);
+      }
+    }
+
+    // 第四步：处理 chatKeys 中所有不在服务器返回列表中的好友，标记为已删除
+    for (const friendId of localFriendIdsFromKeys) {
+      const friendIdStr = String(friendId);
+      if (!serverFriendIds.has(friendIdStr)) {
+        // 先从 IndexedDB 读取，检查是否已经标记为已删除
+        try {
+          const key = `${prefix}-private-${friendId}`;
+          const existingData = await localForage.getItem(key);
+          if (!existingData?.deleted_at) {
+            let updatedSessionData;
+            if (existingData) {
+              updatedSessionData = { ...existingData };
+            } else {
+              // 从 existingFriends 中获取好友信息
+              const existingFriend = existingFriendMap.get(friendIdStr);
+              updatedSessionData = { messages: [] };
+              if (existingFriend) {
+                if (existingFriend.nickname) updatedSessionData.nickname = existingFriend.nickname;
+                if (existingFriend.username) updatedSessionData.username = existingFriend.username;
+                if (existingFriend.avatar_url) updatedSessionData.avatarUrl = existingFriend.avatar_url;
+                else if (existingFriend.avatarUrl) updatedSessionData.avatarUrl = existingFriend.avatarUrl;
+              }
+            }
+            
+            // 发现缺少昵称时直接请求 API 补全信息
+            if (!updatedSessionData.nickname) {
+              try {
+                const response = await fetch(`${SERVER_URL}/api/user/${friendId}`, {
+                  method: 'GET',
+                  headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'user-id': userId,
+                    'session-token': localStorage.getItem('currentSessionToken')
+                  }
+                });
+                if (response.ok) {
+                  const responseData = await response.json();
+                  if (responseData.status === 'success' && responseData.user) {
+                    if (!updatedSessionData.nickname && responseData.user.nickname) {
+                      updatedSessionData.nickname = responseData.user.nickname;
+                    }
+                    if (!updatedSessionData.avatarUrl && responseData.user.avatar_url) {
+                      updatedSessionData.avatarUrl = responseData.user.avatar_url;
+                    }
+                    if (!updatedSessionData.username && responseData.user.username) {
+                      updatedSessionData.username = responseData.user.username;
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error('获取用户信息失败:', e);
+              }
+            }
+            
+            updatedSessionData.deleted_at = new Date().toISOString();
+            await localForage.setItem(key, updatedSessionData);
           }
+        } catch (e) {
+          console.error('更新好友deleted_at失败:', e);
+        }
+      }
+    }
+
+    // 第五步：直接从 IndexedDB 加载所有好友到 store
+    const allFriends = [];
+    for (const friendId of localFriendIdsFromKeys) {
+      try {
+        const key = `${prefix}-private-${friendId}`;
+        const data = await localForage.getItem(key);
+        if (data) {
+          let friendNickname = data.nickname || '用户';
+          
+          // 发现缺少昵称时直接请求 API 补全信息
+          if (!data.nickname) {
+            try {
+              const response = await fetch(`/api/user/${friendId}`, {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+              });
+              if (response.ok) {
+                const responseData = await response.json();
+                if (responseData.status === 'success' && responseData.user) {
+                  if (!data.nickname && responseData.user.nickname) {
+                    friendNickname = responseData.user.nickname;
+                    data.nickname = responseData.user.nickname;
+                  }
+                  if (!data.avatarUrl && responseData.user.avatar_url) {
+                    data.avatarUrl = responseData.user.avatar_url;
+                  }
+                  if (!data.username && responseData.user.username) {
+                    data.username = responseData.user.username;
+                  }
+                  // 保存获取到的信息到IndexedDB
+                  const key = `${prefix}-private-${friendId}`;
+                  const updatedData = { ...data };
+                  await localForage.setItem(key, updatedData);
+                }
+              }
+            } catch (e) {
+              console.error('获取用户信息失败:', e);
+            }
+          }
+          
+          const friend = {
+            id: friendId,
+            nickname: friendNickname,
+            username: data.username || 'user',
+            avatarUrl: data.avatarUrl,
+            deleted_at: data.deleted_at
+          };
+          
+          // 优先使用 IndexedDB 中保存的 last_message_time
+          if (data.last_message_time) {
+            friend.last_message_time = data.last_message_time;
+          }
+          
+          // 从IndexedDB加载最后消息
+          if (data.messages && data.messages.length > 0) {
+            const validMessages = data.messages.filter(m => m.messageType !== 101 && m.messageType !== 103);
+            if (validMessages.length > 0) {
+              friend.lastMessage = validMessages[validMessages.length - 1];
+              if (!friend.last_message_time) {
+                friend.last_message_time = validMessages[validMessages.length - 1].timestamp || new Date().toISOString();
+              }
+            }
+          }
+          
+          allFriends.push(friend);
         }
       } catch (e) {
-        console.error('加载好友最后消息失败:', e);
+        console.error('从IndexedDB加载好友失败:', e);
       }
+    }
 
-      return result;
-    }));
-
-    window.chatStore.friendsList = updatedFriends;
+    // 设置到 store
+    window.chatStore.friendsList = allFriends;
     // 按最后消息时间排序
     window.chatStore.sortFriendsByLastMessageTime();
   }
@@ -262,6 +445,13 @@ async function deleteFriend(userId) {
       .then(response => response.json())
       .then(data => {
         if (data.status === 'success') {
+          const store = getStore();
+          
+          // 用户自己操作删除，清空本地消息
+          if (store && store.markFriendAsDeleted) {
+            store.markFriendAsDeleted(userId, true);
+          }
+          
           loadFriendsList();
 
           const currentPrivateChatUserId = sessionStore.currentPrivateChatUserId;
@@ -286,6 +476,17 @@ async function deleteFriend(userId) {
 }
 
 function showUserProfile(user) {
+  const store = getStore();
+  const currentFriend = store?.friendsList?.find(f => String(f.id) === String(user.id));
+  if (currentFriend && currentFriend.deleted_at != null) {
+    if (typeof window.openModal === 'function') {
+      window.openModal('userProfile', currentFriend);
+    } else if (window.chatStore) {
+      window.chatStore.openModal('userProfile', currentFriend);
+    }
+    return;
+  }
+  
   const currentUserInfo = getCurrentUser();
   const sessionToken = getCurrentSessionToken();
 

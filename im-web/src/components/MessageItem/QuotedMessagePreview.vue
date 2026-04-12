@@ -1,6 +1,6 @@
 <template>
-  <div class="quoted-message-preview" style="display: flex; align-items: center; padding: 8px 12px; background: #f5f5f5; border-left: 3px solid #4CAF50; margin-bottom: 8px; border-radius: 4px;">
-    <div style="flex: 1;">
+  <div class="quoted-message-preview" style="display: flex; align-items: center; padding: 8px 12px; background: #f5f5f5; border-left: 3px solid #4CAF50; margin-bottom: 8px; border-radius: 4px; max-width: 100%; box-sizing: border-box;">
+    <div style="flex: 1; min-width: 0; overflow: hidden;">
       <div style="font-size: 12px; color: #666;">引用: <strong>{{ quotedMessage.nickname }}</strong></div>
       <!-- 引用图片 -->
       <div v-if="isImage" style="margin-top: 5px;">
@@ -9,7 +9,7 @@
       <!-- 引用文件 -->
       <div v-else-if="isFile" style="margin-top: 5px;">
         <span style="font-size: 16px;">{{ fileIcon }}</span>
-        <span style="font-size: 13px; margin-left: 5px;">{{ displayFilename }}</span>
+        <span style="font-size: 13px; margin-left: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: calc(100% - 21px); vertical-align: middle;">{{ displayFilename }}</span>
       </div>
       <!-- 引用群名片 -->
       <div v-else-if="isGroupCard" style="margin-top: 5px; background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 4px; padding: 6px;">
@@ -26,7 +26,7 @@
           >
             {{ groupCardInitials }}
           </div>
-          {{ groupCardGroupName }}
+          <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">{{ groupCardGroupName }}</span>
         </div>
       </div>
       <!-- 普通文本 -->
@@ -34,7 +34,7 @@
         {{ displayContent }}
       </div>
     </div>
-    <button @click="$emit('close')" style="background: none; border: none; color: #999; font-size: 18px; cursor: pointer; padding: 0 5px;">×</button>
+    <button @click="$emit('close')" style="background: none; border: none; color: #999; font-size: 18px; cursor: pointer; padding: 0 5px; flex-shrink: 0;">×</button>
   </div>
 </template>
 

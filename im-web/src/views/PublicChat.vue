@@ -245,6 +245,7 @@ import {
   uploadVideo,
   initializeScrollLoading
 } from "@/utils/chat";
+import { clearContentEditable } from "@/utils/chat/message.js";
 
 const chatStore = useChatStore();
 const route = useRoute();
@@ -343,13 +344,12 @@ watch(
 watch(
   () => route.path,
   (newPath, oldPath) => {
-    if ((oldPath === '/chat' || oldPath === '/chat/') && newPath !== '/chat' && newPath !== '/chat/') {
+    // 离开主聊天室时保存草稿
+    if ((oldPath === '/chat' || oldPath === '/chat/') && (newPath !== '/chat' && newPath !== '/chat/')) {
       const mainMessageInput = document.getElementById('messageInput');
       if (mainMessageInput) {
-        const textContent = mainMessageInput.textContent;
-        const innerHTML = mainMessageInput.innerHTML;
-        const content = textContent || innerHTML || '';
-        chatStore.saveDraft('main', null, content);
+        const draftContent = mainMessageInput.innerHTML;
+        chatStore.saveDraft('main', null, draftContent);
       }
     }
     
@@ -536,7 +536,7 @@ function handleMessageInput() {
       return;
     }
     
-    chatStore.mainMessageInput = input.textContent || input.innerHTML;
+    chatStore.mainMessageInput = input.innerHTML;
     
     const maxHeight = 180;
     if (input.scrollHeight > maxHeight) {
@@ -673,66 +673,18 @@ function handleMessageInputKeydown(e) {
     }
   }
   
-  if (e.key === 'Backspace' || e.key === 'Delete') {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    
-    const range = selection.getRangeAt(0);
-    let targetElement = null;
-    
-    if (e.key === 'Backspace') {
-      let node = range.startContainer;
-      while (node && node !== messageInputRef.value) {
-        if (node.nodeType === Node.ELEMENT_NODE && node.classList && node.classList.contains('chat-at-user')) {
-          targetElement = node;
-          break;
-        }
-        if (node.previousSibling) {
-          node = node.previousSibling;
-          while (node && node.lastChild) {
-            node = node.lastChild;
-          }
-        } else {
-          node = node.parentNode;
-        }
+  // 删除键 - 参考 boxim 的做法，让浏览器默认行为处理删除 @用户元素
+  // 因为 @用户元素设置了 contentEditable='false'，浏览器会把它当作一个整体来处理
+  if (e.key === 'Backspace') {
+    // 等待 DOM 更新后检查是否为空
+    setTimeout(() => {
+      if (!messageInputRef.value) return;
+      const s = messageInputRef.value.innerHTML.trim();
+      // 空 DOM 时，需要刷新 DOM
+      if (s === '' || s === '<br>' || s === '<div>&nbsp;</div>') {
+        clearContentEditable(messageInputRef.value);
       }
-      if (!targetElement && range.startContainer.parentNode && range.startContainer.parentNode.classList && range.startContainer.parentNode.classList.contains('chat-at-user')) {
-        targetElement = range.startContainer.parentNode;
-      }
-      if (!targetElement && range.startOffset === 0 && range.startContainer.previousSibling && range.startContainer.previousSibling.nodeType === Node.ELEMENT_NODE && range.startContainer.previousSibling.classList && range.startContainer.previousSibling.classList.contains('chat-at-user')) {
-        targetElement = range.startContainer.previousSibling;
-      }
-    } else if (e.key === 'Delete') {
-      let node = range.endContainer;
-      while (node && node !== messageInputRef.value) {
-        if (node.nodeType === Node.ELEMENT_NODE && node.classList && node.classList.contains('chat-at-user')) {
-          targetElement = node;
-          break;
-        }
-        if (node.nextSibling) {
-          node = node.nextSibling;
-          while (node && node.firstChild) {
-            node = node.firstChild;
-          }
-        } else {
-          node = node.parentNode;
-        }
-      }
-      if (!targetElement && range.endContainer.parentNode && range.endContainer.parentNode.classList && range.endContainer.parentNode.classList.contains('chat-at-user')) {
-        targetElement = range.endContainer.parentNode;
-      }
-      if (!targetElement && range.endOffset === range.endContainer.textContent.length && range.endContainer.nextSibling && range.endContainer.nextSibling.nodeType === Node.ELEMENT_NODE && range.endContainer.nextSibling.classList && range.endContainer.nextSibling.classList.contains('chat-at-user')) {
-        targetElement = range.endContainer.nextSibling;
-      }
-    }
-    
-    if (targetElement) {
-      e.preventDefault();
-      const parent = targetElement.parentNode;
-      parent.removeChild(targetElement);
-      chatStore.mainMessageInput = messageInputRef.value.innerHTML;
-      return;
-    }
+    }, 0);
   }
   
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
@@ -850,14 +802,6 @@ function selectAtUser(user) {
         
         // 光标移动到元素后面
         range.setStartAfter(element);
-        range.collapse(true);
-        
-        // 插入普通空格
-        const textNodeSpace = document.createTextNode(' ');
-        range.insertNode(textNodeSpace);
-        
-        // 设置光标位置在空格后面
-        range.setStartAfter(textNodeSpace);
         range.collapse(true);
         
         // 立即设置光标位置

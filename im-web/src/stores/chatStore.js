@@ -348,12 +348,13 @@ export const useChatStore = defineStore('chat', () => {
 
   function addPrivateMessage(userId, message) {
     const isWithdrawMessage = message.messageType === 101;
+    const isReadReceiptMessage = message.messageType === 103;
     const messages = loading.value ? (cachePrivateMessages[userId] || (cachePrivateMessages[userId] = [])) : (privateMessages.value[userId] || (privateMessages.value[userId] = []));
     const exists = messages.some(m => m.id === message.id);
-    if (!exists && !isWithdrawMessage) {
+    if (!exists && !isWithdrawMessage && !isReadReceiptMessage) {
       messages.push(message);
     }
-    // 同时更新完整消息列表（包括101消息），新消息在后
+    // 同时更新完整消息列表（包括101和103消息），新消息在后
     if (fullPrivateMessages[userId] === null || fullPrivateMessages[userId] === undefined) {
       fullPrivateMessages[userId] = [message];
     } else {
@@ -362,8 +363,8 @@ export const useChatStore = defineStore('chat', () => {
         fullPrivateMessages[userId].push(message);
       }
     }
-    // 更新 minId
-    if (message.id && message.id > privateMinId.value) {
+    
+    if (message.id && message.id > privateMinId.value && !isWithdrawMessage) {
       privateMinId.value = message.id;
       if (saveMinIds) {
         saveMinIds();
@@ -373,6 +374,81 @@ export const useChatStore = defineStore('chat', () => {
       privateStored.value[userId] = false;
       saveToStorage();
     }
+  }
+
+  function updatePrivateMessagesReadStatus(userId, readMessageId) {
+    const targetReadId = readMessageId ? parseInt(readMessageId) : null;
+    const currentUserId = currentUser.value?.id;
+    if (!currentUserId) {
+      return;
+    }
+    
+    // 更新 store 中的消息（按id从大到小遍历，遇到已读状态为1的就停止）
+    const messages = privateMessages.value[userId];
+    if (messages && Array.isArray(messages)) {
+      // 先收集所有自己发送且id <= targetReadId的消息，按id排序
+      const myMessages = [];
+      for (let i = 0; i < messages.length; i++) {
+        const m = messages[i];
+        if (m.id && m.senderId !== undefined && String(m.senderId) === String(currentUserId)) {
+          if (!targetReadId || m.id <= targetReadId) {
+            myMessages.push({ index: i, id: m.id, isRead: m.isRead });
+          }
+        }
+      }
+      
+      // 按id从大到小排序
+      myMessages.sort((a, b) => b.id - a.id);
+      
+      // 从最大的id开始更新
+      let stopped = false;
+      for (const item of myMessages) {
+        if (stopped) break;
+        const m = messages[item.index];
+        // 如果已经是已读状态，就停止
+        if (m.isRead === 1) {
+          stopped = true;
+          break;
+        }
+        m.isRead = 1; // 已读状态
+      }
+    }
+    
+    // 更新完整消息列表（从后往前遍历，遇到已读状态为1的就停止）
+    if (fullPrivateMessages[userId]) {
+      const fullMessages = fullPrivateMessages[userId];
+      if (fullMessages && Array.isArray(fullMessages)) {
+        // 先收集所有自己发送且id <= targetReadId的消息，按id排序
+        const myMessages = [];
+        for (let i = 0; i < fullMessages.length; i++) {
+          const m = fullMessages[i];
+          if (m.id && m.senderId !== undefined && String(m.senderId) === String(currentUserId)) {
+            if (!targetReadId || m.id <= targetReadId) {
+              myMessages.push({ index: i, id: m.id, isRead: m.isRead });
+            }
+          }
+        }
+        
+        // 按id从大到小排序
+        myMessages.sort((a, b) => b.id - a.id);
+        
+        // 从最大的id开始更新
+        let stopped = false;
+        for (const item of myMessages) {
+          if (stopped) break;
+          const m = fullMessages[item.index];
+          // 如果已经是已读状态，就停止
+          if (m.isRead === 1) {
+            stopped = true;
+            break;
+          }
+          m.isRead = 1; // 已读状态
+        }
+      }
+    }
+    
+    privateStored.value[userId] = false;
+    saveToStorage();
   }
 
   function setPublicMessages(messages) {
@@ -401,9 +477,9 @@ export const useChatStore = defineStore('chat', () => {
     // 检查拉取的消息中是否有@自己的消息
     if (currentUser.value) {
       for (const message of messages) {
-        if (message.at_userid && message.messageType !== 101 && message.messageType !== 102) {
-          const atUserIds = Array.isArray(message.at_userid) ? message.at_userid : [message.at_userid];
-          const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.value.id));
+        if (message.atUserid && message.messageType !== 101 && message.messageType !== 102) {
+          const atUserIds = Array.isArray(message.atUserid) ? message.atUserid : [message.atUserid];
+          const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.value.id) || String(id) === '-1');
           if (isCurrentUserAt) {
             setGroupHasAtMe(groupId);
           }
@@ -433,9 +509,9 @@ export const useChatStore = defineStore('chat', () => {
 
   function setPrivateMessages(userId, messages) {
     if (loading.value) {
-      cachePrivateMessages[userId] = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+      cachePrivateMessages[userId] = messages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
     } else {
-      // 更新完整消息列表（保存原始顺序）
+      // 更新完整消息列表（保存原始顺序，包括101、103消息）
       if (fullPrivateMessages[userId] === null || fullPrivateMessages[userId] === undefined) {
         fullPrivateMessages[userId] = [...messages];
       } else {
@@ -444,8 +520,8 @@ export const useChatStore = defineStore('chat', () => {
         const fullNewMessages = messages.filter(m => !fullExistingIds.has(m.id));
         fullPrivateMessages[userId] = [...fullPrivateMessages[userId], ...fullNewMessages];
       }
-      // 只在 store 中保存最近 20 条非101、非102消息（用于显示）
-      const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+      // 只在 store 中保存最近 20 条非101、非102、非103消息（用于显示）
+      const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
       privateMessages.value[userId] = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
       privateStored.value[userId] = false;
       saveToStorage();
@@ -482,9 +558,9 @@ export const useChatStore = defineStore('chat', () => {
     // 检查拉取的消息中是否有@自己的消息
     if (currentUser.value) {
       for (const message of messages) {
-        if (message.at_userid && message.messageType !== 101 && message.messageType !== 102) {
-          const atUserIds = Array.isArray(message.at_userid) ? message.at_userid : [message.at_userid];
-          const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.value.id));
+        if (message.atUserid && message.messageType !== 101 && message.messageType !== 102) {
+          const atUserIds = Array.isArray(message.atUserid) ? message.atUserid : [message.atUserid];
+          const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.value.id) || String(id) === '-1');
           if (isCurrentUserAt) {
             setGroupHasAtMe(groupId);
             break;
@@ -520,11 +596,11 @@ export const useChatStore = defineStore('chat', () => {
     const targetMessages = loading.value ? (cachePrivateMessages[userId] || (cachePrivateMessages[userId] = [])) : (privateMessages.value[userId] || (privateMessages.value[userId] = []));
     const existingIds = new Set(targetMessages.map(m => m.id));
     const newMessages = messages.filter(m => !existingIds.has(m.id));
-    const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+    const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
     if (loading.value) {
       cachePrivateMessages[userId] = [...displayNewMessages, ...(cachePrivateMessages[userId] || [])];
     } else {
-      // 更新完整消息列表 - 新消息（加载的是更旧的消息）放在前面
+      // 更新完整消息列表 - 新消息（加载的是更旧的消息）放在前面，包括101和103消息
       if (fullPrivateMessages[userId] !== null && fullPrivateMessages[userId] !== undefined) {
         const fullIds = new Set(fullPrivateMessages[userId].map(m => m.id));
         const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
@@ -620,10 +696,14 @@ export const useChatStore = defineStore('chat', () => {
   function moveGroupToTop(groupId) {
     const index = groupsList.value.findIndex(g => String(g.id) === String(groupId));
     if (index > 0) {
-      const group = groupsList.value.splice(index, 1)[0];
+      const group = groupsList.value[index];
+      if (group.deleted_at != null) {
+        return;
+      }
+      const removedGroup = groupsList.value.splice(index, 1)[0];
       const newTime = new Date().toISOString();
-      group.last_message_time = newTime;
-      groupsList.value.unshift(group);
+      removedGroup.last_message_time = newTime;
+      groupsList.value.unshift(removedGroup);
       sortGroupsByLastMessageTime();
       saveGroupLastMessageTime(groupId, newTime);
     }
@@ -632,10 +712,14 @@ export const useChatStore = defineStore('chat', () => {
   function moveFriendToTop(userId) {
     const index = friendsList.value.findIndex(f => String(f.id) === String(userId));
     if (index > 0) {
-      const friend = friendsList.value.splice(index, 1)[0];
+      const friend = friendsList.value[index];
+      if (friend.deleted_at != null) {
+        return;
+      }
+      const removedFriend = friendsList.value.splice(index, 1)[0];
       const newTime = new Date().toISOString();
-      friend.last_message_time = newTime;
-      friendsList.value.unshift(friend);
+      removedFriend.last_message_time = newTime;
+      friendsList.value.unshift(removedFriend);
       sortFriendsByLastMessageTime();
       saveFriendLastMessageTime(userId, newTime);
     }
@@ -722,13 +806,15 @@ export const useChatStore = defineStore('chat', () => {
     // 先从 localStorage 加载最新数据，避免覆盖
     loadUnreadCountsFromLocalStorage();
     const userIdStr = String(userId);
+    let hasUnreadToClear = false;
     if (unreadMessages.value.private && unreadMessages.value.private[userIdStr]) {
       delete unreadMessages.value.private[userIdStr];
+      hasUnreadToClear = true;
     }
     // 保存到 localStorage
     saveUnreadCountsToLocalStorage();
-    // 发送已读消息事件到后端
-    if (window.sendReadMessageEvent) {
+    // 仅在有清除的未读计数时发送已读消息事件到后端
+    if (hasUnreadToClear && window.sendReadMessageEvent) {
       window.sendReadMessageEvent('private', { friendId: userId });
     }
   }
@@ -811,6 +897,157 @@ export const useChatStore = defineStore('chat', () => {
       return user.avatarUrl || '';
     }
     return '';
+  }
+
+  async function markGroupAsDeleted(groupId, isOwnOperation = false) {
+    if (!groupsList.value) return;
+    const groupIndex = groupsList.value.findIndex(g => String(g.id) === String(groupId));
+    if (groupIndex === -1) return;
+    
+    const prefix = getStorageKeyPrefix();
+    
+    // 如果是自己操作，直接删除本地记录，不标记
+    if (isOwnOperation) {
+      // 清空群组消息记录
+      // 1. 清空内存中的完整消息列表
+      delete fullGroupMessages[groupId];
+      // 2. 清空 Pinia store 中的消息列表
+      delete groupMessages.value[groupId];
+      // 3. 清空 localForage 中的存储
+      await localForage.removeItem(`${prefix}-group-${groupId}`);
+      // 4. 更新 chatKeys 列表
+      const chatKeysData = await localForage.getItem(prefix);
+      if (chatKeysData && chatKeysData.chatKeys) {
+        chatKeysData.chatKeys = chatKeysData.chatKeys.filter(key => key !== `${prefix}-group-${groupId}`);
+        await localForage.setItem(prefix, chatKeysData);
+      }
+      // 5. 从 groupsList 中移除该群组
+      groupsList.value.splice(groupIndex, 1);
+      
+      // 如果当前正在查看这个群组，清空当前群组
+      if (currentGroupId.value && String(currentGroupId.value) === String(groupId)) {
+        currentGroupId.value = null;
+      }
+    } else {
+      // 如果不是自己操作，才添加 deleted_at 标记
+      const group = groupsList.value[groupIndex];
+      group.deleted_at = new Date().toISOString();
+      
+      // 更新 IndexedDB 中的会话对象，添加 deleted_at 标记
+      try {
+        const key = `${prefix}-group-${groupId}`;
+        const existingData = await localForage.getItem(key);
+        let sessionData = existingData ? { ...existingData } : { messages: [] };
+        
+        // 发现缺少名称时直接请求 API 补全信息
+        if (!sessionData.name) {
+          try {
+            const response = await fetch(`${import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn'}/api/group-info/${groupId}`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'user-id': currentUser.value?.id,
+                'session-token': localStorage.getItem('currentSessionToken')
+              }
+            });
+            if (response.ok) {
+              const data = await response.json();
+              if (data.status === 'success' && data.group) {
+                if (!sessionData.name && data.group.name) {
+                  sessionData.name = data.group.name;
+                }
+                if (!sessionData.avatarUrl && data.group.avatar_url) {
+                  sessionData.avatarUrl = data.group.avatar_url;
+                }
+              }
+            }
+          } catch (e) {
+            console.error('获取群组信息失败:', e);
+          }
+        }
+        
+        sessionData.deleted_at = group.deleted_at;
+        await localForage.setItem(key, sessionData);
+      } catch (e) {
+        console.error('更新群组会话的 deleted_at 标记失败:', e);
+      }
+    }
+  }
+
+  async function markFriendAsDeleted(userId, isOwnOperation = false) {
+    if (!friendsList.value) return;
+    const friendIndex = friendsList.value.findIndex(f => String(f.id) === String(userId));
+    if (friendIndex === -1) return;
+    
+    const prefix = getStorageKeyPrefix();
+    
+    // 如果是自己操作，直接删除本地记录，不标记
+    if (isOwnOperation) {
+      // 清空好友消息记录
+      // 1. 清空内存中的完整消息列表
+      delete fullPrivateMessages[userId];
+      // 2. 清空 Pinia store 中的消息列表
+      delete privateMessages.value[userId];
+      // 3. 清空 localForage 中的存储
+      await localForage.removeItem(`${prefix}-private-${userId}`);
+      // 4. 更新 chatKeys 列表
+      const chatKeysData = await localForage.getItem(prefix);
+      if (chatKeysData && chatKeysData.chatKeys) {
+        chatKeysData.chatKeys = chatKeysData.chatKeys.filter(key => key !== `${prefix}-private-${userId}`);
+        await localForage.setItem(prefix, chatKeysData);
+      }
+      // 5. 从 friendsList 中移除该好友
+      friendsList.value.splice(friendIndex, 1);
+      
+      // 如果当前正在查看这个好友，清空当前好友
+      if (currentPrivateChatUserId.value && String(currentPrivateChatUserId.value) === String(userId)) {
+        currentPrivateChatUserId.value = null;
+      }
+    } else {
+      // 如果不是自己操作，才添加 deleted_at 标记
+      const friend = friendsList.value[friendIndex];
+      friend.deleted_at = new Date().toISOString();
+      
+      // 更新 IndexedDB 中的会话对象，添加 deleted_at 标记
+      try {
+        const key = `${prefix}-private-${userId}`;
+        const existingData = await localForage.getItem(key);
+        let sessionData = existingData ? { ...existingData } : { messages: [] };
+        
+        // 发现缺少昵称时直接请求 API 补全信息
+        if (!sessionData.nickname) {
+          try {
+            const response = await fetch(`/api/user/${userId}`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+              }
+            });
+            if (response.ok) {
+              const data = await response.json();
+              if (data.status === 'success' && data.user) {
+                if (!sessionData.nickname && data.user.nickname) {
+                  sessionData.nickname = data.user.nickname;
+                }
+                if (!sessionData.avatarUrl && data.user.avatar_url) {
+                  sessionData.avatarUrl = data.user.avatar_url;
+                }
+                if (!sessionData.username && data.user.username) {
+                  sessionData.username = data.user.username;
+                }
+              }
+            }
+          } catch (e) {
+            console.error('获取用户信息失败:', e);
+          }
+        }
+        
+        sessionData.deleted_at = friend.deleted_at;
+        await localForage.setItem(key, sessionData);
+      } catch (e) {
+        console.error('更新好友会话的 deleted_at 标记失败:', e);
+      }
+    }
   }
 
   function updateUserInfoInMessages(userId, userInfo) {
@@ -987,7 +1224,8 @@ export const useChatStore = defineStore('chat', () => {
   // 保存groupsWithAtMe到localStorage
   function saveGroupsWithAtMeToLocalStorage() {
     try {
-      localStorage.setItem('groups_with_at_me', JSON.stringify(groupsWithAtMe.value));
+      const userId = currentUser.value?.id || 'guest';
+      localStorage.setItem(`groups_with_at_me_${userId}`, JSON.stringify(groupsWithAtMe.value));
     } catch (err) {
       console.error('保存groupsWithAtMe失败:', err);
     }
@@ -996,7 +1234,8 @@ export const useChatStore = defineStore('chat', () => {
   // 从localStorage加载groupsWithAtMe
   function loadGroupsWithAtMeFromLocalStorage() {
     try {
-      const saved = localStorage.getItem('groups_with_at_me');
+      const userId = currentUser.value?.id || 'guest';
+      const saved = localStorage.getItem(`groups_with_at_me_${userId}`);
       if (saved) {
         groupsWithAtMe.value = JSON.parse(saved);
       }
@@ -1110,7 +1349,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function saveToStorage() {
-    if (loading.value) return;
+    if (loading.value) {
+      return;
+    }
 
     const prefix = getStorageKeyPrefix();
 
@@ -1129,7 +1370,19 @@ export const useChatStore = defineStore('chat', () => {
       for (const [groupId, messages] of Object.entries(fullGroupMessages)) {
         if (!groupStored.value[groupId]) {
           const msgs = messages.map(msg => toRaw(msg));
-          await localForage.setItem(`${prefix}-group-${groupId}`, { messages: msgs });
+          // 先从 IndexedDB 读取现有数据，保留所有原有字段
+          const key = `${prefix}-group-${groupId}`;
+          let sessionData = await localForage.getItem(key) || { messages: [] };
+          // 只更新 messages 字段
+          sessionData = { ...sessionData, messages: msgs };
+          // 获取群组信息并保存到会话对象中
+          const groupInfo = groupsList.value?.find(g => String(g.id) === String(groupId));
+          if (groupInfo) {
+            if (groupInfo.name) sessionData.name = groupInfo.name;
+            if (groupInfo.avatarUrl) sessionData.avatarUrl = groupInfo.avatarUrl;
+            if (groupInfo.deleted_at) sessionData.deleted_at = groupInfo.deleted_at;
+          }
+          await localForage.setItem(key, sessionData);
           groupStored.value[groupId] = true;
         }
       }
@@ -1138,7 +1391,19 @@ export const useChatStore = defineStore('chat', () => {
       for (const [userId, messages] of Object.entries(fullPrivateMessages)) {
         if (!privateStored.value[userId]) {
           const msgs = messages.map(msg => toRaw(msg));
-          await localForage.setItem(`${prefix}-private-${userId}`, { messages: msgs });
+          // 先从 IndexedDB 读取现有数据，保留所有原有字段
+          const key = `${prefix}-private-${userId}`;
+          let sessionData = await localForage.getItem(key) || { messages: [] };
+          // 只更新 messages 字段
+          sessionData = { ...sessionData, messages: msgs };
+          // 获取好友信息并保存到会话对象中
+          const friendInfo = friendsList.value?.find(f => String(f.id) === String(userId));
+          if (friendInfo) {
+            if (friendInfo.nickname) sessionData.nickname = friendInfo.nickname;
+            if (friendInfo.avatarUrl) sessionData.avatarUrl = friendInfo.avatarUrl;
+            if (friendInfo.deleted_at) sessionData.deleted_at = friendInfo.deleted_at;
+          }
+          await localForage.setItem(key, sessionData);
           privateStored.value[userId] = true;
         }
       }
@@ -1196,11 +1461,11 @@ export const useChatStore = defineStore('chat', () => {
             }
           } else if (key.includes('-private-')) {
             const userId = key.split('-private-')[1];
-            // 保存原始顺序的消息到内存变量
+            // 保存原始顺序的消息到内存变量（包括101和103消息）
             fullPrivateMessages[userId] = [...messages];
             if (loadToStore) {
-              // 只在 store 中保存最近 20 条非101、非102消息（从长度-21到长度-1）
-              const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+              // 只在 store 中保存最近 20 条非101、非102、非103消息（从长度-21到长度-1）
+              const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
               privateMessages.value[userId] = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
             }
           }
@@ -1234,13 +1499,24 @@ export const useChatStore = defineStore('chat', () => {
     fullPrivateMessages = {};
   }
   
-  function processOfflineMessage(message, onlySaveToDB = false) {
+  async function processOfflineMessage(message, onlySaveToDB = false) {
+    // 统一使用驼峰命名
     const processedMessage = {
-      ...message,
       id: message.id,
-      sender_id: message.userId || message.senderId,
+      userId: message.userId,
       nickname: message.nickname,
-      avatarUrl: message.avatarUrl
+      avatarUrl: message.avatarUrl,
+      content: message.content,
+      atUserid: message.atUserid,
+      messageType: message.messageType,
+      timestamp: message.timestamp,
+      type: message.type,
+      groupId: message.groupId,
+      groupName: message.groupName,
+      groupDeletedAt: message.groupDeletedAt,
+      senderId: message.senderId,
+      receiverId: message.receiverId,
+      isRead: message.isRead
     };
 
     const isUserInfoUpdateMessage = processedMessage.messageType === 102;
@@ -1262,26 +1538,52 @@ export const useChatStore = defineStore('chat', () => {
               friendsList.value = [...friendsList.value];
             }
           }
+          // 更新 IndexedDB 中的会话信息（无论好友是否已删除）
+          try {
+            const prefix = getStorageKeyPrefix();
+            const key = `${prefix}-private-${userId}`;
+            const existingData = await localForage.getItem(key);
+            if (existingData) {
+              const updatedSessionData = { ...existingData };
+              updatedSessionData.nickname = updateData.nickname;
+              await localForage.setItem(key, updatedSessionData);
+            }
+          } catch (e) {
+            console.error('更新IndexedDB中的好友昵称失败:', e);
+          }
           updateUserInfoInMessages(userId, { nickname: updateData.nickname });
-        } else if (updateData.type === 'avatar' && updateData.avatarUrl) {
+        } else if (updateData.type === 'avatar' && updateData.avatar_url) {
           if (onlineUsers.value) {
             const userIndex = onlineUsers.value.findIndex(u => String(u.id) === String(userId));
             if (userIndex !== -1) {
-              onlineUsers.value[userIndex].avatar = updateData.avatarUrl;
-              onlineUsers.value[userIndex].avatarUrl = updateData.avatarUrl;
-              onlineUsers.value[userIndex].avatar_url = updateData.avatarUrl;
+              onlineUsers.value[userIndex].avatar = updateData.avatar_url;
+              onlineUsers.value[userIndex].avatarUrl = updateData.avatar_url;
+              onlineUsers.value[userIndex].avatar_url = updateData.avatar_url;
             }
           }
           if (friendsList.value) {
             const friendIndex = friendsList.value.findIndex(f => String(f.id) === String(userId));
             if (friendIndex !== -1) {
-              friendsList.value[friendIndex].avatarUrl = updateData.avatarUrl;
-              friendsList.value[friendIndex].avatar_url = updateData.avatarUrl;
-              friendsList.value[friendIndex].avatar = updateData.avatarUrl;
+              friendsList.value[friendIndex].avatarUrl = updateData.avatar_url;
+              friendsList.value[friendIndex].avatar_url = updateData.avatar_url;
+              friendsList.value[friendIndex].avatar = updateData.avatar_url;
               friendsList.value = [...friendsList.value];
             }
           }
-          updateUserInfoInMessages(userId, { avatarUrl: updateData.avatarUrl });
+          // 更新 IndexedDB 中的会话信息（无论好友是否已删除）
+          try {
+            const prefix = getStorageKeyPrefix();
+            const key = `${prefix}-private-${userId}`;
+            const existingData = await localForage.getItem(key);
+            if (existingData) {
+              const updatedSessionData = { ...existingData };
+              updatedSessionData.avatarUrl = updateData.avatar_url;
+              await localForage.setItem(key, updatedSessionData);
+            }
+          } catch (e) {
+            console.error('更新IndexedDB中的好友头像失败:', e);
+          }
+          updateUserInfoInMessages(userId, { avatarUrl: updateData.avatar_url });
         }
       } catch (e) {
         console.error('解析102消息失败:', e);
@@ -1289,7 +1591,7 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     if (message.type === 'public') {
-      const isWithdrawMessage = processedMessage.messageType === 101;
+      const isWithdrawMessage = processedMessage.message_type === 101;
       if (isWithdrawMessage) {
         const messageIdToDelete = processedMessage.content;
         if (messageIdToDelete) {
@@ -1335,8 +1637,8 @@ export const useChatStore = defineStore('chat', () => {
       }
       
       // 检查是否是@我的离线消息
-      if (message.at_userid && currentUser.value && !isWithdrawMessage) {
-        const atUserIds = Array.isArray(message.at_userid) ? message.at_userid : [message.at_userid];
+      if (message.atUserid && currentUser.value && !isWithdrawMessage) {
+        const atUserIds = Array.isArray(message.atUserid) ? message.atUserid : [message.atUserid];
         const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.value.id));
         if (isCurrentUserAt) {
           setGroupHasAtMe(groupId);
@@ -1361,17 +1663,9 @@ export const useChatStore = defineStore('chat', () => {
       
       if (!onlySaveToDB && !exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
         if (loading.value) {
-          cacheGroupMessages[groupId].push({
-            ...processedMessage,
-            group_id: groupId,
-            group_name: message.groupName
-          });
+          cacheGroupMessages[groupId].push(processedMessage);
         } else {
-          groupMessages.value[groupId].push({
-            ...processedMessage,
-            group_id: groupId,
-            group_name: message.groupName
-          });
+          groupMessages.value[groupId].push(processedMessage);
           groupStored.value[groupId] = false;
         }
       } else if (exists) {
@@ -1383,54 +1677,50 @@ export const useChatStore = defineStore('chat', () => {
       }
     } else if (message.type === 'private') {
       // 确定对话方 ID（使用字符串比较确保类型一致）
-      const msgSenderId = String(message.senderId || message.sender_id);
-      const msgReceiverId = String(message.receiverId || message.receiver_id);
+      const msgSenderId = String(message.senderId);
+      const msgReceiverId = String(message.receiverId);
       const currentUserIdStr = String(currentUser.value?.id);
       
       // otherUserId 是对话方的 ID（不是自己的 ID）
       const otherUserId = msgSenderId === currentUserIdStr ? msgReceiverId : msgSenderId;
       
       const isWithdrawMessage = processedMessage.messageType === 101;
+      const isReadReceiptMessage = processedMessage.messageType === 103;
+      
       if (isWithdrawMessage) {
         const messageIdToDelete = processedMessage.content;
         if (messageIdToDelete) {
           deletePrivateMessage(otherUserId, messageIdToDelete);
         }
+      } else if (isReadReceiptMessage) {
+        // 处理已读回执消息，更新该消息前面的自己发送的消息的已读状态
+        const readMessageId = processedMessage.content;
+        if (updatePrivateMessagesReadStatus) {
+          updatePrivateMessagesReadStatus(otherUserId, readMessageId);
+        }
       }
+      
       const targetMessages = loading.value 
         ? (cachePrivateMessages[otherUserId] || (cachePrivateMessages[otherUserId] = []))
         : (privateMessages.value[otherUserId] || (privateMessages.value[otherUserId] = []));
       const exists = targetMessages.some(m => m.id === processedMessage.id);
       const fullExists = fullPrivateMessages[otherUserId]?.some(m => m.id === processedMessage.id) || false;
       
-      // 更新完整消息列表（包括 101 撤回消息），新消息在后
+      // 更新完整消息列表（包括 101 撤回消息和 103 已读回执消息），新消息在后
       if (!fullExists) {
-        const fullMsg = {
-          ...processedMessage,
-          receiver_id: message.receiverId || message.receiver_id,
-          is_read: message.isRead !== undefined ? message.isRead : (message.is_read !== undefined ? message.is_read : 0)
-        };
         if (!fullPrivateMessages[otherUserId]) {
-          fullPrivateMessages[otherUserId] = [fullMsg];
+          fullPrivateMessages[otherUserId] = [processedMessage];
         } else {
-          fullPrivateMessages[otherUserId].push(fullMsg);
+          fullPrivateMessages[otherUserId].push(processedMessage);
         }
         privateStored.value[otherUserId] = false;
       }
       
-      if (!onlySaveToDB && !exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
+      if (!onlySaveToDB && !exists && !isWithdrawMessage && !isReadReceiptMessage && !isUserInfoUpdateMessage) {
         if (loading.value) {
-          cachePrivateMessages[otherUserId].push({
-            ...processedMessage,
-            receiver_id: message.receiverId || message.receiver_id,
-            is_read: message.isRead !== undefined ? message.isRead : (message.is_read !== undefined ? message.is_read : 0)
-          });
+          cachePrivateMessages[otherUserId].push(processedMessage);
         } else {
-          privateMessages.value[otherUserId].push({
-            ...processedMessage,
-            receiver_id: message.receiverId || message.receiver_id,
-            is_read: message.isRead !== undefined ? message.isRead : (message.is_read !== undefined ? message.is_read : 0)
-          });
+          privateMessages.value[otherUserId].push(processedMessage);
           privateStored.value[otherUserId] = false;
         }
       } else if (exists) {
@@ -1489,7 +1779,7 @@ export const useChatStore = defineStore('chat', () => {
       if (data.status === 'success') {
         if (data.publicMessages && data.publicMessages.length > 0) {
           data.publicMessages.forEach(message => {
-            if (message.messageType === 102) {
+            if (message.message_type === 102) {
               userInfoUpdateMessages.push({ ...message, type: 'public' });
             } else {
               processOfflineMessage({ ...message, type: 'public' }, onlySaveToDB);
@@ -1498,7 +1788,7 @@ export const useChatStore = defineStore('chat', () => {
         }
         if (data.groupMessages && data.groupMessages.length > 0) {
           data.groupMessages.forEach(message => {
-            if (message.messageType === 102) {
+            if (message.message_type === 102) {
               userInfoUpdateMessages.push({ ...message, type: 'group' });
             } else {
               processOfflineMessage({ ...message, type: 'group' }, onlySaveToDB);
@@ -1507,7 +1797,7 @@ export const useChatStore = defineStore('chat', () => {
         }
         if (data.privateMessages && data.privateMessages.length > 0) {
           data.privateMessages.forEach(message => {
-            if (message.messageType === 102) {
+            if (message.message_type === 102) {
               userInfoUpdateMessages.push({ ...message, type: 'private' });
             } else {
               processOfflineMessage({ ...message, type: 'private' }, onlySaveToDB);
@@ -1590,7 +1880,7 @@ export const useChatStore = defineStore('chat', () => {
             // 更新群组最后消息时间并重新排序
             if (newMessages.length > 0 && groupsList.value) {
               const group = groupsList.value.find(g => String(g.id) === String(groupId));
-              if (group) {
+              if (group && group.deleted_at == null) {
                 const lastMessage = newMessages[0];
                 const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
                 group.last_message_time = newTime;
@@ -1643,7 +1933,7 @@ export const useChatStore = defineStore('chat', () => {
             // 更新私信最后消息时间并重新排序
             if (newMessages.length > 0 && friendsList.value) {
               const friend = friendsList.value.find(f => String(f.id) === String(userId));
-              if (friend) {
+              if (friend && friend.deleted_at == null) {
                 const lastMessage = newMessages[0];
                 const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
                 friend.last_message_time = newTime;
@@ -1854,7 +2144,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function getPrivateLastMessage(userId) {
     const messages = fullPrivateMessages[userId] || privateMessages.value[userId] || [];
-    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
     if (validMessages.length === 0) return null;
     return validMessages[validMessages.length - 1];
   }
@@ -1885,7 +2175,16 @@ export const useChatStore = defineStore('chat', () => {
       return quotedMsg.content || '';
     };
     
-    if (msgType === 4) {
+    if (msgType === 100) {
+      if (typeof content === 'string' && content.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(content);
+          return parsed.content || '';
+        } catch {
+        }
+      }
+      return content || '';
+    } else if (msgType === 4) {
       if (typeof content === 'string' && content.startsWith('{')) {
         try {
           const parsed = JSON.parse(content);
@@ -1938,7 +2237,7 @@ export const useChatStore = defineStore('chat', () => {
   function updateFriendLastMessage(userId, message) {
     if (!friendsList.value) return;
     const friend = friendsList.value.find(f => String(f.id) === String(userId));
-    if (friend) {
+    if (friend && message && message.messageType !== 101 && message.messageType !== 103) {
       friend.lastMessage = message;
     }
   }
@@ -1946,7 +2245,7 @@ export const useChatStore = defineStore('chat', () => {
   function updateGroupLastMessageAfterDelete(groupId) {
     if (!groupsList.value) return;
     const group = groupsList.value.find(g => String(g.id) === String(groupId));
-    if (!group) return;
+    if (!group || group.deleted_at != null) return;
 
     const messages = fullGroupMessages[groupId] || [];
     const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
@@ -1967,10 +2266,10 @@ export const useChatStore = defineStore('chat', () => {
   function updateFriendLastMessageAfterDelete(userId) {
     if (!friendsList.value) return;
     const friend = friendsList.value.find(f => String(f.id) === String(userId));
-    if (!friend) return;
+    if (!friend || friend.deleted_at != null) return;
 
     const messages = fullPrivateMessages[userId] || [];
-    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
 
     if (validMessages.length > 0) {
       const lastMessage = validMessages[validMessages.length - 1];
@@ -2070,6 +2369,146 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  async function clearAllDeletedSessions() {
+    try {
+      const prefix = getStorageKeyPrefix();
+      
+      // 1. 收集需要清除的已删除群组和好友
+      const deletedGroupIds = [];
+      const deletedFriendIds = [];
+      
+      if (groupsList.value) {
+        groupsList.value.forEach(g => {
+          if (g.deleted_at) {
+            deletedGroupIds.push(String(g.id));
+          }
+        });
+      }
+      
+      if (friendsList.value) {
+        friendsList.value.forEach(f => {
+          if (f.deleted_at) {
+            deletedFriendIds.push(String(f.id));
+          }
+        });
+      }
+      
+      // 2. 从 store 中清除已删除的群组
+      if (groupsList.value) {
+        groupsList.value = groupsList.value.filter(g => !g.deleted_at);
+      }
+      
+      // 3. 从 store 中清除已删除的好友
+      if (friendsList.value) {
+        friendsList.value = friendsList.value.filter(f => !f.deleted_at);
+      }
+      
+      // 4. 从 indexedDB 中清除已删除会话的数据
+      const chatKeysData = await localForage.getItem(prefix);
+      if (chatKeysData && chatKeysData.chatKeys) {
+        for (const key of chatKeysData.chatKeys) {
+          if (key.includes('-group-') || key.includes('-private-')) {
+            const sessionData = await localForage.getItem(key);
+            if (sessionData && sessionData.deleted_at) {
+              // 删除该会话的消息数据
+              await localForage.removeItem(key);
+            }
+          }
+        }
+        
+        // 更新 chatKeys，移除已删除的会话
+        const remainingKeys = [];
+        for (const key of chatKeysData.chatKeys) {
+          if (key.includes('-group-') || key.includes('-private-')) {
+            const sessionData = await localForage.getItem(key);
+            if (!sessionData || !sessionData.deleted_at) {
+              remainingKeys.push(key);
+            }
+          } else {
+            remainingKeys.push(key);
+          }
+        }
+        await localForage.setItem(prefix, { chatKeys: remainingKeys });
+      }
+      
+      // 5. 清除内存中的 fullMessages
+      Object.keys(fullGroupMessages).forEach(groupId => {
+        const group = groupsList.value?.find(g => String(g.id) === String(groupId));
+        if (!group || group.deleted_at) {
+          delete fullGroupMessages[groupId];
+          delete groupMessages.value[groupId];
+          groupStored.value[groupId] = true;
+        }
+      });
+      
+      Object.keys(fullPrivateMessages).forEach(userId => {
+        const friend = friendsList.value?.find(f => String(f.id) === String(userId));
+        if (!friend || friend.deleted_at) {
+          delete fullPrivateMessages[userId];
+          delete privateMessages.value[userId];
+          privateStored.value[userId] = true;
+        }
+      });
+      
+      // 6. 清除已删除会话的未读计数
+      loadUnreadCountsFromLocalStorage();
+      
+      // 清除群组未读计数
+      deletedGroupIds.forEach(groupId => {
+        if (unreadMessages.value.groups[groupId]) {
+          delete unreadMessages.value.groups[groupId];
+        }
+      });
+      
+      // 清除好友未读计数
+      deletedFriendIds.forEach(userId => {
+        if (unreadMessages.value.private[userId]) {
+          delete unreadMessages.value.private[userId];
+        }
+      });
+      
+      // 保存未读计数到 localStorage
+      saveUnreadCountsToLocalStorage();
+      
+      // 7. 保存到存储
+      publicStored.value = false;
+      saveToStorage();
+      
+      return true;
+    } catch (error) {
+      console.error('清除已删除会话失败:', error);
+      throw error;
+    }
+  }
+
+  function clearAllUnreadCounts() {
+    try {
+      loadUnreadCountsFromLocalStorage();
+      
+      // 清除全局未读计数
+      unreadMessages.value.global = 0;
+      
+      // 清除所有群组未读计数
+      unreadMessages.value.groups = {};
+      
+      // 清除所有私信未读计数
+      unreadMessages.value.private = {};
+      
+      // 保存未读计数到 localStorage
+      saveUnreadCountsToLocalStorage();
+      
+      // 更新页面上的未读计数显示
+      if (typeof window.updateUnreadCountsDisplay === 'function') {
+        window.updateUnreadCountsDisplay();
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('清除未读计数失败:', error);
+      throw error;
+    }
+  }
+
   return {
     onlineUsers,
     offlineUsers,
@@ -2131,6 +2570,7 @@ export const useChatStore = defineStore('chat', () => {
     addPublicMessage,
     addGroupMessage,
     addPrivateMessage,
+    updatePrivateMessagesReadStatus,
     setPublicMessages,
     setGroupMessages,
     setPrivateMessages,
@@ -2209,12 +2649,17 @@ export const useChatStore = defineStore('chat', () => {
     getUserName,
     getUserAvatar,
     updateUserInfoInMessages,
+    markGroupAsDeleted,
+    markFriendAsDeleted,
     drafts,
     saveDraft,
     getDraft,
     clearDraft,
     tempRestoreLastMessage,
-    setLastMessageToDraft
+    setLastMessageToDraft,
+    getStorageKeyPrefix,
+    clearAllDeletedSessions,
+    clearAllUnreadCounts
   };
 
   // 保存草稿

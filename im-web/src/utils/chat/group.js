@@ -34,7 +34,7 @@ function loadGroupList() {
     const currentSessionToken = getCurrentSessionToken();
     if (!currentUser || !currentSessionToken) return;
 
-    // 使用fetch API加载群组列表
+    // 异步请求服务器数据进行更新
     fetch(`${SERVER_URL}/api/user-groups/${currentUser.id}`, {
         headers: {
             'user-id': currentUser.id,
@@ -224,8 +224,12 @@ async function handleLeaveGroup(groupId) {
     const currentUser = getCurrentUser();
     const currentSessionToken = getCurrentSessionToken();
     const confirmed = await modal.confirm('确定要退出该群组吗？', '退出群组');
-    if (confirmed) {
-        fetch(`${SERVER_URL}/api/leave-group`, {
+    if (!confirmed) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${SERVER_URL}/api/leave-group`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -235,33 +239,46 @@ async function handleLeaveGroup(groupId) {
             body: JSON.stringify({
                 groupId: groupId
             })
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    toast.success('已成功退出群组');
-                    loadGroupList();
+        });
+        
+        const data = await response.json();
+        if (data.success || data.status === 'success') {
+            toast.success('已成功退出群组');
+            loadGroupList();
 
-                    const groupEmptyState = document.getElementById('groupEmptyState');
-                    const groupChatInterface = document.getElementById('groupChatInterface');
-                    const currentGroupNameElement = document.getElementById('currentGroupName');
+            // 关闭群组信息模态框
+            const store = getStore();
+            if (store && store.closeModal) {
+                store.closeModal('groupInfo');
+            }
+            if (store && store.setCurrentGroupId) {
+                store.setCurrentGroupId(null);
+            }
+            
+            // 用户自己操作退出，只标记为已删除，不清空本地消息
+            if (store && store.markGroupAsDeleted) {
+                await store.markGroupAsDeleted(groupId, false);
+            }
 
-                    if (groupEmptyState) {
-                        groupEmptyState.style.display = 'flex';
-                    }
-                    if (groupChatInterface) {
-                        groupChatInterface.style.display = 'none';
-                    }
-                    if (currentGroupNameElement) {
-                        currentGroupNameElement.textContent = '群组名称';
-                    }
-                } else {
-                    toast.error('退出群组失败: ' + (data.message || '未知错误'));
-                }
-            })
-            .catch(() => {
-                toast.error('退出群组失败，网络错误');
-            });
+            const groupEmptyState = document.getElementById('groupEmptyState');
+            const groupChatInterface = document.getElementById('groupChatInterface');
+            const currentGroupNameElement = document.getElementById('currentGroupName');
+
+            if (groupEmptyState) {
+                groupEmptyState.style.display = 'flex';
+            }
+            if (groupChatInterface) {
+                groupChatInterface.style.display = 'none';
+            }
+            if (currentGroupNameElement) {
+                currentGroupNameElement.textContent = '群组名称';
+            }
+        } else {
+            toast.error('退出群组失败: ' + (data.message || '未知错误'));
+        }
+    } catch (error) {
+        console.error('退出群组失败:', error);
+        toast.error('退出群组失败，网络错误');
     }
 }
 
@@ -292,7 +309,7 @@ async function dissolveGroup(groupId) {
     })
         .then(response => response.json())
         .then(data => {
-            if (data.status === 'success') {
+            if (data.success || data.status === 'success') {
                 toast.success('群组已成功解散，所有群消息已删除');
 
                 const store = getStore();
@@ -300,6 +317,11 @@ async function dissolveGroup(groupId) {
                     store.currentGroupId = null;
                     store.currentGroupName = '';
                     store.currentActiveChat = null;
+                    
+                    // 群主自己操作解散，直接删除本地记录
+                    if (store.markGroupAsDeleted) {
+                        store.markGroupAsDeleted(groupId, true);
+                    }
                 }
 
                 loadGroupList();
@@ -568,7 +590,7 @@ function updateGroupName(groupId, newGroupName) {
         })
     })
         .then(response => response.json())
-        .then(data => {
+        .then(async data => {
             if (data.status === 'success') {
                 const groupName = data.newGroupName;
                 const currentGroupNameElement = document.getElementById('currentGroupName');
@@ -592,6 +614,21 @@ function updateGroupName(groupId, newGroupName) {
                     if (group) {
                         group.name = groupName;
                     }
+                }
+                
+                // 更新 IndexedDB 中的群组名称
+                try {
+                    const userId = currentUser.id;
+                    const prefix = `chats-${userId}`;
+                    const key = `${prefix}-group-${groupId}`;
+                    const existingData = await localForage.getItem(key);
+                    if (existingData) {
+                        const updatedSessionData = { ...existingData };
+                        updatedSessionData.name = groupName;
+                        await localForage.setItem(key, updatedSessionData);
+                    }
+                } catch (e) {
+                    console.error('更新群组名称到 IndexedDB 失败:', e);
                 }
                 
                 // 更新 sessionStore 中的群组名称
@@ -692,7 +729,7 @@ function uploadGroupAvatar(groupId, file) {
         });
 }
 
-function joinGroupWithToken(token, groupId, groupName, popup) {
+function joinGroupWithToken(token, groupId, groupName, popup, isFromGroupCard = false) {
     const currentUser = getCurrentUser();
     const currentSessionToken = getCurrentSessionToken();
     fetch(`${SERVER_URL}/api/join-group-with-token`, {
@@ -702,7 +739,7 @@ function joinGroupWithToken(token, groupId, groupName, popup) {
             'user-id': currentUser.id,
             'session-token': currentSessionToken
         },
-        body: JSON.stringify({ token: token })
+        body: JSON.stringify({ token: token, isFromGroupCard: isFromGroupCard })
     })
         .then(response => response.json())
         .then(data => {
@@ -998,29 +1035,204 @@ async function updateGroupList(groups) {
             window.chatStore.loadGroupsWithAtMeFromLocalStorage();
         }
 
-        // 从IndexedDB加载最后消息并设置时间
-        const updatedGroups = await Promise.all(groups.map(async (group) => {
-            const result = { ...group };
+        // 获取现有的群组列表，保留 deleted_at 字段
+        const existingGroups = window.chatStore.groupsList || [];
+        const existingGroupMap = new Map();
+        existingGroups.forEach(g => existingGroupMap.set(String(g.id), g));
 
-            // 从IndexedDB加载最后消息
+        // 收集服务器返回的群组ID
+        const serverGroupIds = new Set(groups.map(g => String(g.id)));
+
+        // 第一步：从 chatKeys 读取所有群组会话
+        let chatKeysData = null;
+        try {
+            chatKeysData = await localForage.getItem(prefix);
+        } catch (e) {
+            console.error('读取 chatKeys 失败:', e);
+        }
+        
+        // 收集所有本地存在的群组ID（从 chatKeys）
+        const localGroupIdsFromKeys = new Set();
+        if (chatKeysData && chatKeysData.chatKeys) {
+            chatKeysData.chatKeys.forEach(key => {
+                if (key.includes('-group-')) {
+                    const groupId = key.split('-group-')[1];
+                    localGroupIdsFromKeys.add(groupId);
+                }
+            });
+        }
+
+        // 第二步：确保服务器返回的所有群组都在 chatKeys 中
+        const newChatKeys = chatKeysData && chatKeysData.chatKeys ? [...chatKeysData.chatKeys] : [];
+        for (const group of groups) {
+            const groupIdStr = String(group.id);
+            const key = `${prefix}-group-${groupIdStr}`;
+            if (!localGroupIdsFromKeys.has(groupIdStr)) {
+                newChatKeys.push(key);
+                localGroupIdsFromKeys.add(groupIdStr);
+            }
+        }
+        // 更新 chatKeys
+        try {
+            await localForage.setItem(prefix, { chatKeys: newChatKeys });
+        } catch (e) {
+            console.error('更新 chatKeys 失败:', e);
+        }
+
+        // 第三步：把服务器返回的信息保存到 IndexedDB
+        for (const group of groups) {
+            const existingGroup = existingGroupMap.get(String(group.id));
+            
+            // 更新 IndexedDB 中的会话信息
             try {
                 const key = `${prefix}-group-${group.id}`;
-                const data = await localForage.getItem(key);
-                if (data && data.messages && data.messages.length > 0) {
-                    const validMessages = data.messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-                    if (validMessages.length > 0) {
-                        result.lastMessage = validMessages[validMessages.length - 1];
-                        result.last_message_time = validMessages[validMessages.length - 1].timestamp || new Date().toISOString();
+                const existingData = await localForage.getItem(key) || { messages: [] };
+                const updatedSessionData = { ...existingData };
+                if (group.name) updatedSessionData.name = group.name;
+                if (group.avatar_url) updatedSessionData.avatarUrl = group.avatar_url;
+                else if (group.avatarUrl) updatedSessionData.avatarUrl = group.avatarUrl;
+                
+                // 如果服务器返回了这个群组，但本地标记了deleted_at，取消标记
+                delete updatedSessionData.deleted_at;
+                
+                await localForage.setItem(key, updatedSessionData);
+            } catch (e) {
+                console.error('更新IndexedDB中的群组会话信息失败:', e);
+            }
+        }
+
+        // 第四步：处理 chatKeys 中所有不在服务器返回列表中的群组，标记为已删除
+        for (const groupId of localGroupIdsFromKeys) {
+            const groupIdStr = String(groupId);
+            if (!serverGroupIds.has(groupIdStr)) {
+                // 先从 IndexedDB 读取，检查是否已经标记为已删除
+                try {
+                    const key = `${prefix}-group-${groupId}`;
+                    const existingData = await localForage.getItem(key);
+                    if (!existingData?.deleted_at) {
+                        let updatedSessionData;
+                        if (existingData) {
+                            updatedSessionData = { ...existingData };
+                        } else {
+                            // 从 existingGroups 中获取群组信息
+                            const existingGroup = existingGroupMap.get(groupIdStr);
+                            updatedSessionData = { messages: [] };
+                            if (existingGroup) {
+                                if (existingGroup.name) updatedSessionData.name = existingGroup.name;
+                                if (existingGroup.avatar_url) updatedSessionData.avatarUrl = existingGroup.avatar_url;
+                                else if (existingGroup.avatarUrl) updatedSessionData.avatarUrl = existingGroup.avatarUrl;
+                            }
+                        }
+                        
+                        // 发现缺少名称时直接请求 API 补全信息
+                        if (!updatedSessionData.name) {
+                            try {
+                                const response = await fetch(`${SERVER_URL}/api/group-info/${groupId}`, {
+                                    method: 'GET',
+                                    headers: {
+                                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                                        'user-id': userId,
+                                        'session-token': localStorage.getItem('currentSessionToken')
+                                    }
+                                });
+                                if (response.ok) {
+                                    const responseData = await response.json();
+                                    if (responseData.status === 'success' && responseData.group) {
+                                        if (!updatedSessionData.name && responseData.group.name) {
+                                            updatedSessionData.name = responseData.group.name;
+                                        }
+                                        if (!updatedSessionData.avatarUrl && responseData.group.avatar_url) {
+                                            updatedSessionData.avatarUrl = responseData.group.avatar_url;
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('获取群组信息失败:', e);
+                            }
+                        }
+                        
+                        updatedSessionData.deleted_at = new Date().toISOString();
+                        await localForage.setItem(key, updatedSessionData);
                     }
+                } catch (e) {
+                    console.error('更新群组deleted_at失败:', e);
+                }
+            }
+        }
+
+        // 第五步：直接从 IndexedDB 加载所有群组到 store
+        const allGroups = [];
+        for (const groupId of localGroupIdsFromKeys) {
+            try {
+                const key = `${prefix}-group-${groupId}`;
+                const data = await localForage.getItem(key);
+                if (data) {
+                    let groupName = data.name || '群组';
+                    
+                    // 发现缺少名称时直接请求 API 补全信息
+                    if (!data.name) {
+                        try {
+                            const response = await fetch(`${SERVER_URL}/api/group-info/${groupId}`, {
+                                method: 'GET',
+                                headers: {
+                                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                                    'user-id': userId,
+                                    'session-token': localStorage.getItem('currentSessionToken')
+                                }
+                            });
+                            if (response.ok) {
+                                const responseData = await response.json();
+                                if (responseData.status === 'success' && responseData.group) {
+                                    if (!data.name && responseData.group.name) {
+                                        groupName = responseData.group.name;
+                                        data.name = responseData.group.name;
+                                    }
+                                    if (!data.avatarUrl && responseData.group.avatar_url) {
+                                        data.avatarUrl = responseData.group.avatar_url;
+                                    }
+                                    // 保存获取到的信息到IndexedDB
+                                    const key = `${prefix}-group-${groupId}`;
+                                    const updatedData = { ...data };
+                                    await localForage.setItem(key, updatedData);
+                                }
+                            }
+                        } catch (e) {
+                            console.error('获取群组信息失败:', e);
+                        }
+                    }
+                    
+                    const group = {
+                        id: groupId,
+                        name: groupName,
+                        avatarUrl: data.avatarUrl,
+                        deleted_at: data.deleted_at
+                    };
+                    
+                    // 优先使用 IndexedDB 中保存的 last_message_time
+                    if (data.last_message_time) {
+                        group.last_message_time = data.last_message_time;
+                    }
+                    
+                    // 从IndexedDB加载最后消息
+                    if (data.messages && data.messages.length > 0) {
+                        const validMessages = data.messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
+                        if (validMessages.length > 0) {
+                            group.lastMessage = validMessages[validMessages.length - 1];
+                            if (!group.last_message_time) {
+                                group.last_message_time = validMessages[validMessages.length - 1].timestamp || new Date().toISOString();
+                            }
+                        }
+                    }
+                    
+                    allGroups.push(group);
                 }
             } catch (e) {
-                console.error('加载群组最后消息失败:', e);
+                console.error('从IndexedDB加载群组失败:', e);
             }
+        }
 
-            return result;
-        }));
-
-        window.chatStore.groupsList = updatedGroups;
+        // 设置到 store
+        window.chatStore.groupsList = allGroups;
         // 按最后消息时间排序
         window.chatStore.sortGroupsByLastMessageTime();
     }

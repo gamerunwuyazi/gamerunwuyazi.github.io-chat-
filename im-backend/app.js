@@ -74,7 +74,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 // 获取所有群组 ID 列表
 async function getAllGroupIds() {
   try {
-    const [groups] = await pool.execute('SELECT id FROM chat_groups');
+    const [groups] = await pool.execute('SELECT id FROM chat_groups WHERE deleted_at IS NULL');
     return groups.map(g => g.id);
   } catch (err) {
     console.error('获取群组列表失败:', err.message);
@@ -422,7 +422,7 @@ async function validateIPAndSession(req, res, next) {
     }
     const userId = req.headers['user-id'] || req.query.userId;
     console.error(`❌ [API] 组合验证错误: ${clientIP}, userId=${userId || 'undefined'}, 路径: ${req.path}, 错误: ${err.message}`);
-        res.status(500).json({ status: 'error', message: '服务器错误' });
+    res.status(500).json({ status: 'error', message: '服务器错误' });
   }
 }
 
@@ -817,30 +817,6 @@ async function cleanupExpiredSessions() {
     }
 }
 
-// HTML字符转义函数
-function escapeHtml(text) {
-  if (text === null || text === undefined || typeof text !== 'string') return text;
-  return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-}
-
-// 输入验证和清理函数 - 转义所有HTML特殊字符
-function sanitizeInput(input) {
-  if (typeof input !== 'string') return input;
-
-  // 转义所有HTML特殊字符
-  return input
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
 // SQL注入检测正则表达式
 const sqlInjectionPattern = /(^'|'$|^"|"$|;|--|\/\*|\*\/|\b(or|and|union|select|insert|update|delete|drop|create|alter|exec|execute|xp_)|\b(1=1|0=0)\b|\bwhere\b|\bfrom\b|\bjoin\b|\bcase\b|\bwhen\b|\bthen\b|\belse\b|\bend\b)/i;
 
@@ -850,8 +826,7 @@ function validateUsername(username) {
     // 检查SQL注入
     if (sqlInjectionPattern.test(username)) return false;
     // 只进行非空检查，不再限制字符类型和长度
-    const sanitized = sanitizeInput(username.trim());
-    return sanitized.length > 0;
+    return username.trim().length > 0;
   } catch (error) {
     console.error('用户名验证出错:', error.message);
     return false;
@@ -877,8 +852,7 @@ function validateNickname(nickname) {
     // 检查SQL注入
     if (sqlInjectionPattern.test(nickname)) return false;
     // 只进行非空检查，不再限制长度
-    const sanitized = sanitizeInput(nickname.trim());
-    return sanitized.length > 0;
+    return nickname.trim().length > 0;
   } catch (error) {
     console.error('昵称验证出错:', error.message);
     return false;
@@ -886,18 +860,14 @@ function validateNickname(nickname) {
 }
 
 function validateMessageContent(content) {
-  // 对于普通消息，要求内容是有效的字符串类型，且长度不超过10000字符
-  if (content && typeof content === 'string') {
+  // 要求内容是有效的字符串类型，长度至少为1，且不超过10000字符
+  if (typeof content === 'string' && content.trim().length > 0 && content.length <= 10000) {
     // 直接使用原始内容，不进行HTML转义
     // 前端将负责安全的解析和渲染
-    // 限制消息长度为10000字符
-    if (content.length > 10000) {
-      return false;
-    }
     return true;
   }
-  // 允许空内容的消息（用于图片消息）
-  return ip;
+  // 不允许空消息
+  return false;
 }
 
 // API请求日志记录中间件
@@ -1030,76 +1000,6 @@ app.get('/api/check-status', async (req, res) => {
     });
   }
 });
-
-// 临时测试端点：获取头像数据格式
-/*
-app.get('/api/test-avatar-data', async (req, res) => {
-  try {
-    // 查询用户数据
-    const usersResult = await pool.query(`
-      SELECT id, nickname, avatar_url FROM chat_users LIMIT 3;
-    `);
-    const users = usersResult[0];
-    
-    // 查询群组数据
-    const groupsResult = await pool.query(`
-      SELECT g.id, g.name, u.id as member_id, u.nickname, u.avatar_url 
-      FROM chat_groups g 
-      JOIN chat_group_members gm ON g.id = gm.group_id 
-      JOIN chat_users u ON gm.user_id = u.id 
-      LIMIT 1;
-    `);
-    const groupResults = groupsResult[0];
-    
-    // 处理群组数据格式
-    const groupsMap = new Map();
-    groupResults.forEach(row => {
-      if (!groupsMap.has(row.id)) {
-        groupsMap.set(row.id, {
-          id: row.id,
-          name: row.name,
-          members: []
-        });
-      }
-      groupsMap.get(row.id).members.push({
-        id: row.member_id,
-        nickname: row.nickname,
-        avatar_url: row.avatar_url
-      });
-    });
-    
-    res.json({
-      status: 'ok',
-      users: users,
-      groups: Array.from(groupsMap.values()),
-      isMockData: false
-    });
-  } catch (error) {
-    console.error('查询数据失败:', error);
-    // 返回模拟数据，确保测试始终能获取到数据
-    res.json({
-      status: 'ok',
-      users: [
-        { id: 1, nickname: '测试用户1', avatar_url: '/avatars/avatar_1.png' },
-        { id: 2, nickname: '测试用户2', avatar_url: null },
-        { id: 3, nickname: '测试用户3', avatar_url: '/avatars/default_avatar.png' }
-      ],
-      groups: [
-        {
-          id: 1,
-          name: '测试群组',
-          members: [
-            { id: 1, nickname: '群成员1', avatar_url: '/avatars/avatar_1.png' },
-            { id: 2, nickname: '群成员2', avatar_url: null }
-          ]
-        }
-      ],
-      isMockData: true,
-      error: error?.message
-    });
-  }
-});
-*/
 
 // 会话状态检查端点
 app.get('/api/session-check', async (req, res) => {
@@ -1506,12 +1406,12 @@ app.get('/api/user/friends', async (req, res) => {
   try {
     const userId = parseInt(req.userId);
     
-    // 查询用户的好友列表，按 ID 排序
+    // 查询用户的好友列表，按 ID 排序，只返回未删除的好友
     const [friends] = await pool.execute(`
       SELECT cu.id, cu.nickname, cu.username, cu.gender, cu.avatar_url
       FROM chat_friends cf 
       JOIN chat_users cu ON cf.friend_id = cu.id 
-      WHERE cf.user_id = ?
+      WHERE cf.user_id = ? AND cf.deleted_at IS NULL
       ORDER BY cf.id DESC
     `, [userId]);
     
@@ -1549,18 +1449,79 @@ app.post('/api/user/add-friend', async (req, res) => {
       return res.status(404).json({ status: 'error', message: '用户不存在' });
     }
     
-    // 检查是否已经是好友
+    // 检查是否已经是好友（包括已删除的记录）
     const [existing] = await pool.execute(
-      'SELECT id FROM chat_friends WHERE user_id = ? AND friend_id = ?',
+      'SELECT id, deleted_at FROM chat_friends WHERE user_id = ? AND friend_id = ?',
       [userId, friendIdNum]
     );
-    if (existing.length > 0) {
+    
+    if (existing.length > 0 && existing[0].deleted_at === null) {
       return res.status(400).json({ status: 'error', message: '已经是好友了' });
     }
     
-    // 添加双向好友关系
-    await pool.execute('INSERT INTO chat_friends (user_id, friend_id) VALUES (?, ?)', [userId, friendIdNum]);
-    await pool.execute('INSERT INTO chat_friends (user_id, friend_id) VALUES (?, ?)', [friendIdNum, userId]);
+    if (existing.length > 0 && existing[0].deleted_at !== null) {
+      // 恢复已删除的好友关系
+      await pool.execute('UPDATE chat_friends SET deleted_at = NULL WHERE user_id = ? AND friend_id = ?', [userId, friendIdNum]);
+      await pool.execute('UPDATE chat_friends SET deleted_at = NULL WHERE user_id = ? AND friend_id = ?', [friendIdNum, userId]);
+    } else {
+      // 添加双向好友关系
+      await pool.execute('INSERT INTO chat_friends (user_id, friend_id) VALUES (?, ?)', [userId, friendIdNum]);
+      await pool.execute('INSERT INTO chat_friends (user_id, friend_id) VALUES (?, ?)', [friendIdNum, userId]);
+    }
+    
+    // 获取双方用户信息
+    const [userInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      [userId]
+    );
+    const [friendInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      [friendIdNum]
+    );
+    
+    // 向操作方插入100类型系统消息：你们已成为好友
+    const now = new Date();
+    const addedContent = '你们已成为好友';
+    
+    // 只给添加好友的人插入消息
+    const [insertResult] = await pool.execute(
+      'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      [userId, friendIdNum, addedContent, 100]
+    );
+    
+    // 构建并发送100类型消息给添加好友的人
+    const type100Message1 = {
+      id: insertResult.insertId,
+      senderId: userId,
+      receiverId: friendIdNum,
+      senderNickname: userInfo[0]?.nickname || '',
+      senderAvatarUrl: userInfo[0]?.avatar_url || '',
+      content: addedContent,
+      at_userid: null,
+      messageType: 100,
+      isRead: 1,
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+    
+    // 构建并发送100类型消息给被添加的人（使用同一个消息ID）
+    const type100Message2 = {
+      id: insertResult.insertId,
+      senderId: userId,
+      receiverId: friendIdNum,
+      senderNickname: userInfo[0]?.nickname || '',
+      senderAvatarUrl: userInfo[0]?.avatar_url || '',
+      content: addedContent,
+      at_userid: null,
+      messageType: 100,
+      isRead: 0,
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+    
+    // 向双方发送100类型消息
+    io.to(`user_${userId}`).emit('private-message-received', type100Message1);
+    io.to(`user_${friendIdNum}`).emit('private-message-received', type100Message2);
     
     // 向被添加好友的用户发送 WebSocket 事件
     io.to(`user_${friendIdNum}`).emit('friend-added', {
@@ -1597,13 +1558,81 @@ app.post('/api/user/remove-friend', async (req, res) => {
 
     const friendIdNum = parseInt(friendId);
 
-    // 删除双向好友关系
-    await pool.execute('DELETE FROM chat_friends WHERE user_id = ? AND friend_id = ?', [userId, friendIdNum]);
-    await pool.execute('DELETE FROM chat_friends WHERE user_id = ? AND friend_id = ?', [friendIdNum, userId]);
+    // 软删除双向好友关系，设置 deleted_at 为当前时间
+    const now = new Date();
+    await pool.execute('UPDATE chat_friends SET deleted_at = ? WHERE user_id = ? AND friend_id = ?', [now, userId, friendIdNum]);
+    await pool.execute('UPDATE chat_friends SET deleted_at = ? WHERE user_id = ? AND friend_id = ?', [now, friendIdNum, userId]);
 
-    // 删除私信消息
-    await pool.execute('DELETE FROM chat_private_messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)',
-        [userId, friendIdNum, friendIdNum, userId]);
+    // 获取双方用户信息
+    const [userInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      [userId]
+    );
+    const [friendInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      [friendIdNum]
+    );
+    
+    // 向操作方插入100类型系统消息：你们的好友关系已解除
+    const deletedContent = '你们的好友关系已解除';
+    
+    // 只给删除好友的人插入消息
+    const [insertResult] = await pool.execute(
+      'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      [userId, friendIdNum, deletedContent, 100]
+    );
+    
+    // 构建并发送100类型消息给删除好友的人
+    const type100Message1 = {
+      id: insertResult.insertId,
+      senderId: userId,
+      receiverId: friendIdNum,
+      senderNickname: userInfo[0]?.nickname || '',
+      senderAvatarUrl: userInfo[0]?.avatar_url || '',
+      content: deletedContent,
+      at_userid: null,
+      messageType: 100,
+      isRead: 1,
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+    
+    // 构建并发送100类型消息给被删除的人（使用同一个消息ID）
+    const type100Message2 = {
+      id: insertResult.insertId,
+      senderId: userId,
+      receiverId: friendIdNum,
+      senderNickname: userInfo[0]?.nickname || '',
+      senderAvatarUrl: userInfo[0]?.avatar_url || '',
+      content: deletedContent,
+      at_userid: null,
+      messageType: 100,
+      isRead: 0,
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+    
+    // 向双方发送100类型消息
+    io.to(`user_${userId}`).emit('private-message-received', type100Message1);
+    io.to(`user_${friendIdNum}`).emit('private-message-received', type100Message2);
+
+    // 构建好友删除事件数据
+    const friendDeletedEventForUser = {
+      friendId: friendIdNum,
+      nickname: friendInfo[0]?.nickname || '',
+      avatarUrl: friendInfo[0]?.avatar_url || '',
+      timestamp: now.getTime()
+    };
+    const friendDeletedEventForFriend = {
+      friendId: userId,
+      nickname: userInfo[0]?.nickname || '',
+      avatarUrl: userInfo[0]?.avatar_url || '',
+      timestamp: now.getTime()
+    };
+
+    // 向双方发送 friend-deleted 事件
+    io.to(`user_${userId}`).emit('friend-deleted', friendDeletedEventForUser);
+    io.to(`user_${friendIdNum}`).emit('friend-deleted', friendDeletedEventForFriend);
 
     // 通知被删除的好友刷新好友列表
     io.to(`user_${friendIdNum}`).emit('friend-removed', { friendId: userId });
@@ -1721,25 +1750,13 @@ async function initializeDatabase() {
         creator_id INT NOT NULL,
         avatar_url VARCHAR(500) DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at DATETIME DEFAULT NULL,
         INDEX creator_id_index (creator_id),
         FOREIGN KEY (creator_id) REFERENCES chat_users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_group_invite_tokens (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        group_id INT NOT NULL,
-        token VARCHAR(255) NOT NULL UNIQUE,
-        expires DATETIME NOT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        created_by INT NOT NULL,
-        FOREIGN KEY (group_id) REFERENCES chat_groups(id) ON DELETE CASCADE,
-        FOREIGN KEY (created_by) REFERENCES chat_users(id) ON DELETE CASCADE,
-        INDEX idx_chat_group_invite_tokens_token (token),
-        INDEX idx_chat_group_invite_tokens_group_id (group_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
+
 
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS chat_friends (
@@ -1747,6 +1764,7 @@ async function initializeDatabase() {
         user_id INT NOT NULL,
         friend_id INT NOT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        deleted_at DATETIME DEFAULT NULL,
         FOREIGN KEY (user_id) REFERENCES chat_users(id) ON DELETE CASCADE,
         FOREIGN KEY (friend_id) REFERENCES chat_users(id) ON DELETE CASCADE,
         UNIQUE KEY unique_friendship (user_id, friend_id),
@@ -1796,9 +1814,9 @@ async function initializeDatabase() {
         group_id INT NOT NULL,
         user_id INT NOT NULL,
         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TIMESTAMP NULL DEFAULT NULL,
         INDEX group_id_index (group_id),
         INDEX user_id_index (user_id),
-        UNIQUE KEY unique_member (group_id, user_id),
         FOREIGN KEY (group_id) REFERENCES chat_groups(id) ON DELETE CASCADE,
         FOREIGN KEY (user_id) REFERENCES chat_users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1828,15 +1846,6 @@ async function initializeDatabase() {
         INDEX user_id_index (user_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
-
-    try {
-      await pool.execute('ALTER TABLE chat_private_messages ADD COLUMN at_userid TEXT AFTER content');
-    } catch (err) {
-      if (err.code !== 'ER_DUP_FIELDNAME') {
-        console.error('添加at_userid字段到chat_private_messages失败:', err.message);
-      }
-    }
-
   } catch (err) {
     console.error('初始化数据库失败:', err.message);
   }
@@ -2457,16 +2466,8 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ status: 'error', message: turnstileResult.message || '人机验证失败，请重试' });
     }
 
-    if (!validateUsername(username)) {
-      return res.status(400).json({ status: 'error', message: '用户名或密码非法' });
-    }
-
-    if (!validatePassword(password)) {
-      return res.status(400).json({ status: 'error', message: '用户名或密码非法' });
-    }
-
-    if (!validateNickname(nickname)) {
-      return res.status(400).json({ status: 'error', message: '用户名或密码非法' });
+    if (!validateUsername(username) && !validatePassword(password) && !validateNickname(nickname)) {
+      return res.status(400).json({ status: 'error', message: '用户名、密码或昵称非法' });
     }
 
     const [existingUsers] = await pool.execute(
@@ -3055,7 +3056,7 @@ app.get('/api/group/:id', async (req, res) => {
     const groupId = req.params.id;
 
     const [groups] = await pool.execute(
-        'SELECT id, name, description, creator_id, avatar_url, created_at FROM chat_groups WHERE id = ?',
+        'SELECT id, name, description, creator_id, avatar_url, created_at FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
         [groupId]
     );
 
@@ -3123,7 +3124,7 @@ app.post('/api/upload-group-avatar/:groupId', groupAvatarUpload.single('avatar')
 
     // 检查用户是否是群组的创建者（群主）
     const [groups] = await pool.execute(
-        'SELECT id, name, creator_id FROM chat_groups WHERE id = ? AND creator_id = ?',
+        'SELECT id, name, creator_id FROM chat_groups WHERE id = ? AND creator_id = ? AND deleted_at IS NULL',
         [groupId, userId]
     );
 
@@ -3161,7 +3162,7 @@ app.post('/api/upload-group-avatar/:groupId', groupAvatarUpload.single('avatar')
 
     // 更新群组头像 URL
     await pool.execute(
-        'UPDATE chat_groups SET avatar_url = ? WHERE id = ?',
+        'UPDATE chat_groups SET avatar_url = ? WHERE id = ? AND deleted_at IS NULL',
         [avatarUrlWithVersion, groupId]
     );
 
@@ -3323,7 +3324,7 @@ app.get('/api/offline-messages', async (req, res) => {
         u.nickname, 
         u.avatar_url as avatarUrl, 
         m.content, 
-        m.at_userid,
+        m.at_userid as atUserid,
         m.message_type as messageType, 
         m.timestamp,
         'public' as type
@@ -3336,53 +3337,95 @@ app.get('/api/offline-messages', async (req, res) => {
       LIMIT 2500
     `, [threeMonthsAgo, publicAndGroupMinId]);
     
-    // 2. 获取用户所在群组的消息
-    const [userGroups] = await pool.execute(`
-      SELECT group_id FROM chat_group_members WHERE user_id = ?
+    // 2. 获取用户所在群组的消息（包括已解散的群组）
+    const [allMemberRecords] = await pool.execute(`
+      SELECT group_id, joined_at, deleted_at FROM chat_group_members WHERE user_id = ?
     `, [userId]);
     
+    // 按群组ID分组
+    const groupRecordsMap = new Map();
+    for (const record of allMemberRecords) {
+      const groupId = record.group_id;
+      if (!groupRecordsMap.has(groupId)) {
+        groupRecordsMap.set(groupId, []);
+      }
+      groupRecordsMap.get(groupId).push(record);
+    }
+    
     let groupMessages = [];
-    if (userGroups.length > 0) {
-      const groupIds = userGroups.map(g => g.group_id);
-      const placeholders = groupIds.map(() => '?').join(',');
+    if (groupRecordsMap.size > 0) {
+      // 为每个群组分别查询消息，根据所有加入记录返回对应消息
+      for (const [groupId, records] of groupRecordsMap) {
+        // 构建时间范围条件：所有 joined_at <= timestamp <= deleted_at（或未设置）
+        const timeConditions = [];
+        const params = [groupId, threeMonthsAgo, publicAndGroupMinId];
+        
+        for (const record of records) {
+          if (record.deleted_at) {
+            timeConditions.push(`(m.timestamp >= ? AND m.timestamp <= ?)`);
+            params.push(record.joined_at, record.deleted_at);
+          } else {
+            timeConditions.push(`m.timestamp >= ?`);
+            params.push(record.joined_at);
+          }
+        }
+        
+        const timeCondition = timeConditions.join(' OR ');
+        
+        const [groupMsgs] = await pool.execute(`
+          SELECT 
+            m.id, 
+            m.user_id as userId, 
+            u.nickname, 
+            u.avatar_url as avatarUrl, 
+            m.content, 
+            m.at_userid as atUserid,
+            m.message_type as messageType, 
+            m.timestamp,
+            'group' as type,
+            m.group_id as groupId,
+            g.name as groupName,
+            g.deleted_at as groupDeletedAt
+          FROM chat_messages m 
+          JOIN chat_users u ON m.user_id = u.id 
+          JOIN chat_groups g ON m.group_id = g.id
+          WHERE m.group_id = ?
+            AND m.timestamp >= ?
+            AND m.id > ?
+            AND (${timeCondition})
+          ORDER BY m.timestamp DESC, m.id DESC
+          LIMIT 8000
+        `, params);
+        
+        groupMessages = groupMessages.concat(groupMsgs);
+      }
       
-      [groupMessages] = await pool.execute(`
-        SELECT 
-          m.id, 
-          m.user_id as userId, 
-          u.nickname, 
-          u.avatar_url as avatarUrl, 
-          m.content, 
-          m.at_userid,
-          m.message_type as messageType, 
-          m.timestamp,
-          'group' as type,
-          m.group_id as groupId,
-          g.name as groupName
-        FROM chat_messages m 
-        JOIN chat_users u ON m.user_id = u.id 
-        JOIN chat_groups g ON m.group_id = g.id
-        WHERE m.group_id IN (${placeholders})
-          AND m.timestamp >= ?
-          AND m.id > ?
-        ORDER BY m.timestamp DESC, m.id DESC
-        LIMIT 8000
-      `, [...groupIds, threeMonthsAgo, publicAndGroupMinId]);
+      // 合并后按时间戳排序
+      groupMessages.sort((a, b) => {
+        if (b.timestamp !== a.timestamp) {
+          return new Date(b.timestamp) - new Date(a.timestamp);
+        }
+        return b.id - a.id;
+      });
+      
+      // 限制总数
+      if (groupMessages.length > 8000) {
+        groupMessages = groupMessages.slice(0, 8000);
+      }
     }
     
     // 3. 获取私信消息（用户作为发送者或接收者）
     const [privateMessages] = await pool.execute(`
       SELECT 
         pm.id, 
-        pm.sender_id as userId, 
+        pm.sender_id as senderId, 
         u.nickname, 
         u.avatar_url as avatarUrl, 
         pm.content, 
-        pm.at_userid,
+        pm.at_userid as atUserid,
         pm.message_type as messageType, 
         pm.timestamp,
         'private' as type,
-        pm.sender_id as senderId,
         pm.receiver_id as receiverId,
         pm.is_read as isRead
       FROM chat_private_messages pm 
@@ -3394,82 +3437,12 @@ app.get('/api/offline-messages', async (req, res) => {
       LIMIT 5000
     `, [userId, userId, threeMonthsAgo, privateMinId]);
     
-    const processedPublicMessages = publicMessages.map(msg => {
-      let atUserIds = null;
-      if (msg.at_userid) {
-        try {
-          atUserIds = JSON.parse(msg.at_userid);
-        } catch (e) {
-          atUserIds = msg.at_userid;
-        }
-      }
-      return {
-        id: msg.id,
-        userId: msg.userId,
-        nickname: msg.nickname,
-        avatarUrl: msg.avatarUrl,
-        content: msg.content,
-        at_userid: atUserIds,
-        messageType: msg.messageType,
-        timestamp: msg.timestamp,
-        type: msg.type
-      };
-    });
-
-    const processedGroupMessages = groupMessages.map(msg => {
-      let atUserIds = null;
-      if (msg.at_userid) {
-        try {
-          atUserIds = JSON.parse(msg.at_userid);
-        } catch (e) {
-          atUserIds = msg.at_userid;
-        }
-      }
-      return {
-        id: msg.id,
-        userId: msg.userId,
-        nickname: msg.nickname,
-        avatarUrl: msg.avatarUrl,
-        content: msg.content,
-        at_userid: atUserIds,
-        messageType: msg.messageType,
-        timestamp: msg.timestamp,
-        type: msg.type,
-        groupId: msg.groupId,
-        groupName: msg.groupName
-      };
-    });
-
-    const processedPrivateMessages = privateMessages.map(msg => {
-      let atUserIds = null;
-      if (msg.at_userid) {
-        try {
-          atUserIds = JSON.parse(msg.at_userid);
-        } catch (e) {
-          atUserIds = msg.at_userid;
-        }
-      }
-      return {
-        id: msg.id,
-        userId: msg.userId,
-        nickname: msg.nickname,
-        avatarUrl: msg.avatarUrl,
-        content: msg.content,
-        at_userid: atUserIds,
-        messageType: msg.messageType,
-        timestamp: msg.timestamp,
-        type: msg.type,
-        senderId: msg.senderId,
-        receiverId: msg.receiverId,
-        isRead: msg.isRead
-      };
-    });
-
+    // 直接返回数据库字段名，不做额外处理
     res.json({
       status: 'success',
-      publicMessages: processedPublicMessages.reverse(),
-      groupMessages: processedGroupMessages.reverse(),
-      privateMessages: processedPrivateMessages.reverse()
+      publicMessages: publicMessages.reverse(),
+      groupMessages: groupMessages.reverse(),
+      privateMessages: privateMessages.reverse()
     });
   } catch (err) {
     console.error('获取离线消息失败:', err.message);
@@ -3511,7 +3484,7 @@ app.post('/api/create-group', async (req, res) => {
     
     // 获取创建者的所有好友ID
     const [friendIds] = await pool.execute(
-      'SELECT friend_id FROM chat_friends WHERE user_id = ?',
+      'SELECT friend_id FROM chat_friends WHERE user_id = ? AND deleted_at IS NULL',
       [parseInt(userId)]
     );
     const friends = friendIds.map(row => row.friend_id);
@@ -3550,14 +3523,14 @@ app.post('/api/create-group', async (req, res) => {
       SELECT g.*, u.nickname as creator_name 
       FROM chat_groups g 
       JOIN chat_users u ON g.creator_id = u.id 
-      WHERE g.id = ?
+      WHERE g.id = ? AND g.deleted_at IS NULL
     `, [groupId]);
 
     const [groupMembers] = await pool.execute(`
       SELECT u.id, u.nickname, u.avatar_url 
       FROM chat_group_members gm 
       JOIN chat_users u ON gm.user_id = u.id 
-      WHERE gm.group_id = ?
+      WHERE gm.group_id = ? AND gm.deleted_at IS NULL
     `, [groupId]);
 
     // 让所有在线成员加入群组房间
@@ -3573,6 +3546,49 @@ app.post('/api/create-group', async (req, res) => {
         }
       }
     }
+    
+    // 获取创建者信息
+    const [creatorInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      [userId]
+    );
+
+    // 先广播类型100的系统消息：XXX创建了群组
+    const now = new Date();
+    let createContent = `${creatorInfo[0]?.nickname || '用户'}创建了群组`;
+    
+    // 如果有同时加入的成员，添加到消息中
+    const otherMemberIds = allMemberIds.filter(id => id !== parseInt(userId));
+    if (otherMemberIds.length > 0) {
+      const [otherMembersInfo] = await pool.execute(
+        `SELECT u.id, u.nickname FROM chat_users u WHERE u.id IN (${otherMemberIds.map(() => '?').join(',')})`,
+        otherMemberIds
+      );
+      const otherMemberNames = otherMembersInfo.map(m => m.nickname || '用户').join('、');
+      createContent += `，同时加入群组的有：${otherMemberNames}`;
+    }
+    
+    const [insertResult] = await pool.execute(
+      'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      [userId, createContent, 100, groupId]
+    );
+
+    // 构建100类型消息对象
+    const type100Message = {
+      id: insertResult.insertId,
+      userId: userId,
+      nickname: creatorInfo[0]?.nickname || '',
+      avatarUrl: creatorInfo[0]?.avatar_url || '',
+      content: createContent,
+      at_userid: null,
+      messageType: 100,
+      groupId: groupId,
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+
+    // 向所有群组成员发送100类型消息（先广播）
+    io.to(`group_${groupId}`).emit('message-received', type100Message);
       
     // 向所有群组成员广播群组创建事件（使用群组房间）
     io.to(`group_${groupId}`).emit('group-created', {
@@ -3586,7 +3602,8 @@ app.post('/api/create-group', async (req, res) => {
       status: 'success',
       message: '群组创建成功',
       group: groups[0],
-      members: groupMembers
+      members: groupMembers,
+      createMessage: type100Message
     });
   } catch (err) {
     console.error('创建群组失败:', err.message);
@@ -3616,7 +3633,7 @@ app.get('/api/user-groups/:userId', async (req, res) => {
       SELECT g.*
       FROM chat_groups g 
       JOIN chat_group_members gm ON g.id = gm.group_id 
-      WHERE gm.user_id = ?
+      WHERE gm.user_id = ? AND g.deleted_at IS NULL AND gm.deleted_at IS NULL
       ORDER BY g.id DESC
     `, [userId]);
 
@@ -3645,7 +3662,7 @@ app.get('/api/available-group-members/:groupId', async (req, res) => {
 
     // 首先检查请求者是否为群主
     const [group] = await pool.execute(
-      'SELECT creator_id FROM chat_groups WHERE id = ?',
+      'SELECT creator_id FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
 
@@ -3662,8 +3679,8 @@ app.get('/api/available-group-members/:groupId', async (req, res) => {
       SELECT u.id, u.nickname, u.avatar_url 
       FROM chat_users u 
       JOIN chat_friends f ON u.id = f.friend_id
-      WHERE f.user_id = ? AND u.id NOT IN (
-        SELECT user_id FROM chat_group_members WHERE group_id = ?
+      WHERE f.user_id = ? AND f.deleted_at IS NULL AND u.id NOT IN (
+        SELECT user_id FROM chat_group_members WHERE group_id = ? AND deleted_at IS NULL
       ) AND u.id != ?
     `, [userId, groupId, userId]);
 
@@ -3687,7 +3704,7 @@ app.get('/api/group-info/:groupId', async (req, res) => {
     const groupId = req.params.groupId;
 
     const [group] = await pool.execute(
-      'SELECT id, name, description, creator_id, created_at, avatar_url FROM chat_groups WHERE id = ?',
+      'SELECT id, name, description, creator_id, created_at, avatar_url, deleted_at FROM chat_groups WHERE id = ?',
       [groupId]
     );
 
@@ -3714,7 +3731,7 @@ app.get('/api/group-members/:groupId', async (req, res) => {
       SELECT u.id, u.nickname, u.avatar_url as avatarUrl 
       FROM chat_group_members gm 
       JOIN chat_users u ON gm.user_id = u.id 
-      WHERE gm.group_id = ?
+      WHERE gm.group_id = ? AND gm.deleted_at IS NULL
     `, [groupId]);
 
     res.json({
@@ -3740,7 +3757,7 @@ app.post('/api/remove-group-member', async (req, res) => {
 
     // 检查请求者是否为群主
     const [group] = await pool.execute(
-      'SELECT creator_id FROM chat_groups WHERE id = ?',
+      'SELECT creator_id, name FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
 
@@ -3754,7 +3771,7 @@ app.post('/api/remove-group-member', async (req, res) => {
 
     // 检查成员是否在群组中
     const [member] = await pool.execute(
-      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
       [groupId, memberId]
     );
 
@@ -3767,19 +3784,54 @@ app.post('/api/remove-group-member', async (req, res) => {
       return res.status(400).json({ success: false, message: '不能踢出自己' });
     }
 
-    // 执行踢出操作
-    await pool.execute(
-      'DELETE FROM chat_group_members WHERE group_id = ? AND user_id = ?',
-      [groupId, memberId]
+    // 获取被踢出的成员信息
+    const [memberInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      [memberId]
     );
 
-    // 获取群组所有成员，向他们广播成员移除事件
-    const [allMembers] = await pool.execute(
-      'SELECT user_id FROM chat_group_members WHERE group_id = ?',
-      [groupId]
+    // 获取群主信息
+    const [creatorInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      [userId]
     );
+
+    // 先广播类型100的系统消息：XXX被踢出了群组
+    const now = new Date();
+    const kickedContent = `${memberInfo[0]?.nickname || '用户'}被移出了群组`;
+    const [insertResult] = await pool.execute(
+      'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      [userId, kickedContent, 100, groupId]
+    );
+
+    // 构建100类型消息对象
+    const type100Message = {
+      id: insertResult.insertId,
+      userId: userId,
+      nickname: creatorInfo[0]?.nickname || '',
+      avatarUrl: creatorInfo[0]?.avatar_url || '',
+      content: kickedContent,
+      at_userid: null,
+      messageType: 100,
+      groupId: groupId,
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+
+    // 向所有群组成员发送100类型消息（先广播）
+    io.to(`group_${groupId}`).emit('message-received', type100Message);
     
-    // 向所有群组成员广播成员被踢出事件（使用群组房间）
+    // 同时也向被踢出的成员的用户房间发送，确保他们能收到
+    io.to(`user_${memberId}`).emit('message-received', type100Message);
+
+    // 执行踢出操作 - 逻辑删除，只记录deleted_at（加1秒）
+    const deletedAt = new Date(Date.now() + 1000);
+    await pool.execute(
+      'UPDATE chat_group_members SET deleted_at = ? WHERE group_id = ? AND user_id = ?',
+      [deletedAt, groupId, memberId]
+    );
+
+    // 向所有群组成员广播成员被踢出事件
     io.to(`group_${groupId}`).emit('member-removed', { groupId, memberId });
     
     // 也通知被踢出的成员
@@ -3809,7 +3861,7 @@ app.post('/api/add-group-members', async (req, res) => {
 
     // 检查用户是否是群主
     const [group] = await pool.execute(
-      'SELECT creator_id FROM chat_groups WHERE id = ?',
+      'SELECT creator_id, name, avatar_url FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
 
@@ -3835,7 +3887,7 @@ app.post('/api/add-group-members', async (req, res) => {
     
     // 获取群主的所有好友ID
     const [friendIds] = await pool.execute(
-      'SELECT friend_id FROM chat_friends WHERE user_id = ?',
+      'SELECT friend_id FROM chat_friends WHERE user_id = ? AND deleted_at IS NULL',
       [parseInt(userId)]
     );
     const friends = friendIds.map(row => row.friend_id);
@@ -3848,7 +3900,7 @@ app.post('/api/add-group-members', async (req, res) => {
 
     // 检查用户是否已经在群组中
     const [existingMembers] = await pool.execute(
-      `SELECT user_id FROM chat_group_members WHERE group_id = ? AND user_id IN (${placeholders})`,
+      `SELECT user_id FROM chat_group_members WHERE group_id = ? AND user_id IN (${placeholders}) AND deleted_at IS NULL`,
       [groupId].concat(cleanMemberIds)
     );
 
@@ -3859,12 +3911,27 @@ app.post('/api/add-group-members', async (req, res) => {
       return res.status(400).json({ status: 'error', message: '所选用户已在群组中' });
     }
 
-    // 添加新成员
-    const memberValues = newMemberIds.map(memberId => [groupId, memberId]);
-    await pool.query(
-      'INSERT INTO chat_group_members (group_id, user_id) VALUES ?',
-      [memberValues]
+    // 获取新成员信息
+    const [newMembersInfo] = await pool.execute(
+      `SELECT u.id, u.nickname, u.avatar_url as avatarUrl 
+      FROM chat_users u 
+      WHERE u.id IN (${newMemberIds.map(() => '?').join(',')})`,
+      newMemberIds
     );
+
+    // 获取群主信息
+    const [creatorInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      [userId]
+    );
+
+    // 添加新成员，总是创建新记录
+    for (const memberId of newMemberIds) {
+      await pool.execute(
+        'INSERT INTO chat_group_members (group_id, user_id, joined_at) VALUES (?, ?, NOW())',
+        [groupId, memberId]
+      );
+    }
 
     // 获取更新后的群组成员列表
     const [updatedMembers] = await pool.execute(
@@ -3873,14 +3940,6 @@ app.post('/api/add-group-members', async (req, res) => {
       JOIN chat_users u ON gm.user_id = u.id 
       WHERE gm.group_id = ?`,
       [groupId]
-    );
-
-    // 通知所有群成员有新成员加入
-    const [newMembersInfo] = await pool.execute(
-      `SELECT u.id, u.nickname, u.avatar_url as avatarUrl 
-      FROM chat_users u 
-      WHERE u.id IN (${newMemberIds.map(() => '?').join(',')})`,
-      newMemberIds
     );
 
     // 让所有在线的新成员加入群组房间
@@ -3897,9 +3956,47 @@ app.post('/api/add-group-members', async (req, res) => {
       }
     }
 
+    // 插入类型100的系统消息：XXX邀请XXX加入了群组
+    const now = new Date();
+    const newMemberNames = newMembersInfo.map(m => m.nickname || '用户').join('、');
+    const inviterName = creatorInfo[0]?.nickname || '用户';
+    const addedContent = `${inviterName}邀请${newMemberNames}加入了群组`;
+    const [insertResult] = await pool.execute(
+      'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      [userId, addedContent, 100, groupId]
+    );
+
+    // 构建100类型消息对象
+    const type100Message = {
+      id: insertResult.insertId,
+      userId: userId,
+      nickname: creatorInfo[0]?.nickname || '',
+      avatarUrl: creatorInfo[0]?.avatar_url || '',
+      content: addedContent,
+      at_userid: null,
+      messageType: 100,
+      groupId: groupId,
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+
+    // 向所有群组成员发送100类型消息（新成员已经加入房间了）
+    io.to(`group_${groupId}`).emit('message-received', type100Message);
+    
+    // 同时也向新成员的用户房间发送，确保他们能收到
+    for (const memberId of newMemberIds) {
+      io.to(`user_${memberId}`).emit('message-received', type100Message);
+      // 向新成员单独发送被添加到群组的事件，包含群组信息
+      io.to(`user_${memberId}`).emit('added-to-group', {
+        groupId: groupId,
+        groupName: group[0].name,
+        groupAvatarUrl: group[0].avatar_url || ''
+      });
+    }
+
     // 获取群组所有成员，向他们广播成员添加事件
     const [allMembers] = await pool.execute(
-      'SELECT user_id FROM chat_group_members WHERE group_id = ?',
+      'SELECT user_id FROM chat_group_members WHERE group_id = ? AND deleted_at IS NULL',
       [groupId]
     );
     
@@ -3936,7 +4033,7 @@ app.post('/api/generate-group-token', async (req, res) => {
     
     // 检查用户是否为群组成员
     const [member] = await pool.execute(
-      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
       [groupId, userId]
     );
     
@@ -3946,14 +4043,16 @@ app.post('/api/generate-group-token', async (req, res) => {
     
     // 生成唯一Token
     const token = crypto.randomBytes(16).toString('hex');
-    // 设置Token有效期为7天
-    const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    // 设置Token有效期为7天（秒）
+    const expiresInSeconds = 7 * 24 * 60 * 60;
+    const expires = new Date(Date.now() + expiresInSeconds * 1000);
     
-    // 存储Token
-    await pool.execute(
-      'INSERT INTO chat_group_invite_tokens (group_id, token, expires, created_by) VALUES (?, ?, ?, ?)',
-      [groupId, token, expires, userId]
-    );
+    // 存储Token到Redis
+    const redisKey = `group_invite_token:${token}`;
+    await redisClient.setEx(redisKey, expiresInSeconds, JSON.stringify({
+      groupId: groupId,
+      createdBy: userId
+    }));
     
     res.json({ status: 'success', token, expires });
   } catch (err) {
@@ -3967,20 +4066,19 @@ app.get('/api/validate-group-token/:token', async (req, res) => {
   try {
     const { token } = req.params;
     
-    const [tokens] = await pool.execute(
-      'SELECT group_id FROM chat_group_invite_tokens WHERE token = ? AND expires > NOW()',
-      [token]
-    );
+    // 从Redis读取Token
+    const redisKey = `group_invite_token:${token}`;
+    const tokenData = await redisClient.get(redisKey);
     
-    if (!tokens || tokens.length === 0) {
+    if (!tokenData) {
       return res.status(400).json({ status: 'error', message: '无效或过期的邀请Token' });
     }
     
-    const groupId = tokens[0].group_id;
+    const { groupId } = JSON.parse(tokenData);
     
     // 获取群组信息
     const [groups] = await pool.execute(
-      'SELECT id, name, description FROM chat_groups WHERE id = ?',
+      'SELECT id, name, description FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
     
@@ -3998,40 +4096,107 @@ app.get('/api/validate-group-token/:token', async (req, res) => {
 // 使用Token加入群组
 app.post('/api/join-group-with-token', async (req, res) => {
   try {
-    const { token } = req.body;
+    const { token, isFromGroupCard } = req.body;
     const userId = req.userId;
     
     if (!token) {
       return res.status(400).json({ status: 'error', message: '参数错误' });
     }
     
-    // 验证Token
-    const [tokens] = await pool.execute(
-      'SELECT group_id FROM chat_group_invite_tokens WHERE token = ? AND expires > NOW()',
-      [token]
-    );
+    // 从Redis读取Token
+    const redisKey = `group_invite_token:${token}`;
+    const tokenData = await redisClient.get(redisKey);
     
-    if (!tokens || tokens.length === 0) {
+    if (!tokenData) {
       return res.status(400).json({ status: 'error', message: '无效或过期的邀请Token' });
     }
     
-    const groupId = tokens[0].group_id;
+    const { groupId } = JSON.parse(tokenData);
+    
+    // 获取群组信息
+    const [group] = await pool.execute(
+      'SELECT id, name, avatar_url FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      [groupId]
+    );
+    
+    if (!group || group.length === 0) {
+      return res.status(404).json({ status: 'error', message: '群组不存在' });
+    }
     
     // 检查用户是否已经是群组成员
     const [members] = await pool.execute(
-      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      'SELECT id, deleted_at FROM chat_group_members WHERE group_id = ? AND user_id = ?',
       [groupId, userId]
     );
     
     if (members && members.length > 0) {
-      return res.status(400).json({ status: 'error', message: '你已经是该群组成员' });
+      if (members[0].deleted_at === null) {
+        return res.status(400).json({ status: 'error', message: '你已经是该群组成员' });
+      }
     }
     
-    // 加入群组
+    // 获取用户信息
+    const [userInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      [userId]
+    );
+    
+    // 执行加入操作，总是创建新记录
     await pool.execute(
       'INSERT INTO chat_group_members (group_id, user_id, joined_at) VALUES (?, ?, NOW())',
       [groupId, userId]
     );
+    
+    // 让用户加入群组房间
+    const allOnlineUsers = await getAllOnlineUsers();
+    for (const onlineUser of allOnlineUsers) {
+      if (String(onlineUser.id) === String(userId)) {
+        const userSocket = io.sockets.sockets.get(onlineUser.socketId);
+        if (userSocket) {
+          userSocket.join(`group_${groupId}`);
+        }
+      }
+    }
+    
+    // 插入类型100的系统消息
+    const now = new Date();
+    let joinContent;
+    if (isFromGroupCard) {
+      joinContent = `${userInfo[0]?.nickname || '用户'}通过群名片加入了群组`;
+    } else {
+      joinContent = `${userInfo[0]?.nickname || '用户'}加入了群组`;
+    }
+    const [insertResult] = await pool.execute(
+      'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      [userId, joinContent, 100, groupId]
+    );
+
+    // 构建100类型消息对象
+    const type100Message = {
+      id: insertResult.insertId,
+      userId: userId,
+      nickname: userInfo[0]?.nickname || '',
+      avatarUrl: userInfo[0]?.avatar_url || '',
+      content: joinContent,
+      at_userid: null,
+      messageType: 100,
+      groupId: groupId,
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+
+    // 向所有群组成员发送100类型消息（用户已经加入房间了）
+    io.to(`group_${groupId}`).emit('message-received', type100Message);
+    
+    // 同时也向新成员的用户房间发送，确保他们能收到
+    io.to(`user_${userId}`).emit('message-received', type100Message);
+    
+    // 向新成员单独发送被添加到群组的事件，包含群组信息
+    io.to(`user_${userId}`).emit('added-to-group', {
+      groupId: groupId,
+      groupName: group[0].name,
+      groupAvatarUrl: group[0].avatar_url || ''
+    });
     
     // 发送群组加入通知
     io.to(`group_${groupId}`).emit('member-joined', { groupId, userId });
@@ -4040,6 +4205,96 @@ app.post('/api/join-group-with-token', async (req, res) => {
   } catch (err) {
     console.error('使用Token加入群组失败:', err.message);
     res.status(500).json({ status: 'error', message: '加入群组失败' });
+  }
+});
+
+// 用户退出群组接口
+app.post('/api/leave-group', async (req, res) => {
+  try {
+    const { groupId } = req.body;
+    const userId = req.userId;
+
+    // 验证参数
+    if (!groupId) {
+      return res.status(400).json({ success: false, message: '参数错误' });
+    }
+
+    // 检查群组是否存在
+    const [group] = await pool.execute(
+      'SELECT id, name, creator_id FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      [groupId]
+    );
+
+    if (!group || group.length === 0) {
+      return res.status(404).json({ success: false, message: '群组不存在' });
+    }
+
+    // 检查成员是否在群组中
+    const [member] = await pool.execute(
+      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+      [groupId, userId]
+    );
+
+    if (!member || member.length === 0) {
+      return res.status(404).json({ success: false, message: '你不在该群组中' });
+    }
+
+    // 不能退出自己是群主的群组
+    if (parseInt(group[0].creator_id) === parseInt(userId)) {
+      return res.status(400).json({ success: false, message: '群主不能退出群组，请先转让群主或解散群组' });
+    }
+
+    // 获取用户信息
+    const [userInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      [userId]
+    );
+
+    // 先广播类型100的系统消息：XXX退出了群组
+    const now = new Date();
+    const leaveContent = `${userInfo[0]?.nickname || '用户'}退出了群组`;
+    const [insertResult] = await pool.execute(
+      'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      [userId, leaveContent, 100, groupId]
+    );
+
+    // 构建100类型消息对象
+    const type100Message = {
+      id: insertResult.insertId,
+      userId: userId,
+      nickname: userInfo[0]?.nickname || '',
+      avatarUrl: userInfo[0]?.avatar_url || '',
+      content: leaveContent,
+      at_userid: null,
+      messageType: 100,
+      groupId: groupId,
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+
+    // 向所有群组成员发送100类型消息（先广播）
+    io.to(`group_${groupId}`).emit('message-received', type100Message);
+    
+    // 同时也向退出的成员的用户房间发送，确保他们能收到
+    io.to(`user_${userId}`).emit('message-received', type100Message);
+
+    // 执行退出操作 - 逻辑删除，只记录deleted_at（加1秒）
+    const deletedAt = new Date(Date.now() + 1000);
+    await pool.execute(
+      'UPDATE chat_group_members SET deleted_at = ? WHERE group_id = ? AND user_id = ?',
+      [deletedAt, groupId, userId]
+    );
+
+    // 向所有群组成员广播成员退出事件
+    io.to(`group_${groupId}`).emit('member-removed', { groupId, memberId: userId });
+    
+    // 也通知退出的成员
+    io.to(`user_${userId}`).emit('member-removed', { groupId, memberId: userId });
+    
+    res.json({ success: true, message: '成功退出群组' });
+  } catch (err) {
+    console.error('退出群组失败:', err.message);
+    res.status(500).json({ success: false, message: '退出群组失败' });
   }
 });
 
@@ -4417,62 +4672,76 @@ async function validateSocketIP(socket, next) {
 }
 
 // 强制断开用户连接并清理
-async function forceDisconnectUser(socket, reason = 'session-expired') {
-  // 从在线用户列表中移除
-  const user = await getOnlineUser(socket.id);
-  if (user) {
-    await removeOnlineUser(socket.id);
-    await removeAuthenticatedUser(user.id);
-    
-    // 更新用户最后在线时间
-    try {
-      await pool.execute(
-        'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
-        [user.id]
-      );
-    } catch (err) {
-      console.error('更新用户最后上线时间失败:', err.message);
+async function forceDisconnectUser(socket, reason = 'session-expired', originalEventName = null, originalEventData = null) {
+  // 如果是 session-expired，只发送事件，不做其他清理操作
+  if (reason === 'session-expired') {
+    // 发送事件，带上原始事件信息
+    if (originalEventName && originalEventData) {
+      socket.emit(reason, {
+        originalEventName: originalEventName,
+        originalEventData: originalEventData
+      });
+    } else {
+      socket.emit(reason);
     }
-    
-    // 广播更新后的用户列表
-    const onlineUsersList = await getAllOnlineUsers();
-    const onlineUsersArray = onlineUsersList.map(u => ({
-      id: u.id,
-      nickname: u.nickname,
-      avatarUrl: u.avatarUrl,
-      isOnline: true
-    }));
-
-    const onlineUserIds = new Set(onlineUsersArray.map(u => u.id));
-    
-    const [offlineUsersData] = await pool.execute(`
-      SELECT id, nickname, last_online, avatar_url as avatarUrl 
-      FROM chat_users 
-      WHERE last_online IS NOT NULL 
-      AND last_online >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-      ORDER BY last_online DESC
-    `);
-
-    const offlineUsersArray = offlineUsersData
-      .filter(u => !onlineUserIds.has(u.id))
-      .map(u => ({
+  } else {
+    // 其他原因（如 account-logged-in-elsewhere）继续断开连接
+    // 从在线用户列表中移除
+    const user = await getOnlineUser(socket.id);
+    if (user) {
+      await removeOnlineUser(socket.id);
+      await removeAuthenticatedUser(user.id);
+      
+      // 更新用户最后在线时间
+      try {
+        await pool.execute(
+          'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+          [user.id]
+        );
+      } catch (err) {
+        console.error('更新用户最后上线时间失败:', err.message);
+      }
+      
+      // 广播更新后的用户列表
+      const onlineUsersList = await getAllOnlineUsers();
+      const onlineUsersArray = onlineUsersList.map(u => ({
         id: u.id,
         nickname: u.nickname,
         avatarUrl: u.avatarUrl,
-        isOnline: false,
-        lastOnline: u.last_online
+        isOnline: true
       }));
 
-    // 只向已认证用户广播用户列表
-    io.to('authenticated_users').emit('users-list', {
-      online: onlineUsersArray,
-      offline: offlineUsersArray
-    });
+      const onlineUserIds = new Set(onlineUsersArray.map(u => u.id));
+      
+      const [offlineUsersData] = await pool.execute(`
+        SELECT id, nickname, last_online, avatar_url as avatarUrl 
+        FROM chat_users 
+        WHERE last_online IS NOT NULL 
+        AND last_online >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        ORDER BY last_online DESC
+      `);
+
+      const offlineUsersArray = offlineUsersData
+        .filter(u => !onlineUserIds.has(u.id))
+        .map(u => ({
+          id: u.id,
+          nickname: u.nickname,
+          avatarUrl: u.avatarUrl,
+          isOnline: false,
+          lastOnline: u.last_online
+        }));
+
+      // 只向已认证用户广播用户列表
+      io.to('authenticated_users').emit('users-list', {
+        online: onlineUsersArray,
+        offline: offlineUsersArray
+      });
+    }
+    
+    // 发送事件并断开连接
+    socket.emit(reason);
+    socket.disconnect(true);
   }
-  
-  // 发送事件并断开连接
-  socket.emit(reason);
-  socket.disconnect(true);
 }
 
 // Socket.IO会话验证中间件（包含IP验证）
@@ -4521,7 +4790,7 @@ async function validateSocketPacket(socket, [eventName, ...args]) {
   if (!skipAuthCheck && userData.userId) {
     const isAuth = await isAuthenticatedUser(parseInt(userData.userId));
     if (!isAuth) {
-      await forceDisconnectUser(socket, 'session-expired');
+      await forceDisconnectUser(socket, 'session-expired', eventName, data);
       throw new Error('会话过期');
     }
   }
@@ -4529,13 +4798,13 @@ async function validateSocketPacket(socket, [eventName, ...args]) {
   // 然后验证会话（如果有用户数据）
   if (userData.userId || userData.sessionToken) {
     if (!userData.userId || !userData.sessionToken) {
-      await forceDisconnectUser(socket, 'session-expired');
+      await forceDisconnectUser(socket, 'session-expired', eventName, data);
       throw new Error('会话无效');
     }
 
     const session = await getUserSession(parseInt(userData.userId));
     if (!session || session.token !== userData.sessionToken) {
-      await forceDisconnectUser(socket, 'session-expired');
+      await forceDisconnectUser(socket, 'session-expired', eventName, data);
       throw new Error('会话无效');
     }
   }
@@ -4574,7 +4843,7 @@ io.on('connection', (socket) => {
         // 加入用户的所有群组房间
         try {
           const [userGroups] = await pool.execute(
-            'SELECT group_id FROM chat_group_members WHERE user_id = ?',
+            'SELECT group_id FROM chat_group_members WHERE user_id = ? AND deleted_at IS NULL',
             [userId]
           );
           
@@ -4766,25 +5035,69 @@ io.on('connection', (socket) => {
     
         // 如果是群组消息，验证用户是否在群组中
         if (groupId) {
-          // 先检查群组是否存在
+          // 先检查群组是否存在，并获取群主信息和删除状态
           const [groupCheck] = await pool.execute(
-            'SELECT id FROM chat_groups WHERE id = ?',
+            'SELECT id, creator_id, deleted_at FROM chat_groups WHERE id = ?',
             [parseInt(groupId)]
           );
           
           if (groupCheck.length === 0) {
-            socket.emit('error', { message: '群组不存在' });
+            socket.emit('message-sent', { 
+              success: false,
+              error: {
+                code: 'GROUP_NOT_FOUND',
+                message: '群组不存在'
+              }
+            });
+            return;
+          }
+          
+          const groupInfo = groupCheck[0];
+          
+          // 检查群组是否已被删除
+          if (groupInfo.deleted_at !== null) {
+            socket.emit('message-sent', { 
+              success: false,
+              error: {
+                code: 'GROUP_DELETED',
+                message: '该群组已被解散，无法发送消息'
+              }
+            });
             return;
           }
           
           const [memberCheck] = await pool.execute(
-            'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+            'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
             [parseInt(groupId), parseInt(userId)]
           );
           
           if (memberCheck.length === 0) {
-            socket.emit('error', { message: '您不在该群组中，无法发送消息' });
+            socket.emit('message-sent', { 
+              success: false,
+              error: {
+                code: 'NOT_IN_GROUP',
+                message: '您不在该群组中，无法发送消息'
+              }
+            });
             return;
+          }
+          
+          // 检查是否包含 @全体成员 (-1)，只有群主才能发送
+          if (at_userid && Array.isArray(at_userid)) {
+            const hasAllMemberAt = at_userid.some(id => String(id) === '-1');
+            if (hasAllMemberAt) {
+              const isOwner = String(groupInfo.creator_id) === String(userId);
+              if (!isOwner) {
+                socket.emit('message-sent', { 
+                  success: false,
+                  error: {
+                    code: 'NOT_GROUP_OWNER',
+                    message: '只有群主才能@全体成员'
+                  }
+                });
+                return;
+              }
+            }
           }
         }
     
@@ -4933,6 +5246,35 @@ io.on('connection', (socket) => {
 
       const user = users[0];
 
+      // 验证对方是否是自己的好友，并检查是否已删除
+      const [friendCheck] = await pool.query(
+        'SELECT id, deleted_at FROM chat_friends WHERE user_id = ? AND friend_id = ?',
+        [parseInt(userId), parseInt(receiverId)]
+      );
+      
+      if (friendCheck.length === 0) {
+        socket.emit('private-message-sent', { 
+          success: false,
+          error: {
+            code: 'NOT_FRIEND',
+            message: '对方不是您的好友，无法发送消息'
+          }
+        });
+        return;
+      }
+      
+      // 检查好友关系是否已被删除
+      if (friendCheck[0].deleted_at !== null) {
+        socket.emit('private-message-sent', { 
+          success: false,
+          error: {
+            code: 'FRIEND_DELETED',
+            message: '该好友关系已被删除，无法发送消息'
+          }
+        });
+        return;
+      }
+
       // 不进行严格转义，保持原始内容格式，让前端处理安全的解析和链接显示
       const cleanContent = content;
 
@@ -4995,6 +5337,15 @@ io.on('connection', (socket) => {
     try {
       const { userId, messageId, sessionToken } = data;
       
+      // 速率限制检查
+      const rateLimitResult = await checkRateLimit(userId);
+      if (!rateLimitResult.allowed) {
+        socket.emit('error', { 
+          message: `操作过于频繁，请${rateLimitResult.retryAfter}秒后再试`
+        });
+        return;
+      }
+      
       // 获取消息详情
       const [messages] = await pool.execute(
         'SELECT id, sender_id, receiver_id, content, message_type FROM chat_private_messages WHERE id = ?',
@@ -5040,22 +5391,40 @@ io.on('connection', (socket) => {
       // 将messageId转换为数字类型
       const numericMessageId = parseInt(messageId);
       
-      // 将类型101消息保存到 chat_private_messages 表
-      const [insertResult] = await pool.execute(
-        'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
-        [numericUserId, message.receiver_id, String(numericMessageId), 101]
-      );
+      // 检查对方是否在线
+      const allOnlineUsers = await getAllOnlineUsers();
+      const receiverIsOnline = allOnlineUsers.some(u => u.id === message.receiver_id);
       
-      // 发送类型101消息，内容为被撤回消息的ID，并保存到数据库
-      const type101Message = {
-        id: insertResult.insertId,
-        senderId: numericUserId,
-        receiverId: message.receiver_id,
-        content: String(numericMessageId),
-        messageType: 101,
-        timestamp: Date.now(),
-        timestampISO: new Date().toISOString()
-      };
+      let type101Message;
+      
+      if (receiverIsOnline) {
+        // 对方在线，不保存到数据库，只发送101消息
+        type101Message = {
+          id: Date.now(),
+          senderId: numericUserId,
+          receiverId: message.receiver_id,
+          content: String(numericMessageId),
+          messageType: 101,
+          timestamp: Date.now(),
+          timestampISO: new Date().toISOString()
+        };
+      } else {
+        // 对方不在线，保存到数据库
+        const [insertResult] = await pool.execute(
+          'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
+          [numericUserId, message.receiver_id, String(numericMessageId), 101]
+        );
+        
+        type101Message = {
+          id: insertResult.insertId,
+          senderId: numericUserId,
+          receiverId: message.receiver_id,
+          content: String(numericMessageId),
+          messageType: 101,
+          timestamp: Date.now(),
+          timestampISO: new Date().toISOString()
+        };
+      }
       
       // 删除原数据库记录
       await pool.execute('DELETE FROM chat_private_messages WHERE id = ?', [messageId]);
@@ -5087,6 +5456,15 @@ io.on('connection', (socket) => {
         return;
       }
       
+      // 速率限制检查
+      const rateLimitResult = await checkRateLimit(userId);
+      if (!rateLimitResult.allowed) {
+        socket.emit('error', { 
+          message: `操作过于频繁，请${rateLimitResult.retryAfter}秒后再试`
+        });
+        return;
+      }
+      
       const numericUserId = parseInt(userId);
       if (isNaN(numericUserId)) {
         return;
@@ -5114,6 +5492,44 @@ io.on('connection', (socket) => {
           fromUserId: numericUserId,
           friendId: numericFriendId
         });
+        
+        // 检查对方是否在线
+        const allOnlineUsers = await getAllOnlineUsers();
+        const friendIsOnline = allOnlineUsers.some(u => u.id === numericFriendId);
+        
+        if (!friendIsOnline) {
+          // 对方不在线，保存已读回执消息（103）到数据库
+          
+          // 获取刚才已读的最后一条消息的id作为内容
+          const [readMessages] = await pool.execute(
+            'SELECT id FROM chat_private_messages WHERE sender_id = ? AND receiver_id = ? AND is_read = 1 ORDER BY id DESC LIMIT 1',
+            [numericFriendId, numericUserId]
+          );
+          
+          let lastReadMessageId = 0;
+          if (readMessages.length > 0) {
+            lastReadMessageId = readMessages[0].id;
+          }
+          
+          // 保存已读回执消息（103）到数据库
+          const [insertResult] = await pool.execute(
+            'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, timestamp, is_read) VALUES (?, ?, ?, ?, NOW(), 1)',
+            [numericUserId, numericFriendId, String(lastReadMessageId), 103]
+          );
+          
+          // 发送类型103消息给对方（虽然不在线，但可能重连后会收到历史消息）
+          const type103Message = {
+            id: insertResult.insertId,
+            senderId: numericUserId,
+            receiverId: numericFriendId,
+            content: String(lastReadMessageId),
+            messageType: 103,
+            timestamp: Date.now(),
+            timestampISO: new Date().toISOString()
+          };
+          
+          io.to(`user_${numericFriendId}`).emit('private-message-received', type103Message);
+        }
         
       } else if (type === 'group') {
         if (!groupId) {
@@ -5188,7 +5604,7 @@ io.on('connection', (socket) => {
         
         // 验证用户是否在群组中
         const [memberCheck] = await pool.query(
-          'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+          'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
           [numericGroupId, numericUserId]
         );
         
@@ -5214,7 +5630,7 @@ io.on('connection', (socket) => {
         
         // 验证对方是否是自己的好友
         const [friendCheck] = await pool.query(
-          'SELECT id FROM chat_friends WHERE user_id = ? AND friend_id = ?',
+          'SELECT id FROM chat_friends WHERE user_id = ? AND friend_id = ? AND deleted_at IS NULL',
           [numericUserId, numericFriendId]
         );
         
@@ -5333,7 +5749,7 @@ io.on('connection', (socket) => {
       // 如果是群组消息，验证用户是否在群组中
       if (message.group_id) {
         const [memberCheck] = await pool.execute(
-          'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+          'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
           [parseInt(message.group_id), parseInt(userId)]
         );
         
@@ -5403,7 +5819,7 @@ io.on('connection', (socket) => {
       if (message.group_id) {
         // 群组消息：向群组成员广播
         const [groupMembers] = await pool.execute(
-          'SELECT user_id FROM chat_group_members WHERE group_id = ?',
+          'SELECT user_id FROM chat_group_members WHERE group_id = ? AND deleted_at IS NULL',
           [message.group_id]
         );
         for (const member of groupMembers) {
@@ -5549,7 +5965,7 @@ app.post('/api/dissolve-group', async (req, res) => {
     
     // 检查用户是否是群主
     const [groupResults] = await pool.execute(
-      'SELECT creator_id, name, avatar_url FROM chat_groups WHERE id = ?',
+      'SELECT creator_id, name, avatar_url FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
     
@@ -5576,21 +5992,15 @@ app.post('/api/dissolve-group', async (req, res) => {
         [groupId]
       );
       
-      // 删除群组中的所有消息
+      // 设置群组为已删除（标记 deleted_at）
       await connection.execute(
-        'DELETE FROM chat_messages WHERE group_id = ?',
+        'UPDATE chat_groups SET deleted_at = NOW() WHERE id = ?',
         [groupId]
       );
       
-      // 删除群组和成员的关联
+      // 保留成员记录，添加 deleted_at 标记
       await connection.execute(
-        'DELETE FROM chat_group_members WHERE group_id = ?',
-        [groupId]
-      );
-      
-      // 删除群组
-      await connection.execute(
-        'DELETE FROM chat_groups WHERE id = ?',
+        'UPDATE chat_group_members SET deleted_at = NOW() WHERE group_id = ?',
         [groupId]
       );
       
@@ -5612,11 +6022,55 @@ app.post('/api/dissolve-group', async (req, res) => {
         }
       }
       
-      // console.log(`💥 群组 ${groupId} (${group.name}) 已被群主 ${userId} 解散，所有群消息已删除`);
+      // 获取当前时间
+      const now = new Date();
+      
+      // 获取群主信息
+      const [creatorInfo] = await pool.execute(
+        'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+        [userId]
+      );
+      
+      // 只添加一条群组解散消息，发送人是群主
+      const dissolvedContent = JSON.stringify({
+        groupName: group.name,
+        content: '群组已解散'
+      });
+      const [insertResult] = await pool.execute(
+        'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+        [userId, dissolvedContent, 100, groupId]
+      );
+      
+      // 构建100类型消息对象
+      const type100Message = {
+        id: insertResult.insertId,
+        userId: userId,
+        nickname: creatorInfo[0]?.nickname || '',
+        avatarUrl: creatorInfo[0]?.avatar_url || '',
+        content: dissolvedContent,
+        at_userid: null,
+        messageType: 100,
+        groupId: groupId,
+        timestamp: now.getTime(),
+        timestampISO: now.toISOString()
+      };
+      
+      // 向所有群组成员发送100类型消息
+      for (const member of members) {
+        io.to(`user_${member.user_id}`).emit('message-received', type100Message);
+      }
+      
+      // 构建群组解散事件数据
+      const groupDissolvedEvent = {
+        groupId: groupId,
+        groupName: group.name,
+        groupAvatarUrl: group.avatar_url,
+        timestamp: now.getTime()
+      };
       
       // 向所有群组成员发送解散事件
       for (const member of members) {
-        io.to(`user_${member.user_id}`).emit('group-dissolved', { groupId });
+        io.to(`user_${member.user_id}`).emit('group-dissolved', groupDissolvedEvent);
       }
       
       // 清除群组消息缓存
@@ -5652,7 +6106,7 @@ app.post('/api/update-group-name', async (req, res) => {
 
     // 检查用户是否是群主
     const [group] = await pool.execute(
-      'SELECT creator_id FROM chat_groups WHERE id = ?',
+      'SELECT creator_id FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
 
@@ -5666,7 +6120,7 @@ app.post('/api/update-group-name', async (req, res) => {
 
     // 更新群组名称
     await pool.execute(
-      'UPDATE chat_groups SET name = ? WHERE id = ?',
+      'UPDATE chat_groups SET name = ? WHERE id = ? AND deleted_at IS NULL',
       [newGroupName, groupId]
     );
 
@@ -5698,7 +6152,7 @@ app.post('/api/update-group-description', async (req, res) => {
 
     // 检查用户是否是群主
     const [group] = await pool.execute(
-      'SELECT creator_id FROM chat_groups WHERE id = ?',
+      'SELECT creator_id FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
 
@@ -5712,7 +6166,7 @@ app.post('/api/update-group-description', async (req, res) => {
 
     // 更新群组描述
     await pool.execute(
-      'UPDATE chat_groups SET description = ? WHERE id = ?',
+      'UPDATE chat_groups SET description = ? WHERE id = ? AND deleted_at IS NULL',
       [newDescription, groupId]
     );
 
@@ -5744,7 +6198,7 @@ app.post('/api/leave-group', async (req, res) => {
     
     // 检查用户是否在群组中
     const [memberResults] = await pool.execute(
-      'SELECT * FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      'SELECT * FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
       [groupId, userId]
     );
     
@@ -5754,7 +6208,7 @@ app.post('/api/leave-group', async (req, res) => {
     
     // 检查用户是否是群主
     const [groupResults] = await pool.execute(
-      'SELECT creator_id FROM chat_groups WHERE id = ?',
+      'SELECT creator_id FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
     

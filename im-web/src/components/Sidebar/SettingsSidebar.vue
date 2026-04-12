@@ -40,7 +40,8 @@ function handleSettingItemClick(settingId) {
             <ul class="settings-list">
                 <li class="settings-item" style="color: #999;">主题设置 <span style="color: #ff6b6b;">(未实现)</span></li>
                 <li class="settings-item" data-setting-id="shortcut-settings" @click="handleSettingItemClick('shortcut-settings')">快捷键</li>
-                <li class="settings-item" data-setting-id="reload-messages" @click="handleSettingItemClick('reload-messages')">重载消息</li>
+                <li class="settings-item" data-setting-id="clear-deleted-sessions" @click="handleSettingItemClick('clear-deleted-sessions')">清除已删除会话</li>
+                <li class="settings-item" data-setting-id="clear-unread-counts" @click="handleSettingItemClick('clear-unread-counts')">清除未读计数</li>
             </ul>
         </div>
         

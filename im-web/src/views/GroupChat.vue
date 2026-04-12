@@ -63,21 +63,28 @@
               v-for="(user, index) in filteredAtSuggestions" 
               :key="user.id"
               class="at-picker-item"
-              :class="{ selected: index === selectedAtIndex }"
+              :class="{ selected: index === selectedAtIndex, 'all-members': user.isAll }"
               @click="selectGroupAtUser(user)"
             >
               <div class="user-avatar-wrapper">
-                <component 
-                  :is="getAvatarIsImage(user) ? 'img' : 'div'"
-                  :src="getAvatarIsImage(user) ? getFullAvatarUrl(user) : undefined"
-                  :alt="user.nickname"
-                  class="user-avatar"
-                  :class="{ 'default-avatar': !getAvatarIsImage(user) }"
-                  @error="handleAvatarError(user.id)"
-                >
-                  {{ !getAvatarIsImage(user) ? getUserInitials(user) : '' }}
-                </component>
-                <div v-if="user.isOnline" class="online-indicator"></div>
+                <template v-if="user.isAll">
+                  <div class="all-members-avatar" style="width: 32px; height: 32px; border-radius: 50%; background-color: #4CAF50; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 12px;">
+                    全
+                  </div>
+                </template>
+                <template v-else>
+                  <component 
+                    :is="getAvatarIsImage(user) ? 'img' : 'div'"
+                    :src="getAvatarIsImage(user) ? getFullAvatarUrl(user) : undefined"
+                    :alt="user.nickname"
+                    class="user-avatar"
+                    :class="{ 'default-avatar': !getAvatarIsImage(user) }"
+                    @error="handleAvatarError(user.id)"
+                  >
+                    {{ !getAvatarIsImage(user) ? getUserInitials(user) : '' }}
+                  </component>
+                  <div v-if="user.isOnline" class="online-indicator"></div>
+                </template>
               </div>
               <span class="at-picker-nickname">{{ user.nickname }}</span>
             </div>
@@ -212,6 +219,16 @@
 .at-picker-item:hover,
 .at-picker-item.selected {
   background: #f5f5f5;
+}
+
+.at-picker-item.all-members {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  border-bottom: 2px solid #4CAF50;
+}
+
+.at-picker-item.all-members:hover,
+.at-picker-item.all-members.selected {
+  background: linear-gradient(135deg, #c8e6c9 0%, #a5d6a7 100%);
 }
 
 .user-avatar-wrapper {
@@ -482,66 +499,18 @@ function handleGroupMessageInputKeydown(e) {
     }
   }
   
-  if (e.key === 'Backspace' || e.key === 'Delete') {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    
-    const range = selection.getRangeAt(0);
-    let targetElement = null;
-    
-    if (e.key === 'Backspace') {
-      let node = range.startContainer;
-      while (node && node !== groupMessageInputRef.value) {
-        if (node.nodeType === Node.ELEMENT_NODE && node.classList && node.classList.contains('chat-at-user')) {
-          targetElement = node;
-          break;
-        }
-        if (node.previousSibling) {
-          node = node.previousSibling;
-          while (node && node.lastChild) {
-            node = node.lastChild;
-          }
-        } else {
-          node = node.parentNode;
-        }
+  // 删除键 - 参考 boxim 的做法，让浏览器默认行为处理删除 @用户元素
+  // 因为 @用户元素设置了 contentEditable='false'，浏览器会把它当作一个整体来处理
+  if (e.key === 'Backspace') {
+    // 等待DOM更新后检查是否为空
+    setTimeout(() => {
+      if (!groupMessageInputRef.value) return;
+      const s = groupMessageInputRef.value.innerHTML.trim();
+      // 空DOM时，需要刷新DOM
+      if (s === '' || s === '<br>' || s === '<div>&nbsp;</div>') {
+        clearContentEditable(groupMessageInputRef.value);
       }
-      if (!targetElement && range.startContainer.parentNode && range.startContainer.parentNode.classList && range.startContainer.parentNode.classList.contains('chat-at-user')) {
-        targetElement = range.startContainer.parentNode;
-      }
-      if (!targetElement && range.startOffset === 0 && range.startContainer.previousSibling && range.startContainer.previousSibling.nodeType === Node.ELEMENT_NODE && range.startContainer.previousSibling.classList && range.startContainer.previousSibling.classList.contains('chat-at-user')) {
-        targetElement = range.startContainer.previousSibling;
-      }
-    } else if (e.key === 'Delete') {
-      let node = range.endContainer;
-      while (node && node !== groupMessageInputRef.value) {
-        if (node.nodeType === Node.ELEMENT_NODE && node.classList && node.classList.contains('chat-at-user')) {
-          targetElement = node;
-          break;
-        }
-        if (node.nextSibling) {
-          node = node.nextSibling;
-          while (node && node.firstChild) {
-            node = node.firstChild;
-          }
-        } else {
-          node = node.parentNode;
-        }
-      }
-      if (!targetElement && range.endContainer.parentNode && range.endContainer.parentNode.classList && range.endContainer.parentNode.classList.contains('chat-at-user')) {
-        targetElement = range.endContainer.parentNode;
-      }
-      if (!targetElement && range.endOffset === range.endContainer.textContent.length && range.endContainer.nextSibling && range.endContainer.nextSibling.nodeType === Node.ELEMENT_NODE && range.endContainer.nextSibling.classList && range.endContainer.nextSibling.classList.contains('chat-at-user')) {
-        targetElement = range.endContainer.nextSibling;
-      }
-    }
-    
-    if (targetElement) {
-      e.preventDefault();
-      const parent = targetElement.parentNode;
-      parent.removeChild(targetElement);
-      chatStore.groupMessageInput = groupMessageInputRef.value.innerHTML;
-      return;
-    }
+    }, 0);
   }
   
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
@@ -725,20 +694,44 @@ function handleGroupMessageInput() {
             const members = groupMembers.value || [];
             const onlineUserIds = new Set((chatStore.onlineUsers || []).map(user => String(user.id)));
             
-            atSuggestions.value = members
-              .filter(member => member)
-              .map(member => {
-                const userId = member.userId || member.id;
-                const isOnline = onlineUserIds.has(String(userId));
-                return {
-                  id: userId,
-                  nickname: member.nickname || member.name || '未知成员',
-                  username: member.nickname || member.name || String(userId),
-                  avatarUrl: member.avatarUrl || member.avatar_url || null,
-                  isOnline: isOnline
-                };
-              })
-              .filter(u => u.username);
+            // 先检查当前用户是否是群主
+            const isOwner = currentGroupInfo.value && 
+                           currentUserId.value && 
+                           (String(currentGroupInfo.value.ownerId) === String(currentUserId.value) || 
+                            String(currentGroupInfo.value.owner_id) === String(currentUserId.value) ||
+                            String(currentGroupInfo.value.creator_id) === String(currentUserId.value));
+            
+            atSuggestions.value = [];
+            
+            // 如果是群主，添加"全体成员"选项在最前面
+            if (isOwner) {
+              atSuggestions.value.push({
+                id: -1,
+                nickname: '全体成员',
+                username: '全体成员',
+                avatarUrl: null,
+                isOnline: true,
+                isAll: true
+              });
+            }
+            
+            // 添加普通成员
+            atSuggestions.value = atSuggestions.value.concat(
+              members
+                .filter(member => member)
+                .map(member => {
+                  const userId = member.userId || member.id;
+                  const isOnline = onlineUserIds.has(String(userId));
+                  return {
+                    id: userId,
+                    nickname: member.nickname || member.name || '未知成员',
+                    username: member.nickname || member.name || String(userId),
+                    avatarUrl: member.avatarUrl || member.avatar_url || null,
+                    isOnline: isOnline
+                  };
+                })
+                .filter(u => u.username)
+            );
             
             // 过滤建议 - 根据输入的文字匹配
             const searchText = textAfterAt.toLowerCase();
@@ -750,7 +743,10 @@ function handleGroupMessageInput() {
                   
                   // 计算匹配分数
                   let score = 0;
-                  if (nicknameLower === searchText || usernameLower === searchText) {
+                  if (user.isAll) {
+                    // 全体成员始终有高分数
+                    score = 200;
+                  } else if (nicknameLower === searchText || usernameLower === searchText) {
                     score = 100; // 完全匹配
                   } else if (nicknameLower.startsWith(searchText) || usernameLower.startsWith(searchText)) {
                     score = 80; // 开头匹配
@@ -764,15 +760,19 @@ function handleGroupMessageInput() {
                 })
                 .filter(user => user.score > 0)
                 .sort((a, b) => {
-                  // 优先按在线状态排序（在线在上）
-                  if (a.isOnline !== b.isOnline) {
-                    return b.isOnline ? 1 : -1;
+                  // 全体成员始终排在最前面
+                  if (a.isAll !== b.isAll) {
+                    return a.isAll ? -1 : 1;
                   }
                   // 然后按匹配分数排序
                   return b.score - a.score;
                 });
             } else {
               filteredAtSuggestions.value = [...atSuggestions.value].sort((a, b) => {
+                // 全体成员始终排在最前面
+                if (a.isAll !== b.isAll) {
+                  return a.isAll ? -1 : 1;
+                }
                 // 优先按在线状态排序（在线在上）
                 if (a.isOnline !== b.isOnline) {
                   return b.isOnline ? 1 : -1;
@@ -780,6 +780,8 @@ function handleGroupMessageInput() {
                 return 0;
               });
             }
+            
+
             
             // 在过滤完成后计算位置
             if (filteredAtSuggestions.value.length > 0) {
@@ -848,6 +850,13 @@ function handleGroupInfoClick() {
     toast.warning('请先选择一个群组');
     return;
   }
+  
+  const currentGroup = chatStore.groupsList.find(g => String(g.id) === String(chatStore.currentGroupId));
+  if (currentGroup && currentGroup.deleted_at != null) {
+    chatStore.openModal('groupInfo', currentGroup);
+    return;
+  }
+  
   const user = chatStore.currentUser;
   const sessionToken = chatStore.currentSessionToken;
   
@@ -911,14 +920,6 @@ function selectGroupAtUser(user) {
       range.setStartAfter(element);
       range.collapse(true);
       
-      // 插入普通空格
-      const textNodeSpace = document.createTextNode(' ');
-      range.insertNode(textNodeSpace);
-      
-      // 设置光标位置在空格后面
-      range.setStartAfter(textNodeSpace);
-      range.collapse(true);
-      
       // 立即设置光标位置
       selection.removeAllRanges();
       selection.addRange(range);
@@ -969,14 +970,6 @@ function selectGroupAtUser(user) {
         
         // 光标移动到元素后面
         range.setStartAfter(element);
-        range.collapse(true);
-        
-        // 插入普通空格
-        const textNodeSpace = document.createTextNode(' ');
-        range.insertNode(textNodeSpace);
-        
-        // 设置光标位置在空格后面
-        range.setStartAfter(textNodeSpace);
         range.collapse(true);
         
         // 立即设置光标位置

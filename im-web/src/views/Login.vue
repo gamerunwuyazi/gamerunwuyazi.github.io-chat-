@@ -55,12 +55,101 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { login } from "@/utils/chat";
 import VueTurnstile from 'vue-turnstile';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
+
+// 调试函数：使用自动登录Token登录
+async function autoLoginWithTokenFunc(autoLoginToken) {
+  if (!autoLoginToken) {
+    console.error('请提供autoLoginToken');
+    return;
+  }
+
+  try {
+    const loginResponse = await fetch(`${SERVER_URL}/api/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        autoLoginToken: autoLoginToken
+      })
+    });
+
+    const loginResponseText = await loginResponse.text();
+
+    let loginData;
+    try {
+      loginData = JSON.parse(loginResponseText);
+    } catch (parseError) {
+      console.error('登录响应解析失败');
+      return;
+    }
+
+    if (!(loginData.success || loginData.status === 'success' || loginData.code === 200)) {
+      const errorMessage = loginData.message || loginData.msg || '自动登录失败';
+      console.error(errorMessage);
+      return;
+    }
+
+    const userId = loginData.userId || (loginData.user && loginData.user.id) || (loginData.data && loginData.data.id) || '';
+    const nickname = loginData.nickname || (loginData.user && loginData.user.nickname) || (loginData.data && loginData.data.nickname) || '';
+    const signature = loginData.signature || (loginData.user && loginData.user.signature) || (loginData.data && loginData.data.signature) || '';
+    const avatarUrl = loginData.avatarUrl || (loginData.user && loginData.user.avatarUrl) || (loginData.data && loginData.data.avatarUrl) || (loginData.user && loginData.user.avatar) || (loginData.data && loginData.data.avatar) || null;
+    const gender = loginData.gender || (loginData.user && loginData.user.gender) || (loginData.data && loginData.data.gender) || 0;
+    const sessionToken = loginData.sessionToken || loginData.token || loginData.session_token;
+    const refreshToken = loginData.refreshToken || loginData.refresh_token;
+
+    if (!userId || !sessionToken) {
+      console.error('登录响应数据不完整');
+      return;
+    }
+
+    const userData = {
+      id: userId ? String(userId) : '',
+      nickname: nickname,
+      signature: signature,
+      gender: gender,
+      avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
+    };
+
+    localStorage.setItem('currentUser', JSON.stringify(userData));
+    localStorage.setItem('currentSessionToken', sessionToken);
+    localStorage.setItem('userId', userData.id);
+    localStorage.setItem('chatUserId', userData.id);
+    localStorage.setItem('chatUserNickname', userData.nickname);
+    localStorage.setItem('chatUserGender', String(userData.gender || 0));
+    
+    if (refreshToken) {
+      localStorage.setItem('refreshToken', refreshToken);
+    }
+
+    console.log('自动登录成功，正在跳转...');
+    setTimeout(() => {
+      login();
+    }, 500);
+  } catch (error) {
+    console.error('自动登录请求失败:', error);
+  }
+}
+
+// 在开发环境的登录页面挂载时添加全局函数，卸载时移除
+if (import.meta.env.DEV) {
+  onMounted(() => {
+    window.autoLoginWithToken = autoLoginWithTokenFunc;
+    console.log('调试函数已加载：window.autoLoginWithToken(autoLoginToken)');
+  });
+  
+  onUnmounted(() => {
+    delete window.autoLoginWithToken;
+  });
+} else {
+  window.autoLoginWithToken = undefined;
+}
 
 const formData = reactive({
   username: '',
