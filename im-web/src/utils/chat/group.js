@@ -1009,9 +1009,6 @@ function switchToGroupChat(groupId, groupName) {
     if (typeof window.updateUnreadCountsDisplay === 'function') {
         window.updateUnreadCountsDisplay();
     }
-    if (typeof window.updateTitleWithUnreadCount === 'function') {
-        window.updateTitleWithUnreadCount();
-    }
     
     const hasMessages = store && store.groupMessages && store.groupMessages[groupId] && store.groupMessages[groupId].length > 0;
     window.switchingGroupWithExistingMessages = hasMessages;

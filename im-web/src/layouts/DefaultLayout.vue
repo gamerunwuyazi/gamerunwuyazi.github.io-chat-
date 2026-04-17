@@ -17,7 +17,7 @@
 import { onMounted, watch } from "vue";
 import { useRoute } from "vue-router";
 import { useChatStore } from "@/stores/chatStore";
-import { initChatStore, setActiveChat, updateTitleWithUnreadCount } from "@/utils/chat";
+import { initChatStore, setActiveChat } from "@/utils/chat";
 import ChatSidebar from "@/components/ChatSidebar.vue"
 import ChatModal from "@/components/ChatModal.vue";
 

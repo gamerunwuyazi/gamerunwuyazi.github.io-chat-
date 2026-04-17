@@ -85,9 +85,6 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
   if (typeof window.updateUnreadCountsDisplay === 'function') {
     window.updateUnreadCountsDisplay();
   }
-  if (typeof window.updateTitleWithUnreadCount === 'function') {
-    window.updateTitleWithUnreadCount();
-  }
   
   const hasMessages = store && store.privateMessages && store.privateMessages[userId] && store.privateMessages[userId].length > 0;
 }
@@ -131,9 +128,6 @@ function initializePrivateChatInterface() {
         delete unreadMessages.private[currentPrivateChatUserId];
         if (typeof window.updateUnreadCountsDisplay === 'function') {
           window.updateUnreadCountsDisplay();
-        }
-        if (typeof window.updateTitleWithUnreadCount === 'function') {
-          window.updateTitleWithUnreadCount();
         }
       }
     });
@@ -860,6 +854,34 @@ function displaySearchResults(users) {
   });
 }
 
+function getMutedPrivateChats() {
+    const mutedPrivateChats = localStorage.getItem('mutedPrivateChats');
+    return mutedPrivateChats ? JSON.parse(mutedPrivateChats) : [];
+}
+
+function isPrivateMuted(userId) {
+    const mutedPrivateChats = getMutedPrivateChats();
+    return mutedPrivateChats.includes(userId.toString());
+}
+
+function togglePrivateMute(userId) {
+    const mutedPrivateChats = getMutedPrivateChats();
+    const userIdStr = userId.toString();
+    let updatedChats;
+
+    if (mutedPrivateChats.includes(userIdStr)) {
+        updatedChats = mutedPrivateChats.filter(id => id !== userIdStr);
+        console.log(`🔔 取消私信免打扰 - 用户ID: ${userId}`);
+    } else {
+        updatedChats = [...mutedPrivateChats, userIdStr];
+        console.log(`🔕 设置私信免打扰 - 用户ID: ${userId}`);
+    }
+
+    localStorage.setItem('mutedPrivateChats', JSON.stringify(updatedChats));
+    updateUnreadCountsDisplay();
+    return !mutedPrivateChats.includes(userIdStr);
+}
+
 export {
   initializeFriendsListListeners,
   switchToPrivateChat,
@@ -875,5 +897,8 @@ export {
   initializeUserProfileModal,
   initializeUserSearch,
   searchUsers,
-  displaySearchResults
+  displaySearchResults,
+  getMutedPrivateChats,
+  isPrivateMuted,
+  togglePrivateMute
 };

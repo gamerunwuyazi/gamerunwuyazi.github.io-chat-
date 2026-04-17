@@ -4,7 +4,6 @@ import {
   unreadMessages,
   syncCurrentActiveChat
 } from './store.js';
-import { unescapeHtml } from './message.js';
 import { websocketModule } from './index.js';
 import { loadFriendsList, showUserAvatarPopup } from './private.js';
 import { 
@@ -23,8 +22,6 @@ import {
 } from './websocket.js';
 import modal from '../modal.js';
 
-let originalTitle = document.title;
-let isPageVisible = !document.hidden;
 let currentActiveChat = 'main';
 let currentGroupId = null;
 
@@ -34,12 +31,50 @@ function logout() {
     websocketModule.disconnectWebSocket();
   }
   
+  // 清空所有 store 状态
+  if (typeof window.resetAllStores === 'function') {
+    window.resetAllStores();
+  }
+  
+  // 清空 storage 模块的缓存
+  const store = window.chatStore;
+  if (store && store.clearAllCache) {
+    store.clearAllCache();
+  }
+  
+  // 获取当前用户ID，用于清理用户相关的 localStorage 数据
+  const currentUserStr = localStorage.getItem('currentUser');
+  let userId = null;
+  if (currentUserStr) {
+    try {
+      const currentUser = JSON.parse(currentUserStr);
+      userId = currentUser.id;
+    } catch (e) {}
+  }
+  if (!userId) {
+    userId = localStorage.getItem('chatUserId') || localStorage.getItem('userId');
+  }
+  
+  // 清理用户相关的 localStorage 数据
+  if (userId) {
+    localStorage.removeItem(`groups_with_at_me_${userId}`);
+    localStorage.removeItem(`unread_counts_${userId}`);
+  }
+  
+  // 清理通用的 localStorage 数据
   localStorage.removeItem('currentUser');
   localStorage.removeItem('currentSessionToken');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('chatUserId');
   localStorage.removeItem('chatUserNickname');
   localStorage.removeItem('chatUserGender');
+  localStorage.removeItem('userId');
+  localStorage.removeItem('nickname');
+  localStorage.removeItem('sessionToken');
+  localStorage.removeItem('chatSessionToken');
+  localStorage.removeItem('mutedGroups');
+  localStorage.removeItem('mutedPrivateChats');
+  
   window.router.push('/login');
 }
 let currentGroupName = '';
@@ -672,42 +707,13 @@ function showSuccess(message) {
   toast.success(message);
 }
 
-// ---------- 更新标题未读数 ----------
-// 来源: 显示错误消息.txt
-function updateTitleWithUnreadCount() {
-  let totalUnread = unreadMessages.global;
-
-  // 累加所有群组的未读消息数
-  for (const groupId in unreadMessages.groups) {
-    const groupUnread = unreadMessages.groups[groupId] || 0;
-    totalUnread += groupUnread;
-  }
-
-  // 累加所有私信的未读消息数
-  for (const userId in unreadMessages.private) {
-    const privateUnread = unreadMessages.private[userId] || 0;
-    totalUnread += privateUnread;
-  }
-
-  // 更新页面标题，格式：（X条未读）简易聊天室
-  if (totalUnread > 0) {
-    document.title = `（${totalUnread}条未读）${originalTitle}`;
-  } else {
-    document.title = originalTitle;
-  }
-
-  // 更新未读计数显示
-  updateUnreadCountsDisplay();
-}
-
 // ---------- 页面可见性处理 ----------
 // 来源: 显示错误消息.txt
 function handlePageVisibilityChange() {
-  isPageVisible = !document.hidden;
   const store = window.chatStore;
 
   // 页面从不可见变为可见时，只清除当前活动会话的未读计数
-  if (isPageVisible) {
+  if (!document.hidden) {
     const chat = currentActiveChat || window.currentActiveChat || '';
     if (typeof chat !== 'string') {
       return;
@@ -740,18 +746,16 @@ function handlePageVisibilityChange() {
       }
     }
 
-    // 更新未读计数显示和标题
+    // 更新未读计数显示
     updateUnreadCountsDisplay();
-    updateTitleWithUnreadCount();
   }
 }
 
 function handleFocusChange() {
-  isPageVisible = document.hasFocus();
   const store = window.chatStore;
 
   // 页面获得焦点时，只清除当前活动会话的未读计数
-  if (isPageVisible) {
+  if (document.hasFocus()) {
     const chat = currentActiveChat || window.currentActiveChat || '';
     if (typeof chat !== 'string') {
       return;
@@ -784,9 +788,8 @@ function handleFocusChange() {
       }
     }
 
-    // 更新未读计数显示和标题
+    // 更新未读计数显示
     updateUnreadCountsDisplay();
-    updateTitleWithUnreadCount();
   }
 }
 
@@ -893,7 +896,6 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
     }
     if (clearUnread && store && store.clearGlobalUnread) {
       store.clearGlobalUnread();
-      updateTitleWithUnreadCount();
     }
   } else if (chatType === 'group' && id) {
     currentActiveChat = `group_${id}`;
@@ -907,7 +909,6 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
     }
     if (clearUnread && store && store.clearGroupUnread) {
       store.clearGroupUnread(id);
-      updateTitleWithUnreadCount();
     }
   } else if (chatType === 'private' && id) {
     currentActiveChat = `private_${id}`;
@@ -921,7 +922,6 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
     }
     if (clearUnread && store && store.clearPrivateUnread) {
       store.clearPrivateUnread(id);
-      updateTitleWithUnreadCount();
     }
   }
 }
@@ -942,7 +942,6 @@ function setActiveChatDirect(chatType, id = null, clearUnread = false) {
     }
     if (clearUnread && store && store.clearGlobalUnread) {
       store.clearGlobalUnread();
-      updateTitleWithUnreadCount();
     }
   } else if (chatType === 'group' && id) {
     currentActiveChat = `group_${id}`;
@@ -955,7 +954,6 @@ function setActiveChatDirect(chatType, id = null, clearUnread = false) {
     }
     if (clearUnread && store && store.clearGroupUnread) {
       store.clearGroupUnread(id);
-      updateTitleWithUnreadCount();
     }
   } else if (chatType === 'private' && id) {
     currentActiveChat = `private_${id}`;
@@ -968,7 +966,6 @@ function setActiveChatDirect(chatType, id = null, clearUnread = false) {
     }
     if (clearUnread && store && store.clearPrivateUnread) {
       store.clearPrivateUnread(id);
-      updateTitleWithUnreadCount();
     }
   }
 }
@@ -1276,7 +1273,6 @@ function _syncToStore() {
   store.currentActiveChat = currentActiveChat;
   store.currentSendChatType = currentSendChatType;
   store.selectedGroupIdForCard = selectedGroupIdForCard;
-  store.isPageVisible = isPageVisible;
   store.hasReceivedHistory = hasReceivedHistory;
   store.hasReceivedGroupHistory = hasReceivedGroupHistory;
   store.hasReceivedPrivateHistory = hasReceivedPrivateHistory;
@@ -1464,7 +1460,6 @@ export {
   initSidebarToggle,
   showError,
   showSuccess,
-  updateTitleWithUnreadCount,
   handlePageVisibilityChange,
   handleFocusChange,
   updateUnreadCountsDisplay,
@@ -1481,8 +1476,6 @@ export {
   hideContextMenu,
   updateGroupMuteIcon,
   updateGroupListDisplay,
-  originalTitle,
-  isPageVisible,
   currentActiveChat,
   currentGroupId,
   currentGroupName,

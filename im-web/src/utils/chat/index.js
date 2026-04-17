@@ -188,7 +188,6 @@ export const {
   initSidebarToggle,
   showError,
   showSuccess,
-  updateTitleWithUnreadCount,
   handlePageVisibilityChange,
   handleFocusChange,
   updateUnreadCountsDisplay,
@@ -204,8 +203,6 @@ export const {
   hideContextMenu,
   updateGroupMuteIcon,
   updateGroupListDisplay,
-  originalTitle,
-  isPageVisible,
   currentActiveChat,
   currentGroupId,
   currentGroupName,
@@ -257,6 +254,8 @@ if (typeof window !== 'undefined') {
   window.showUserProfile = privateModule.showUserProfile;
   window.showUserAvatarPopup = privateModule.showUserAvatarPopup;
   window.addFriend = privateModule.addFriend;
+  window.isPrivateMuted = privateModule.isPrivateMuted;
+  window.togglePrivateMute = privateModule.togglePrivateMute;
   
   window.switchToGroupChat = groupModule.switchToGroupChat;
   window.joinGroupWithToken = groupModule.joinGroupWithToken;
@@ -268,7 +267,6 @@ if (typeof window !== 'undefined') {
   
   window.openModal = uiModule.openModal;
   window.closeModal = uiModule.closeModal;
-  window.updateTitleWithUnreadCount = uiModule.updateTitleWithUnreadCount;
   window.updateUnreadCountsDisplay = uiModule.updateUnreadCountsDisplay;
   window.setActiveChat = uiModule.setActiveChat;
   window.currentActiveChat = uiModule.currentActiveChat;
@@ -284,8 +282,6 @@ if (typeof window !== 'undefined') {
   window.currentPrivateChatNickname = uiModule.currentPrivateChatNickname;
   window.currentSendChatType = uiModule.currentSendChatType;
   window.selectedGroupIdForCard = uiModule.selectedGroupIdForCard;
-  window.originalTitle = uiModule.originalTitle;
-  window.isPageVisible = uiModule.isPageVisible;
   
   window.isConnected = websocketModule.isConnected;
 }

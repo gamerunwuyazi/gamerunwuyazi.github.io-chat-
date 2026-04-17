@@ -11,12 +11,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useChatStore } from '@/stores/chatStore'
 import { initializeChat, initChatStore } from "@/utils/chat"
 
 const userLoggedIn = ref(false)
 const chatStore = useChatStore()
+const originalTitle = ref(document.title)
 
 function checkLoginStatus() {
   const currentUser = localStorage.getItem('currentUser')
@@ -41,9 +42,48 @@ onMounted(() => {
   checkLoginStatus()
   
   if (userLoggedIn.value) {
-   initializeChat()
+  	initializeChat()
   }
 })
+
+watch(
+  () => chatStore.unreadMessages,
+  (unreadMessages) => {
+    if (!unreadMessages) return
+    
+    let totalUnread = unreadMessages.global || 0
+    
+    if (unreadMessages.groups) {
+      for (const groupId in unreadMessages.groups) {
+        totalUnread += unreadMessages.groups[groupId] || 0
+      }
+    }
+    
+    // 获取免打扰私信列表
+    let mutedPrivateChats = []
+    try {
+      mutedPrivateChats = JSON.parse(localStorage.getItem('mutedPrivateChats') || '[]')
+    } catch {
+      mutedPrivateChats = []
+    }
+    
+    if (unreadMessages.private) {
+      for (const userId in unreadMessages.private) {
+        // 排除免打扰私信会话的未读计数
+        if (!mutedPrivateChats.includes(userId)) {
+          totalUnread += unreadMessages.private[userId] || 0
+        }
+      }
+    }
+    
+    if (totalUnread > 0) {
+      document.title = `（${totalUnread}条未读）${originalTitle.value}`
+    } else {
+      document.title = originalTitle.value
+    }
+  },
+  { deep: true, immediate: true }
+)
 </script>
 
 <style scoped>

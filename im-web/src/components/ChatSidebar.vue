@@ -49,19 +49,43 @@ const publicUnreadCount = computed(() => {
 
 const groupUnreadCount = computed(() => {
   if (!chatStore.unreadMessages?.groups) return 0;
+  
+  // 获取免打扰群组列表
+  let mutedGroups = [];
+  try {
+    mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
+  } catch {
+    mutedGroups = [];
+  }
+  
   let total = 0;
-  Object.values(chatStore.unreadMessages.groups).forEach(count => {
-    total += count || 0;
-  });
+  for (const groupId in chatStore.unreadMessages.groups) {
+    // 排除免打扰群组会话的未读计数
+    if (!mutedGroups.includes(groupId)) {
+      total += chatStore.unreadMessages.groups[groupId] || 0;
+    }
+  }
   return total;
 });
 
 const privateUnreadCount = computed(() => {
   if (!chatStore.unreadMessages?.private) return 0;
+  
+  // 获取免打扰私信列表
+  let mutedPrivateChats = [];
+  try {
+    mutedPrivateChats = JSON.parse(localStorage.getItem('mutedPrivateChats') || '[]');
+  } catch {
+    mutedPrivateChats = [];
+  }
+  
   let total = 0;
-  Object.values(chatStore.unreadMessages.private).forEach(count => {
-    total += count || 0;
-  });
+  for (const userId in chatStore.unreadMessages.private) {
+    // 排除免打扰私信会话的未读计数
+    if (!mutedPrivateChats.includes(userId)) {
+      total += chatStore.unreadMessages.private[userId] || 0;
+    }
+  }
   return total;
 });
 

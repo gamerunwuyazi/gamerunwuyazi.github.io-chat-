@@ -10,7 +10,6 @@ import {
 import { unescapeHtml } from './message.js';
 import { 
   updateUnreadCountsDisplay, 
-  updateTitleWithUnreadCount, 
   currentGroupId, 
   currentActiveChat, 
   logout,
@@ -113,6 +112,24 @@ function initializeWebSocket() {
         disableMessageSending();
     });
 
+    // 重连成功事件 - 通过 Manager 对象监听
+    socket.io.on('reconnect', async (attemptNumber) => {
+        const currentUser = getCurrentUser();
+        const currentSessionToken = getCurrentSessionToken();
+        
+        if (currentUser && currentSessionToken) {
+            // 重连成功后拉取离线消息
+            const store = window.chatStore;
+            if (store && store.fetchAndMergeOfflineMessages) {
+                try {
+                    await store.fetchAndMergeOfflineMessages(false);
+                } catch (err) {
+                    console.error('重连后拉取离线消息失败:', err);
+                }
+            }
+        }
+    });
+
     // 接收消息事件
     socket.on('message-received', async (message) => {
         // 检查消息中是否包含新的会话令牌
@@ -122,7 +139,7 @@ function initializeWebSocket() {
         }
 
         const store = window.chatStore;
-        const isPageVisible = window.isPageVisible !== false;
+        const isPageVisible = !document.hidden;
         const isBrowserFocused = document.hasFocus();
         const pageVisible = isPageVisible && isBrowserFocused;
         
@@ -303,10 +320,6 @@ function initializeWebSocket() {
                     group.last_message_time = newTime;
                     group.lastMessage = message;
                     store.sortGroupsByLastMessageTime();
-                    // 保存到 localStorage
-                    if (store.saveGroupLastMessageTime) {
-                        store.saveGroupLastMessageTime(message.groupId, newTime);
-                    }
                 }
             }
             
@@ -327,7 +340,6 @@ function initializeWebSocket() {
                     store.incrementGroupUnread(message.groupId);
                 }
                 updateUnreadCountsDisplay();
-                updateTitleWithUnreadCount();
             }
             
             // 如果用户当前正在该群组聊天中且浏览器有焦点且页面可见，自动清除未读
@@ -377,7 +389,6 @@ function initializeWebSocket() {
                     store.incrementGlobalUnread();
                 }
                 updateUnreadCountsDisplay();
-                updateTitleWithUnreadCount();
             }
             
             // 如果用户当前正在主聊天室路由且浏览器有焦点且页面可见，自动清除未读
@@ -466,15 +477,9 @@ function initializeWebSocket() {
     socket.on('group-created', async (data) => {
         // 加载群组列表
         loadGroupList();
-        // 保存群组创建时间到最后消息时间记录
+        // 保存群组名称和头像到 IndexedDB
         if (data && data.groupId) {
             const store = window.chatStore;
-            if (store && store.saveGroupLastMessageTime) {
-                const createTime = new Date().toISOString();
-                store.saveGroupLastMessageTime(data.groupId, createTime);
-            }
-            
-            // 保存群组名称和头像到 IndexedDB
             try {
                 const userId = store.currentUser?.id || 'guest';
                 const prefix = `chats-${userId}`;
@@ -495,13 +500,6 @@ function initializeWebSocket() {
     socket.on('group-deleted', (data) => {
         // 加载群组列表
         loadGroupList();
-        // 清除群组的最后消息时间记录
-        if (data && data.groupId) {
-            const store = window.chatStore;
-            if (store && store.deleteGroupLastMessageTime) {
-                store.deleteGroupLastMessageTime(data.groupId);
-            }
-        }
     });
 
     // 群组解散事件
@@ -619,11 +617,6 @@ function initializeWebSocket() {
                     if (friend && friend.deleted_at) {
                         delete friend.deleted_at;
                     }
-                }
-                
-                if (store.saveFriendLastMessageTime) {
-                    const addTime = new Date(data.timestamp || Date.now()).toISOString();
-                    store.saveFriendLastMessageTime(data.friendId, addTime);
                 }
             }
         }
@@ -989,7 +982,6 @@ function initializeWebSocket() {
             }
 
             updateUnreadCountsDisplay();
-            updateTitleWithUnreadCount();
         } else if (data.type === 'group') {
             // 群组消息 - 完全复刻 group-chat-history 事件
             const groupId = data.groupId || currentGroupId;
@@ -1021,7 +1013,6 @@ function initializeWebSocket() {
                 store.clearGroupUnread(groupId);
             }
             updateUnreadCountsDisplay();
-            updateTitleWithUnreadCount();
         } else if (data.type === 'private') {
             // 私信消息 - 完全复刻 private-chat-history 事件
             
@@ -1069,7 +1060,6 @@ function initializeWebSocket() {
                 store.clearPrivateUnread(userId);
             }
             updateUnreadCountsDisplay();
-            updateTitleWithUnreadCount();
         }
     });
 
@@ -1160,7 +1150,6 @@ function initializeWebSocket() {
 
         // 更新未读计数显示
         updateUnreadCountsDisplay();
-        updateTitleWithUnreadCount();
     });
 
     // 用户加入聊天室响应事件
@@ -1179,7 +1168,6 @@ function initializeWebSocket() {
 
         // 更新未读计数显示
         updateUnreadCountsDisplay();
-        updateTitleWithUnreadCount();
     });
 
     // 登录成功响应事件
@@ -1514,7 +1502,7 @@ function initializeWebSocket() {
         // 如果当前正在该私信聊天中，自动将好友移到列表顶部
         // 条件：页面可见 + 当前聊天是私聊页面 + 消息是当前私聊对象发来的
         const store = window.chatStore;
-        const pageVisible = (window.isPageVisible !== undefined ? window.isPageVisible : true) && document.hasFocus();
+        const pageVisible = !document.hidden && document.hasFocus();
         
         if (message.id && store && store.privateMinId !== undefined) {
             if (message.id > store.privateMinId) {
@@ -1539,10 +1527,6 @@ function initializeWebSocket() {
                 friend.last_message_time = newTime;
                 friend.lastMessage = message;
                 store.sortFriendsByLastMessageTime();
-                // 保存到 localStorage
-                if (store.saveFriendLastMessageTime) {
-                    store.saveFriendLastMessageTime(chatPartnerId, newTime);
-                }
             }
         }
 
@@ -1553,7 +1537,7 @@ function initializeWebSocket() {
         // 更新未读计数
         // 如果页面不可见，或者用户不在当前私信聊天中，或者浏览器没有焦点，添加未读计数
         // 排除自己发送的消息，排除101撤回消息和103已读回执消息
-        const isPageInvisible = window.isPageVisible === false;
+        const isPageInvisible = document.hidden;
         const isBrowserNotFocused = !document.hasFocus();
         const isCurrentPrivateChat = currentActiveChat === `private_${chatPartnerId}`;
         
@@ -1567,7 +1551,9 @@ function initializeWebSocket() {
                 store.incrementPrivateUnread(chatPartnerId);
             }
             updateUnreadCountsDisplay();
-            updateTitleWithUnreadCount();
+        } else if (!isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && isCurrentPrivateChat && !isPageInvisible && !isBrowserNotFocused) {
+            // 用户正在当前私信聊天中且页面可见且浏览器有焦点，自动发送已读事件
+            sendReadMessageEvent('private', { friendId: chatPartnerId });
         }
         
         // 如果用户当前正在该私信聊天中且浏览器有焦点且页面可见，自动清除未读

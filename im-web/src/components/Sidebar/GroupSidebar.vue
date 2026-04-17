@@ -101,10 +101,12 @@ function toggleGroupMute(groupId) {
   const index = mutedGroups.indexOf(String(groupId));
   
   if (index === -1) {
-    // 添加到免打扰列表
     mutedGroups.push(String(groupId));
+    // 设置免打扰时清除该群组会话的未读计数
+    if (chatStore.clearGroupUnread) {
+      chatStore.clearGroupUnread(groupId);
+    }
   } else {
-    // 从免打扰列表移除
     mutedGroups.splice(index, 1);
   }
   

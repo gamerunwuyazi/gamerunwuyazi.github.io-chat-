@@ -1,6 +1,6 @@
 <script setup>
 /* eslint-disable vue/multi-word-component-names */
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from '@/stores/chatStore';
 
 const chatStore = useChatStore();
@@ -9,8 +9,54 @@ onMounted(() => {
   window.chatStore = chatStore;
 });
 
+onUnmounted(() => {
+  document.removeEventListener('click', hideContextMenu);
+  document.removeEventListener('contextmenu', hideContextMenu);
+  window.removeEventListener('scroll', hideContextMenu, true);
+});
+
 // 私信搜索状态
 const privateChatSearchKeyword = ref('');
+
+// 右键菜单相关
+const showContextMenu = ref(false);
+const contextMenuPosition = ref({ x: 0, y: 0 });
+const currentContextMenuFriend = ref(null);
+
+// 获取免打扰私信列表
+function getMutedPrivateChats() {
+  try {
+    return JSON.parse(localStorage.getItem('mutedPrivateChats') || '[]');
+  } catch {
+    return [];
+  }
+}
+
+// 检查私信是否被免打扰
+function isPrivateMuted(userId) {
+  const mutedPrivateChats = getMutedPrivateChats();
+  return mutedPrivateChats.includes(String(userId));
+}
+
+// 切换私信免打扰
+function togglePrivateMute(userId) {
+  const mutedPrivateChats = getMutedPrivateChats();
+  const index = mutedPrivateChats.indexOf(String(userId));
+  
+  if (index === -1) {
+    mutedPrivateChats.push(String(userId));
+    // 设置免打扰时清除该会话的未读计数
+    if (chatStore.clearPrivateUnread) {
+      chatStore.clearPrivateUnread(userId);
+    }
+  } else {
+    mutedPrivateChats.splice(index, 1);
+  }
+  
+  localStorage.setItem('mutedPrivateChats', JSON.stringify(mutedPrivateChats));
+  
+  hideContextMenu();
+}
 
 
 
@@ -83,10 +129,42 @@ function clearPrivateChatSearch() {
 
 // 处理好友点击
 function handleFriendClick(friend) {
+  hideContextMenu();
   if (window.switchToPrivateChat) {
     const avatarUrl = friend.avatarUrl || friend.avatar_url || friend.avatar || '';
     window.switchToPrivateChat(friend.id, friend.nickname, friend.username, avatarUrl);
   }
+}
+
+// 处理好友右键点击
+function handleFriendRightClick(event, friend) {
+  event.preventDefault();
+  event.stopPropagation();
+  
+  hideContextMenu();
+  
+  currentContextMenuFriend.value = friend;
+  contextMenuPosition.value = {
+    x: event.clientX,
+    y: event.clientY
+  };
+  showContextMenu.value = true;
+  
+  setTimeout(() => {
+    document.addEventListener('click', hideContextMenu);
+    document.addEventListener('contextmenu', hideContextMenu);
+    window.addEventListener('scroll', hideContextMenu, true);
+  }, 0);
+}
+
+// 隐藏右键菜单
+function hideContextMenu() {
+  showContextMenu.value = false;
+  currentContextMenuFriend.value = null;
+  
+  document.removeEventListener('click', hideContextMenu);
+  document.removeEventListener('contextmenu', hideContextMenu);
+  window.removeEventListener('scroll', hideContextMenu, true);
 }
 
 // 处理用户头像点击
@@ -145,7 +223,8 @@ function handleSearchUserClick() {
                     :data-user-id="friend.id"
                     :data-user-nickname="friend.nickname"
                     :class="{ 'deleted-item': friend.deleted_at }"
-                    @click="handleFriendClick(friend)">
+                    @click="handleFriendClick(friend)"
+                    @contextmenu.prevent="handleFriendRightClick($event, friend)">
                     <span class="user-avatar-wrapper" @click.stop="handleUserAvatarClick($event, friend)">
                         <span v-if="getAvatarUrl(friend) && !isSvgAvatar(getAvatarUrl(friend))" class="user-avatar">
                             <img :src="`${chatStore.SERVER_URL}${getAvatarUrl(friend)}`" :alt="friend.nickname" @error="handleAvatarError($event, friend)">
@@ -163,18 +242,50 @@ function handleSearchUserClick() {
                         <span v-else-if="friend.deleted_at" class="friend-last-message" style="color: #000;">该会话已被删除</span>
                         <span v-else class="friend-last-message">{{ getPrivateLastMessage(friend) }}</span>
                     </div>
-                    <span v-if="!friend.deleted_at" class="friend-status" :class="isUserOnline(friend.id) ? 'online' : 'offline'"></span>
-                    <div class="unread-count private-unread-count" v-if="chatStore.unreadMessages.private && chatStore.unreadMessages.private[friend.id]">
+                    <span v-if="isPrivateMuted(friend.id) && !friend.deleted_at" class="mute-icon" style="margin-left: 5px; font-size: 12px;" title="已免打扰">🔕</span>
+                    <span v-else-if="!friend.deleted_at" class="friend-status" :class="isUserOnline(friend.id) ? 'online' : 'offline'"></span>
+                    <div class="unread-count private-unread-count" v-if="chatStore.unreadMessages.private && chatStore.unreadMessages.private[friend.id] && !isPrivateMuted(friend.id)">
                         {{ chatStore.unreadMessages.private[friend.id] }}
                     </div>
                 </li>
             </ul>
         </div>
     </div>
+
+    <!-- 右键菜单 -->
+    <div v-if="showContextMenu" class="context-menu" 
+         :style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }"
+         @click.stop>
+        <div class="context-menu-item" @click="togglePrivateMute(currentContextMenuFriend.id)" style="color: black;">
+            {{ isPrivateMuted(currentContextMenuFriend.id) ? '取消免打扰' : '免打扰' }}
+        </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.context-menu {
+    position: fixed;
+    z-index: 10000;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    padding: 5px 0;
+}
+
+.context-menu-item {
+    padding: 8px 15px;
+    cursor: pointer;
+    font-size: 14px;
+    white-space: nowrap;
+    transition: background-color 0.2s;
+}
+
+.context-menu-item:hover {
+    background-color: #f5f5f5;
+}
+
 .user-avatar-wrapper {
   position: relative;
   display: inline-flex;

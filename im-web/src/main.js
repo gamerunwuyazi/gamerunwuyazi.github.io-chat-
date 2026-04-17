@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import { createPinia } from 'pinia'
 import App from './App.vue'
+import { createClearStorePlugin, resetAllStores, clearSpecificStore } from './stores/plugins/clearStore.js'
 
 // 导入配置文件（包含 fetch 拦截器）
 import './utils/chat/config.js';
@@ -115,6 +116,13 @@ router.beforeEach((to, from, next) => {
 
 // 创建Pinia实例
 const pinia = createPinia()
+
+// 注册清空store插件
+pinia.use(createClearStorePlugin())
+
+// 将 resetAllStores 挂载到 window 上供全局使用
+window.resetAllStores = () => resetAllStores(pinia)
+window.clearSpecificStore = clearSpecificStore
 
 // 创建应用实例并使用路由和Pinia
 const app = createApp(App)

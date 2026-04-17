@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const mysql = require('mysql2/promise');
@@ -74,7 +74,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 // 获取所有群组 ID 列表
 async function getAllGroupIds() {
   try {
-    const [groups] = await pool.execute('SELECT id FROM chat_groups WHERE deleted_at IS NULL');
+    const [groups] = await pool.execute('SELECT id FROM scr_groups WHERE deleted_at IS NULL');
     return groups.map(g => g.id);
   } catch (err) {
     console.error('获取群组列表失败:', err.message);
@@ -564,13 +564,13 @@ async function checkFileRequestLimit(req, res, next) {
     
     // 统计1小时内的总请求次数（所有用户）
     const [hourlyResults] = await pool.execute(
-      'SELECT COUNT(*) as count FROM chat_file_request_logs WHERE request_time > ?',
+      'SELECT COUNT(*) as count FROM scr_file_request_logs WHERE request_time > ?',
       [oneHourAgo]
     );
     
     // 统计1天内的总请求次数（所有用户）
     const [dailyResults] = await pool.execute(
-      'SELECT COUNT(*) as count FROM chat_file_request_logs WHERE request_time > ?',
+      'SELECT COUNT(*) as count FROM scr_file_request_logs WHERE request_time > ?',
       [oneDayAgo]
     );
     
@@ -594,12 +594,12 @@ async function checkFileRequestLimit(req, res, next) {
     
     // 记录本次请求
     await pool.execute(
-      'INSERT INTO chat_file_request_logs (user_id, request_time, ip_address) VALUES (?, ?, ?)',
+      'INSERT INTO scr_file_request_logs (user_id, request_time, ip_address) VALUES (?, ?, ?)',
       [userId, now, req.ip]
     );
     // 清理旧记录，保持最多1000条
     await pool.execute(
-      'DELETE FROM chat_file_request_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM chat_file_request_logs ORDER BY request_time DESC LIMIT 1000) AS tmp)'
+      'DELETE FROM scr_file_request_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM scr_file_request_logs ORDER BY request_time DESC LIMIT 1000) AS tmp)'
     );
     
     next();
@@ -806,7 +806,7 @@ async function cleanupExpiredSessions() {
     try {
         // 删除数据库中过期的 refresh_token
         const [result] = await pool.execute(
-            'DELETE FROM chat_sessions WHERE refresh_expires < NOW()'
+            'DELETE FROM scr_sessions WHERE refresh_expires < NOW()'
         );
         
         if (result.affectedRows > 0) {
@@ -900,12 +900,12 @@ app.use(async (req, res, next) => {
       let userId = req.headers['user-id'] || req.query.userId;
       
       await pool.execute(
-        'INSERT INTO chat_api_logs (user_id, ip_address, api_path, request_method) VALUES (?, ?, ?, ?)',
+        'INSERT INTO scr_api_logs (user_id, ip_address, api_path, request_method) VALUES (?, ?, ?, ?)',
         [userId, getClientIP(req), req.path, req.method]
       );
       // 清理旧记录，保持最多3000条
       await pool.execute(
-        'DELETE FROM chat_api_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM chat_api_logs ORDER BY timestamp DESC LIMIT 3000) AS tmp)'
+        'DELETE FROM scr_api_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM scr_api_logs ORDER BY timestamp DESC LIMIT 3000) AS tmp)'
       );
     } catch (logErr) {
       // 记录API日志失败，不影响主要功能
@@ -959,7 +959,7 @@ app.get('/api/check-status', async (req, res) => {
     if (userId) {
       try {
         const [users] = await pool.execute(
-          'SELECT id FROM chat_users WHERE id = ?',
+          'SELECT id FROM scr_users WHERE id = ?',
           [userId]
         );
         userExists = users.length > 0;
@@ -1038,7 +1038,7 @@ app.get('/api/check-username', async (req, res) => {
     
     // 使用参数化查询预防SQL注入
     const [existingUsers] = await pool.execute(
-        'SELECT id FROM chat_users WHERE username = ?',
+        'SELECT id FROM scr_users WHERE username = ?',
         [trimmedUsername]
     );
     
@@ -1095,7 +1095,7 @@ app.get('/api/admin/login-ips', async (req, res) => {
     
     // 查询所有登录相关的IP记录
     const [logs] = await pool.execute(
-      'SELECT id, user_id, ip_address, action, timestamp FROM chat_ip_logs WHERE action IN (?, ?, ?, ?, ?) ORDER BY timestamp DESC',
+      'SELECT id, user_id, ip_address, action, timestamp FROM scr_ip_logs WHERE action IN (?, ?, ?, ?, ?) ORDER BY timestamp DESC',
       ['login', 'login_success', 'login_failed', 'check_status', 'register']
     );
     
@@ -1123,7 +1123,7 @@ app.get('/api/admin/api-logs', async (req, res) => {
     
     // 查询所有API日志记录
     const [logs] = await pool.execute(
-      'SELECT id, user_id, ip_address, api_path, request_method, timestamp FROM chat_api_logs ORDER BY timestamp DESC LIMIT 3000'
+      'SELECT id, user_id, ip_address, api_path, request_method, timestamp FROM scr_api_logs ORDER BY timestamp DESC LIMIT 3000'
     );
     
     res.json({
@@ -1170,7 +1170,7 @@ app.post('/api/admin/ban-ip', async (req, res) => {
     // 优先处理IP封禁
     if (ipAddress) {
       await pool.execute(
-        'INSERT INTO chat_banned_ips (ip_address, user_id, reason, expires_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE reason = VALUES(reason), expires_at = VALUES(expires_at)',
+        'INSERT INTO scr_banned_ips (ip_address, user_id, reason, expires_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE reason = VALUES(reason), expires_at = VALUES(expires_at)',
         [ipAddress, userId || null, reason, expiresDate]
       );
       
@@ -1194,7 +1194,7 @@ app.post('/api/admin/ban-ip', async (req, res) => {
           
           try {
             await pool.execute(
-              'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+              'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
               [user.id]
             );
           } catch (err) {
@@ -1219,7 +1219,7 @@ app.post('/api/admin/ban-ip', async (req, res) => {
       
       const [offlineUsersData] = await pool.execute(`
         SELECT id, nickname, last_online, avatar_url as avatarUrl 
-        FROM chat_users 
+        FROM scr_users 
         WHERE last_online IS NOT NULL 
         AND last_online >= DATE_SUB(NOW(), INTERVAL 7 DAY)
         ORDER BY last_online DESC
@@ -1248,7 +1248,7 @@ app.post('/api/admin/ban-ip', async (req, res) => {
       // 如果只提供了userId，没有ipAddress
       if (!ipAddress) {
         await pool.execute(
-          'INSERT INTO chat_banned_ips (ip_address, user_id, reason, expires_at) VALUES (?, ?, ?, ?)',
+          'INSERT INTO scr_banned_ips (ip_address, user_id, reason, expires_at) VALUES (?, ?, ?, ?)',
           [null, userId, reason, expiresDate]
         );
       }
@@ -1273,7 +1273,7 @@ app.post('/api/admin/ban-ip', async (req, res) => {
           
           try {
             await pool.execute(
-              'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+              'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
               [user.id]
             );
           } catch (err) {
@@ -1298,7 +1298,7 @@ app.post('/api/admin/ban-ip', async (req, res) => {
         
         const [offlineUsersData] = await pool.execute(`
           SELECT id, nickname, last_online, avatar_url as avatarUrl 
-          FROM chat_users 
+          FROM scr_users 
           WHERE last_online IS NOT NULL 
           AND last_online >= DATE_SUB(NOW(), INTERVAL 7 DAY)
           ORDER BY last_online DESC
@@ -1349,7 +1349,7 @@ app.post('/api/admin/unban-ip', async (req, res) => {
     // 解封IP
     if (ipAddress) {
       await pool.execute(
-        'DELETE FROM chat_banned_ips WHERE ip_address = ?',
+        'DELETE FROM scr_banned_ips WHERE ip_address = ?',
         [ipAddress]
       );
       
@@ -1359,7 +1359,7 @@ app.post('/api/admin/unban-ip', async (req, res) => {
     // 解封用户ID
     if (userId) {
       await pool.execute(
-        'DELETE FROM chat_banned_ips WHERE user_id = ?',
+        'DELETE FROM scr_banned_ips WHERE user_id = ?',
         [userId]
       );
       
@@ -1387,7 +1387,7 @@ app.get('/api/admin/banned-ips', async (req, res) => {
     }
     
     const [bannedList] = await pool.execute(
-      'SELECT id, ip_address, user_id, reason, expires_at, banned_at FROM chat_banned_ips ORDER BY banned_at DESC'
+      'SELECT id, ip_address, user_id, reason, expires_at, banned_at FROM scr_banned_ips ORDER BY banned_at DESC'
     );
     
     res.json({
@@ -1409,8 +1409,8 @@ app.get('/api/user/friends', async (req, res) => {
     // 查询用户的好友列表，按 ID 排序，只返回未删除的好友
     const [friends] = await pool.execute(`
       SELECT cu.id, cu.nickname, cu.username, cu.gender, cu.avatar_url
-      FROM chat_friends cf 
-      JOIN chat_users cu ON cf.friend_id = cu.id 
+      FROM scr_friends cf 
+      JOIN scr_users cu ON cf.friend_id = cu.id 
       WHERE cf.user_id = ? AND cf.deleted_at IS NULL
       ORDER BY cf.id DESC
     `, [userId]);
@@ -1444,14 +1444,14 @@ app.post('/api/user/add-friend', async (req, res) => {
     }
     
     // 检查好友是否存在
-    const [users] = await pool.execute('SELECT id FROM chat_users WHERE id = ?', [friendIdNum]);
+    const [users] = await pool.execute('SELECT id FROM scr_users WHERE id = ?', [friendIdNum]);
     if (users.length === 0) {
       return res.status(404).json({ status: 'error', message: '用户不存在' });
     }
     
     // 检查是否已经是好友（包括已删除的记录）
     const [existing] = await pool.execute(
-      'SELECT id, deleted_at FROM chat_friends WHERE user_id = ? AND friend_id = ?',
+      'SELECT id, deleted_at FROM scr_friends WHERE user_id = ? AND friend_id = ?',
       [userId, friendIdNum]
     );
     
@@ -1461,21 +1461,21 @@ app.post('/api/user/add-friend', async (req, res) => {
     
     if (existing.length > 0 && existing[0].deleted_at !== null) {
       // 恢复已删除的好友关系
-      await pool.execute('UPDATE chat_friends SET deleted_at = NULL WHERE user_id = ? AND friend_id = ?', [userId, friendIdNum]);
-      await pool.execute('UPDATE chat_friends SET deleted_at = NULL WHERE user_id = ? AND friend_id = ?', [friendIdNum, userId]);
+      await pool.execute('UPDATE scr_friends SET deleted_at = NULL WHERE user_id = ? AND friend_id = ?', [userId, friendIdNum]);
+      await pool.execute('UPDATE scr_friends SET deleted_at = NULL WHERE user_id = ? AND friend_id = ?', [friendIdNum, userId]);
     } else {
       // 添加双向好友关系
-      await pool.execute('INSERT INTO chat_friends (user_id, friend_id) VALUES (?, ?)', [userId, friendIdNum]);
-      await pool.execute('INSERT INTO chat_friends (user_id, friend_id) VALUES (?, ?)', [friendIdNum, userId]);
+      await pool.execute('INSERT INTO scr_friends (user_id, friend_id) VALUES (?, ?)', [userId, friendIdNum]);
+      await pool.execute('INSERT INTO scr_friends (user_id, friend_id) VALUES (?, ?)', [friendIdNum, userId]);
     }
     
     // 获取双方用户信息
     const [userInfo] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [userId]
     );
     const [friendInfo] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [friendIdNum]
     );
     
@@ -1485,7 +1485,7 @@ app.post('/api/user/add-friend', async (req, res) => {
     
     // 只给添加好友的人插入消息
     const [insertResult] = await pool.execute(
-      'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      'INSERT INTO scr_private_messages (sender_id, receiver_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [userId, friendIdNum, addedContent, 100]
     );
     
@@ -1560,16 +1560,16 @@ app.post('/api/user/remove-friend', async (req, res) => {
 
     // 软删除双向好友关系，设置 deleted_at 为当前时间
     const now = new Date();
-    await pool.execute('UPDATE chat_friends SET deleted_at = ? WHERE user_id = ? AND friend_id = ?', [now, userId, friendIdNum]);
-    await pool.execute('UPDATE chat_friends SET deleted_at = ? WHERE user_id = ? AND friend_id = ?', [now, friendIdNum, userId]);
+    await pool.execute('UPDATE scr_friends SET deleted_at = ? WHERE user_id = ? AND friend_id = ?', [now, userId, friendIdNum]);
+    await pool.execute('UPDATE scr_friends SET deleted_at = ? WHERE user_id = ? AND friend_id = ?', [now, friendIdNum, userId]);
 
     // 获取双方用户信息
     const [userInfo] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [userId]
     );
     const [friendInfo] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [friendIdNum]
     );
     
@@ -1578,7 +1578,7 @@ app.post('/api/user/remove-friend', async (req, res) => {
     
     // 只给删除好友的人插入消息
     const [insertResult] = await pool.execute(
-      'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      'INSERT INTO scr_private_messages (sender_id, receiver_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [userId, friendIdNum, deletedContent, 100]
     );
     
@@ -1667,7 +1667,7 @@ app.get('/api/user/search', async (req, res) => {
     // 搜索用户
     const [users] = await pool.execute(`
       SELECT id, nickname, username, gender, avatar_url 
-      FROM chat_users 
+      FROM scr_users 
       WHERE username LIKE ? OR nickname LIKE ?
       LIMIT 20
     `, [searchKeyword, searchKeyword]);
@@ -1687,7 +1687,7 @@ app.get('/api/user/search', async (req, res) => {
 async function initializeDatabase() {
   try {
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_users (
+      CREATE TABLE IF NOT EXISTS scr_users (
         id INT AUTO_INCREMENT PRIMARY KEY,
         username VARCHAR(255) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
@@ -1703,32 +1703,32 @@ async function initializeDatabase() {
     `);
 
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_file_request_logs (
+      CREATE TABLE IF NOT EXISTS scr_file_request_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         request_time DATETIME NOT NULL,
         ip_address VARCHAR(45) NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES chat_users(id) ON DELETE CASCADE,
-        INDEX idx_chat_file_requests_user_time (user_id, request_time)
+        FOREIGN KEY (user_id) REFERENCES scr_users(id) ON DELETE CASCADE,
+        INDEX idx_scr_file_requests_user_time (user_id, request_time)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_sessions (
+      CREATE TABLE IF NOT EXISTS scr_sessions (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL UNIQUE,
         refresh_token VARCHAR(255) NOT NULL,
         refresh_expires DATETIME NOT NULL,
         last_active DATETIME NOT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES chat_users(id) ON DELETE CASCADE,
-        INDEX idx_chat_sessions_refresh_token (refresh_token),
-        INDEX idx_chat_sessions_user_id (user_id)
+        FOREIGN KEY (user_id) REFERENCES scr_users(id) ON DELETE CASCADE,
+        INDEX idx_scr_sessions_refresh_token (refresh_token),
+        INDEX idx_scr_sessions_user_id (user_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_api_logs (
+      CREATE TABLE IF NOT EXISTS scr_api_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT DEFAULT NULL COMMENT '用户ID，验证后记录',
         ip_address VARCHAR(45) NOT NULL COMMENT '客户端IP',
@@ -1743,7 +1743,7 @@ async function initializeDatabase() {
     `);
 
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_groups (
+      CREATE TABLE IF NOT EXISTS scr_groups (
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         description TEXT,
@@ -1752,21 +1752,21 @@ async function initializeDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         deleted_at DATETIME DEFAULT NULL,
         INDEX creator_id_index (creator_id),
-        FOREIGN KEY (creator_id) REFERENCES chat_users(id) ON DELETE CASCADE
+        FOREIGN KEY (creator_id) REFERENCES scr_users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
 
 
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_friends (
+      CREATE TABLE IF NOT EXISTS scr_friends (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         friend_id INT NOT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         deleted_at DATETIME DEFAULT NULL,
-        FOREIGN KEY (user_id) REFERENCES chat_users(id) ON DELETE CASCADE,
-        FOREIGN KEY (friend_id) REFERENCES chat_users(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES scr_users(id) ON DELETE CASCADE,
+        FOREIGN KEY (friend_id) REFERENCES scr_users(id) ON DELETE CASCADE,
         UNIQUE KEY unique_friendship (user_id, friend_id),
         INDEX idx_friends_user_id (user_id),
         INDEX idx_friends_friend_id (friend_id)
@@ -1774,7 +1774,7 @@ async function initializeDatabase() {
     `);
 
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_private_messages (
+      CREATE TABLE IF NOT EXISTS scr_private_messages (
         id INT AUTO_INCREMENT PRIMARY KEY,
         sender_id INT NOT NULL,
         receiver_id INT NOT NULL,
@@ -1783,8 +1783,8 @@ async function initializeDatabase() {
         message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件，4代表引用消息',
         is_read TINYINT NOT NULL DEFAULT 0 COMMENT '0代表未读，1代表已读',
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (sender_id) REFERENCES chat_users(id) ON DELETE CASCADE,
-        FOREIGN KEY (receiver_id) REFERENCES chat_users(id) ON DELETE CASCADE,
+        FOREIGN KEY (sender_id) REFERENCES scr_users(id) ON DELETE CASCADE,
+        FOREIGN KEY (receiver_id) REFERENCES scr_users(id) ON DELETE CASCADE,
         INDEX idx_private_messages_sender_receiver (sender_id, receiver_id),
         INDEX idx_private_messages_receiver_sender (receiver_id, sender_id),
         INDEX idx_private_messages_timestamp (timestamp)
@@ -1792,7 +1792,7 @@ async function initializeDatabase() {
     `);
 
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_messages (
+      CREATE TABLE IF NOT EXISTS scr_messages (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         content TEXT,
@@ -1803,13 +1803,13 @@ async function initializeDatabase() {
         INDEX user_id_index (user_id),
         INDEX group_id_index (group_id),
         INDEX timestamp_index (timestamp),
-        FOREIGN KEY (user_id) REFERENCES chat_users(id) ON DELETE CASCADE,
-        FOREIGN KEY (group_id) REFERENCES chat_groups(id) ON DELETE CASCADE
+        FOREIGN KEY (user_id) REFERENCES scr_users(id) ON DELETE CASCADE,
+        FOREIGN KEY (group_id) REFERENCES scr_groups(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_group_members (
+      CREATE TABLE IF NOT EXISTS scr_group_members (
         id INT AUTO_INCREMENT PRIMARY KEY,
         group_id INT NOT NULL,
         user_id INT NOT NULL,
@@ -1817,13 +1817,13 @@ async function initializeDatabase() {
         deleted_at TIMESTAMP NULL DEFAULT NULL,
         INDEX group_id_index (group_id),
         INDEX user_id_index (user_id),
-        FOREIGN KEY (group_id) REFERENCES chat_groups(id) ON DELETE CASCADE,
-        FOREIGN KEY (user_id) REFERENCES chat_users(id) ON DELETE CASCADE
+        FOREIGN KEY (group_id) REFERENCES scr_groups(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES scr_users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_ip_logs (
+      CREATE TABLE IF NOT EXISTS scr_ip_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT DEFAULT NULL,
         ip_address VARCHAR(45) NOT NULL,
@@ -1835,7 +1835,7 @@ async function initializeDatabase() {
     `);
 
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS chat_banned_ips (
+      CREATE TABLE IF NOT EXISTS scr_banned_ips (
         id INT AUTO_INCREMENT PRIMARY KEY,
         ip_address VARCHAR(45) DEFAULT NULL,
         user_id INT DEFAULT NULL,
@@ -1859,7 +1859,7 @@ async function loadSessionsFromDatabase() {
     // 查询所有有效的会话（refresh_token未过期）
     const [sessions] = await pool.execute(`
       SELECT user_id, refresh_token, refresh_expires 
-      FROM chat_sessions 
+      FROM scr_sessions 
       WHERE refresh_expires > NOW()
     `);
     
@@ -1902,7 +1902,7 @@ async function saveSessionToDatabase(userId, refreshToken, refreshExpires) {
     
     // 插入或更新会话
     await pool.execute(`
-      INSERT INTO chat_sessions (user_id, refresh_token, refresh_expires, last_active) 
+      INSERT INTO scr_sessions (user_id, refresh_token, refresh_expires, last_active) 
       VALUES (?, ?, ?, ?) 
       ON DUPLICATE KEY UPDATE 
         refresh_token = VALUES(refresh_token),
@@ -1921,7 +1921,7 @@ async function syncBannedIPsToRedis() {
     
     // 获取所有有效的封禁记录
     const [bannedRecords] = await pool.execute(
-      'SELECT ip_address, user_id, reason, expires_at FROM chat_banned_ips WHERE expires_at IS NULL OR expires_at > NOW()'
+      'SELECT ip_address, user_id, reason, expires_at FROM scr_banned_ips WHERE expires_at IS NULL OR expires_at > NOW()'
     );
     
     // 清空Redis中的封禁集合
@@ -1979,7 +1979,7 @@ async function isIPBanned(ip) {
           await redisClient.hDel('scr:banned_ips', ip);
           // 同时从数据库删除
           await pool.execute(
-            'DELETE FROM chat_banned_ips WHERE ip_address = ? AND expires_at IS NOT NULL AND expires_at <= NOW()',
+            'DELETE FROM scr_banned_ips WHERE ip_address = ? AND expires_at IS NOT NULL AND expires_at <= NOW()',
             [ip]
           );
           return { isBanned: false, reason: null, remainingTime: null };
@@ -2034,7 +2034,7 @@ async function isUserBanned(userId) {
           await redisClient.hDel('scr:banned_users', userIdStr);
           // 同时从数据库删除
           await pool.execute(
-            'DELETE FROM chat_banned_ips WHERE user_id = ? AND expires_at IS NOT NULL AND expires_at <= NOW()',
+            'DELETE FROM scr_banned_ips WHERE user_id = ? AND expires_at IS NOT NULL AND expires_at <= NOW()',
             [userId]
           );
           return { isBanned: false, reason: null, remainingTime: null };
@@ -2182,8 +2182,8 @@ async function getGlobalMessages(limit = 50, olderThan = null) {
     let query = `
       SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl, 
              m.content, m.at_userid, m.message_type as messageType, m.group_id as groupId, m.timestamp
-      FROM chat_messages m 
-      JOIN chat_users u ON m.user_id = u.id 
+      FROM scr_messages m 
+      JOIN scr_users u ON m.user_id = u.id 
       WHERE m.group_id IS NULL 
     `;
     
@@ -2296,8 +2296,8 @@ async function getGroupMessages(groupId, limit = 50, olderThan = null) {
     let query = `
       SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl, 
              m.content, m.at_userid, m.message_type as messageType, m.timestamp
-      FROM chat_messages m 
-      JOIN chat_users u ON m.user_id = u.id 
+      FROM scr_messages m 
+      JOIN scr_users u ON m.user_id = u.id 
       WHERE m.group_id = ? 
     `;
     
@@ -2407,12 +2407,12 @@ function checkAvatarStorage() {
 async function logIPAction(userId, ip, action) {
   try {
     await pool.execute(
-        'INSERT INTO chat_ip_logs (user_id, ip_address, action) VALUES (?, ?, ?)',
+        'INSERT INTO scr_ip_logs (user_id, ip_address, action) VALUES (?, ?, ?)',
         [userId, ip, action]
     );
     // 清理旧记录，保持最多6000条
     await pool.execute(
-        'DELETE FROM chat_ip_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM chat_ip_logs ORDER BY timestamp DESC LIMIT 6000) AS tmp)'
+        'DELETE FROM scr_ip_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM scr_ip_logs ORDER BY timestamp DESC LIMIT 6000) AS tmp)'
     );
     // console.log(`IP日志: ${ip} - ${action} - 用户: ${userId || '未登录'}`);
   } catch (err) {
@@ -2471,7 +2471,7 @@ app.post('/api/register', async (req, res) => {
     }
 
     const [existingUsers] = await pool.execute(
-        'SELECT id FROM chat_users WHERE username = ?',
+        'SELECT id FROM scr_users WHERE username = ?',
         [username]
     );
 
@@ -2482,7 +2482,7 @@ app.post('/api/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const [result] = await pool.execute(
-        'INSERT INTO chat_users (username, password, nickname, gender, last_online) VALUES (?, ?, ?, ?, NOW())',
+        'INSERT INTO scr_users (username, password, nickname, gender, last_online) VALUES (?, ?, ?, ?, NOW())',
         [username, hashedPassword, nickname, genderNum]
     );
 
@@ -2529,7 +2529,7 @@ app.post('/api/update-signature', async (req, res) => {
 
     // 更新用户个性签名
     await pool.execute(
-      'UPDATE chat_users SET signature = ? WHERE id = ?',
+      'UPDATE scr_users SET signature = ? WHERE id = ?',
       [cleanSignature, userId]
     );
 
@@ -2561,7 +2561,7 @@ app.post('/api/update-gender', async (req, res) => {
 
     // 更新用户性别
     await pool.execute(
-      'UPDATE chat_users SET gender = ? WHERE id = ?',
+      'UPDATE scr_users SET gender = ? WHERE id = ?',
       [genderNum, userId]
     );
 
@@ -2597,7 +2597,7 @@ app.post('/api/user/change-password', async (req, res) => {
     }
 
     const [users] = await pool.execute(
-      'SELECT id, password FROM chat_users WHERE id = ?',
+      'SELECT id, password FROM scr_users WHERE id = ?',
       [userId]
     );
 
@@ -2613,7 +2613,7 @@ app.post('/api/user/change-password', async (req, res) => {
 
     const hashedNewPassword = await bcrypt.hash(newPassword, 10);
     await pool.execute(
-      'UPDATE chat_users SET password = ? WHERE id = ?',
+      'UPDATE scr_users SET password = ? WHERE id = ?',
       [hashedNewPassword, userId]
     );
 
@@ -2635,13 +2635,13 @@ app.post('/api/user/update-nickname', async (req, res) => {
     }
 
     await pool.execute(
-      'UPDATE chat_users SET nickname = ? WHERE id = ?',
+      'UPDATE scr_users SET nickname = ? WHERE id = ?',
       [newNickname, userId]
     );
 
     // 获取用户信息
     const [users] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [userId]
     );
 
@@ -2653,7 +2653,7 @@ app.post('/api/user/update-nickname', async (req, res) => {
 
     // 插入102消息到主消息表
     const [nicknameUpdateResult] = await pool.execute(
-      'INSERT INTO chat_messages (user_id, content, message_type, timestamp) VALUES (?, ?, ?, NOW())',
+      'INSERT INTO scr_messages (user_id, content, message_type, timestamp) VALUES (?, ?, ?, NOW())',
       [userId, JSON.stringify({ type: 'nickname', nickname: newNickname }), 102]
     );
 
@@ -2695,7 +2695,7 @@ app.get('/api/self', async (req, res) => {
     }
 
     const [users] = await pool.execute(
-      'SELECT id, username, nickname, gender, signature, avatar_url, last_online, created_at FROM chat_users WHERE id = ?',
+      'SELECT id, username, nickname, gender, signature, avatar_url, last_online, created_at FROM scr_users WHERE id = ?',
       [userId]
     );
 
@@ -2804,7 +2804,7 @@ app.post('/api/login', async (req, res) => {
       
       // token 有效，获取用户信息
       const [users] = await pool.execute(
-        'SELECT id, username, nickname, gender, avatar_url FROM chat_users WHERE id = ?',
+        'SELECT id, username, nickname, gender, avatar_url FROM scr_users WHERE id = ?',
         [userId]
       );
       
@@ -2842,7 +2842,7 @@ app.post('/api/login', async (req, res) => {
       
       // 更新用户在线时间
       await pool.execute(
-        'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+        'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
         [user.id]
       );
       
@@ -2889,7 +2889,7 @@ app.post('/api/login', async (req, res) => {
     }
 
     const [users] = await pool.execute(
-        'SELECT id, username, password, nickname, gender, avatar_url FROM chat_users WHERE username = ?',
+        'SELECT id, username, password, nickname, gender, avatar_url FROM scr_users WHERE username = ?',
         [username]
     );
 
@@ -2941,7 +2941,7 @@ app.post('/api/login', async (req, res) => {
     }
 
     await pool.execute(
-        'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+        'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
         [user.id]
     );
 
@@ -3002,7 +3002,7 @@ app.post('/api/refresh-token', async (req, res) => {
     
     // 更新数据库中的 refresh_token
     await pool.execute(
-      'UPDATE chat_sessions SET refresh_token = ?, refresh_expires = ?, last_active = ? WHERE user_id = ?',
+      'UPDATE scr_sessions SET refresh_token = ?, refresh_expires = ?, last_active = ? WHERE user_id = ?',
       [newRefreshToken, new Date(newRefreshExpires), new Date(), parseInt(userId)]
     );
     
@@ -3056,7 +3056,7 @@ app.get('/api/group/:id', async (req, res) => {
     const groupId = req.params.id;
 
     const [groups] = await pool.execute(
-        'SELECT id, name, description, creator_id, avatar_url, created_at FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+        'SELECT id, name, description, creator_id, avatar_url, created_at FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
         [groupId]
     );
 
@@ -3080,7 +3080,7 @@ app.get('/api/user/:id', async (req, res) => {
     const userId = req.params.id;
 
     const [users] = await pool.execute(
-        'SELECT id, username, nickname, gender, signature, avatar_url FROM chat_users WHERE id = ?',
+        'SELECT id, username, nickname, gender, signature, avatar_url FROM scr_users WHERE id = ?',
         [userId]
     );
 
@@ -3124,7 +3124,7 @@ app.post('/api/upload-group-avatar/:groupId', groupAvatarUpload.single('avatar')
 
     // 检查用户是否是群组的创建者（群主）
     const [groups] = await pool.execute(
-        'SELECT id, name, creator_id FROM chat_groups WHERE id = ? AND creator_id = ? AND deleted_at IS NULL',
+        'SELECT id, name, creator_id FROM scr_groups WHERE id = ? AND creator_id = ? AND deleted_at IS NULL',
         [groupId, userId]
     );
 
@@ -3162,7 +3162,7 @@ app.post('/api/upload-group-avatar/:groupId', groupAvatarUpload.single('avatar')
 
     // 更新群组头像 URL
     await pool.execute(
-        'UPDATE chat_groups SET avatar_url = ? WHERE id = ? AND deleted_at IS NULL',
+        'UPDATE scr_groups SET avatar_url = ? WHERE id = ? AND deleted_at IS NULL',
         [avatarUrlWithVersion, groupId]
     );
 
@@ -3212,7 +3212,7 @@ app.post('/api/upload-avatar', avatarUpload.single('avatar'), async (req, res, n
 
     // 查询用户当前头像URL，用于删除旧头像
     const [users] = await pool.execute(
-        'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+        'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
         [userId]
     );
 
@@ -3249,13 +3249,13 @@ app.post('/api/upload-avatar', avatarUpload.single('avatar'), async (req, res, n
     const avatarUrlWithVersion = `${avatarUrl}?v=${timestamp}`;
 
     await pool.execute(
-        'UPDATE chat_users SET avatar_url = ? WHERE id = ?',
+        'UPDATE scr_users SET avatar_url = ? WHERE id = ?',
         [avatarUrlWithVersion, userId]
     );
 
     // 插入102消息到主消息表
     const [avatarUpdateResult] = await pool.execute(
-      'INSERT INTO chat_messages (user_id, content, message_type, timestamp) VALUES (?, ?, ?, NOW())',
+      'INSERT INTO scr_messages (user_id, content, message_type, timestamp) VALUES (?, ?, ?, NOW())',
       [userId, JSON.stringify({ type: 'avatar', avatarUrl: avatarUrlWithVersion }), 102]
     );
 
@@ -3328,8 +3328,8 @@ app.get('/api/offline-messages', async (req, res) => {
         m.message_type as messageType, 
         m.timestamp,
         'public' as type
-      FROM chat_messages m 
-      JOIN chat_users u ON m.user_id = u.id 
+      FROM scr_messages m 
+      JOIN scr_users u ON m.user_id = u.id 
       WHERE m.group_id IS NULL 
         AND m.timestamp >= ?
         AND m.id > ?
@@ -3339,7 +3339,7 @@ app.get('/api/offline-messages', async (req, res) => {
     
     // 2. 获取用户所在群组的消息（包括已解散的群组）
     const [allMemberRecords] = await pool.execute(`
-      SELECT group_id, joined_at, deleted_at FROM chat_group_members WHERE user_id = ?
+      SELECT group_id, joined_at, deleted_at FROM scr_group_members WHERE user_id = ?
     `, [userId]);
     
     // 按群组ID分组
@@ -3386,9 +3386,9 @@ app.get('/api/offline-messages', async (req, res) => {
             m.group_id as groupId,
             g.name as groupName,
             g.deleted_at as groupDeletedAt
-          FROM chat_messages m 
-          JOIN chat_users u ON m.user_id = u.id 
-          JOIN chat_groups g ON m.group_id = g.id
+          FROM scr_messages m 
+          JOIN scr_users u ON m.user_id = u.id 
+          JOIN scr_groups g ON m.group_id = g.id
           WHERE m.group_id = ?
             AND m.timestamp >= ?
             AND m.id > ?
@@ -3428,8 +3428,8 @@ app.get('/api/offline-messages', async (req, res) => {
         'private' as type,
         pm.receiver_id as receiverId,
         pm.is_read as isRead
-      FROM chat_private_messages pm 
-      JOIN chat_users u ON pm.sender_id = u.id 
+      FROM scr_private_messages pm 
+      JOIN scr_users u ON pm.sender_id = u.id 
       WHERE (pm.sender_id = ? OR pm.receiver_id = ?)
         AND pm.timestamp >= ?
         AND pm.id > ?
@@ -3484,7 +3484,7 @@ app.post('/api/create-group', async (req, res) => {
     
     // 获取创建者的所有好友ID
     const [friendIds] = await pool.execute(
-      'SELECT friend_id FROM chat_friends WHERE user_id = ? AND deleted_at IS NULL',
+      'SELECT friend_id FROM scr_friends WHERE user_id = ? AND deleted_at IS NULL',
       [parseInt(userId)]
     );
     const friends = friendIds.map(row => row.friend_id);
@@ -3498,7 +3498,7 @@ app.post('/api/create-group', async (req, res) => {
     // 验证所有成员都存在
     const placeholders = allMemberIds.map(() => '?').join(',');
     const [members] = await pool.execute(
-        `SELECT id FROM chat_users WHERE id IN (${placeholders})`,
+        `SELECT id FROM scr_users WHERE id IN (${placeholders})`,
         allMemberIds
     );
     
@@ -3507,7 +3507,7 @@ app.post('/api/create-group', async (req, res) => {
     }
 
     const [groupResult] = await pool.execute(
-        'INSERT INTO chat_groups (name, description, creator_id) VALUES (?, ?, ?)',
+        'INSERT INTO scr_groups (name, description, creator_id) VALUES (?, ?, ?)',
         [groupName, description || '', userId]
     );
 
@@ -3515,21 +3515,21 @@ app.post('/api/create-group', async (req, res) => {
 
     const memberValues = allMemberIds.map(memberId => [groupId, memberId]);
     await pool.query(
-        'INSERT INTO chat_group_members (group_id, user_id) VALUES ?',
+        'INSERT INTO scr_group_members (group_id, user_id) VALUES ?',
         [memberValues]
     );
 
     const [groups] = await pool.execute(`
       SELECT g.*, u.nickname as creator_name 
-      FROM chat_groups g 
-      JOIN chat_users u ON g.creator_id = u.id 
+      FROM scr_groups g 
+      JOIN scr_users u ON g.creator_id = u.id 
       WHERE g.id = ? AND g.deleted_at IS NULL
     `, [groupId]);
 
     const [groupMembers] = await pool.execute(`
       SELECT u.id, u.nickname, u.avatar_url 
-      FROM chat_group_members gm 
-      JOIN chat_users u ON gm.user_id = u.id 
+      FROM scr_group_members gm 
+      JOIN scr_users u ON gm.user_id = u.id 
       WHERE gm.group_id = ? AND gm.deleted_at IS NULL
     `, [groupId]);
 
@@ -3549,7 +3549,7 @@ app.post('/api/create-group', async (req, res) => {
     
     // 获取创建者信息
     const [creatorInfo] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [userId]
     );
 
@@ -3561,7 +3561,7 @@ app.post('/api/create-group', async (req, res) => {
     const otherMemberIds = allMemberIds.filter(id => id !== parseInt(userId));
     if (otherMemberIds.length > 0) {
       const [otherMembersInfo] = await pool.execute(
-        `SELECT u.id, u.nickname FROM chat_users u WHERE u.id IN (${otherMemberIds.map(() => '?').join(',')})`,
+        `SELECT u.id, u.nickname FROM scr_users u WHERE u.id IN (${otherMemberIds.map(() => '?').join(',')})`,
         otherMemberIds
       );
       const otherMemberNames = otherMembersInfo.map(m => m.nickname || '用户').join('、');
@@ -3569,7 +3569,7 @@ app.post('/api/create-group', async (req, res) => {
     }
     
     const [insertResult] = await pool.execute(
-      'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [userId, createContent, 100, groupId]
     );
 
@@ -3631,8 +3631,8 @@ app.get('/api/user-groups/:userId', async (req, res) => {
     // console.log('🔍 正在查询用户', userId, '的群组');
     const [groups] = await pool.execute(`
       SELECT g.*
-      FROM chat_groups g 
-      JOIN chat_group_members gm ON g.id = gm.group_id 
+      FROM scr_groups g 
+      JOIN scr_group_members gm ON g.id = gm.group_id 
       WHERE gm.user_id = ? AND g.deleted_at IS NULL AND gm.deleted_at IS NULL
       ORDER BY g.id DESC
     `, [userId]);
@@ -3662,7 +3662,7 @@ app.get('/api/available-group-members/:groupId', async (req, res) => {
 
     // 首先检查请求者是否为群主
     const [group] = await pool.execute(
-      'SELECT creator_id FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      'SELECT creator_id FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
 
@@ -3677,10 +3677,10 @@ app.get('/api/available-group-members/:groupId', async (req, res) => {
     // 查询不在该群组中的创建者的好友
     const [availableMembers] = await pool.execute(`
       SELECT u.id, u.nickname, u.avatar_url 
-      FROM chat_users u 
-      JOIN chat_friends f ON u.id = f.friend_id
+      FROM scr_users u 
+      JOIN scr_friends f ON u.id = f.friend_id
       WHERE f.user_id = ? AND f.deleted_at IS NULL AND u.id NOT IN (
-        SELECT user_id FROM chat_group_members WHERE group_id = ? AND deleted_at IS NULL
+        SELECT user_id FROM scr_group_members WHERE group_id = ? AND deleted_at IS NULL
       ) AND u.id != ?
     `, [userId, groupId, userId]);
 
@@ -3704,7 +3704,7 @@ app.get('/api/group-info/:groupId', async (req, res) => {
     const groupId = req.params.groupId;
 
     const [group] = await pool.execute(
-      'SELECT id, name, description, creator_id, created_at, avatar_url, deleted_at FROM chat_groups WHERE id = ?',
+      'SELECT id, name, description, creator_id, created_at, avatar_url, deleted_at FROM scr_groups WHERE id = ?',
       [groupId]
     );
 
@@ -3729,8 +3729,8 @@ app.get('/api/group-members/:groupId', async (req, res) => {
 
     const [members] = await pool.execute(`
       SELECT u.id, u.nickname, u.avatar_url as avatarUrl 
-      FROM chat_group_members gm 
-      JOIN chat_users u ON gm.user_id = u.id 
+      FROM scr_group_members gm 
+      JOIN scr_users u ON gm.user_id = u.id 
       WHERE gm.group_id = ? AND gm.deleted_at IS NULL
     `, [groupId]);
 
@@ -3757,7 +3757,7 @@ app.post('/api/remove-group-member', async (req, res) => {
 
     // 检查请求者是否为群主
     const [group] = await pool.execute(
-      'SELECT creator_id, name FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      'SELECT creator_id, name FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
 
@@ -3771,7 +3771,7 @@ app.post('/api/remove-group-member', async (req, res) => {
 
     // 检查成员是否在群组中
     const [member] = await pool.execute(
-      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+      'SELECT id FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
       [groupId, memberId]
     );
 
@@ -3786,13 +3786,13 @@ app.post('/api/remove-group-member', async (req, res) => {
 
     // 获取被踢出的成员信息
     const [memberInfo] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [memberId]
     );
 
     // 获取群主信息
     const [creatorInfo] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [userId]
     );
 
@@ -3800,7 +3800,7 @@ app.post('/api/remove-group-member', async (req, res) => {
     const now = new Date();
     const kickedContent = `${memberInfo[0]?.nickname || '用户'}被移出了群组`;
     const [insertResult] = await pool.execute(
-      'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [userId, kickedContent, 100, groupId]
     );
 
@@ -3827,7 +3827,7 @@ app.post('/api/remove-group-member', async (req, res) => {
     // 执行踢出操作 - 逻辑删除，只记录deleted_at（加1秒）
     const deletedAt = new Date(Date.now() + 1000);
     await pool.execute(
-      'UPDATE chat_group_members SET deleted_at = ? WHERE group_id = ? AND user_id = ?',
+      'UPDATE scr_group_members SET deleted_at = ? WHERE group_id = ? AND user_id = ?',
       [deletedAt, groupId, memberId]
     );
 
@@ -3861,7 +3861,7 @@ app.post('/api/add-group-members', async (req, res) => {
 
     // 检查用户是否是群主
     const [group] = await pool.execute(
-      'SELECT creator_id, name, avatar_url FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      'SELECT creator_id, name, avatar_url FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
 
@@ -3877,7 +3877,7 @@ app.post('/api/add-group-members', async (req, res) => {
     const cleanMemberIds = [...new Set(memberIds.map(id => parseInt(id)))];
     const placeholders = cleanMemberIds.map(() => '?').join(',');
     const [users] = await pool.execute(
-      `SELECT id FROM chat_users WHERE id IN (${placeholders})`,
+      `SELECT id FROM scr_users WHERE id IN (${placeholders})`,
       cleanMemberIds
     );
 
@@ -3887,7 +3887,7 @@ app.post('/api/add-group-members', async (req, res) => {
     
     // 获取群主的所有好友ID
     const [friendIds] = await pool.execute(
-      'SELECT friend_id FROM chat_friends WHERE user_id = ? AND deleted_at IS NULL',
+      'SELECT friend_id FROM scr_friends WHERE user_id = ? AND deleted_at IS NULL',
       [parseInt(userId)]
     );
     const friends = friendIds.map(row => row.friend_id);
@@ -3900,7 +3900,7 @@ app.post('/api/add-group-members', async (req, res) => {
 
     // 检查用户是否已经在群组中
     const [existingMembers] = await pool.execute(
-      `SELECT user_id FROM chat_group_members WHERE group_id = ? AND user_id IN (${placeholders}) AND deleted_at IS NULL`,
+      `SELECT user_id FROM scr_group_members WHERE group_id = ? AND user_id IN (${placeholders}) AND deleted_at IS NULL`,
       [groupId].concat(cleanMemberIds)
     );
 
@@ -3914,21 +3914,21 @@ app.post('/api/add-group-members', async (req, res) => {
     // 获取新成员信息
     const [newMembersInfo] = await pool.execute(
       `SELECT u.id, u.nickname, u.avatar_url as avatarUrl 
-      FROM chat_users u 
+      FROM scr_users u 
       WHERE u.id IN (${newMemberIds.map(() => '?').join(',')})`,
       newMemberIds
     );
 
     // 获取群主信息
     const [creatorInfo] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [userId]
     );
 
     // 添加新成员，总是创建新记录
     for (const memberId of newMemberIds) {
       await pool.execute(
-        'INSERT INTO chat_group_members (group_id, user_id, joined_at) VALUES (?, ?, NOW())',
+        'INSERT INTO scr_group_members (group_id, user_id, joined_at) VALUES (?, ?, NOW())',
         [groupId, memberId]
       );
     }
@@ -3936,8 +3936,8 @@ app.post('/api/add-group-members', async (req, res) => {
     // 获取更新后的群组成员列表
     const [updatedMembers] = await pool.execute(
       `SELECT u.id, u.nickname, u.avatar_url as avatarUrl 
-      FROM chat_group_members gm 
-      JOIN chat_users u ON gm.user_id = u.id 
+      FROM scr_group_members gm 
+      JOIN scr_users u ON gm.user_id = u.id 
       WHERE gm.group_id = ?`,
       [groupId]
     );
@@ -3962,7 +3962,7 @@ app.post('/api/add-group-members', async (req, res) => {
     const inviterName = creatorInfo[0]?.nickname || '用户';
     const addedContent = `${inviterName}邀请${newMemberNames}加入了群组`;
     const [insertResult] = await pool.execute(
-      'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [userId, addedContent, 100, groupId]
     );
 
@@ -3996,7 +3996,7 @@ app.post('/api/add-group-members', async (req, res) => {
 
     // 获取群组所有成员，向他们广播成员添加事件
     const [allMembers] = await pool.execute(
-      'SELECT user_id FROM chat_group_members WHERE group_id = ? AND deleted_at IS NULL',
+      'SELECT user_id FROM scr_group_members WHERE group_id = ? AND deleted_at IS NULL',
       [groupId]
     );
     
@@ -4033,7 +4033,7 @@ app.post('/api/generate-group-token', async (req, res) => {
     
     // 检查用户是否为群组成员
     const [member] = await pool.execute(
-      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+      'SELECT id FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
       [groupId, userId]
     );
     
@@ -4078,7 +4078,7 @@ app.get('/api/validate-group-token/:token', async (req, res) => {
     
     // 获取群组信息
     const [groups] = await pool.execute(
-      'SELECT id, name, description FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      'SELECT id, name, description FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
     
@@ -4115,7 +4115,7 @@ app.post('/api/join-group-with-token', async (req, res) => {
     
     // 获取群组信息
     const [group] = await pool.execute(
-      'SELECT id, name, avatar_url FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      'SELECT id, name, avatar_url FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
     
@@ -4125,7 +4125,7 @@ app.post('/api/join-group-with-token', async (req, res) => {
     
     // 检查用户是否已经是群组成员
     const [members] = await pool.execute(
-      'SELECT id, deleted_at FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+      'SELECT id, deleted_at FROM scr_group_members WHERE group_id = ? AND user_id = ?',
       [groupId, userId]
     );
     
@@ -4137,13 +4137,13 @@ app.post('/api/join-group-with-token', async (req, res) => {
     
     // 获取用户信息
     const [userInfo] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [userId]
     );
     
     // 执行加入操作，总是创建新记录
     await pool.execute(
-      'INSERT INTO chat_group_members (group_id, user_id, joined_at) VALUES (?, ?, NOW())',
+      'INSERT INTO scr_group_members (group_id, user_id, joined_at) VALUES (?, ?, NOW())',
       [groupId, userId]
     );
     
@@ -4167,7 +4167,7 @@ app.post('/api/join-group-with-token', async (req, res) => {
       joinContent = `${userInfo[0]?.nickname || '用户'}加入了群组`;
     }
     const [insertResult] = await pool.execute(
-      'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [userId, joinContent, 100, groupId]
     );
 
@@ -4221,7 +4221,7 @@ app.post('/api/leave-group', async (req, res) => {
 
     // 检查群组是否存在
     const [group] = await pool.execute(
-      'SELECT id, name, creator_id FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      'SELECT id, name, creator_id FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
 
@@ -4231,7 +4231,7 @@ app.post('/api/leave-group', async (req, res) => {
 
     // 检查成员是否在群组中
     const [member] = await pool.execute(
-      'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+      'SELECT id FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
       [groupId, userId]
     );
 
@@ -4246,7 +4246,7 @@ app.post('/api/leave-group', async (req, res) => {
 
     // 获取用户信息
     const [userInfo] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [userId]
     );
 
@@ -4254,7 +4254,7 @@ app.post('/api/leave-group', async (req, res) => {
     const now = new Date();
     const leaveContent = `${userInfo[0]?.nickname || '用户'}退出了群组`;
     const [insertResult] = await pool.execute(
-      'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [userId, leaveContent, 100, groupId]
     );
 
@@ -4281,7 +4281,7 @@ app.post('/api/leave-group', async (req, res) => {
     // 执行退出操作 - 逻辑删除，只记录deleted_at（加1秒）
     const deletedAt = new Date(Date.now() + 1000);
     await pool.execute(
-      'UPDATE chat_group_members SET deleted_at = ? WHERE group_id = ? AND user_id = ?',
+      'UPDATE scr_group_members SET deleted_at = ? WHERE group_id = ? AND user_id = ?',
       [deletedAt, groupId, userId]
     );
 
@@ -4326,7 +4326,7 @@ app.post('/api/upload', checkFileRequestLimit, upload.fields([{ name: 'file' }, 
     }
 
     const [users] = await pool.execute(
-        'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+        'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
         [userId]
     );
 
@@ -4377,7 +4377,7 @@ app.post('/api/upload', checkFileRequestLimit, upload.fields([{ name: 'file' }, 
       content = JSON.stringify(imageContent);
       messageType = 1;
       
-      insertQuery = 'INSERT INTO chat_messages (user_id, content, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, NOW())';
+      insertQuery = 'INSERT INTO scr_messages (user_id, content, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, NOW())';
       insertParams = [userId, content, at_userid ? JSON.stringify(at_userid) : null, messageType, safeGroupId || null];
       
       newMessage = {
@@ -4400,7 +4400,7 @@ app.post('/api/upload', checkFileRequestLimit, upload.fields([{ name: 'file' }, 
       content = JSON.stringify({ url: fileUrl, filename: originalFilename });
       messageType = 2;
       
-      insertQuery = 'INSERT INTO chat_messages (user_id, content, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, NOW())';
+      insertQuery = 'INSERT INTO scr_messages (user_id, content, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, NOW())';
       insertParams = [userId, content, at_userid ? JSON.stringify(at_userid) : null, messageType, safeGroupId || null];
       
       newMessage = {
@@ -4695,7 +4695,7 @@ async function forceDisconnectUser(socket, reason = 'session-expired', originalE
       // 更新用户最后在线时间
       try {
         await pool.execute(
-          'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+          'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
           [user.id]
         );
       } catch (err) {
@@ -4715,7 +4715,7 @@ async function forceDisconnectUser(socket, reason = 'session-expired', originalE
       
       const [offlineUsersData] = await pool.execute(`
         SELECT id, nickname, last_online, avatar_url as avatarUrl 
-        FROM chat_users 
+        FROM scr_users 
         WHERE last_online IS NOT NULL 
         AND last_online >= DATE_SUB(NOW(), INTERVAL 7 DAY)
         ORDER BY last_online DESC
@@ -4843,7 +4843,7 @@ io.on('connection', (socket) => {
         // 加入用户的所有群组房间
         try {
           const [userGroups] = await pool.execute(
-            'SELECT group_id FROM chat_group_members WHERE user_id = ? AND deleted_at IS NULL',
+            'SELECT group_id FROM scr_group_members WHERE user_id = ? AND deleted_at IS NULL',
             [userId]
           );
           
@@ -4880,7 +4880,7 @@ io.on('connection', (socket) => {
         
         // 从数据库中获取真实的用户信息
         const [users] = await pool.execute(
-            'SELECT nickname, avatar_url as avatarUrl, gender FROM chat_users WHERE id = ?',
+            'SELECT nickname, avatar_url as avatarUrl, gender FROM scr_users WHERE id = ?',
             [userId]
         );
         
@@ -4921,11 +4921,11 @@ io.on('connection', (socket) => {
     
         // 更新用户最后在线时间
         await pool.execute(
-            'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+            'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
             [userId]
         );
 
-        // 记录用户加入事件到chat_ip_logs
+        // 记录用户加入事件到scr_ip_logs
         try {
           // 从nginx代理头获取真实客户端IP
           let clientIP = socket.handshake.headers['x-forwarded-for'];
@@ -4940,12 +4940,12 @@ io.on('connection', (socket) => {
             clientIP = clientIP.split(',')[0].trim();
           }
           await pool.execute(
-            'INSERT INTO chat_ip_logs (user_id, ip_address, action) VALUES (?, ?, ?)',
+            'INSERT INTO scr_ip_logs (user_id, ip_address, action) VALUES (?, ?, ?)',
             [userId, clientIP, 'check_status']
           );
           // 清理旧记录，保持最多6000条
           await pool.execute(
-            'DELETE FROM chat_ip_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM chat_ip_logs ORDER BY timestamp DESC LIMIT 6000) AS tmp)'
+            'DELETE FROM scr_ip_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM scr_ip_logs ORDER BY timestamp DESC LIMIT 6000) AS tmp)'
           );
         } catch (logErr) {
           // 记录失败不影响主要功能
@@ -4964,7 +4964,7 @@ io.on('connection', (socket) => {
         
         const [offlineUsersData] = await pool.execute(`
           SELECT id, nickname, last_online, avatar_url as avatarUrl 
-          FROM chat_users 
+          FROM scr_users 
           WHERE last_online IS NOT NULL 
           AND last_online >= DATE_SUB(NOW(), INTERVAL 7 DAY)
           ORDER BY last_online DESC
@@ -5037,7 +5037,7 @@ io.on('connection', (socket) => {
         if (groupId) {
           // 先检查群组是否存在，并获取群主信息和删除状态
           const [groupCheck] = await pool.execute(
-            'SELECT id, creator_id, deleted_at FROM chat_groups WHERE id = ?',
+            'SELECT id, creator_id, deleted_at FROM scr_groups WHERE id = ?',
             [parseInt(groupId)]
           );
           
@@ -5067,7 +5067,7 @@ io.on('connection', (socket) => {
           }
           
           const [memberCheck] = await pool.execute(
-            'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+            'SELECT id FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
             [parseInt(groupId), parseInt(userId)]
           );
           
@@ -5103,7 +5103,7 @@ io.on('connection', (socket) => {
     
         // 获取用户信息...
         const [users] = await pool.execute(
-            'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+            'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
             [userId]
         );
     
@@ -5130,7 +5130,7 @@ io.on('connection', (socket) => {
         const messageContent = cleanContent;
         
         const [result] = await pool.execute(
-            'INSERT INTO chat_messages (user_id, content, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, NOW())',
+            'INSERT INTO scr_messages (user_id, content, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, NOW())',
             [userId, messageContent, at_userid ? JSON.stringify(at_userid) : null, messageType, groupId || null]
         );
         
@@ -5234,7 +5234,7 @@ io.on('connection', (socket) => {
 
       // 获取用户信息
       const [users] = await pool.execute(
-          'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+          'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
           [userId]
       );
 
@@ -5248,7 +5248,7 @@ io.on('connection', (socket) => {
 
       // 验证对方是否是自己的好友，并检查是否已删除
       const [friendCheck] = await pool.query(
-        'SELECT id, deleted_at FROM chat_friends WHERE user_id = ? AND friend_id = ?',
+        'SELECT id, deleted_at FROM scr_friends WHERE user_id = ? AND friend_id = ?',
         [parseInt(userId), parseInt(receiverId)]
       );
       
@@ -5289,7 +5289,7 @@ io.on('connection', (socket) => {
       const messageContent = cleanContent;
       
       const [result] = await pool.execute(
-          'INSERT INTO chat_private_messages (sender_id, receiver_id, content, at_userid, message_type, is_read, timestamp) VALUES (?, ?, ?, ?, ?, 0, NOW())',
+          'INSERT INTO scr_private_messages (sender_id, receiver_id, content, at_userid, message_type, is_read, timestamp) VALUES (?, ?, ?, ?, ?, 0, NOW())',
           [userId, receiverId, messageContent, at_userid ? JSON.stringify(at_userid) : null, messageType]
       );
 
@@ -5348,7 +5348,7 @@ io.on('connection', (socket) => {
       
       // 获取消息详情
       const [messages] = await pool.execute(
-        'SELECT id, sender_id, receiver_id, content, message_type FROM chat_private_messages WHERE id = ?',
+        'SELECT id, sender_id, receiver_id, content, message_type FROM scr_private_messages WHERE id = ?',
         [messageId]
       );
       
@@ -5411,7 +5411,7 @@ io.on('connection', (socket) => {
       } else {
         // 对方不在线，保存到数据库
         const [insertResult] = await pool.execute(
-          'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
+          'INSERT INTO scr_private_messages (sender_id, receiver_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
           [numericUserId, message.receiver_id, String(numericMessageId), 101]
         );
         
@@ -5427,7 +5427,7 @@ io.on('connection', (socket) => {
       }
       
       // 删除原数据库记录
-      await pool.execute('DELETE FROM chat_private_messages WHERE id = ?', [messageId]);
+      await pool.execute('DELETE FROM scr_private_messages WHERE id = ?', [messageId]);
       
       // 发送类型101消息给发送者和接收者
       io.to(`user_${numericUserId}`).emit('private-message-received', type101Message);
@@ -5483,7 +5483,7 @@ io.on('connection', (socket) => {
         // 处理私信已读
         // 更新数据库中对方发给自己的未读消息为已读
         await pool.execute(
-          'UPDATE chat_private_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0',
+          'UPDATE scr_private_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0',
           [numericFriendId, numericUserId]
         );
         
@@ -5502,7 +5502,7 @@ io.on('connection', (socket) => {
           
           // 获取刚才已读的最后一条消息的id作为内容
           const [readMessages] = await pool.execute(
-            'SELECT id FROM chat_private_messages WHERE sender_id = ? AND receiver_id = ? AND is_read = 1 ORDER BY id DESC LIMIT 1',
+            'SELECT id FROM scr_private_messages WHERE sender_id = ? AND receiver_id = ? AND is_read = 1 ORDER BY id DESC LIMIT 1',
             [numericFriendId, numericUserId]
           );
           
@@ -5513,7 +5513,7 @@ io.on('connection', (socket) => {
           
           // 保存已读回执消息（103）到数据库
           const [insertResult] = await pool.execute(
-            'INSERT INTO chat_private_messages (sender_id, receiver_id, content, message_type, timestamp, is_read) VALUES (?, ?, ?, ?, NOW(), 1)',
+            'INSERT INTO scr_private_messages (sender_id, receiver_id, content, message_type, timestamp, is_read) VALUES (?, ?, ?, ?, NOW(), 1)',
             [numericUserId, numericFriendId, String(lastReadMessageId), 103]
           );
           
@@ -5573,7 +5573,7 @@ io.on('connection', (socket) => {
         // 收集群组最后消息时间（从消息表中动态获取）
         const groupLastMessageTimes = {};
         const [groupMessages] = await pool.execute(
-          'SELECT group_id, MAX(timestamp) as last_time FROM chat_messages WHERE group_id IS NOT NULL GROUP BY group_id'
+          'SELECT group_id, MAX(timestamp) as last_time FROM scr_messages WHERE group_id IS NOT NULL GROUP BY group_id'
         );
         groupMessages.forEach(msg => {
           if (msg.last_time) {
@@ -5584,7 +5584,7 @@ io.on('connection', (socket) => {
         // 收集私信最后消息时间
         const privateLastMessageTimes = {};
         const [privateMessages] = await pool.execute(
-          'SELECT sender_id, receiver_id, MAX(timestamp) as last_time FROM chat_private_messages WHERE sender_id = ? OR receiver_id = ? GROUP BY sender_id, receiver_id',
+          'SELECT sender_id, receiver_id, MAX(timestamp) as last_time FROM scr_private_messages WHERE sender_id = ? OR receiver_id = ? GROUP BY sender_id, receiver_id',
           [numericUserId, numericUserId]
         );
         privateMessages.forEach(msg => {
@@ -5604,7 +5604,7 @@ io.on('connection', (socket) => {
         
         // 验证用户是否在群组中
         const [memberCheck] = await pool.query(
-          'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+          'SELECT id FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
           [numericGroupId, numericUserId]
         );
         
@@ -5630,7 +5630,7 @@ io.on('connection', (socket) => {
         
         // 验证对方是否是自己的好友
         const [friendCheck] = await pool.query(
-          'SELECT id FROM chat_friends WHERE user_id = ? AND friend_id = ? AND deleted_at IS NULL',
+          'SELECT id FROM scr_friends WHERE user_id = ? AND friend_id = ? AND deleted_at IS NULL',
           [numericUserId, numericFriendId]
         );
         
@@ -5644,9 +5644,9 @@ io.on('connection', (socket) => {
                  p.content, p.at_userid, p.message_type as messageType, p.is_read as isRead, p.timestamp,
                  u1.nickname as senderNickname, u1.avatar_url as senderAvatarUrl,
                  u2.nickname as receiverNickname, u2.avatar_url as receiverAvatarUrl
-          FROM chat_private_messages p
-          JOIN chat_users u1 ON p.sender_id = u1.id
-          JOIN chat_users u2 ON p.receiver_id = u2.id
+          FROM scr_private_messages p
+          JOIN scr_users u1 ON p.sender_id = u1.id
+          JOIN scr_users u2 ON p.receiver_id = u2.id
           WHERE ((p.sender_id = ? AND p.receiver_id = ?) OR (p.sender_id = ? AND p.receiver_id = ?))
         `;
         
@@ -5727,7 +5727,7 @@ io.on('connection', (socket) => {
 
       // 先获取消息信息，检查是否有图片和权限
       const [messages] = await pool.execute(
-          'SELECT content, message_type, user_id, group_id FROM chat_messages WHERE id = ?',
+          'SELECT content, message_type, user_id, group_id FROM scr_messages WHERE id = ?',
           [messageId]
       );
 
@@ -5749,7 +5749,7 @@ io.on('connection', (socket) => {
       // 如果是群组消息，验证用户是否在群组中
       if (message.group_id) {
         const [memberCheck] = await pool.execute(
-          'SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+          'SELECT id FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
           [parseInt(message.group_id), parseInt(userId)]
         );
         
@@ -5786,15 +5786,15 @@ io.on('connection', (socket) => {
       // 将类型101消息保存到数据库
       let insertResult;
       if (message.group_id) {
-        // 群组消息：保存到 chat_messages 表
+        // 群组消息：保存到 scr_messages 表
         [insertResult] = await pool.execute(
-          'INSERT INTO chat_messages (user_id, group_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
+          'INSERT INTO scr_messages (user_id, group_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
           [parseInt(userId), parseInt(message.group_id), String(numericMessageId), 101]
         );
       } else {
-        // 公共消息：保存到 chat_messages 表
+        // 公共消息：保存到 scr_messages 表
         [insertResult] = await pool.execute(
-          'INSERT INTO chat_messages (user_id, content, message_type, timestamp) VALUES (?, ?, ?, NOW())',
+          'INSERT INTO scr_messages (user_id, content, message_type, timestamp) VALUES (?, ?, ?, NOW())',
           [parseInt(userId), String(numericMessageId), 101]
         );
       }
@@ -5813,13 +5813,13 @@ io.on('connection', (socket) => {
       };
       
       // 删除原数据库记录
-      await pool.execute('DELETE FROM chat_messages WHERE id = ?', [messageId]);
+      await pool.execute('DELETE FROM scr_messages WHERE id = ?', [messageId]);
       
       // 广播类型101消息
       if (message.group_id) {
         // 群组消息：向群组成员广播
         const [groupMembers] = await pool.execute(
-          'SELECT user_id FROM chat_group_members WHERE group_id = ? AND deleted_at IS NULL',
+          'SELECT user_id FROM scr_group_members WHERE group_id = ? AND deleted_at IS NULL',
           [message.group_id]
         );
         for (const member of groupMembers) {
@@ -5856,7 +5856,7 @@ io.on('connection', (socket) => {
       
       const [offlineUsersData] = await pool.execute(`
         SELECT id, nickname, last_online, avatar_url as avatarUrl 
-        FROM chat_users 
+        FROM scr_users 
         WHERE last_online IS NOT NULL 
         AND last_online >= DATE_SUB(NOW(), INTERVAL 7 DAY)
         ORDER BY last_online DESC
@@ -5896,7 +5896,7 @@ io.on('connection', (socket) => {
       // 更新用户最后上线时间（即下线时间）
       try {
         await pool.execute(
-          'UPDATE chat_users SET last_online = NOW() WHERE id = ?',
+          'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
           [user.id]
         );
       } catch (err) {
@@ -5916,7 +5916,7 @@ io.on('connection', (socket) => {
       
       const [offlineUsersData] = await pool.execute(`
         SELECT id, nickname, last_online, avatar_url as avatarUrl 
-        FROM chat_users 
+        FROM scr_users 
         WHERE last_online IS NOT NULL 
         AND last_online >= DATE_SUB(NOW(), INTERVAL 7 DAY)
         ORDER BY last_online DESC
@@ -5965,7 +5965,7 @@ app.post('/api/dissolve-group', async (req, res) => {
     
     // 检查用户是否是群主
     const [groupResults] = await pool.execute(
-      'SELECT creator_id, name, avatar_url FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      'SELECT creator_id, name, avatar_url FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
     
@@ -5988,19 +5988,19 @@ app.post('/api/dissolve-group', async (req, res) => {
       
       // 获取群组所有成员
       const [members] = await connection.execute(
-        'SELECT user_id FROM chat_group_members WHERE group_id = ?',
+        'SELECT user_id FROM scr_group_members WHERE group_id = ?',
         [groupId]
       );
       
       // 设置群组为已删除（标记 deleted_at）
       await connection.execute(
-        'UPDATE chat_groups SET deleted_at = NOW() WHERE id = ?',
+        'UPDATE scr_groups SET deleted_at = NOW() WHERE id = ?',
         [groupId]
       );
       
       // 保留成员记录，添加 deleted_at 标记
       await connection.execute(
-        'UPDATE chat_group_members SET deleted_at = NOW() WHERE group_id = ?',
+        'UPDATE scr_group_members SET deleted_at = NOW() WHERE group_id = ?',
         [groupId]
       );
       
@@ -6027,7 +6027,7 @@ app.post('/api/dissolve-group', async (req, res) => {
       
       // 获取群主信息
       const [creatorInfo] = await pool.execute(
-        'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+        'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
         [userId]
       );
       
@@ -6037,7 +6037,7 @@ app.post('/api/dissolve-group', async (req, res) => {
         content: '群组已解散'
       });
       const [insertResult] = await pool.execute(
-        'INSERT INTO chat_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+        'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
         [userId, dissolvedContent, 100, groupId]
       );
       
@@ -6106,7 +6106,7 @@ app.post('/api/update-group-name', async (req, res) => {
 
     // 检查用户是否是群主
     const [group] = await pool.execute(
-      'SELECT creator_id FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      'SELECT creator_id FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
 
@@ -6120,7 +6120,7 @@ app.post('/api/update-group-name', async (req, res) => {
 
     // 更新群组名称
     await pool.execute(
-      'UPDATE chat_groups SET name = ? WHERE id = ? AND deleted_at IS NULL',
+      'UPDATE scr_groups SET name = ? WHERE id = ? AND deleted_at IS NULL',
       [newGroupName, groupId]
     );
 
@@ -6152,7 +6152,7 @@ app.post('/api/update-group-description', async (req, res) => {
 
     // 检查用户是否是群主
     const [group] = await pool.execute(
-      'SELECT creator_id FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      'SELECT creator_id FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
 
@@ -6166,7 +6166,7 @@ app.post('/api/update-group-description', async (req, res) => {
 
     // 更新群组描述
     await pool.execute(
-      'UPDATE chat_groups SET description = ? WHERE id = ? AND deleted_at IS NULL',
+      'UPDATE scr_groups SET description = ? WHERE id = ? AND deleted_at IS NULL',
       [newDescription, groupId]
     );
 
@@ -6198,7 +6198,7 @@ app.post('/api/leave-group', async (req, res) => {
     
     // 检查用户是否在群组中
     const [memberResults] = await pool.execute(
-      'SELECT * FROM chat_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+      'SELECT * FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
       [groupId, userId]
     );
     
@@ -6208,7 +6208,7 @@ app.post('/api/leave-group', async (req, res) => {
     
     // 检查用户是否是群主
     const [groupResults] = await pool.execute(
-      'SELECT creator_id FROM chat_groups WHERE id = ? AND deleted_at IS NULL',
+      'SELECT creator_id FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
       [groupId]
     );
     
@@ -6229,7 +6229,7 @@ app.post('/api/leave-group', async (req, res) => {
       
       // 删除用户与群组的关联
       await connection.execute(
-        'DELETE FROM chat_group_members WHERE group_id = ? AND user_id = ?',
+        'DELETE FROM scr_group_members WHERE group_id = ? AND user_id = ?',
         [groupId, userId]
       );
       
@@ -6241,7 +6241,7 @@ app.post('/api/leave-group', async (req, res) => {
       
       // 获取群组所有成员，向他们广播成员退出事件
       const [allMembers] = await pool.execute(
-        'SELECT user_id FROM chat_group_members WHERE group_id = ?',
+        'SELECT user_id FROM scr_group_members WHERE group_id = ?',
         [groupId]
       );
       
@@ -6296,7 +6296,7 @@ app.post('/api/send-message', async (req, res) => {
 
     // 获取用户信息
     const [users] = await pool.execute(
-        'SELECT id, nickname, avatar_url FROM chat_users WHERE id = ?',
+        'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
         [userId]
     );
 
@@ -6309,7 +6309,7 @@ app.post('/api/send-message', async (req, res) => {
 
     // 插入消息到数据库
     const [result] = await pool.execute(
-        'INSERT INTO chat_messages (user_id, content, at_userid, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+        'INSERT INTO scr_messages (user_id, content, at_userid, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
         [userId, content, at_userid ? JSON.stringify(at_userid) : null, groupId || null]
     );
 

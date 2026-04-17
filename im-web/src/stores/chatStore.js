@@ -1,2572 +1,532 @@
 import { defineStore } from 'pinia';
-import { ref, toRaw } from 'vue';
-import localForage from 'localforage';
-
-let cachePublicMessages = [];
-let cacheGroupMessages = {};
-let cachePrivateMessages = {};
+import { createBaseModule } from './modules/base.js';
+import { createUserModule } from './modules/user.js';
+import { createSessionModule } from './modules/session.js';
+import { createPublicModule } from './modules/public.js';
+import { createGroupModule } from './modules/group.js';
+import { createFriendModule } from './modules/friend.js';
+import { createUnreadModule } from './modules/unread.js';
+import { createModalModule } from './modules/modal.js';
+import { createInputModule } from './modules/input.js';
+import { createDraftModule } from './modules/draft.js';
+import { createStorageModule } from './modules/storage.js';
 
 export const useChatStore = defineStore('chat', () => {
-  const onlineUsers = ref([]);
-  const offlineUsers = ref([]);
-  const groupsList = ref(null);
-  const friendsList = ref([]);
-  const publicMessages = ref([]);
-  const groupMessages = ref({});
-  const privateMessages = ref({});
-  const unreadMessages = ref({
-    global: 0,
-    groups: {},
-    private: {}
+  const baseModule = createBaseModule();
+  const modalModule = createModalModule();
+  const inputModule = createInputModule();
+
+  const getCurrentUser = () => baseModule.currentUser.value;
+
+  const getContext = () => ({
+    currentUser: baseModule.currentUser.value,
+    currentSessionToken: baseModule.currentSessionToken.value,
+    loading: baseModule.loading,
+    getStorageKeyPrefix: baseModule.getStorageKeyPrefix,
+    getCurrentUser,
+    getGroupsList,
+    getFriendsList,
+    onlineUsers: userModule.onlineUsers,
+    offlineUsers: userModule.offlineUsers,
+    groupsList: groupModule.groupsList,
+    friendsList: friendModule.friendsList,
+    publicMessages: publicModule.publicMessages,
+    groupMessages: groupModule.groupMessages,
+    privateMessages: friendModule.privateMessages,
+    unreadMessages: unreadModule.unreadMessages,
+    publicStored: publicModule.publicStored,
+    groupStored: groupModule.groupStored,
+    privateStored: friendModule.privateStored,
+    fullPublicMessages: storageModule.fullPublicMessages,
+    fullGroupMessages: storageModule.fullGroupMessages,
+    fullPrivateMessages: storageModule.fullPrivateMessages,
+    cachePublicMessages: storageModule.cachePublicMessages,
+    cacheGroupMessages: storageModule.cacheGroupMessages,
+    cachePrivateMessages: storageModule.cachePrivateMessages,
+    publicAndGroupMinId: storageModule.publicAndGroupMinId,
+    privateMinId: storageModule.privateMinId,
+    currentActiveChat: sessionModule.currentActiveChat,
+    currentGroupId: sessionModule.currentGroupId,
+    currentPrivateChatUserId: sessionModule.currentPrivateChatUserId,
+    groupsWithAtMe: groupModule.groupsWithAtMe,
+    saveToStorage: storageModule.saveToStorage,
+    saveMinIds: storageModule.saveMinIds,
+    loadMinIds: storageModule.loadMinIds,
+    clearQuotedMessage: inputModule.clearQuotedMessage,
+    clearOtherGroupMessages: groupModule.clearOtherGroupMessages,
+    clearOtherPrivateMessages: friendModule.clearOtherPrivateMessages,
+    clearPublicMessagesExceptRecent: publicModule.clearPublicMessagesExceptRecent,
+    clearGroupHasAtMe: groupModule.clearGroupHasAtMe,
+    setGroupHasAtMe: groupModule.setGroupHasAtMe,
+    loadUnreadCountsFromLocalStorage: unreadModule.loadUnreadCountsFromLocalStorage,
+    saveUnreadCountsToLocalStorage: unreadModule.saveUnreadCountsToLocalStorage,
+    loadUnreadCountsFromStorage: unreadModule.loadUnreadCountsFromStorage,
+    saveUnreadCountsToLocalStorageDirect: unreadModule.saveUnreadCountsToLocalStorageDirect,
+    sortGroupsByLastMessageTime: groupModule.sortGroupsByLastMessageTime,
+    sortFriendsByLastMessageTime: friendModule.sortFriendsByLastMessageTime,
+    updateUserInfoInMessages: userModule.updateUserInfoInMessages,
+    deletePublicMessage: (messageId) => publicModule.deletePublicMessage(messageId, getContext()),
+    deleteGroupMessage: (groupId, messageId) => groupModule.deleteGroupMessage(groupId, messageId, getContext()),
+    deletePrivateMessage: (userId, messageId) => friendModule.deletePrivateMessage(userId, messageId, getContext()),
+    updateGroupLastMessageAfterDelete: (groupId) => groupModule.updateGroupLastMessageAfterDelete(groupId, getContext()),
+    updateFriendLastMessageAfterDelete: (userId) => friendModule.updateFriendLastMessageAfterDelete(userId, getContext()),
+    updatePrivateMessagesReadStatus: (userId, readMessageId) => friendModule.updatePrivateMessagesReadStatus(userId, readMessageId, getContext()),
+    markGroupAsDeleted: (groupId, isOwnOperation) => groupModule.markGroupAsDeleted(groupId, isOwnOperation, getContext()),
+    markFriendAsDeleted: (userId, isOwnOperation) => friendModule.markFriendAsDeleted(userId, isOwnOperation, getContext()),
+    getGroupLastMessage: (groupId) => storageModule.getGroupLastMessage(groupId),
+    getPrivateLastMessage: (userId) => storageModule.getPrivateLastMessage(userId),
+    loadMessages: (loadToStore) => storageModule.loadMessages(loadToStore, getContext()),
+    clearMessages: () => storageModule.clearMessages(getContext()),
+    refreshMessages: () => storageModule.refreshMessages(getContext()),
+    processOfflineMessage: (message, onlySaveToDB) => storageModule.processOfflineMessage(message, onlySaveToDB, getContext()),
+    fetchAndMergeOfflineMessages: (onlySaveToDB) => storageModule.fetchAndMergeOfflineMessages(onlySaveToDB, getContext()),
+    initializeMessages: () => storageModule.initializeMessages(getContext()),
+    saveToStorage: () => storageModule.saveToStorage(getContext()),
+    saveMinIds: () => storageModule.saveMinIds(getContext()),
+    loadMinIds: () => storageModule.loadMinIds(getContext()),
+    formatMessageContent: storageModule.formatMessageContent,
+    clearAllDeletedSessions: () => storageModule.clearAllDeletedSessions(getContext()),
+    showFetchingMessage: baseModule.showFetchingMessage,
+    isFetchingOfflineMessages: baseModule.isFetchingOfflineMessages,
+    SERVER_URL: baseModule.SERVER_URL
   });
-  const currentUser = ref(null);
-  const currentSessionToken = ref(localStorage.getItem('currentSessionToken') || null);
-  
-  const currentGroupId = ref(null);
-  const currentGroupName = ref('');
-  const currentPrivateChatUserId = ref(null);
-  const currentPrivateChatUsername = ref('');
-  const currentPrivateChatNickname = ref('');
-  const currentPrivateChatAvatarUrl = ref('');
-  const currentActiveChat = ref('main');
-  const currentSendChatType = ref('main');
-  const selectedGroupIdForCard = ref(null);
-  
-  const isPageVisible = ref(true);
-  const isConnected = ref(false);
-  const loading = ref(false);
-  const isFetchingOfflineMessages = ref(false);
-  const showFetchingMessage = ref(false);
-  
-  const hasReceivedHistory = ref(false);
-  const hasReceivedGroupHistory = ref(false);
-  const hasReceivedPrivateHistory = ref(false);
-  
-  const mainMessageInput = ref('');
-  const groupMessageInput = ref('');
-  const privateMessageInput = ref('');
-  
-  // 草稿存储
-  const drafts = ref({
-    main: '',
-    groups: {},
-    private: {}
-  });
-  
-  const uploadProgress = ref(0);
-  const showUploadProgress = ref(false);
-  
-  const showGroupInfoModal = ref(false);
-  const showSendGroupCardModal = ref(false);
-  const showCreateGroupModal = ref(false);
-  const showAddGroupMemberModal = ref(false);
-  const showUserProfileModal = ref(false);
-  const showUserSearchModal = ref(false);
-  const showImagePreviewModal = ref(false);
-  const showAvatarPreviewModal = ref(false);
-  const showUserAvatarPopup = ref(false);
-  const showGroupCardPopup = ref(false);
-  
-  const modalData = ref({
-    groupInfo: null,
-    groupCardPopup: null,
-    shareGroupCardTargets: [],
-    userProfile: null,
-    imagePreviewUrl: '',
-    avatarPreviewUrl: '',
-    userAvatarPopup: null
-  });
-  
-  const quotedMessage = ref(null);
-  
-  const groupAllLoaded = ref({});
-  const privateAllLoaded = ref({});
-  const publicAllLoaded = ref(false);
-  
-  const publicStored = ref(false);
-  const groupStored = ref({});
-  const privateStored = ref({});
-  
-  // 完整消息列表（只在 IndexedDB 中存储）
-  let fullPublicMessages = null;
-  let fullGroupMessages = {};
-  let fullPrivateMessages = {};
-  
-  const publicAndGroupMinId = ref(0);
-  const privateMinId = ref(0);
-  
-  const publicPageSize = ref(20);
-  const publicPageOffset = ref(0);
-  const publicLoadingMore = ref(false);
-  const groupPageSize = ref({});
-  const groupPageOffset = ref({});
-  const groupLoadingMore = ref({});
-  const privatePageSize = ref({});
-  const privatePageOffset = ref({});
-  const privateLoadingMore = ref({});
-  
-  // 记录哪些群组有@我的消息
-  const groupsWithAtMe = ref({});
-  
-  const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn';
-  
-  function getStorageKeyPrefix() {
-    const userId = currentUser.value?.id || 'guest';
-    return `chats-${userId}`;
-  }
-  
+
+  const publicModule = createPublicModule(getContext);
+  const groupModule = createGroupModule(getContext);
+  const friendModule = createFriendModule(getContext);
+  const sessionModule = createSessionModule(getContext);
+  const draftModule = createDraftModule(getContext);
+  const storageModule = createStorageModule(getContext);
+
+  const getGroupsList = () => groupModule.groupsList.value;
+  const getFriendsList = () => friendModule.friendsList.value;
+
+  const userModule = createUserModule(getCurrentUser, getGroupsList, getFriendsList);
+  const unreadModule = createUnreadModule(getCurrentUser);
+
   function setCurrentUser(user) {
-    currentUser.value = user;
+    baseModule.setCurrentUser(user);
     if (user) {
-      loadUnreadCountsFromLocalStorage();
-      loadGroupsWithAtMeFromLocalStorage();
+      unreadModule.loadUnreadCountsFromLocalStorage();
+      groupModule.loadGroupsWithAtMeFromLocalStorage(user);
     }
   }
-  
-  function setCurrentSessionToken(token) {
-    currentSessionToken.value = token;
-    if (token) {
-      localStorage.setItem('currentSessionToken', token);
-    } else {
-      localStorage.removeItem('currentSessionToken');
-    }
-  }
-  
+
   function setCurrentGroupId(id) {
-    currentGroupId.value = id;
-    clearQuotedMessage();
-    clearOtherGroupMessages(id);
-    clearPublicMessagesExceptRecent();
-    clearOtherPrivateMessages(null);
-    // 清除该群组的@我标记
-    if (id) {
-      clearGroupHasAtMe(id);
-    }
+    sessionModule.setCurrentGroupId(id, {
+      clearQuotedMessage: inputModule.clearQuotedMessage,
+      clearOtherGroupMessages: groupModule.clearOtherGroupMessages,
+      clearPublicMessagesExceptRecent: publicModule.clearPublicMessagesExceptRecent,
+      clearOtherPrivateMessages: friendModule.clearOtherPrivateMessages,
+      clearGroupHasAtMe: groupModule.clearGroupHasAtMe
+    });
   }
-  
+
   function setCurrentPrivateChatUserId(id) {
-    currentPrivateChatUserId.value = id;
-    clearQuotedMessage();
-    clearOtherPrivateMessages(id);
-    clearPublicMessagesExceptRecent();
-    clearOtherGroupMessages(null);
+    sessionModule.setCurrentPrivateChatUserId(id, {
+      clearQuotedMessage: inputModule.clearQuotedMessage,
+      clearOtherPrivateMessages: friendModule.clearOtherPrivateMessages,
+      clearPublicMessagesExceptRecent: publicModule.clearPublicMessagesExceptRecent,
+      clearOtherGroupMessages: groupModule.clearOtherGroupMessages
+    });
   }
-  
+
   function setCurrentActiveChat(type) {
-    currentActiveChat.value = type;
-    clearQuotedMessage();
-    if (type === 'main') {
-      clearPublicMessagesExceptRecent();
-      clearOtherGroupMessages(null);
-      clearOtherPrivateMessages(null);
-    } else if (type.startsWith('group_')) {
-      const groupId = type.replace('group_', '');
-      clearOtherGroupMessages(groupId);
-      clearPublicMessagesExceptRecent();
-      clearOtherPrivateMessages(null);
-      // 清除该群组的@我标记
-      if (groupId) {
-        clearGroupHasAtMe(groupId);
-      }
-    } else if (type.startsWith('private_')) {
-      const userId = type.replace('private_', '');
-      clearOtherPrivateMessages(userId);
-      clearPublicMessagesExceptRecent();
-      clearOtherGroupMessages(null);
-    }
-  }
-  
-  function openModal(modalName, data = null) {
-    switch (modalName) {
-      case 'groupInfo':
-        showGroupInfoModal.value = true;
-        if (data) modalData.value.groupInfo = data;
-        break;
-      case 'sendGroupCard':
-        showSendGroupCardModal.value = true;
-        break;
-      case 'createGroup':
-        showCreateGroupModal.value = true;
-        break;
-      case 'addGroupMember':
-        showAddGroupMemberModal.value = true;
-        break;
-      case 'userProfile':
-        showUserProfileModal.value = true;
-        if (data) modalData.value.userProfile = data;
-        break;
-      case 'userSearch':
-        showUserSearchModal.value = true;
-        break;
-      case 'imagePreview':
-        showImagePreviewModal.value = true;
-        if (data) modalData.value.imagePreviewUrl = data;
-        break;
-      case 'avatarPreview':
-        showAvatarPreviewModal.value = true;
-        if (data) modalData.value.avatarPreviewUrl = data;
-        break;
-      case 'userAvatarPopup':
-        showUserAvatarPopup.value = true;
-        if (data) modalData.value.userAvatarPopup = data;
-        break;
-      case 'groupCardPopup':
-        showGroupCardPopup.value = true;
-        if (data) modalData.value.groupCardPopup = data;
-        break;
-    }
-    setTimeout(() => {
-      const modalId = getModalId(modalName);
-      if (modalId) {
-        const modal = document.getElementById(modalId);
-        if (modal) {
-          modal.style.display = '';
-        }
-      }
-    }, 0);
-  }
-  
-  function getModalId(modalName) {
-    const modalMap = {
-      'groupInfo': 'groupInfoModal',
-      'sendGroupCard': 'sendGroupCardModal',
-      'createGroup': 'createGroupModal',
-      'addGroupMember': 'addGroupMemberModal',
-      'userProfile': 'userProfileModal',
-      'userSearch': 'userSearchModal',
-      'imagePreview': 'imagePreviewModal',
-      'avatarPreview': 'avatarPreviewModal',
-      'userAvatarPopup': 'userAvatarPopup'
-    };
-    return modalMap[modalName] || null;
-  }
-  
-  function closeModal(modalName) {
-    switch (modalName) {
-      case 'groupInfo':
-        showGroupInfoModal.value = false;
-        break;
-      case 'sendGroupCard':
-        showSendGroupCardModal.value = false;
-        break;
-      case 'createGroup':
-        showCreateGroupModal.value = false;
-        break;
-      case 'addGroupMember':
-        showAddGroupMemberModal.value = false;
-        break;
-      case 'userProfile':
-        showUserProfileModal.value = false;
-        break;
-      case 'userSearch':
-        showUserSearchModal.value = false;
-        break;
-      case 'imagePreview':
-        showImagePreviewModal.value = false;
-        break;
-      case 'avatarPreview':
-        showAvatarPreviewModal.value = false;
-        break;
-      case 'userAvatarPopup':
-        showUserAvatarPopup.value = false;
-        break;
-      case 'groupCardPopup':
-        showGroupCardPopup.value = false;
-        break;
-      default:
-        showGroupInfoModal.value = false;
-        showSendGroupCardModal.value = false;
-        showCreateGroupModal.value = false;
-        showAddGroupMemberModal.value = false;
-        showUserProfileModal.value = false;
-        showUserSearchModal.value = false;
-        showImagePreviewModal.value = false;
-        showAvatarPreviewModal.value = false;
-        showUserAvatarPopup.value = false;
-        showGroupCardPopup.value = false;
-    }
+    sessionModule.setCurrentActiveChat(type, {
+      clearQuotedMessage: inputModule.clearQuotedMessage,
+      clearPublicMessagesExceptRecent: publicModule.clearPublicMessagesExceptRecent,
+      clearOtherGroupMessages: groupModule.clearOtherGroupMessages,
+      clearOtherPrivateMessages: friendModule.clearOtherPrivateMessages,
+      clearGroupHasAtMe: groupModule.clearGroupHasAtMe
+    });
   }
 
   function addPublicMessage(message) {
-    const isWithdrawMessage = message.messageType === 101;
-    const isUserInfoUpdateMessage = message.messageType === 102;
-    const messages = loading.value ? cachePublicMessages : publicMessages.value;
-    const exists = messages.some(m => m.id === message.id);
-    if (!exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
-      messages.push(message);
-    }
-    // 同时更新完整消息列表（包括101和102消息），新消息在后
-    if (fullPublicMessages === null) {
-      fullPublicMessages = [message];
-    } else {
-      const fullExists = fullPublicMessages.some(m => m.id === message.id);
-      if (!fullExists) {
-        fullPublicMessages.push(message);
-      }
-    }
-    // 更新 minId
-    if (message.id && message.id > publicAndGroupMinId.value) {
-      publicAndGroupMinId.value = message.id;
-      if (saveMinIds) {
-        saveMinIds();
-      }
-    }
-    if (!loading.value) {
-      publicStored.value = false;
-      saveToStorage();
-    }
+    publicModule.addPublicMessage(message, {
+      loading: baseModule.loading,
+      cachePublicMessages: storageModule.cachePublicMessages,
+      fullPublicMessages: storageModule.fullPublicMessages,
+      publicAndGroupMinId: storageModule.publicAndGroupMinId,
+      saveMinIds: () => storageModule.saveMinIds(getContext()),
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function addGroupMessage(groupId, message) {
-    const isWithdrawMessage = message.messageType === 101;
-    const messages = loading.value ? (cacheGroupMessages[groupId] || (cacheGroupMessages[groupId] = [])) : (groupMessages.value[groupId] || (groupMessages.value[groupId] = []));
-    const exists = messages.some(m => m.id === message.id);
-    if (!exists && !isWithdrawMessage) {
-      messages.push(message);
-    }
-    // 同时更新完整消息列表（包括101消息），新消息在后
-    if (fullGroupMessages[groupId] === null || fullGroupMessages[groupId] === undefined) {
-      fullGroupMessages[groupId] = [message];
-    } else {
-      const fullExists = fullGroupMessages[groupId].some(m => m.id === message.id);
-      if (!fullExists) {
-        fullGroupMessages[groupId].push(message);
-      }
-    }
-    // 更新 minId
-    if (message.id && message.id > publicAndGroupMinId.value) {
-      publicAndGroupMinId.value = message.id;
-      if (saveMinIds) {
-        saveMinIds();
-      }
-    }
-    if (!loading.value) {
-      groupStored.value[groupId] = false;
-      saveToStorage();
-    }
+    groupModule.addGroupMessage(groupId, message, {
+      loading: baseModule.loading,
+      cacheGroupMessages: storageModule.cacheGroupMessages,
+      fullGroupMessages: storageModule.fullGroupMessages,
+      publicAndGroupMinId: storageModule.publicAndGroupMinId,
+      saveMinIds: () => storageModule.saveMinIds(getContext()),
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function addPrivateMessage(userId, message) {
-    const isWithdrawMessage = message.messageType === 101;
-    const isReadReceiptMessage = message.messageType === 103;
-    const messages = loading.value ? (cachePrivateMessages[userId] || (cachePrivateMessages[userId] = [])) : (privateMessages.value[userId] || (privateMessages.value[userId] = []));
-    const exists = messages.some(m => m.id === message.id);
-    if (!exists && !isWithdrawMessage && !isReadReceiptMessage) {
-      messages.push(message);
-    }
-    // 同时更新完整消息列表（包括101和103消息），新消息在后
-    if (fullPrivateMessages[userId] === null || fullPrivateMessages[userId] === undefined) {
-      fullPrivateMessages[userId] = [message];
-    } else {
-      const fullExists = fullPrivateMessages[userId].some(m => m.id === message.id);
-      if (!fullExists) {
-        fullPrivateMessages[userId].push(message);
-      }
-    }
-    
-    if (message.id && message.id > privateMinId.value && !isWithdrawMessage) {
-      privateMinId.value = message.id;
-      if (saveMinIds) {
-        saveMinIds();
-      }
-    }
-    if (!loading.value) {
-      privateStored.value[userId] = false;
-      saveToStorage();
-    }
-  }
-
-  function updatePrivateMessagesReadStatus(userId, readMessageId) {
-    const targetReadId = readMessageId ? parseInt(readMessageId) : null;
-    const currentUserId = currentUser.value?.id;
-    if (!currentUserId) {
-      return;
-    }
-    
-    // 更新 store 中的消息（按id从大到小遍历，遇到已读状态为1的就停止）
-    const messages = privateMessages.value[userId];
-    if (messages && Array.isArray(messages)) {
-      // 先收集所有自己发送且id <= targetReadId的消息，按id排序
-      const myMessages = [];
-      for (let i = 0; i < messages.length; i++) {
-        const m = messages[i];
-        if (m.id && m.senderId !== undefined && String(m.senderId) === String(currentUserId)) {
-          if (!targetReadId || m.id <= targetReadId) {
-            myMessages.push({ index: i, id: m.id, isRead: m.isRead });
-          }
-        }
-      }
-      
-      // 按id从大到小排序
-      myMessages.sort((a, b) => b.id - a.id);
-      
-      // 从最大的id开始更新
-      let stopped = false;
-      for (const item of myMessages) {
-        if (stopped) break;
-        const m = messages[item.index];
-        // 如果已经是已读状态，就停止
-        if (m.isRead === 1) {
-          stopped = true;
-          break;
-        }
-        m.isRead = 1; // 已读状态
-      }
-    }
-    
-    // 更新完整消息列表（从后往前遍历，遇到已读状态为1的就停止）
-    if (fullPrivateMessages[userId]) {
-      const fullMessages = fullPrivateMessages[userId];
-      if (fullMessages && Array.isArray(fullMessages)) {
-        // 先收集所有自己发送且id <= targetReadId的消息，按id排序
-        const myMessages = [];
-        for (let i = 0; i < fullMessages.length; i++) {
-          const m = fullMessages[i];
-          if (m.id && m.senderId !== undefined && String(m.senderId) === String(currentUserId)) {
-            if (!targetReadId || m.id <= targetReadId) {
-              myMessages.push({ index: i, id: m.id, isRead: m.isRead });
-            }
-          }
-        }
-        
-        // 按id从大到小排序
-        myMessages.sort((a, b) => b.id - a.id);
-        
-        // 从最大的id开始更新
-        let stopped = false;
-        for (const item of myMessages) {
-          if (stopped) break;
-          const m = fullMessages[item.index];
-          // 如果已经是已读状态，就停止
-          if (m.isRead === 1) {
-            stopped = true;
-            break;
-          }
-          m.isRead = 1; // 已读状态
-        }
-      }
-    }
-    
-    privateStored.value[userId] = false;
-    saveToStorage();
+    friendModule.addPrivateMessage(userId, message, {
+      loading: baseModule.loading,
+      cachePrivateMessages: storageModule.cachePrivateMessages,
+      fullPrivateMessages: storageModule.fullPrivateMessages,
+      privateMinId: storageModule.privateMinId,
+      saveMinIds: () => storageModule.saveMinIds(getContext()),
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function setPublicMessages(messages) {
-    if (loading.value) {
-      cachePublicMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-    } else {
-      // 更新完整消息列表（保存原始顺序）
-      if (fullPublicMessages === null) {
-        fullPublicMessages = [...messages];
-      } else {
-        // 合并现有消息和新消息（新消息在后，保持原始顺序）
-        const fullExistingIds = new Set(fullPublicMessages.map(m => m.id));
-        const fullNewMessages = messages.filter(m => !fullExistingIds.has(m.id));
-        fullPublicMessages = [...fullPublicMessages, ...fullNewMessages];
-      }
-      // 只在 store 中保存最近 20 条非101、非102消息（用于显示）
-      const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-      publicMessages.value = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
-      publicStored.value = false;
-      saveToStorage();
-    }
+    publicModule.setPublicMessages(messages, {
+      loading: baseModule.loading,
+      cachePublicMessages: storageModule.cachePublicMessages,
+      fullPublicMessages: storageModule.fullPublicMessages,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function setGroupMessages(groupId, messages) {
-    
-    // 检查拉取的消息中是否有@自己的消息
-    if (currentUser.value) {
-      for (const message of messages) {
-        if (message.atUserid && message.messageType !== 101 && message.messageType !== 102) {
-          const atUserIds = Array.isArray(message.atUserid) ? message.atUserid : [message.atUserid];
-          const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.value.id) || String(id) === '-1');
-          if (isCurrentUserAt) {
-            setGroupHasAtMe(groupId);
-          }
-        }
-      }
-    }
-    
-    if (loading.value) {
-      cacheGroupMessages[groupId] = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-    } else {
-      // 更新完整消息列表（保存原始顺序）
-      if (fullGroupMessages[groupId] === null || fullGroupMessages[groupId] === undefined) {
-        fullGroupMessages[groupId] = [...messages];
-      } else {
-        // 合并现有消息和新消息（新消息在后，保持原始顺序）
-        const fullExistingIds = new Set(fullGroupMessages[groupId].map(m => m.id));
-        const fullNewMessages = messages.filter(m => !fullExistingIds.has(m.id));
-        fullGroupMessages[groupId] = [...fullGroupMessages[groupId], ...fullNewMessages];
-      }
-      // 只在 store 中保存最近 20 条非101、非102消息（用于显示）
-      const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-      groupMessages.value[groupId] = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
-      groupStored.value[groupId] = false;
-      saveToStorage();
-    }
+    groupModule.setGroupMessages(groupId, messages, {
+      loading: baseModule.loading,
+      cacheGroupMessages: storageModule.cacheGroupMessages,
+      fullGroupMessages: storageModule.fullGroupMessages,
+      currentUser: baseModule.currentUser.value,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function setPrivateMessages(userId, messages) {
-    if (loading.value) {
-      cachePrivateMessages[userId] = messages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
-    } else {
-      // 更新完整消息列表（保存原始顺序，包括101、103消息）
-      if (fullPrivateMessages[userId] === null || fullPrivateMessages[userId] === undefined) {
-        fullPrivateMessages[userId] = [...messages];
-      } else {
-        // 合并现有消息和新消息（新消息在后，保持原始顺序）
-        const fullExistingIds = new Set(fullPrivateMessages[userId].map(m => m.id));
-        const fullNewMessages = messages.filter(m => !fullExistingIds.has(m.id));
-        fullPrivateMessages[userId] = [...fullPrivateMessages[userId], ...fullNewMessages];
-      }
-      // 只在 store 中保存最近 20 条非101、非102、非103消息（用于显示）
-      const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
-      privateMessages.value[userId] = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
-      privateStored.value[userId] = false;
-      saveToStorage();
-    }
+    friendModule.setPrivateMessages(userId, messages, {
+      loading: baseModule.loading,
+      cachePrivateMessages: storageModule.cachePrivateMessages,
+      fullPrivateMessages: storageModule.fullPrivateMessages,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function prependPublicMessages(messages) {
-    const targetMessages = loading.value ? cachePublicMessages : publicMessages.value;
-    const existingIds = new Set(targetMessages.map(m => m.id));
-    const newMessages = messages.filter(m => !existingIds.has(m.id));
-    const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-    
-    if (loading.value) {
-      cachePublicMessages = [...displayNewMessages, ...cachePublicMessages];
-    } else {
-      // 更新完整消息列表 - 新消息（加载的是更旧的消息）放在前面
-      if (fullPublicMessages !== null) {
-        const fullIds = new Set(fullPublicMessages.map(m => m.id));
-        const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
-        // 确保按 ID 升序排序（从小到大，最旧的在前）
-        fullNewMessages.sort((a, b) => a.id - b.id);
-        fullPublicMessages = [...fullNewMessages, ...fullPublicMessages];
-      }
-      // 确保按 ID 升序排序（从小到大，最旧的在前）
-      displayNewMessages.sort((a, b) => a.id - b.id);
-      publicMessages.value = [...displayNewMessages, ...publicMessages.value];
-      publicStored.value = false;
-      saveToStorage();
-    }
+    publicModule.prependPublicMessages(messages, {
+      loading: baseModule.loading,
+      cachePublicMessages: storageModule.cachePublicMessages,
+      fullPublicMessages: storageModule.fullPublicMessages,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function prependGroupMessages(groupId, messages) {
-    
-    // 检查拉取的消息中是否有@自己的消息
-    if (currentUser.value) {
-      for (const message of messages) {
-        if (message.atUserid && message.messageType !== 101 && message.messageType !== 102) {
-          const atUserIds = Array.isArray(message.atUserid) ? message.atUserid : [message.atUserid];
-          const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.value.id) || String(id) === '-1');
-          if (isCurrentUserAt) {
-            setGroupHasAtMe(groupId);
-            break;
-          }
-        }
-      }
-    }
-    
-    const targetMessages = loading.value ? (cacheGroupMessages[groupId] || (cacheGroupMessages[groupId] = [])) : (groupMessages.value[groupId] || (groupMessages.value[groupId] = []));
-    const existingIds = new Set(targetMessages.map(m => m.id));
-    const newMessages = messages.filter(m => !existingIds.has(m.id));
-    const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-    if (loading.value) {
-      cacheGroupMessages[groupId] = [...displayNewMessages, ...(cacheGroupMessages[groupId] || [])];
-    } else {
-      // 更新完整消息列表 - 新消息（加载的是更旧的消息）放在前面
-      if (fullGroupMessages[groupId] !== null && fullGroupMessages[groupId] !== undefined) {
-        const fullIds = new Set(fullGroupMessages[groupId].map(m => m.id));
-        const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
-        // 确保按 ID 升序排序（从小到大，最旧的在前）
-        fullNewMessages.sort((a, b) => a.id - b.id);
-        fullGroupMessages[groupId] = [...fullNewMessages, ...fullGroupMessages[groupId]];
-      }
-      // 确保按 ID 升序排序（从小到大，最旧的在前）
-      displayNewMessages.sort((a, b) => a.id - b.id);
-      groupMessages.value[groupId] = [...displayNewMessages, ...groupMessages.value[groupId]];
-      groupStored.value[groupId] = false;
-      saveToStorage();
-    }
+    groupModule.prependGroupMessages(groupId, messages, {
+      loading: baseModule.loading,
+      cacheGroupMessages: storageModule.cacheGroupMessages,
+      fullGroupMessages: storageModule.fullGroupMessages,
+      currentUser: baseModule.currentUser.value,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function prependPrivateMessages(userId, messages) {
-    const targetMessages = loading.value ? (cachePrivateMessages[userId] || (cachePrivateMessages[userId] = [])) : (privateMessages.value[userId] || (privateMessages.value[userId] = []));
-    const existingIds = new Set(targetMessages.map(m => m.id));
-    const newMessages = messages.filter(m => !existingIds.has(m.id));
-    const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
-    if (loading.value) {
-      cachePrivateMessages[userId] = [...displayNewMessages, ...(cachePrivateMessages[userId] || [])];
-    } else {
-      // 更新完整消息列表 - 新消息（加载的是更旧的消息）放在前面，包括101和103消息
-      if (fullPrivateMessages[userId] !== null && fullPrivateMessages[userId] !== undefined) {
-        const fullIds = new Set(fullPrivateMessages[userId].map(m => m.id));
-        const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
-        // 确保按 ID 升序排序（从小到大，最旧的在前）
-        fullNewMessages.sort((a, b) => a.id - b.id);
-        fullPrivateMessages[userId] = [...fullNewMessages, ...fullPrivateMessages[userId]];
-      }
-      // 确保按 ID 升序排序（从小到大，最旧的在前）
-      displayNewMessages.sort((a, b) => a.id - b.id);
-      privateMessages.value[userId] = [...displayNewMessages, ...privateMessages.value[userId]];
-      privateStored.value[userId] = false;
-      saveToStorage();
-    }
+    friendModule.prependPrivateMessages(userId, messages, {
+      loading: baseModule.loading,
+      cachePrivateMessages: storageModule.cachePrivateMessages,
+      fullPrivateMessages: storageModule.fullPrivateMessages,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function clearPublicMessages() {
-    publicMessages.value = [];
-    publicStored.value = false;
-    saveToStorage();
+    publicModule.clearPublicMessages({
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function clearGroupMessages(groupId) {
-    if (groupMessages.value[groupId]) {
-      groupMessages.value[groupId] = [];
-      groupStored.value[groupId] = false;
-      saveToStorage();
-    }
+    groupModule.clearGroupMessages(groupId, {
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function clearPrivateMessages(userId) {
-    if (privateMessages.value[userId]) {
-      privateMessages.value[userId] = [];
-      privateStored.value[userId] = false;
-      saveToStorage();
-    }
+    friendModule.clearPrivateMessages(userId, {
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function deletePublicMessage(messageId) {
-    const index = publicMessages.value.findIndex(m => String(m.id) === String(messageId));
-    if (index !== -1) {
-      publicMessages.value.splice(index, 1);
-    }
-    if (fullPublicMessages) {
-      const fullIndex = fullPublicMessages.findIndex(m => String(m.id) === String(messageId));
-      if (fullIndex !== -1) {
-        fullPublicMessages.splice(fullIndex, 1);
-      }
-    }
-    publicStored.value = false;
-    saveToStorage();
+    publicModule.deletePublicMessage(messageId, {
+      fullPublicMessages: storageModule.fullPublicMessages,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function deleteGroupMessage(groupId, messageId) {
-    if (groupMessages.value[groupId]) {
-      const index = groupMessages.value[groupId].findIndex(m => String(m.id) === String(messageId));
-      if (index !== -1) {
-        groupMessages.value[groupId].splice(index, 1);
-      }
-    }
-    if (fullGroupMessages[groupId]) {
-      const fullIndex = fullGroupMessages[groupId].findIndex(m => String(m.id) === String(messageId));
-      if (fullIndex !== -1) {
-        fullGroupMessages[groupId].splice(fullIndex, 1);
-      }
-    }
-    groupStored.value[groupId] = false;
-    saveToStorage();
-    
-    // 更新群组最后消息
-    updateGroupLastMessageAfterDelete(groupId);
+    groupModule.deleteGroupMessage(groupId, messageId, {
+      fullGroupMessages: storageModule.fullGroupMessages,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
   function deletePrivateMessage(userId, messageId) {
-    if (privateMessages.value[userId]) {
-      const index = privateMessages.value[userId].findIndex(m => String(m.id) === String(messageId));
-      if (index !== -1) {
-        privateMessages.value[userId].splice(index, 1);
-      }
-    }
-    if (fullPrivateMessages[userId]) {
-      const fullIndex = fullPrivateMessages[userId].findIndex(m => String(m.id) === String(messageId));
-      if (fullIndex !== -1) {
-        fullPrivateMessages[userId].splice(fullIndex, 1);
-      }
-    }
-    privateStored.value[userId] = false;
-    saveToStorage();
-    
-    // 更新私信最后消息
-    updateFriendLastMessageAfterDelete(userId);
+    friendModule.deletePrivateMessage(userId, messageId, {
+      fullPrivateMessages: storageModule.fullPrivateMessages,
+      saveToStorage: () => storageModule.saveToStorage(getContext()),
+      updateFriendLastMessageAfterDelete: (uid) => friendModule.updateFriendLastMessageAfterDelete(uid, getContext())
+    });
   }
 
   function moveGroupToTop(groupId) {
-    const index = groupsList.value.findIndex(g => String(g.id) === String(groupId));
-    if (index > 0) {
-      const group = groupsList.value[index];
-      if (group.deleted_at != null) {
-        return;
-      }
-      const removedGroup = groupsList.value.splice(index, 1)[0];
-      const newTime = new Date().toISOString();
-      removedGroup.last_message_time = newTime;
-      groupsList.value.unshift(removedGroup);
-      sortGroupsByLastMessageTime();
-      saveGroupLastMessageTime(groupId, newTime);
-    }
+    groupModule.moveGroupToTop(groupId, {
+      sortGroupsByLastMessageTime: groupModule.sortGroupsByLastMessageTime
+    });
   }
 
   function moveFriendToTop(userId) {
-    const index = friendsList.value.findIndex(f => String(f.id) === String(userId));
-    if (index > 0) {
-      const friend = friendsList.value[index];
-      if (friend.deleted_at != null) {
-        return;
-      }
-      const removedFriend = friendsList.value.splice(index, 1)[0];
-      const newTime = new Date().toISOString();
-      removedFriend.last_message_time = newTime;
-      friendsList.value.unshift(removedFriend);
-      sortFriendsByLastMessageTime();
-      saveFriendLastMessageTime(userId, newTime);
-    }
-  }
-
-  function saveGroupLastMessageTime(groupId, time) {
-    try {
-      const key = 'group_last_message_times';
-      const data = JSON.parse(localStorage.getItem(key) || '{}');
-      data[groupId] = time;
-      localStorage.setItem(key, JSON.stringify(data));
-    } catch (err) {
-      console.error('保存群组最后消息时间失败:', err);
-    }
-  }
-
-  function saveFriendLastMessageTime(userId, time) {
-    try {
-      const key = 'friend_last_message_times';
-      const data = JSON.parse(localStorage.getItem(key) || '{}');
-      data[userId] = time;
-      localStorage.setItem(key, JSON.stringify(data));
-    } catch (err) {
-      console.error('保存好友最后消息时间失败:', err);
-    }
-  }
-
-  function getGroupLastMessageTime(groupId) {
-    try {
-      const key = 'group_last_message_times';
-      const data = JSON.parse(localStorage.getItem(key) || '{}');
-      return data[groupId] || null;
-    } catch (err) {
-      console.error('获取群组最后消息时间失败:', err);
-      return null;
-    }
-  }
-
-  function getFriendLastMessageTime(userId) {
-    try {
-      const key = 'friend_last_message_times';
-      const data = JSON.parse(localStorage.getItem(key) || '{}');
-      return data[userId] || null;
-    } catch (err) {
-      console.error('获取好友最后消息时间失败:', err);
-      return null;
-    }
-  }
-
-  function deleteGroupLastMessageTime(groupId) {
-    try {
-      const key = 'group_last_message_times';
-      const data = JSON.parse(localStorage.getItem(key) || '{}');
-      delete data[groupId];
-      localStorage.setItem(key, JSON.stringify(data));
-    } catch (err) {
-      console.error('删除群组最后消息时间失败:', err);
-    }
-  }
-
-  function deleteFriendLastMessageTime(userId) {
-    try {
-      const key = 'friend_last_message_times';
-      const data = JSON.parse(localStorage.getItem(key) || '{}');
-      delete data[userId];
-      localStorage.setItem(key, JSON.stringify(data));
-    } catch (err) {
-      console.error('删除好友最后消息时间失败:', err);
-    }
+    friendModule.moveFriendToTop(userId, {
+      sortFriendsByLastMessageTime: friendModule.sortFriendsByLastMessageTime
+    });
   }
 
   function clearGroupUnread(groupId) {
-    // 先从 localStorage 加载最新数据，避免覆盖
-    loadUnreadCountsFromLocalStorage();
-    const groupIdStr = String(groupId);
-    if (unreadMessages.value.groups && unreadMessages.value.groups[groupIdStr]) {
-      delete unreadMessages.value.groups[groupIdStr];
-    }
-    // 保存到 localStorage
-    saveUnreadCountsToLocalStorage();
+    unreadModule.clearGroupUnread(groupId, {
+      loadUnreadCountsFromLocalStorage: unreadModule.loadUnreadCountsFromLocalStorage,
+      saveUnreadCountsToLocalStorage: unreadModule.saveUnreadCountsToLocalStorage
+    });
   }
 
   function clearPrivateUnread(userId) {
-    // 先从 localStorage 加载最新数据，避免覆盖
-    loadUnreadCountsFromLocalStorage();
-    const userIdStr = String(userId);
-    let hasUnreadToClear = false;
-    if (unreadMessages.value.private && unreadMessages.value.private[userIdStr]) {
-      delete unreadMessages.value.private[userIdStr];
-      hasUnreadToClear = true;
-    }
-    // 保存到 localStorage
-    saveUnreadCountsToLocalStorage();
-    // 仅在有清除的未读计数时发送已读消息事件到后端
-    if (hasUnreadToClear && window.sendReadMessageEvent) {
-      window.sendReadMessageEvent('private', { friendId: userId });
-    }
+    unreadModule.clearPrivateUnread(userId, {
+      loadUnreadCountsFromLocalStorage: unreadModule.loadUnreadCountsFromLocalStorage,
+      saveUnreadCountsToLocalStorage: unreadModule.saveUnreadCountsToLocalStorage
+    });
   }
-  
-  function incrementGroupUnread(groupId) {
-    // 先从 localStorage 加载最新数据，避免覆盖
-    loadUnreadCountsFromLocalStorage();
-    const groupIdStr = String(groupId);
-    if (!unreadMessages.value.groups[groupIdStr]) {
-      unreadMessages.value.groups[groupIdStr] = 0;
-    }
-    unreadMessages.value.groups[groupIdStr]++;
-    // 保存到 localStorage
-    saveUnreadCountsToLocalStorage();
-  }
-  
-  function incrementGlobalUnread() {
-    // 先从 localStorage 加载最新数据，避免覆盖
-    loadUnreadCountsFromLocalStorage();
-    unreadMessages.value.global++;
-    // 保存到 localStorage
-    saveUnreadCountsToLocalStorage();
-  }
-  
-  function incrementPrivateUnread(userId) {
-    // 先从 localStorage 加载最新数据，避免覆盖
-    loadUnreadCountsFromLocalStorage();
-    const userIdStr = String(userId);
-    if (!unreadMessages.value.private[userIdStr]) {
-      unreadMessages.value.private[userIdStr] = 0;
-    }
-    unreadMessages.value.private[userIdStr]++;
-    // 保存到 localStorage
-    saveUnreadCountsToLocalStorage();
-  }
-  
+
   function clearGlobalUnread() {
-    // 先从 localStorage 加载最新数据，避免覆盖
-    loadUnreadCountsFromLocalStorage();
-    unreadMessages.value.global = 0;
-    // 保存到 localStorage
-    saveUnreadCountsToLocalStorage();
+    unreadModule.clearGlobalUnread({
+      loadUnreadCountsFromLocalStorage: unreadModule.loadUnreadCountsFromLocalStorage,
+      saveUnreadCountsToLocalStorage: unreadModule.saveUnreadCountsToLocalStorage
+    });
   }
 
-  function findUserById(userId) {
-    const idStr = String(userId);
-    if (currentUser.value && String(currentUser.value.id) === idStr) {
-      return currentUser.value;
-    }
-    if (friendsList.value) {
-      const friend = friendsList.value.find(f => String(f.id) === idStr);
-      if (friend) {
-        return friend;
-      }
-    }
-    if (groupsList.value) {
-      for (const group of groupsList.value) {
-        if (group.members) {
-          const member = group.members.find(m => String(m.id) === idStr);
-          if (member) {
-            return member;
-          }
-        }
-      }
-    }
-    return null;
+  function incrementGroupUnread(groupId) {
+    unreadModule.incrementGroupUnread(groupId, {
+      loadUnreadCountsFromLocalStorage: unreadModule.loadUnreadCountsFromLocalStorage,
+      saveUnreadCountsToLocalStorage: unreadModule.saveUnreadCountsToLocalStorage
+    });
   }
 
-  function getUserName(userId) {
-    const user = findUserById(userId);
-    if (user) {
-      return user.nickname || user.username || '未知用户';
-    }
-    return '未知用户';
+  function incrementGlobalUnread() {
+    unreadModule.incrementGlobalUnread({
+      loadUnreadCountsFromLocalStorage: unreadModule.loadUnreadCountsFromLocalStorage,
+      saveUnreadCountsToLocalStorage: unreadModule.saveUnreadCountsToLocalStorage
+    });
   }
 
-  function getUserAvatar(userId) {
-    const user = findUserById(userId);
-    if (user) {
-      return user.avatarUrl || '';
-    }
-    return '';
-  }
-
-  async function markGroupAsDeleted(groupId, isOwnOperation = false) {
-    if (!groupsList.value) return;
-    const groupIndex = groupsList.value.findIndex(g => String(g.id) === String(groupId));
-    if (groupIndex === -1) return;
-    
-    const prefix = getStorageKeyPrefix();
-    
-    // 如果是自己操作，直接删除本地记录，不标记
-    if (isOwnOperation) {
-      // 清空群组消息记录
-      // 1. 清空内存中的完整消息列表
-      delete fullGroupMessages[groupId];
-      // 2. 清空 Pinia store 中的消息列表
-      delete groupMessages.value[groupId];
-      // 3. 清空 localForage 中的存储
-      await localForage.removeItem(`${prefix}-group-${groupId}`);
-      // 4. 更新 chatKeys 列表
-      const chatKeysData = await localForage.getItem(prefix);
-      if (chatKeysData && chatKeysData.chatKeys) {
-        chatKeysData.chatKeys = chatKeysData.chatKeys.filter(key => key !== `${prefix}-group-${groupId}`);
-        await localForage.setItem(prefix, chatKeysData);
-      }
-      // 5. 从 groupsList 中移除该群组
-      groupsList.value.splice(groupIndex, 1);
-      
-      // 如果当前正在查看这个群组，清空当前群组
-      if (currentGroupId.value && String(currentGroupId.value) === String(groupId)) {
-        currentGroupId.value = null;
-      }
-    } else {
-      // 如果不是自己操作，才添加 deleted_at 标记
-      const group = groupsList.value[groupIndex];
-      group.deleted_at = new Date().toISOString();
-      
-      // 更新 IndexedDB 中的会话对象，添加 deleted_at 标记
-      try {
-        const key = `${prefix}-group-${groupId}`;
-        const existingData = await localForage.getItem(key);
-        let sessionData = existingData ? { ...existingData } : { messages: [] };
-        
-        // 发现缺少名称时直接请求 API 补全信息
-        if (!sessionData.name) {
-          try {
-            const response = await fetch(`${import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn'}/api/group-info/${groupId}`, {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                'user-id': currentUser.value?.id,
-                'session-token': localStorage.getItem('currentSessionToken')
-              }
-            });
-            if (response.ok) {
-              const data = await response.json();
-              if (data.status === 'success' && data.group) {
-                if (!sessionData.name && data.group.name) {
-                  sessionData.name = data.group.name;
-                }
-                if (!sessionData.avatarUrl && data.group.avatar_url) {
-                  sessionData.avatarUrl = data.group.avatar_url;
-                }
-              }
-            }
-          } catch (e) {
-            console.error('获取群组信息失败:', e);
-          }
-        }
-        
-        sessionData.deleted_at = group.deleted_at;
-        await localForage.setItem(key, sessionData);
-      } catch (e) {
-        console.error('更新群组会话的 deleted_at 标记失败:', e);
-      }
-    }
-  }
-
-  async function markFriendAsDeleted(userId, isOwnOperation = false) {
-    if (!friendsList.value) return;
-    const friendIndex = friendsList.value.findIndex(f => String(f.id) === String(userId));
-    if (friendIndex === -1) return;
-    
-    const prefix = getStorageKeyPrefix();
-    
-    // 如果是自己操作，直接删除本地记录，不标记
-    if (isOwnOperation) {
-      // 清空好友消息记录
-      // 1. 清空内存中的完整消息列表
-      delete fullPrivateMessages[userId];
-      // 2. 清空 Pinia store 中的消息列表
-      delete privateMessages.value[userId];
-      // 3. 清空 localForage 中的存储
-      await localForage.removeItem(`${prefix}-private-${userId}`);
-      // 4. 更新 chatKeys 列表
-      const chatKeysData = await localForage.getItem(prefix);
-      if (chatKeysData && chatKeysData.chatKeys) {
-        chatKeysData.chatKeys = chatKeysData.chatKeys.filter(key => key !== `${prefix}-private-${userId}`);
-        await localForage.setItem(prefix, chatKeysData);
-      }
-      // 5. 从 friendsList 中移除该好友
-      friendsList.value.splice(friendIndex, 1);
-      
-      // 如果当前正在查看这个好友，清空当前好友
-      if (currentPrivateChatUserId.value && String(currentPrivateChatUserId.value) === String(userId)) {
-        currentPrivateChatUserId.value = null;
-      }
-    } else {
-      // 如果不是自己操作，才添加 deleted_at 标记
-      const friend = friendsList.value[friendIndex];
-      friend.deleted_at = new Date().toISOString();
-      
-      // 更新 IndexedDB 中的会话对象，添加 deleted_at 标记
-      try {
-        const key = `${prefix}-private-${userId}`;
-        const existingData = await localForage.getItem(key);
-        let sessionData = existingData ? { ...existingData } : { messages: [] };
-        
-        // 发现缺少昵称时直接请求 API 补全信息
-        if (!sessionData.nickname) {
-          try {
-            const response = await fetch(`/api/user/${userId}`, {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-              }
-            });
-            if (response.ok) {
-              const data = await response.json();
-              if (data.status === 'success' && data.user) {
-                if (!sessionData.nickname && data.user.nickname) {
-                  sessionData.nickname = data.user.nickname;
-                }
-                if (!sessionData.avatarUrl && data.user.avatar_url) {
-                  sessionData.avatarUrl = data.user.avatar_url;
-                }
-                if (!sessionData.username && data.user.username) {
-                  sessionData.username = data.user.username;
-                }
-              }
-            }
-          } catch (e) {
-            console.error('获取用户信息失败:', e);
-          }
-        }
-        
-        sessionData.deleted_at = friend.deleted_at;
-        await localForage.setItem(key, sessionData);
-      } catch (e) {
-        console.error('更新好友会话的 deleted_at 标记失败:', e);
-      }
-    }
+  function incrementPrivateUnread(userId) {
+    unreadModule.incrementPrivateUnread(userId, {
+      loadUnreadCountsFromLocalStorage: unreadModule.loadUnreadCountsFromLocalStorage,
+      saveUnreadCountsToLocalStorage: unreadModule.saveUnreadCountsToLocalStorage
+    });
   }
 
   function updateUserInfoInMessages(userId, userInfo) {
-    const userIdStr = String(userId);
-
-    if (fullPublicMessages && fullPublicMessages.length > 0) {
-      for (let i = 0; i < fullPublicMessages.length; i++) {
-        if (String(fullPublicMessages[i].sender_id) === userIdStr || String(fullPublicMessages[i].userId) === userIdStr) {
-          if (userInfo.nickname) {
-            fullPublicMessages[i].nickname = userInfo.nickname;
-          }
-          if (userInfo.avatarUrl) {
-            fullPublicMessages[i].avatarUrl = userInfo.avatarUrl;
-          }
-        }
-      }
-    }
-
-    if (fullGroupMessages) {
-      for (const groupId in fullGroupMessages) {
-        if (fullGroupMessages[groupId] && fullGroupMessages[groupId].length > 0) {
-          for (let i = 0; i < fullGroupMessages[groupId].length; i++) {
-            if (String(fullGroupMessages[groupId][i].sender_id) === userIdStr || String(fullGroupMessages[groupId][i].userId) === userIdStr) {
-              if (userInfo.nickname) {
-                fullGroupMessages[groupId][i].nickname = userInfo.nickname;
-              }
-              if (userInfo.avatarUrl) {
-                fullGroupMessages[groupId][i].avatarUrl = userInfo.avatarUrl;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (fullPrivateMessages) {
-      for (const otherUserId in fullPrivateMessages) {
-        if (fullPrivateMessages[otherUserId] && fullPrivateMessages[otherUserId].length > 0) {
-          for (let i = 0; i < fullPrivateMessages[otherUserId].length; i++) {
-            if (String(fullPrivateMessages[otherUserId][i].sender_id) === userIdStr || String(fullPrivateMessages[otherUserId][i].userId) === userIdStr) {
-              if (userInfo.nickname) {
-                fullPrivateMessages[otherUserId][i].nickname = userInfo.nickname;
-              }
-              if (userInfo.avatarUrl) {
-                fullPrivateMessages[otherUserId][i].avatarUrl = userInfo.avatarUrl;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (publicMessages.value && publicMessages.value.length > 0) {
-      const newPublicMessages = publicMessages.value.map(msg => {
-        if (String(msg.sender_id) === userIdStr || String(msg.userId) === userIdStr) {
-          return {
-            ...msg,
-            ...(userInfo.nickname && { nickname: userInfo.nickname }),
-            ...(userInfo.avatarUrl && { avatarUrl: userInfo.avatarUrl })
-          };
-        }
-        return msg;
-      });
-      publicMessages.value = newPublicMessages;
-    }
-
-    if (groupMessages.value) {
-      for (const groupId in groupMessages.value) {
-        if (groupMessages.value[groupId] && groupMessages.value[groupId].length > 0) {
-          const newGroupMessages = groupMessages.value[groupId].map(msg => {
-            if (String(msg.sender_id) === userIdStr || String(msg.userId) === userIdStr) {
-              return {
-                ...msg,
-                ...(userInfo.nickname && { nickname: userInfo.nickname }),
-                ...(userInfo.avatarUrl && { avatarUrl: userInfo.avatarUrl })
-              };
-            }
-            return msg;
-          });
-          groupMessages.value[groupId] = newGroupMessages;
-        }
-      }
-    }
-
-    if (privateMessages.value) {
-      for (const otherUserId in privateMessages.value) {
-        if (privateMessages.value[otherUserId] && privateMessages.value[otherUserId].length > 0) {
-          const newPrivateMessages = privateMessages.value[otherUserId].map(msg => {
-            if (String(msg.sender_id) === userIdStr || String(msg.userId) === userIdStr) {
-              return {
-                ...msg,
-                ...(userInfo.nickname && { nickname: userInfo.nickname }),
-                ...(userInfo.avatarUrl && { avatarUrl: userInfo.avatarUrl })
-              };
-            }
-            return msg;
-          });
-          privateMessages.value[otherUserId] = newPrivateMessages;
-        }
-      }
-    }
-
-    publicStored.value = false;
-    if (groupStored.value) {
-      for (const groupId in groupStored.value) {
-        groupStored.value[groupId] = false;
-      }
-    }
-    if (privateStored.value) {
-      for (const otherUserId in privateStored.value) {
-        privateStored.value[otherUserId] = false;
-      }
-    }
-
-    if (groupsList.value && groupsList.value.length > 0) {
-      for (let i = 0; i < groupsList.value.length; i++) {
-        const group = groupsList.value[i];
-        if (group.lastMessage) {
-          const lastMsg = group.lastMessage;
-          if (String(lastMsg.userId) === userIdStr || String(lastMsg.sender_id) === userIdStr) {
-            if (userInfo.nickname) {
-              lastMsg.nickname = userInfo.nickname;
-            }
-            if (userInfo.avatarUrl) {
-              lastMsg.avatarUrl = userInfo.avatarUrl;
-            }
-          }
-        }
-      }
-    }
-
-    if (friendsList.value && friendsList.value.length > 0) {
-      for (let i = 0; i < friendsList.value.length; i++) {
-        const friend = friendsList.value[i];
-        if (friend.lastMessage) {
-          const lastMsg = friend.lastMessage;
-          if (String(lastMsg.userId) === userIdStr || String(lastMsg.sender_id) === userIdStr) {
-            if (userInfo.nickname) {
-              lastMsg.nickname = userInfo.nickname;
-            }
-            if (userInfo.avatarUrl) {
-              lastMsg.avatarUrl = userInfo.avatarUrl;
-            }
-          }
-        }
-      }
-    }
-
-    saveToStorage();
-  }
-  
-  // 标记群组有@我的消息
-  function setGroupHasAtMe(groupId) {
-    const groupIdStr = String(groupId);
-    groupsWithAtMe.value[groupIdStr] = true;
-    saveGroupsWithAtMeToLocalStorage();
-  }
-  
-  // 清除群组的@我标记
-  function clearGroupHasAtMe(groupId) {
-    const groupIdStr = String(groupId);
-    if (groupsWithAtMe.value[groupIdStr]) {
-      delete groupsWithAtMe.value[groupIdStr];
-      saveGroupsWithAtMeToLocalStorage();
-    }
-  }
-  
-  // 检查群组是否有@我的消息
-  function hasGroupAtMe(groupId) {
-    const groupIdStr = String(groupId);
-    return !!groupsWithAtMe.value[groupIdStr];
-  }
-  
-  // 保存groupsWithAtMe到localStorage
-  function saveGroupsWithAtMeToLocalStorage() {
-    try {
-      const userId = currentUser.value?.id || 'guest';
-      localStorage.setItem(`groups_with_at_me_${userId}`, JSON.stringify(groupsWithAtMe.value));
-    } catch (err) {
-      console.error('保存groupsWithAtMe失败:', err);
-    }
-  }
-  
-  // 从localStorage加载groupsWithAtMe
-  function loadGroupsWithAtMeFromLocalStorage() {
-    try {
-      const userId = currentUser.value?.id || 'guest';
-      const saved = localStorage.getItem(`groups_with_at_me_${userId}`);
-      if (saved) {
-        groupsWithAtMe.value = JSON.parse(saved);
-      }
-    } catch (err) {
-      console.error('加载groupsWithAtMe失败:', err);
-    }
-  }
-
-  function saveGroupLastMessageTimes(times) {
-    try {
-      const key = 'group_last_message_times';
-      const data = JSON.parse(localStorage.getItem(key) || '{}');
-      Object.assign(data, times);
-      localStorage.setItem(key, JSON.stringify(data));
-    } catch (err) {
-      console.error('批量保存群组最后消息时间失败:', err);
-    }
-  }
-
-  function saveFriendLastMessageTimes(times) {
-    try {
-      const key = 'friend_last_message_times';
-      const data = JSON.parse(localStorage.getItem(key) || '{}');
-      Object.assign(data, times);
-      localStorage.setItem(key, JSON.stringify(data));
-    } catch (err) {
-      console.error('批量保存好友最后消息时间失败:', err);
-    }
-  }
-
-  function sortFriendsByLastMessageTime() {
-    friendsList.value.sort((a, b) => {
-      const aTime = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
-      const bTime = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
-      return bTime - aTime;
+    userModule.updateUserInfoInMessages(userId, userInfo, {
+      fullPublicMessages: storageModule.fullPublicMessages,
+      fullGroupMessages: storageModule.fullGroupMessages,
+      fullPrivateMessages: storageModule.fullPrivateMessages,
+      publicMessages: publicModule.publicMessages,
+      groupMessages: groupModule.groupMessages,
+      privateMessages: friendModule.privateMessages,
+      publicStored: publicModule.publicStored,
+      groupStored: groupModule.groupStored,
+      privateStored: friendModule.privateStored,
+      groupsList: groupModule.groupsList,
+      friendsList: friendModule.friendsList,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
     });
   }
 
-  function sortGroupsByLastMessageTime() {
-    groupsList.value.sort((a, b) => {
-      const aTime = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
-      const bTime = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
-      return bTime - aTime;
+  function updatePrivateMessagesReadStatus(userId, readMessageId) {
+    friendModule.updatePrivateMessagesReadStatus(userId, readMessageId, {
+      currentUser: baseModule.currentUser.value,
+      fullPrivateMessages: storageModule.fullPrivateMessages,
+      privateStored: friendModule.privateStored,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
     });
-  }
-  
-  function setQuotedMessage(message) {
-    quotedMessage.value = message;
-  }
-  
-  function clearQuotedMessage() {
-    quotedMessage.value = null;
-  }
-  
-  function clearOtherGroupMessages(currentGroupId) {
-    const allGroupIds = Object.keys(groupMessages.value);
-    allGroupIds.forEach(groupId => {
-      if (String(groupId) !== String(currentGroupId)) {
-        if (groupMessages.value[groupId] && groupMessages.value[groupId].length > 20) {
-          groupMessages.value[groupId] = groupMessages.value[groupId].slice(Math.max(0, groupMessages.value[groupId].length - 20), groupMessages.value[groupId].length);
-        }
-      }
-    });
-  }
-  
-  function clearOtherPrivateMessages(currentUserId) {
-    const allUserIds = Object.keys(privateMessages.value);
-    allUserIds.forEach(userId => {
-      if (String(userId) !== String(currentUserId)) {
-        if (privateMessages.value[userId] && privateMessages.value[userId].length > 20) {
-          privateMessages.value[userId] = privateMessages.value[userId].slice(Math.max(0, privateMessages.value[userId].length - 20), privateMessages.value[userId].length);
-        }
-      }
-    });
-  }
-  
-  function clearPublicMessagesExceptRecent() {
-    if (publicMessages.value.length > 20) {
-      publicMessages.value = publicMessages.value.slice(Math.max(0, publicMessages.value.length - 20), publicMessages.value.length);
-    }
-  }
-
-  function setLoading(loadingState) {
-    loading.value = loadingState;
-  }
-
-  function refreshMessages() {
-    if (cachePublicMessages.length > 0) {
-      publicMessages.value = cachePublicMessages;
-      cachePublicMessages = [];
-    }
-    
-    Object.keys(cacheGroupMessages).forEach(groupId => {
-      if (cacheGroupMessages[groupId]) {
-        groupMessages.value[groupId] = cacheGroupMessages[groupId];
-      }
-    });
-    cacheGroupMessages = {};
-    
-    Object.keys(cachePrivateMessages).forEach(userId => {
-      if (cachePrivateMessages[userId]) {
-        privateMessages.value[userId] = cachePrivateMessages[userId];
-      }
-    });
-    cachePrivateMessages = {};
-
-    publicStored.value = false;
-    Object.keys(groupMessages.value).forEach(id => groupStored.value[id] = false);
-    Object.keys(privateMessages.value).forEach(id => privateStored.value[id] = false);
-    saveToStorage();
-  }
-
-  async function saveToStorage() {
-    if (loading.value) {
-      return;
-    }
-
-    const prefix = getStorageKeyPrefix();
-
-    try {
-      if (!publicStored.value) {
-        // 保存完整公共聊天室消息
-        const messagesToSave = fullPublicMessages != null 
-          ? fullPublicMessages 
-          : publicMessages.value;
-        const messages = messagesToSave.map(msg => toRaw(msg));
-        await localForage.setItem(`${prefix}-public`, { messages });
-        publicStored.value = true;
-      }
-
-      // 保存所有完整群组消息，包括不在 store 中的
-      for (const [groupId, messages] of Object.entries(fullGroupMessages)) {
-        if (!groupStored.value[groupId]) {
-          const msgs = messages.map(msg => toRaw(msg));
-          // 先从 IndexedDB 读取现有数据，保留所有原有字段
-          const key = `${prefix}-group-${groupId}`;
-          let sessionData = await localForage.getItem(key) || { messages: [] };
-          // 只更新 messages 字段
-          sessionData = { ...sessionData, messages: msgs };
-          // 获取群组信息并保存到会话对象中
-          const groupInfo = groupsList.value?.find(g => String(g.id) === String(groupId));
-          if (groupInfo) {
-            if (groupInfo.name) sessionData.name = groupInfo.name;
-            if (groupInfo.avatarUrl) sessionData.avatarUrl = groupInfo.avatarUrl;
-            if (groupInfo.deleted_at) sessionData.deleted_at = groupInfo.deleted_at;
-          }
-          await localForage.setItem(key, sessionData);
-          groupStored.value[groupId] = true;
-        }
-      }
-
-      // 保存所有完整私信消息，包括不在 store 中的
-      for (const [userId, messages] of Object.entries(fullPrivateMessages)) {
-        if (!privateStored.value[userId]) {
-          const msgs = messages.map(msg => toRaw(msg));
-          // 先从 IndexedDB 读取现有数据，保留所有原有字段
-          const key = `${prefix}-private-${userId}`;
-          let sessionData = await localForage.getItem(key) || { messages: [] };
-          // 只更新 messages 字段
-          sessionData = { ...sessionData, messages: msgs };
-          // 获取好友信息并保存到会话对象中
-          const friendInfo = friendsList.value?.find(f => String(f.id) === String(userId));
-          if (friendInfo) {
-            if (friendInfo.nickname) sessionData.nickname = friendInfo.nickname;
-            if (friendInfo.avatarUrl) sessionData.avatarUrl = friendInfo.avatarUrl;
-            if (friendInfo.deleted_at) sessionData.deleted_at = friendInfo.deleted_at;
-          }
-          await localForage.setItem(key, sessionData);
-          privateStored.value[userId] = true;
-        }
-      }
-
-      const chatKeys = [
-        `${prefix}-public`,
-        ...Object.keys(fullGroupMessages).map(id => `${prefix}-group-${id}`),
-        ...Object.keys(fullPrivateMessages).map(id => `${prefix}-private-${id}`),
-      ];
-      await localForage.setItem(prefix, { chatKeys });
-    } catch (err) {
-      console.error('本地消息缓存存储失败', err);
-    }
-  }
-
-  function loadMessages(loadToStore = true) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const prefix = getStorageKeyPrefix();
-        
-        await loadMinIds();
-        
-        const data = await localForage.getItem(prefix);
-        if (!data || !data.chatKeys) {
-          resolve();
-          return;
-        }
-        
-        const promises = data.chatKeys.map(key => localForage.getItem(key));
-        
-        const results = await Promise.all(promises);
-        for (let i = 0; i < results.length; i++) {
-          const itemData = results[i];
-          if (!itemData) continue;
-          
-          const key = data.chatKeys[i];
-          const messages = itemData.messages || [];
-          
-          if (key.includes('-public')) {
-            // 保存原始顺序的消息到内存变量
-            fullPublicMessages = [...messages];
-            if (loadToStore) {
-              // 只在 store 中保存最近 20 条非101、非102消息（从长度-21到长度-1）
-              const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-              publicMessages.value = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
-            }
-          } else if (key.includes('-group-')) {
-            const groupId = key.split('-group-')[1];
-            // 保存原始顺序的消息到内存变量
-            fullGroupMessages[groupId] = [...messages];
-            if (loadToStore) {
-              // 只在 store 中保存最近 20 条非101、非102消息（从长度-21到长度-1）
-              const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-              groupMessages.value[groupId] = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
-            }
-          } else if (key.includes('-private-')) {
-            const userId = key.split('-private-')[1];
-            // 保存原始顺序的消息到内存变量（包括101和103消息）
-            fullPrivateMessages[userId] = [...messages];
-            if (loadToStore) {
-              // 只在 store 中保存最近 20 条非101、非102、非103消息（从长度-21到长度-1）
-              const filteredMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
-              privateMessages.value[userId] = filteredMessages.slice(Math.max(0, filteredMessages.length - 20), filteredMessages.length);
-            }
-          }
-        }
-        
-        publicStored.value = true;
-        Object.keys(groupMessages.value).forEach(id => groupStored.value[id] = true);
-        Object.keys(privateMessages.value).forEach(id => privateStored.value[id] = true);
-        
-        resolve();
-      } catch (e) {
-        console.log("加载消息失败");
-        reject(e);
-      }
-    });
-  }
-
-  function clearMessages() {
-    cachePublicMessages = [];
-    cacheGroupMessages = {};
-    cachePrivateMessages = {};
-    publicMessages.value = [];
-    groupMessages.value = {};
-    privateMessages.value = {};
-    publicStored.value = false;
-    groupStored.value = {};
-    privateStored.value = {};
-    // 清除完整消息列表
-    fullPublicMessages = null;
-    fullGroupMessages = {};
-    fullPrivateMessages = {};
-  }
-  
-  async function processOfflineMessage(message, onlySaveToDB = false) {
-    // 统一使用驼峰命名
-    const processedMessage = {
-      id: message.id,
-      userId: message.userId,
-      nickname: message.nickname,
-      avatarUrl: message.avatarUrl,
-      content: message.content,
-      atUserid: message.atUserid,
-      messageType: message.messageType,
-      timestamp: message.timestamp,
-      type: message.type,
-      groupId: message.groupId,
-      groupName: message.groupName,
-      groupDeletedAt: message.groupDeletedAt,
-      senderId: message.senderId,
-      receiverId: message.receiverId,
-      isRead: message.isRead
-    };
-
-    const isUserInfoUpdateMessage = processedMessage.messageType === 102;
-    if (isUserInfoUpdateMessage) {
-      try {
-        const updateData = JSON.parse(processedMessage.content);
-        const userId = processedMessage.userId;
-        if (updateData.type === 'nickname' && updateData.nickname) {
-          if (onlineUsers.value) {
-            const userIndex = onlineUsers.value.findIndex(u => String(u.id) === String(userId));
-            if (userIndex !== -1) {
-              onlineUsers.value[userIndex].nickname = updateData.nickname;
-            }
-          }
-          if (friendsList.value) {
-            const friendIndex = friendsList.value.findIndex(f => String(f.id) === String(userId));
-            if (friendIndex !== -1) {
-              friendsList.value[friendIndex].nickname = updateData.nickname;
-              friendsList.value = [...friendsList.value];
-            }
-          }
-          // 更新 IndexedDB 中的会话信息（无论好友是否已删除）
-          try {
-            const prefix = getStorageKeyPrefix();
-            const key = `${prefix}-private-${userId}`;
-            const existingData = await localForage.getItem(key);
-            if (existingData) {
-              const updatedSessionData = { ...existingData };
-              updatedSessionData.nickname = updateData.nickname;
-              await localForage.setItem(key, updatedSessionData);
-            }
-          } catch (e) {
-            console.error('更新IndexedDB中的好友昵称失败:', e);
-          }
-          updateUserInfoInMessages(userId, { nickname: updateData.nickname });
-        } else if (updateData.type === 'avatar' && updateData.avatar_url) {
-          if (onlineUsers.value) {
-            const userIndex = onlineUsers.value.findIndex(u => String(u.id) === String(userId));
-            if (userIndex !== -1) {
-              onlineUsers.value[userIndex].avatar = updateData.avatar_url;
-              onlineUsers.value[userIndex].avatarUrl = updateData.avatar_url;
-              onlineUsers.value[userIndex].avatar_url = updateData.avatar_url;
-            }
-          }
-          if (friendsList.value) {
-            const friendIndex = friendsList.value.findIndex(f => String(f.id) === String(userId));
-            if (friendIndex !== -1) {
-              friendsList.value[friendIndex].avatarUrl = updateData.avatar_url;
-              friendsList.value[friendIndex].avatar_url = updateData.avatar_url;
-              friendsList.value[friendIndex].avatar = updateData.avatar_url;
-              friendsList.value = [...friendsList.value];
-            }
-          }
-          // 更新 IndexedDB 中的会话信息（无论好友是否已删除）
-          try {
-            const prefix = getStorageKeyPrefix();
-            const key = `${prefix}-private-${userId}`;
-            const existingData = await localForage.getItem(key);
-            if (existingData) {
-              const updatedSessionData = { ...existingData };
-              updatedSessionData.avatarUrl = updateData.avatar_url;
-              await localForage.setItem(key, updatedSessionData);
-            }
-          } catch (e) {
-            console.error('更新IndexedDB中的好友头像失败:', e);
-          }
-          updateUserInfoInMessages(userId, { avatarUrl: updateData.avatar_url });
-        }
-      } catch (e) {
-        console.error('解析102消息失败:', e);
-      }
-    }
-
-    if (message.type === 'public') {
-      const isWithdrawMessage = processedMessage.message_type === 101;
-      if (isWithdrawMessage) {
-        const messageIdToDelete = processedMessage.content;
-        if (messageIdToDelete) {
-          deletePublicMessage(messageIdToDelete);
-        }
-      }
-      const targetMessages = loading.value ? cachePublicMessages : publicMessages.value;
-      const exists = targetMessages.some(m => m.id === processedMessage.id);
-      const fullExists = fullPublicMessages?.some(m => m.id === processedMessage.id) || false;
-      
-      // 更新完整消息列表（包括 101 撤回消息），新消息在后
-      if (!fullExists) {
-        if (fullPublicMessages === null) {
-          fullPublicMessages = [processedMessage];
-        } else {
-          fullPublicMessages.push(processedMessage);
-        }
-        publicStored.value = false;
-      }
-      
-      if (!onlySaveToDB && !exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
-        if (loading.value) {
-          cachePublicMessages.push(processedMessage);
-        } else {
-          publicMessages.value.push(processedMessage);
-          publicStored.value = false;
-        }
-      } else if (exists) {
-        // 消息已存在但需要确保标记为未保存
-        publicStored.value = false;
-      }
-      if (processedMessage.id > publicAndGroupMinId.value) {
-        publicAndGroupMinId.value = processedMessage.id;
-      }
-    } else if (message.type === 'group') {
-      const groupId = message.groupId;
-      const isWithdrawMessage = processedMessage.messageType === 101;
-      if (isWithdrawMessage) {
-        const messageIdToDelete = processedMessage.content;
-        if (messageIdToDelete) {
-          deleteGroupMessage(groupId, messageIdToDelete);
-        }
-      }
-      
-      // 检查是否是@我的离线消息
-      if (message.atUserid && currentUser.value && !isWithdrawMessage) {
-        const atUserIds = Array.isArray(message.atUserid) ? message.atUserid : [message.atUserid];
-        const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.value.id));
-        if (isCurrentUserAt) {
-          setGroupHasAtMe(groupId);
-        }
-      }
-      
-      const targetMessages = loading.value 
-        ? (cacheGroupMessages[groupId] || (cacheGroupMessages[groupId] = []))
-        : (groupMessages.value[groupId] || (groupMessages.value[groupId] = []));
-      const exists = targetMessages.some(m => m.id === processedMessage.id);
-      const fullExists = fullGroupMessages[groupId]?.some(m => m.id === processedMessage.id) || false;
-      
-      // 更新完整消息列表（包括 101 撤回消息），新消息在后
-      if (!fullExists) {
-        if (fullGroupMessages[groupId] === null || fullGroupMessages[groupId] === undefined) {
-          fullGroupMessages[groupId] = [processedMessage];
-        } else {
-          fullGroupMessages[groupId].push(processedMessage);
-        }
-        groupStored.value[groupId] = false;
-      }
-      
-      if (!onlySaveToDB && !exists && !isWithdrawMessage && !isUserInfoUpdateMessage) {
-        if (loading.value) {
-          cacheGroupMessages[groupId].push(processedMessage);
-        } else {
-          groupMessages.value[groupId].push(processedMessage);
-          groupStored.value[groupId] = false;
-        }
-      } else if (exists) {
-        // 消息已存在但需要确保标记为未保存
-        groupStored.value[groupId] = false;
-      }
-      if (processedMessage.id > publicAndGroupMinId.value) {
-        publicAndGroupMinId.value = processedMessage.id;
-      }
-    } else if (message.type === 'private') {
-      // 确定对话方 ID（使用字符串比较确保类型一致）
-      const msgSenderId = String(message.senderId);
-      const msgReceiverId = String(message.receiverId);
-      const currentUserIdStr = String(currentUser.value?.id);
-      
-      // otherUserId 是对话方的 ID（不是自己的 ID）
-      const otherUserId = msgSenderId === currentUserIdStr ? msgReceiverId : msgSenderId;
-      
-      const isWithdrawMessage = processedMessage.messageType === 101;
-      const isReadReceiptMessage = processedMessage.messageType === 103;
-      
-      if (isWithdrawMessage) {
-        const messageIdToDelete = processedMessage.content;
-        if (messageIdToDelete) {
-          deletePrivateMessage(otherUserId, messageIdToDelete);
-        }
-      } else if (isReadReceiptMessage) {
-        // 处理已读回执消息，更新该消息前面的自己发送的消息的已读状态
-        const readMessageId = processedMessage.content;
-        if (updatePrivateMessagesReadStatus) {
-          updatePrivateMessagesReadStatus(otherUserId, readMessageId);
-        }
-      }
-      
-      const targetMessages = loading.value 
-        ? (cachePrivateMessages[otherUserId] || (cachePrivateMessages[otherUserId] = []))
-        : (privateMessages.value[otherUserId] || (privateMessages.value[otherUserId] = []));
-      const exists = targetMessages.some(m => m.id === processedMessage.id);
-      const fullExists = fullPrivateMessages[otherUserId]?.some(m => m.id === processedMessage.id) || false;
-      
-      // 更新完整消息列表（包括 101 撤回消息和 103 已读回执消息），新消息在后
-      if (!fullExists) {
-        if (!fullPrivateMessages[otherUserId]) {
-          fullPrivateMessages[otherUserId] = [processedMessage];
-        } else {
-          fullPrivateMessages[otherUserId].push(processedMessage);
-        }
-        privateStored.value[otherUserId] = false;
-      }
-      
-      if (!onlySaveToDB && !exists && !isWithdrawMessage && !isReadReceiptMessage && !isUserInfoUpdateMessage) {
-        if (loading.value) {
-          cachePrivateMessages[otherUserId].push(processedMessage);
-        } else {
-          privateMessages.value[otherUserId].push(processedMessage);
-          privateStored.value[otherUserId] = false;
-        }
-      } else if (exists) {
-        // 消息已存在但需要确保标记为未保存
-        privateStored.value[otherUserId] = false;
-      }
-      if (processedMessage.id > privateMinId.value) {
-        privateMinId.value = processedMessage.id;
-      }
-    }
-  }
-
-  async function fetchAndMergeOfflineMessages(onlySaveToDB = false) {
-    if (!currentUser.value || !currentSessionToken.value) {
-      return;
-    }
-
-    // 先从 localStorage 读取已有的未读计数
-    loadUnreadCountsFromLocalStorage();
-
-    isFetchingOfflineMessages.value = true;
-    if (!onlySaveToDB) {
-      showFetchingMessage.value = true;
-      loading.value = true;
-    }
-
-    const userInfoUpdateMessages = [];
-    
-    // 记录开始时已存在的消息ID集合，用于后续判断哪些是真正的新消息
-    const existingPublicMessageIds = new Set(fullPublicMessages ? fullPublicMessages.map(m => m.id) : []);
-    const existingGroupMessageIds = {};
-    Object.keys(fullGroupMessages).forEach(groupId => {
-      existingGroupMessageIds[groupId] = new Set(fullGroupMessages[groupId].map(m => m.id));
-    });
-    const existingPrivateMessageIds = {};
-    Object.keys(fullPrivateMessages).forEach(userId => {
-      existingPrivateMessageIds[userId] = new Set(fullPrivateMessages[userId].map(m => m.id));
-    });
-    
-    // 记录开始时的未读计数
-    const startUnreadCounts = loadUnreadCountsFromStorage();
-
-    try {
-      const publicAndGroupMinIdParam = publicAndGroupMinId.value;
-      const privateMinIdParam = privateMinId.value;
-
-      const response = await fetch(`${SERVER_URL}/api/offline-messages?publicAndGroupMinId=${publicAndGroupMinIdParam}&privateMinId=${privateMinIdParam}`, {
-        headers: {
-          'user-id': currentUser.value.id,
-          'session-token': currentSessionToken.value
-        }
-      });
-
-      const data = await response.json();
-
-      if (data.status === 'success') {
-        if (data.publicMessages && data.publicMessages.length > 0) {
-          data.publicMessages.forEach(message => {
-            if (message.message_type === 102) {
-              userInfoUpdateMessages.push({ ...message, type: 'public' });
-            } else {
-              processOfflineMessage({ ...message, type: 'public' }, onlySaveToDB);
-            }
-          });
-        }
-        if (data.groupMessages && data.groupMessages.length > 0) {
-          data.groupMessages.forEach(message => {
-            if (message.message_type === 102) {
-              userInfoUpdateMessages.push({ ...message, type: 'group' });
-            } else {
-              processOfflineMessage({ ...message, type: 'group' }, onlySaveToDB);
-            }
-          });
-        }
-        if (data.privateMessages && data.privateMessages.length > 0) {
-          data.privateMessages.forEach(message => {
-            if (message.message_type === 102) {
-              userInfoUpdateMessages.push({ ...message, type: 'private' });
-            } else {
-              processOfflineMessage({ ...message, type: 'private' }, onlySaveToDB);
-            }
-          });
-        }
-      }
-    } catch (error) {
-      console.error('获取离线消息失败:', error);
-    } finally {
-      if (!onlySaveToDB) {
-        loading.value = false;
-        isFetchingOfflineMessages.value = false;
-        
-        if (cachePublicMessages.length > 0) {
-          // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
-          const newMessages = cachePublicMessages.filter(m => !existingPublicMessageIds.has(m.id));
-          
-          // 更新未读计数（主聊天室）- 直接操作 localStorage
-          if (newMessages.length > 0) {
-            const currentUserId = currentUser.value?.id;
-            const isMainChatActive = currentActiveChat.value === 'main';
-            const isPageVisible = window.isPageVisible !== false && document.hasFocus();
-            
-            // 如果不在主聊天室页面或页面不可见，增加未读计数
-            if (!isMainChatActive || !isPageVisible) {
-              // 先从 localStorage 读取
-              const savedUnreadCounts = loadUnreadCountsFromStorage();
-              savedUnreadCounts.global += newMessages.length;
-              // 保存回 localStorage
-              saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
-            }
-          }
-          
-          // 更新完整消息列表（包括 101 撤回消息）- 新消息放在前面
-          if (fullPublicMessages === null) {
-            fullPublicMessages = [...newMessages, ...publicMessages.value];
-          } else {
-            const fullIds = new Set(fullPublicMessages.map(m => m.id));
-            const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
-            fullPublicMessages = [...fullNewMessages, ...fullPublicMessages];
-          }
-          
-          // 更新显示消息列表（只显示非 101 消息，最多 20 条）- 新消息放在后面
-          const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-          const combinedMessages = [...publicMessages.value, ...displayNewMessages];
-          publicMessages.value = combinedMessages.slice(Math.max(0, combinedMessages.length - 20), combinedMessages.length);
-          cachePublicMessages = [];
-        }
-        
-        Object.keys(cacheGroupMessages).forEach(groupId => {
-          if (cacheGroupMessages[groupId]) {
-            // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
-            const existingIds = existingGroupMessageIds[groupId] || new Set();
-            const newMessages = cacheGroupMessages[groupId].filter(m => !existingIds.has(m.id));
-            
-            // 更新未读计数（群组）- 直接操作 localStorage
-            if (newMessages.length > 0) {
-              const currentUserId = currentUser.value?.id;
-              const isGroupChatActive = currentActiveChat.value === `group_${groupId}`;
-              const isPageVisible = window.isPageVisible !== false && document.hasFocus();
-              
-              // 获取免打扰群组列表
-              const mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
-              const isMuted = mutedGroups.includes(groupId.toString());
-              
-              // 如果不在当前群组页面或页面不可见，且不是免打扰群组，增加未读计数
-              if (!isMuted && (!isGroupChatActive || !isPageVisible)) {
-                // 先从 localStorage 读取
-                const savedUnreadCounts = loadUnreadCountsFromStorage();
-                if (!savedUnreadCounts.groups[groupId]) {
-                  savedUnreadCounts.groups[groupId] = 0;
-                }
-                savedUnreadCounts.groups[groupId] += newMessages.length;
-                // 保存回 localStorage
-                saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
-              }
-            }
-            
-            // 更新群组最后消息时间并重新排序
-            if (newMessages.length > 0 && groupsList.value) {
-              const group = groupsList.value.find(g => String(g.id) === String(groupId));
-              if (group && group.deleted_at == null) {
-                const lastMessage = newMessages[0];
-                const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
-                group.last_message_time = newTime;
-              }
-              sortGroupsByLastMessageTime();
-            }
-            
-            // 更新完整消息列表（包括 101 撤回消息）- 新消息放在前面
-            if (!fullGroupMessages[groupId]) {
-              fullGroupMessages[groupId] = [...newMessages, ...(groupMessages.value[groupId] || [])];
-            } else {
-              const fullIds = new Set(fullGroupMessages[groupId].map(m => m.id));
-              const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
-              fullGroupMessages[groupId] = [...fullNewMessages, ...fullGroupMessages[groupId]];
-            }
-            
-            // 更新显示消息列表（只显示非 101 消息，最多 20 条）- 新消息放在后面
-            const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-            const combinedMessages = [...(groupMessages.value[groupId] || []), ...displayNewMessages];
-            groupMessages.value[groupId] = combinedMessages.slice(Math.max(0, combinedMessages.length - 20), combinedMessages.length);
-          }
-        });
-        cacheGroupMessages = {};
-        
-        Object.keys(cachePrivateMessages).forEach(userId => {
-          if (cachePrivateMessages[userId]) {
-            // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
-            const existingIds = existingPrivateMessageIds[userId] || new Set();
-            const newMessages = cachePrivateMessages[userId].filter(m => !existingIds.has(m.id));
-            
-            // 更新未读计数（私信）- 直接操作 localStorage
-            if (newMessages.length > 0) {
-              const currentUserId = currentUser.value?.id;
-              const isPrivateChatActive = currentActiveChat.value === `private_${userId}`;
-              const isPageVisible = window.isPageVisible !== false && document.hasFocus();
-              
-              // 如果不在当前私信页面或页面不可见，增加未读计数
-              if (!isPrivateChatActive || !isPageVisible) {
-                // 先从 localStorage 读取
-                const savedUnreadCounts = loadUnreadCountsFromStorage();
-                if (!savedUnreadCounts.private[userId]) {
-                  savedUnreadCounts.private[userId] = 0;
-                }
-                savedUnreadCounts.private[userId] += newMessages.length;
-                // 保存回 localStorage
-                saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
-              }
-            }
-            
-            // 更新私信最后消息时间并重新排序
-            if (newMessages.length > 0 && friendsList.value) {
-              const friend = friendsList.value.find(f => String(f.id) === String(userId));
-              if (friend && friend.deleted_at == null) {
-                const lastMessage = newMessages[0];
-                const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
-                friend.last_message_time = newTime;
-              }
-              sortFriendsByLastMessageTime();
-            }
-            
-            // 更新完整消息列表（包括 101 撤回消息）- 新消息放在前面
-            if (!fullPrivateMessages[userId]) {
-              fullPrivateMessages[userId] = [...newMessages, ...(privateMessages.value[userId] || [])];
-            } else {
-              const fullIds = new Set(fullPrivateMessages[userId].map(m => m.id));
-              const fullNewMessages = newMessages.filter(m => !fullIds.has(m.id));
-              fullPrivateMessages[userId] = [...fullNewMessages, ...fullPrivateMessages[userId]];
-            }
-            
-            // 更新显示消息列表（只显示非 101 消息，最多 20 条）- 新消息放在后面
-            const displayNewMessages = newMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-            const combinedMessages = [...(privateMessages.value[userId] || []), ...displayNewMessages];
-            privateMessages.value[userId] = combinedMessages.slice(Math.max(0, combinedMessages.length - 20), combinedMessages.length);
-          }
-        });
-        cachePrivateMessages = {};
-
-        publicStored.value = false;
-        Object.keys(groupMessages.value).forEach(id => groupStored.value[id] = false);
-        Object.keys(privateMessages.value).forEach(id => privateStored.value[id] = false);
-        await saveToStorage();
-
-        if (userInfoUpdateMessages.length > 0) {
-          userInfoUpdateMessages.forEach(message => {
-            processOfflineMessage(message, onlySaveToDB);
-          });
-        }
-        
-        setTimeout(() => {
-          showFetchingMessage.value = false;
-        }, 500);
-        
-        await saveMinIds();
-      } else {
-        // onlySaveToDB 模式下，直接保存到 indexedDB，同时也计算未读计数
-        if (cachePublicMessages.length > 0) {
-          // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
-          const newMessages = cachePublicMessages.filter(m => !existingPublicMessageIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
-          
-          // 更新未读计数（主聊天室）
-          if (newMessages.length > 0) {
-            const isMainChatActive = currentActiveChat.value === 'main';
-            const isPageVisible = window.isPageVisible !== false && document.hasFocus();
-            
-            if (!isMainChatActive || !isPageVisible) {
-              // 先从 localStorage 读取
-              const savedUnreadCounts = loadUnreadCountsFromStorage();
-              savedUnreadCounts.global += newMessages.length;
-              // 保存回 localStorage
-              saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
-            }
-          }
-          
-          if (fullPublicMessages === null) {
-            fullPublicMessages = [...cachePublicMessages];
-          } else {
-            const fullIds = new Set(fullPublicMessages.map(m => m.id));
-            const fullNewMessages = cachePublicMessages.filter(m => !fullIds.has(m.id));
-            fullPublicMessages = [...fullPublicMessages, ...fullNewMessages];
-          }
-          cachePublicMessages = [];
-        }
-        
-        Object.keys(cacheGroupMessages).forEach(groupId => {
-          if (cacheGroupMessages[groupId]) {
-            // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
-            const existingIds = existingGroupMessageIds[groupId] || new Set();
-            const newMessages = cacheGroupMessages[groupId].filter(m => !existingIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
-            
-            // 更新未读计数（群组）
-            if (newMessages.length > 0) {
-              const isGroupChatActive = currentActiveChat.value === `group_${groupId}`;
-              const isPageVisible = window.isPageVisible !== false && document.hasFocus();
-              
-              // 获取免打扰群组列表
-              const mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
-              const isMuted = mutedGroups.includes(groupId.toString());
-              
-              if (!isMuted && (!isGroupChatActive || !isPageVisible)) {
-                // 先从 localStorage 读取
-                const savedUnreadCounts = loadUnreadCountsFromStorage();
-                if (!savedUnreadCounts.groups[groupId]) {
-                  savedUnreadCounts.groups[groupId] = 0;
-                }
-                savedUnreadCounts.groups[groupId] += newMessages.length;
-                // 保存回 localStorage
-                saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
-              }
-            }
-            
-            if (!fullGroupMessages[groupId]) {
-              fullGroupMessages[groupId] = [...cacheGroupMessages[groupId]];
-            } else {
-              const fullIds = new Set(fullGroupMessages[groupId].map(m => m.id));
-              const fullNewMessages = cacheGroupMessages[groupId].filter(m => !fullIds.has(m.id));
-              fullGroupMessages[groupId] = [...fullGroupMessages[groupId], ...fullNewMessages];
-            }
-          }
-        });
-        cacheGroupMessages = {};
-        
-        Object.keys(cachePrivateMessages).forEach(userId => {
-          if (cachePrivateMessages[userId]) {
-            // 使用记录的已存在消息ID集合来判断哪些是真正的新消息
-            const existingIds = existingPrivateMessageIds[userId] || new Set();
-            const newMessages = cachePrivateMessages[userId].filter(m => !existingIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
-            
-            // 更新未读计数（私信）
-            if (newMessages.length > 0) {
-              const isPrivateChatActive = currentActiveChat.value === `private_${userId}`;
-              const isPageVisible = window.isPageVisible !== false && document.hasFocus();
-              
-              if (!isPrivateChatActive || !isPageVisible) {
-                // 先从 localStorage 读取
-                const savedUnreadCounts = loadUnreadCountsFromStorage();
-                if (!savedUnreadCounts.private[userId]) {
-                  savedUnreadCounts.private[userId] = 0;
-                }
-                savedUnreadCounts.private[userId] += newMessages.length;
-                // 保存回 localStorage
-                saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
-              }
-            }
-            
-            if (!fullPrivateMessages[userId]) {
-              fullPrivateMessages[userId] = [...cachePrivateMessages[userId]];
-            } else {
-              const fullIds = new Set(fullPrivateMessages[userId].map(m => m.id));
-              const fullNewMessages = cachePrivateMessages[userId].filter(m => !fullIds.has(m.id));
-              fullPrivateMessages[userId] = [...fullPrivateMessages[userId], ...fullNewMessages];
-            }
-          }
-        });
-        cachePrivateMessages = {};
-
-        publicStored.value = false;
-        Object.keys(fullGroupMessages).forEach(id => groupStored.value[id] = false);
-        Object.keys(fullPrivateMessages).forEach(id => privateStored.value[id] = false);
-        await saveToStorage();
-
-        if (userInfoUpdateMessages.length > 0) {
-          userInfoUpdateMessages.forEach(message => {
-            processOfflineMessage(message, onlySaveToDB);
-          });
-        }
-        
-        await saveMinIds();
-        
-        isFetchingOfflineMessages.value = false;
-      }
-      
-      // 无论 onlySaveToDB 是 true 还是 false，都从 localStorage 同步未读计数到 store
-      loadUnreadCountsFromLocalStorage();
-    }
-  }
-  
-  async function saveMinIds() {
-    try {
-      const prefix = getStorageKeyPrefix();
-      await localForage.setItem(`${prefix}-minIds`, {
-        publicAndGroupMinId: toRaw(publicAndGroupMinId.value),
-        privateMinId: toRaw(privateMinId.value),
-      });
-    } catch (err) {
-      console.error('保存 minId 失败:', err);
-    }
-  }
-  
-  async function loadMinIds() {
-    try {
-      const prefix = getStorageKeyPrefix();
-      const data = await localForage.getItem(`${prefix}-minIds`);
-      if (data) {
-        publicAndGroupMinId.value = data.publicAndGroupMinId || 0;
-        privateMinId.value = data.privateMinId || 0;
-      }
-    } catch (err) {
-      console.error('加载 minId 失败:', err);
-    }
-  }
-  
-  function saveUnreadCountsToLocalStorage() {
-    try {
-      const counts = {
-        global: unreadMessages.value.global,
-        groups: unreadMessages.value.groups,
-        private: unreadMessages.value.private
-      };
-      localStorage.setItem(`unread_counts_${currentUser.value?.id}`, JSON.stringify(counts));
-    } catch (err) {
-      console.error('保存未读计数失败:', err);
-    }
-  }
-  
-  function getGroupLastMessage(groupId) {
-    const messages = fullGroupMessages[groupId] || groupMessages.value[groupId] || [];
-    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-    if (validMessages.length === 0) return null;
-    return validMessages[validMessages.length - 1];
-  }
-
-  function getPrivateLastMessage(userId) {
-    const messages = fullPrivateMessages[userId] || privateMessages.value[userId] || [];
-    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
-    if (validMessages.length === 0) return null;
-    return validMessages[validMessages.length - 1];
-  }
-
-  function formatMessageContent(message) {
-    if (!message) return '';
-    
-    let content = message.content || '';
-    let msgType = message.messageType;
-    
-    const parseQuotedContent = (quotedMsg) => {
-      if (!quotedMsg) return '';
-      
-      const qType = quotedMsg.messageType;
-      
-      if (qType === 1) {
-        return '[图片]';
-      } else if (qType === 2) {
-        return '[文件]';
-      } else if (qType === 3) {
-        return '[群名片]';
-      } else if (qType === 101) {
-        return '撤回了一条消息';
-      } else if (qType === 4 && (quotedMsg.quotedMessage || quotedMsg.quoted_message || quotedMsg.quoted)) {
-        return parseQuotedContent(quotedMsg.quotedMessage || quotedMsg.quoted_message || quotedMsg.quoted);
-      }
-      
-      return quotedMsg.content || '';
-    };
-    
-    if (msgType === 100) {
-      if (typeof content === 'string' && content.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(content);
-          return parsed.content || '';
-        } catch {
-        }
-      }
-      return content || '';
-    } else if (msgType === 4) {
-      if (typeof content === 'string' && content.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(content);
-          if (parsed.type === 'quoted') {
-            if (parsed.quoted) {
-              const originalContent = parseQuotedContent(parsed.quoted);
-              return `[引用] ${originalContent}`;
-            } else if (parsed.text) {
-              return `[引用] ${parsed.text}`;
-            }
-          }
-        } catch {
-        }
-      }
-      return '[引用]';
-    } else if (msgType === 1) {
-      return '[图片]';
-    } else if (msgType === 2) {
-      return '[文件]';
-    } else if (msgType === 3) {
-      return '[群名片]';
-    } else if (msgType === 101) {
-      return '撤回了一条消息';
-    } else if (message.group_card || message.groupCard) {
-      return '[群名片]';
-    }
-    
-    if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
-      try {
-        const parsed = JSON.parse(content);
-        if (parsed.type === 'quoted' && parsed.quoted) {
-          const originalContent = parseQuotedContent(parsed.quoted);
-          return `[引用] ${originalContent}`;
-        }
-      } catch {
-      }
-    }
-    
-    return content || '';
   }
 
   function updateGroupLastMessage(groupId, message) {
-    if (!groupsList.value) return;
-    const group = groupsList.value.find(g => String(g.id) === String(groupId));
-    if (group) {
-      group.lastMessage = message;
-    }
+    groupModule.updateGroupLastMessage(groupId, message);
   }
 
   function updateFriendLastMessage(userId, message) {
-    if (!friendsList.value) return;
-    const friend = friendsList.value.find(f => String(f.id) === String(userId));
-    if (friend && message && message.messageType !== 101 && message.messageType !== 103) {
-      friend.lastMessage = message;
-    }
+    friendModule.updateFriendLastMessage(userId, message);
   }
 
-  function updateGroupLastMessageAfterDelete(groupId) {
-    if (!groupsList.value) return;
-    const group = groupsList.value.find(g => String(g.id) === String(groupId));
-    if (!group || group.deleted_at != null) return;
-
-    const messages = fullGroupMessages[groupId] || [];
-    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
-
-    if (validMessages.length > 0) {
-      const lastMessage = validMessages[validMessages.length - 1];
-      group.lastMessage = lastMessage;
-      const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
-      group.last_message_time = newTime;
-    } else {
-      group.lastMessage = null;
-      group.last_message_time = null;
-    }
-
-    sortGroupsByLastMessageTime();
+  function markGroupAsDeleted(groupId, isOwnOperation = false) {
+    groupModule.markGroupAsDeleted(groupId, isOwnOperation, {
+      currentUser: baseModule.currentUser.value,
+      getStorageKeyPrefix: baseModule.getStorageKeyPrefix,
+      fullGroupMessages: storageModule.fullGroupMessages,
+      groupMessages: groupModule.groupMessages,
+      groupStored: groupModule.groupStored,
+      currentGroupId: sessionModule.currentGroupId,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
-  function updateFriendLastMessageAfterDelete(userId) {
-    if (!friendsList.value) return;
-    const friend = friendsList.value.find(f => String(f.id) === String(userId));
-    if (!friend || friend.deleted_at != null) return;
-
-    const messages = fullPrivateMessages[userId] || [];
-    const validMessages = messages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
-
-    if (validMessages.length > 0) {
-      const lastMessage = validMessages[validMessages.length - 1];
-      friend.lastMessage = lastMessage;
-      const newTime = new Date(lastMessage.timestamp || Date.now()).toISOString();
-      friend.last_message_time = newTime;
-    } else {
-      friend.lastMessage = null;
-      friend.last_message_time = null;
-    }
-
-    sortFriendsByLastMessageTime();
+  function markFriendAsDeleted(userId, isOwnOperation = false) {
+    friendModule.markFriendAsDeleted(userId, isOwnOperation, {
+      currentUser: baseModule.currentUser.value,
+      getStorageKeyPrefix: baseModule.getStorageKeyPrefix,
+      fullPrivateMessages: storageModule.fullPrivateMessages,
+      currentPrivateChatUserId: sessionModule.currentPrivateChatUserId,
+      saveToStorage: () => storageModule.saveToStorage(getContext())
+    });
   }
 
-  function loadUnreadCountsFromLocalStorage() {
-    try {
-      const data = localStorage.getItem(`unread_counts_${currentUser.value?.id}`);
-      if (data) {
-        const counts = JSON.parse(data);
-        unreadMessages.value.global = counts.global || 0;
-        unreadMessages.value.groups = counts.groups || {};
-        unreadMessages.value.private = counts.private || {};
-      }
-    } catch (err) {
-      console.error('加载未读计数失败:', err);
-    }
+  function saveDraft(chatType, id, content) {
+    draftModule.saveDraft(chatType, id, content, {
+      groupsList: groupModule.groupsList,
+      friendsList: friendModule.friendsList,
+      getGroupLastMessage: storageModule.getGroupLastMessage,
+      getPrivateLastMessage: storageModule.getPrivateLastMessage
+    });
   }
 
-  // 直接从 localStorage 读取未读计数（不更新 store）
-  function loadUnreadCountsFromStorage() {
-    try {
-      const data = localStorage.getItem(`unread_counts_${currentUser.value?.id}`);
-      if (data) {
-        return JSON.parse(data);
-      }
-    } catch (err) {
-      console.error('读取未读计数失败:', err);
-    }
-    return { global: 0, groups: {}, private: {} };
+  function getDraft(chatType, id) {
+    return draftModule.getDraft(chatType, id);
   }
 
-  // 直接保存到 localStorage（不使用 store 的值）并更新 store 状态
-  function saveUnreadCountsToLocalStorageDirect(counts) {
-    try {
-      localStorage.setItem(`unread_counts_${currentUser.value?.id}`, JSON.stringify(counts));
-      // 同时更新 store 状态，确保状态一致
-      unreadMessages.value.global = counts.global || 0;
-      unreadMessages.value.groups = counts.groups || {};
-      unreadMessages.value.private = counts.private || {};
-    } catch (err) {
-      console.error('保存未读计数失败:', err);
-    }
+  function clearDraft(chatType, id) {
+    draftModule.clearDraft(chatType, id, {
+      groupsList: groupModule.groupsList,
+      friendsList: friendModule.friendsList,
+      getGroupLastMessage: storageModule.getGroupLastMessage,
+      getPrivateLastMessage: storageModule.getPrivateLastMessage
+    });
   }
 
-  function setGroupAllLoaded(groupId, value) {
-    groupAllLoaded.value[groupId] = value;
-  }
-  
-  function isGroupAllLoaded(groupId) {
-    return groupAllLoaded.value[groupId] || false;
-  }
-  
-  function setPrivateAllLoaded(userId, value) {
-    privateAllLoaded.value[userId] = value;
-  }
-  
-  function isPrivateAllLoaded(userId) {
-    return privateAllLoaded.value[userId] || false;
-  }
-  
-  function setPublicAllLoaded(value) {
-    publicAllLoaded.value = value;
-  }
-  
-  function isPublicAllLoaded() {
-    return publicAllLoaded.value;
-  }
-  
-  async function initializeMessages() {
-    showFetchingMessage.value = true;
-
-    try {
-      // 先加载已有的未读计数
-      loadUnreadCountsFromLocalStorage();
-      // 先加载 minIds
-      await loadMinIds();
-      // 先从 indexedDB 加载已有消息到 fullMessages（不加入 store）
-      await loadMessages(false);
-      // 拉取离线消息并加入 store（同时计算未读计数，且内部会调用 saveToStorage()）
-      await fetchAndMergeOfflineMessages(false);
-      // 加载所有消息到 store（包括已有的未读计数）
-      await loadMessages(true);
-      showFetchingMessage.value = false;
-    } catch (error) {
-      console.error('初始化消息流程失败:', error);
-      showFetchingMessage.value = false;
-    }
+  function tempRestoreLastMessage(chatType, id) {
+    draftModule.tempRestoreLastMessage(chatType, id, {
+      groupsList: groupModule.groupsList,
+      friendsList: friendModule.friendsList,
+      getGroupLastMessage: storageModule.getGroupLastMessage,
+      getPrivateLastMessage: storageModule.getPrivateLastMessage
+    });
   }
 
-  async function clearAllDeletedSessions() {
-    try {
-      const prefix = getStorageKeyPrefix();
-      
-      // 1. 收集需要清除的已删除群组和好友
-      const deletedGroupIds = [];
-      const deletedFriendIds = [];
-      
-      if (groupsList.value) {
-        groupsList.value.forEach(g => {
-          if (g.deleted_at) {
-            deletedGroupIds.push(String(g.id));
-          }
-        });
-      }
-      
-      if (friendsList.value) {
-        friendsList.value.forEach(f => {
-          if (f.deleted_at) {
-            deletedFriendIds.push(String(f.id));
-          }
-        });
-      }
-      
-      // 2. 从 store 中清除已删除的群组
-      if (groupsList.value) {
-        groupsList.value = groupsList.value.filter(g => !g.deleted_at);
-      }
-      
-      // 3. 从 store 中清除已删除的好友
-      if (friendsList.value) {
-        friendsList.value = friendsList.value.filter(f => !f.deleted_at);
-      }
-      
-      // 4. 从 indexedDB 中清除已删除会话的数据
-      const chatKeysData = await localForage.getItem(prefix);
-      if (chatKeysData && chatKeysData.chatKeys) {
-        for (const key of chatKeysData.chatKeys) {
-          if (key.includes('-group-') || key.includes('-private-')) {
-            const sessionData = await localForage.getItem(key);
-            if (sessionData && sessionData.deleted_at) {
-              // 删除该会话的消息数据
-              await localForage.removeItem(key);
-            }
-          }
-        }
-        
-        // 更新 chatKeys，移除已删除的会话
-        const remainingKeys = [];
-        for (const key of chatKeysData.chatKeys) {
-          if (key.includes('-group-') || key.includes('-private-')) {
-            const sessionData = await localForage.getItem(key);
-            if (!sessionData || !sessionData.deleted_at) {
-              remainingKeys.push(key);
-            }
-          } else {
-            remainingKeys.push(key);
-          }
-        }
-        await localForage.setItem(prefix, { chatKeys: remainingKeys });
-      }
-      
-      // 5. 清除内存中的 fullMessages
-      Object.keys(fullGroupMessages).forEach(groupId => {
-        const group = groupsList.value?.find(g => String(g.id) === String(groupId));
-        if (!group || group.deleted_at) {
-          delete fullGroupMessages[groupId];
-          delete groupMessages.value[groupId];
-          groupStored.value[groupId] = true;
-        }
-      });
-      
-      Object.keys(fullPrivateMessages).forEach(userId => {
-        const friend = friendsList.value?.find(f => String(f.id) === String(userId));
-        if (!friend || friend.deleted_at) {
-          delete fullPrivateMessages[userId];
-          delete privateMessages.value[userId];
-          privateStored.value[userId] = true;
-        }
-      });
-      
-      // 6. 清除已删除会话的未读计数
-      loadUnreadCountsFromLocalStorage();
-      
-      // 清除群组未读计数
-      deletedGroupIds.forEach(groupId => {
-        if (unreadMessages.value.groups[groupId]) {
-          delete unreadMessages.value.groups[groupId];
-        }
-      });
-      
-      // 清除好友未读计数
-      deletedFriendIds.forEach(userId => {
-        if (unreadMessages.value.private[userId]) {
-          delete unreadMessages.value.private[userId];
-        }
-      });
-      
-      // 保存未读计数到 localStorage
-      saveUnreadCountsToLocalStorage();
-      
-      // 7. 保存到存储
-      publicStored.value = false;
-      saveToStorage();
-      
-      return true;
-    } catch (error) {
-      console.error('清除已删除会话失败:', error);
-      throw error;
-    }
+  function setLastMessageToDraft(chatType, id) {
+    draftModule.setLastMessageToDraft(chatType, id, {
+      groupsList: groupModule.groupsList,
+      friendsList: friendModule.friendsList
+    });
+  }
+
+  function saveToStorage() {
+    storageModule.saveToStorage(getContext());
+  }
+
+  function loadMessages(loadToStore = true) {
+    return storageModule.loadMessages(loadToStore, getContext());
+  }
+
+  function clearMessages() {
+    storageModule.clearMessages(getContext());
+  }
+
+  function processOfflineMessage(message, onlySaveToDB = false) {
+    storageModule.processOfflineMessage(message, onlySaveToDB, getContext());
+  }
+
+  function fetchAndMergeOfflineMessages(onlySaveToDB = false) {
+    return storageModule.fetchAndMergeOfflineMessages(onlySaveToDB, getContext());
+  }
+
+  function initializeMessages() {
+    return storageModule.initializeMessages(getContext());
+  }
+
+  function saveMinIds() {
+    storageModule.saveMinIds(getContext());
+  }
+
+  function loadMinIds() {
+    storageModule.loadMinIds(getContext());
+  }
+
+  function refreshMessages() {
+    storageModule.refreshMessages(getContext());
+  }
+
+  function formatMessageContent(message) {
+    return storageModule.formatMessageContent(message);
+  }
+
+  function clearAllDeletedSessions() {
+    return storageModule.clearAllDeletedSessions(getContext());
   }
 
   function clearAllUnreadCounts() {
-    try {
-      loadUnreadCountsFromLocalStorage();
-      
-      // 清除全局未读计数
-      unreadMessages.value.global = 0;
-      
-      // 清除所有群组未读计数
-      unreadMessages.value.groups = {};
-      
-      // 清除所有私信未读计数
-      unreadMessages.value.private = {};
-      
-      // 保存未读计数到 localStorage
-      saveUnreadCountsToLocalStorage();
-      
-      // 更新页面上的未读计数显示
-      if (typeof window.updateUnreadCountsDisplay === 'function') {
-        window.updateUnreadCountsDisplay();
-      }
-      
-      return true;
-    } catch (error) {
-      console.error('清除未读计数失败:', error);
-      throw error;
-    }
+    return unreadModule.clearAllUnreadCounts();
+  }
+
+  function getStorageKeyPrefix() {
+    return baseModule.getStorageKeyPrefix();
   }
 
   return {
-    onlineUsers,
-    offlineUsers,
-    groupsList,
-    friendsList,
-    publicMessages,
-    groupMessages,
-    privateMessages,
-    unreadMessages,
-    quotedMessage,
-    setQuotedMessage,
-    clearQuotedMessage,
-    clearOtherGroupMessages,
-    clearOtherPrivateMessages,
-    clearPublicMessagesExceptRecent,
-    currentUser,
-    currentSessionToken,
-    currentGroupId,
-    currentGroupName,
-    currentPrivateChatUserId,
-    currentPrivateChatUsername,
-    currentPrivateChatNickname,
-    currentPrivateChatAvatarUrl,
-    currentActiveChat,
-    currentSendChatType,
-    selectedGroupIdForCard,
-    isPageVisible,
-    isConnected,
-    loading,
-    isFetchingOfflineMessages,
-    showFetchingMessage,
-    hasReceivedHistory,
-    hasReceivedGroupHistory,
-    hasReceivedPrivateHistory,
-    mainMessageInput,
-    groupMessageInput,
-    privateMessageInput,
-    uploadProgress,
-    showUploadProgress,
-    showGroupInfoModal,
-    showSendGroupCardModal,
-    showCreateGroupModal,
-    showAddGroupMemberModal,
-    showUserProfileModal,
-    showUserSearchModal,
-    showImagePreviewModal,
-    showAvatarPreviewModal,
-    showUserAvatarPopup,
-    showGroupCardPopup,
-    modalData,
-    SERVER_URL,
+    onlineUsers: userModule.onlineUsers,
+    offlineUsers: userModule.offlineUsers,
+    groupsList: groupModule.groupsList,
+    friendsList: friendModule.friendsList,
+    publicMessages: publicModule.publicMessages,
+    groupMessages: groupModule.groupMessages,
+    privateMessages: friendModule.privateMessages,
+    unreadMessages: unreadModule.unreadMessages,
+    quotedMessage: inputModule.quotedMessage,
+    setQuotedMessage: inputModule.setQuotedMessage,
+    clearQuotedMessage: inputModule.clearQuotedMessage,
+    clearOtherGroupMessages: groupModule.clearOtherGroupMessages,
+    clearOtherPrivateMessages: friendModule.clearOtherPrivateMessages,
+    clearPublicMessagesExceptRecent: publicModule.clearPublicMessagesExceptRecent,
+    currentUser: baseModule.currentUser,
+    currentSessionToken: baseModule.currentSessionToken,
+    currentGroupId: sessionModule.currentGroupId,
+    currentGroupName: sessionModule.currentGroupName,
+    currentPrivateChatUserId: sessionModule.currentPrivateChatUserId,
+    currentPrivateChatUsername: sessionModule.currentPrivateChatUsername,
+    currentPrivateChatNickname: sessionModule.currentPrivateChatNickname,
+    currentPrivateChatAvatarUrl: sessionModule.currentPrivateChatAvatarUrl,
+    currentActiveChat: sessionModule.currentActiveChat,
+    currentSendChatType: sessionModule.currentSendChatType,
+    selectedGroupIdForCard: sessionModule.selectedGroupIdForCard,
+    isConnected: baseModule.isConnected,
+    loading: baseModule.loading,
+    isFetchingOfflineMessages: baseModule.isFetchingOfflineMessages,
+    showFetchingMessage: baseModule.showFetchingMessage,
+    hasReceivedHistory: baseModule.hasReceivedHistory,
+    hasReceivedGroupHistory: baseModule.hasReceivedGroupHistory,
+    hasReceivedPrivateHistory: baseModule.hasReceivedPrivateHistory,
+    mainMessageInput: inputModule.mainMessageInput,
+    groupMessageInput: inputModule.groupMessageInput,
+    privateMessageInput: inputModule.privateMessageInput,
+    uploadProgress: inputModule.uploadProgress,
+    showUploadProgress: inputModule.showUploadProgress,
+    showGroupInfoModal: modalModule.showGroupInfoModal,
+    showSendGroupCardModal: modalModule.showSendGroupCardModal,
+    showCreateGroupModal: modalModule.showCreateGroupModal,
+    showAddGroupMemberModal: modalModule.showAddGroupMemberModal,
+    showUserProfileModal: modalModule.showUserProfileModal,
+    showUserSearchModal: modalModule.showUserSearchModal,
+    showImagePreviewModal: modalModule.showImagePreviewModal,
+    showAvatarPreviewModal: modalModule.showAvatarPreviewModal,
+    showUserAvatarPopup: modalModule.showUserAvatarPopup,
+    showGroupCardPopup: modalModule.showGroupCardPopup,
+    modalData: modalModule.modalData,
+    SERVER_URL: baseModule.SERVER_URL,
     setCurrentUser,
-    setCurrentSessionToken,
+    setCurrentSessionToken: baseModule.setCurrentSessionToken,
     setCurrentGroupId,
     setCurrentPrivateChatUserId,
     setCurrentActiveChat,
-    openModal,
-    closeModal,
+    openModal: modalModule.openModal,
+    closeModal: modalModule.closeModal,
     addPublicMessage,
     addGroupMessage,
     addPrivateMessage,
@@ -2585,27 +545,19 @@ export const useChatStore = defineStore('chat', () => {
     deletePrivateMessage,
     moveGroupToTop,
     moveFriendToTop,
-    saveGroupLastMessageTime,
-    saveFriendLastMessageTime,
-    getGroupLastMessageTime,
-    getFriendLastMessageTime,
-    deleteGroupLastMessageTime,
-    deleteFriendLastMessageTime,
     clearGroupUnread,
     clearPrivateUnread,
     clearGlobalUnread,
-    loadUnreadCountsFromLocalStorage,
-    loadUnreadCountsFromStorage,
-    saveUnreadCountsToLocalStorage,
-    saveUnreadCountsToLocalStorageDirect,
+    loadUnreadCountsFromLocalStorage: unreadModule.loadUnreadCountsFromLocalStorage,
+    loadUnreadCountsFromStorage: unreadModule.loadUnreadCountsFromStorage,
+    saveUnreadCountsToLocalStorage: unreadModule.saveUnreadCountsToLocalStorage,
+    saveUnreadCountsToLocalStorageDirect: unreadModule.saveUnreadCountsToLocalStorageDirect,
     incrementGroupUnread,
     incrementGlobalUnread,
     incrementPrivateUnread,
-    saveGroupLastMessageTimes,
-    saveFriendLastMessageTimes,
-    sortFriendsByLastMessageTime,
-    sortGroupsByLastMessageTime,
-    setLoading,
+    sortFriendsByLastMessageTime: friendModule.sortFriendsByLastMessageTime,
+    sortGroupsByLastMessageTime: groupModule.sortGroupsByLastMessageTime,
+    setLoading: baseModule.setLoading,
     refreshMessages,
     saveToStorage,
     loadMessages,
@@ -2613,45 +565,45 @@ export const useChatStore = defineStore('chat', () => {
     processOfflineMessage,
     fetchAndMergeOfflineMessages,
     initializeMessages,
-    setGroupAllLoaded,
-    isGroupAllLoaded,
-    setPrivateAllLoaded,
-    isPrivateAllLoaded,
-    setPublicAllLoaded,
-    isPublicAllLoaded,
+    setGroupAllLoaded: groupModule.setGroupAllLoaded,
+    isGroupAllLoaded: groupModule.isGroupAllLoaded,
+    setPrivateAllLoaded: friendModule.setPrivateAllLoaded,
+    isPrivateAllLoaded: friendModule.isPrivateAllLoaded,
+    setPublicAllLoaded: publicModule.setPublicAllLoaded,
+    isPublicAllLoaded: publicModule.isPublicAllLoaded,
     saveMinIds,
     loadMinIds,
-    publicAndGroupMinId,
-    privateMinId,
-    publicPageSize,
-    publicPageOffset,
-    publicLoadingMore,
-    groupPageSize,
-    groupPageOffset,
-    groupLoadingMore,
-    privatePageSize,
-    privatePageOffset,
-    privateLoadingMore,
-    getGroupLastMessage,
-    getPrivateLastMessage,
+    publicAndGroupMinId: storageModule.publicAndGroupMinId,
+    privateMinId: storageModule.privateMinId,
+    publicPageSize: publicModule.publicPageSize,
+    publicPageOffset: publicModule.publicPageOffset,
+    publicLoadingMore: publicModule.publicLoadingMore,
+    groupPageSize: groupModule.groupPageSize,
+    groupPageOffset: groupModule.groupPageOffset,
+    groupLoadingMore: groupModule.groupLoadingMore,
+    privatePageSize: friendModule.privatePageSize,
+    privatePageOffset: friendModule.privatePageOffset,
+    privateLoadingMore: friendModule.privateLoadingMore,
+    getGroupLastMessage: storageModule.getGroupLastMessage,
+    getPrivateLastMessage: storageModule.getPrivateLastMessage,
     formatMessageContent,
     updateGroupLastMessage,
     updateFriendLastMessage,
-    groupsWithAtMe,
-    setGroupHasAtMe,
-    clearGroupHasAtMe,
-    hasGroupAtMe,
-    loadGroupsWithAtMeFromLocalStorage,
-    saveGroupsWithAtMeToLocalStorage,
-    updateGroupLastMessageAfterDelete,
-    updateFriendLastMessageAfterDelete,
-    findUserById,
-    getUserName,
-    getUserAvatar,
+    groupsWithAtMe: groupModule.groupsWithAtMe,
+    setGroupHasAtMe: groupModule.setGroupHasAtMe,
+    clearGroupHasAtMe: groupModule.clearGroupHasAtMe,
+    hasGroupAtMe: groupModule.hasGroupAtMe,
+    loadGroupsWithAtMeFromLocalStorage: groupModule.loadGroupsWithAtMeFromLocalStorage,
+    saveGroupsWithAtMeToLocalStorage: groupModule.saveGroupsWithAtMeToLocalStorage,
+    updateGroupLastMessageAfterDelete: (groupId) => groupModule.updateGroupLastMessageAfterDelete(groupId, getContext()),
+    updateFriendLastMessageAfterDelete: (userId) => friendModule.updateFriendLastMessageAfterDelete(userId, getContext()),
+    findUserById: userModule.findUserById,
+    getUserName: userModule.getUserName,
+    getUserAvatar: userModule.getUserAvatar,
     updateUserInfoInMessages,
     markGroupAsDeleted,
     markFriendAsDeleted,
-    drafts,
+    drafts: draftModule.drafts,
     saveDraft,
     getDraft,
     clearDraft,
@@ -2659,140 +611,7 @@ export const useChatStore = defineStore('chat', () => {
     setLastMessageToDraft,
     getStorageKeyPrefix,
     clearAllDeletedSessions,
-    clearAllUnreadCounts
+    clearAllUnreadCounts,
+    clearAllCache: storageModule.clearAllCache
   };
-
-  // 保存草稿
-  function saveDraft(chatType, id, content) {
-    if (chatType === 'main') {
-      drafts.value.main = content;
-    } else if (chatType === 'group' && id) {
-      drafts.value.groups[id] = content;
-      // 更新群组最后消息为草稿
-      if (groupsList.value) {
-        const group = groupsList.value.find(g => String(g.id) === String(id));
-        if (group) {
-          if (content) {
-            group.lastMessage = {
-              content: `[草稿] ${content}`,
-              nickname: '我',
-              messageType: 0
-            };
-          } else {
-            // 如果内容为空，恢复原来的最后消息
-            const lastMsg = getGroupLastMessage(id);
-            group.lastMessage = lastMsg;
-          }
-        }
-      }
-    } else if (chatType === 'private' && id) {
-      drafts.value.private[id] = content;
-      // 更新私信最后消息为草稿
-      if (friendsList.value) {
-        const friend = friendsList.value.find(f => String(f.id) === String(id));
-        if (friend) {
-          if (content) {
-            friend.lastMessage = {
-              content: `[草稿] ${content}`,
-              nickname: '我',
-              messageType: 0
-            };
-          } else {
-            // 如果内容为空，恢复原来的最后消息
-            const lastMsg = getPrivateLastMessage(id);
-            friend.lastMessage = lastMsg;
-          }
-        }
-      }
-    }
-  }
-
-  // 获取草稿
-  function getDraft(chatType, id) {
-    if (chatType === 'main') {
-      return drafts.value.main || '';
-    } else if (chatType === 'group' && id) {
-      return drafts.value.groups[id] || '';
-    } else if (chatType === 'private' && id) {
-      return drafts.value.private[id] || '';
-    }
-    return '';
-  }
-
-  // 清除草稿
-  function clearDraft(chatType, id) {
-    if (chatType === 'main') {
-      drafts.value.main = '';
-    } else if (chatType === 'group' && id) {
-      delete drafts.value.groups[id];
-      // 恢复原来的最后消息
-      if (groupsList.value) {
-        const group = groupsList.value.find(g => String(g.id) === String(id));
-        if (group) {
-          const lastMsg = getGroupLastMessage(id);
-          group.lastMessage = lastMsg;
-        }
-      }
-    } else if (chatType === 'private' && id) {
-      delete drafts.value.private[id];
-      // 恢复原来的最后消息
-      if (friendsList.value) {
-        const friend = friendsList.value.find(f => String(f.id) === String(id));
-        if (friend) {
-          const lastMsg = getPrivateLastMessage(id);
-          friend.lastMessage = lastMsg;
-        }
-      }
-    }
-  }
-
-  // 临时恢复 lastMessage（当切换到有草稿的会话时调用，移除[草稿]标记）
-  function tempRestoreLastMessage(chatType, id) {
-    if (chatType === 'group' && id) {
-      if (groupsList.value) {
-        const group = groupsList.value.find(g => String(g.id) === String(id));
-        if (group) {
-          const lastMsg = getGroupLastMessage(id);
-          group.lastMessage = lastMsg;
-        }
-      }
-    } else if (chatType === 'private' && id) {
-      if (friendsList.value) {
-        const friend = friendsList.value.find(f => String(f.id) === String(id));
-        if (friend) {
-          const lastMsg = getPrivateLastMessage(id);
-          friend.lastMessage = lastMsg;
-        }
-      }
-    }
-  }
-
-  // 重新设置 lastMessage 为草稿（当离开有草稿的会话时调用）
-  function setLastMessageToDraft(chatType, id) {
-    if (chatType === 'group' && id) {
-      const draftContent = drafts.value.groups[id];
-      if (draftContent && groupsList.value) {
-        const group = groupsList.value.find(g => String(g.id) === String(id));
-        if (group) {
-          group.lastMessage = {
-            content: `[草稿] ${draftContent}`,
-            nickname: '我',
-            messageType: 0
-          };
-        }
-      }
-    } else if (chatType === 'private' && id) {
-      const draftContent = drafts.value.private[id];
-      if (draftContent && friendsList.value) {
-        const friend = friendsList.value.find(f => String(f.id) === String(id));
-        if (friend) {
-          friend.lastMessage = {
-            content: `[草稿] ${draftContent}`,
-            nickname: '我',
-            messageType: 0
-          };
-        }
-      }
-    }
-  }
 });
