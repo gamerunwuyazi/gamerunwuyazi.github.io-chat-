@@ -1,0 +1,121 @@
+{
+  "name": "vue-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --ignore-pattern \"dist/**\" --ignore-pattern \"node_modules/**\"",
+    "lint:fix": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-pattern \"dist/**\" --ignore-pattern \"node_modules/**\""
+  },
+  "dependencies": {
+    "@vueuse/core": "^14.2.1",
+    "dompurify": "^3.3.1",
+    "localforage": "1.10.0",
+    "lodash": "^4.17.21",
+    "marked": "^17.0.1",
+    "pinia": "^3.0.4",
+    "socket.io-client": "^4.8.3",
+    "vue": "^3.4.21",
+    "vue-router": "^5.0.1",
+    "vue-turnstile": "^1.0.11"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/eslint-parser": "^7.28.6",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "eslint": "^8.57.0",
+    "eslint-import-resolver-alias": "^1.1.2",
+    "eslint-import-resolver-node": "^0.3.10",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-vue": "^9.31.0",
+    "terser": "^5.46.1",
+    "vite": "^8.0.3",
+    "vite-plugin-compression": "^0.5.1",
+    "vite-plugin-html": "^3.2.2"
+  },
+  "eslintConfig": {
+    "root": true,
+    "env": {
+      "node": true,
+      "vue/setup-compiler-macros": true
+    },
+    "extends": [
+      "plugin:vue/vue3-essential",
+      "eslint:recommended"
+    ],
+    "parserOptions": {
+      "parser": "@babel/eslint-parser",
+      "requireConfigFile": false,
+      "sourceType": "module"
+    },
+    "plugins": [
+      "import"
+    ],
+    "settings": {
+      "import/resolver": {
+        "node": {
+          "extensions": [".js", ".vue", ".json"]
+        },
+        "alias": {
+          "map": [["@", "./src"]],
+          "extensions": [".js", ".vue", ".json"]
+        }
+      }
+    },
+    "rules": {
+      "no-unused-vars": "warn",
+      "no-empty": "warn",
+      "no-undef": "warn",
+      "no-import-assign": "warn",
+
+      "import/no-duplicates": "error",
+      "import/first": "error",
+      "import/newline-after-import": "warn",
+      "import/no-unused-modules": [
+        "warn",
+        {
+          "missingExports": true,
+          "unusedExports": true
+        }
+      ],
+      "import/order": [
+        "warn",
+        {
+          "groups": [
+            "builtin",
+            "external",
+            "internal",
+            "parent",
+            "sibling",
+            "index"
+          ],
+          "newlines-between": "always",
+          "alphabetize": {
+            "order": "asc",
+            "caseInsensitive": true
+          }
+        }
+      ],
+
+      "import/no-unresolved": [
+        "error",
+        {
+          "commonjs": true,
+          "amd": false
+        }
+      ],
+      "import/named": "error",
+      "import/default": "error",
+      "import/namespace": "off"
+    }
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead",
+    "not ie 11"
+  ]
+}
