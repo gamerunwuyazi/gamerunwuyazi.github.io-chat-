@@ -45,7 +45,7 @@ noscript {
 
 .quoted-highlight,
 .message.active,
-.msg-bubble-content.active {
+.msg-bubble.active {
   border-radius: 8px;
   transition: background-color 0.5s ease-out;
 }
