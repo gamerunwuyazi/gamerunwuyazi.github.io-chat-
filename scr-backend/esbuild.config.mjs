@@ -27,6 +27,7 @@ const buildOptions = {
   plugins: [sqlTemplateStringPlugin],
   external: [
     'bcryptjs',
+    'canvas',
     'cors',
     'dotenv',
     'express',
@@ -34,6 +35,7 @@ const buildOptions = {
     'mysql2',
     'node-schedule',
     'redis',
+    'scr-slider-captcha',
     'socket.io'
   ],
   loader: {

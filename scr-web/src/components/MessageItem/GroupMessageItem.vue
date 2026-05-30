@@ -12,48 +12,16 @@
     :class="['message', isOwn ? 'own-message' : 'other-message', { 'active': isActive }]"
     :data-id="message.id"
     :data-identifier="messageIdentifier"
-    :style="messageStyle"
     @contextmenu="handleContextMenu"
   >
-    <div class="message-header" style="display: flex; align-items: center; margin-bottom: 5px;">
-      <template v-if="!isOwn">
-        <component 
-          :is="avatarIsImage ? 'img' : 'div'"
-          :src="avatarIsImage ? fullAvatarUrl : undefined"
-          :alt="senderNickname"
-          class="user-avatar"
-          :class="{ 'default-avatar': !avatarIsImage }"
-          style="width: 32px; height: 32px; border-radius: 50%; margin-right: 10px; background-color: #e0e0e0; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #666; cursor: pointer;"
-          @click="handleAvatarClick"
-          @error="handleAvatarError"
-        >
-          {{ !avatarIsImage ? senderInitials : '' }}
-        </component>
-        <div style="flex: 1;">
-          <span class="message-sender" style="font-weight: bold;">{{ senderNickname }}</span>
-          <span class="message-time" style="float: right; color: #999; font-size: 12px;">{{ messageTime }}</span>
-        </div>
-      </template>
-      <template v-else>
-        <component 
-          :is="avatarIsImage ? 'img' : 'div'"
-          :src="avatarIsImage ? fullAvatarUrl : undefined"
-          :alt="senderNickname"
-          class="user-avatar"
-          :class="{ 'default-avatar': !avatarIsImage }"
-          style="width: 32px; height: 32px; border-radius: 50%; margin-right: 10px; background-color: #e0e0e0; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #666; cursor: pointer;"
-          @click="handleAvatarClick"
-          @error="handleAvatarError"
-        >
-          {{ !avatarIsImage ? senderInitials : '' }}
-        </component>
-        <div style="flex: 1;">
-          <span class="message-sender" style="font-weight: bold;">{{ senderNickname }}</span>
-          <span class="message-time" style="float: right; color: #999; font-size: 12px;">{{ messageTime }}</span>
-        </div>
-      </template>
+    <div class="msg-avatar" @click="handleAvatarClick">
+      <img v-if="avatarIsImage" :src="fullAvatarUrl" :alt="senderNickname" class="msg-avatar-img" @error="handleAvatarError" />
+      <span v-else class="msg-avatar-initials">{{ senderInitials }}</span>
     </div>
-    <div class="message-content">
+    <div class="msg-body">
+      <div v-if="!isOwn" class="msg-sender-name">{{ senderNickname }}</div>
+      <div class="msg-bubble">
+        <div class="msg-bubble-content">
       <div v-if="systemMessage" class="system-message-container" :class="systemMessageType">
         <div class="system-message-text">{{ systemMessage }}</div>
       </div>
@@ -61,10 +29,8 @@
         <img 
           :src="fullImageUrl" 
           :alt="filename || '图片'"
-          :width="imageWidth"
-          :height="imageHeight"
           class="message-image"
-          style="max-width: 100%; height: auto; cursor: pointer;"
+          style="cursor: pointer;"
           @click="handleImageClick(fullImageUrl)"
         >
       </div>
@@ -140,6 +106,9 @@
         </div>
         <QuotedMessage :quoted-message-data="quotedMessageData.quoted" />
       </template>
+        </div>
+      </div>
+      <div class="msg-time">{{ messageTime }}</div>
     </div>
   </div>
 </template>
@@ -152,6 +121,7 @@ import { computed, ref, onMounted } from 'vue';
 import QuotedMessage from './QuotedMessage.vue';
 
 import { useBaseStore } from '@/stores/baseStore';
+import { useUserStore } from '@/stores/userStore';
 import { useGroupStore } from '@/stores/groupStore';
 import { useModalStore } from '@/stores/modalStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -173,6 +143,7 @@ const props = defineProps({
 });
 
 const baseStore = useBaseStore();
+const userStore = useUserStore();
 const groupStore = useGroupStore();
 const modalStore = useModalStore();
 const sessionStore = useSessionStore();
@@ -211,8 +182,36 @@ const messageUser = computed(() => {
 
 
 const senderNickname = computed(() => {
-  const nickname = messageUser.value.nickname || '未知用户';
-  return nickname;
+  const messageUserId = props.message.userId;
+  const messageGroupId = props.message.groupId;
+
+  // ⭐ 动态昵称解析（优先级：群昵称 > 消息中存储的群昵称 > 全局昵称 > 消息原始昵称）
+  // 1. 最高优先级：检查该用户在当前群是否有群昵称（同时校验群归属，防止串群）
+  const members = groupStore.currentGroupMembers;
+  const activeGroupId = sessionStore.currentGroupId;
+  if (members && members.length > 0 && activeGroupId && messageGroupId && String(messageGroupId) === String(activeGroupId)) {
+    const member = members.find(m => String(m.id) === String(messageUserId));
+    if (member && member.group_nickname) {
+      return member.group_nickname;
+    }
+  }
+
+  // 2. 次优先级：消息中存储的群昵称（后端推送/拉取时携带，按消息归属）
+  if (props.message.groupNickname) {
+    return props.message.groupNickname;
+  }
+
+  // 3. 中等优先级：使用 userStore 中的全局昵称（实时更新）
+  const onlineUsers = userStore.onlineUsers;
+  if (onlineUsers && onlineUsers.length > 0) {
+    const onlineUser = onlineUsers.find(u => String(u.id) === String(messageUserId));
+    if (onlineUser && onlineUser.nickname) {
+      return onlineUser.nickname;
+    }
+  }
+
+  // 4. 兜底：使用消息中存储的原始昵称
+  return messageUser.value.nickname || '未知用户';
 });
 const senderInitials = computed(() => senderNickname.value ? senderNickname.value.charAt(0).toUpperCase() : 'U');
 const senderAvatarUrl = computed(() => messageUser.value.avatarUrl);
@@ -258,28 +257,6 @@ const messageIdentifier = computed(() => {
   return Math.abs(hash).toString(16);
 });
 
-const messageStyle = computed(() => {
-  if (props.isOwn) {
-    return {
-      backgroundColor: '#E8F5E8',
-      borderRadius: '18px',
-      padding: '10px 15px',
-      maxWidth: '80%',
-      alignSelf: 'flex-end'
-    };
-  } else {
-    return {
-      marginLeft: '10px',
-      backgroundColor: '#FFFFFF',
-      borderRadius: '18px',
-      padding: '10px 15px',
-      maxWidth: '80%',
-      alignSelf: 'flex-start',
-      border: '1px solid #E0E0E0'
-    };
-  }
-});
-
 const messageData = computed(() => {
   let imageUrl = props.message.imageUrl;
   let fileUrl = props.message.fileUrl;
@@ -294,8 +271,36 @@ const messageData = computed(() => {
   if (props.message.messageType !== undefined) {
     // 优先检查是否是已撤回的消息（通过isRecalled或isSystemMessage标记）
     if (props.message.isRecalled || props.message.isSystemMessage) {
-      // 撤回消息 - content已经是纯文本格式
-      textContent = props.message.content || `${props.message.nickname || '某人'}撤回了一条消息`;
+      // 撤回消息 - content为JSON格式：{撤回人id:撤回人昵称}
+      // 优先从群成员列表计算撤回人昵称，无法计算时使用content中存储的昵称
+      let recallNickname = '某人';
+      try {
+        const parsed = JSON.parse(props.message.content);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const keys = Object.keys(parsed);
+          if (keys.length > 0) {
+            const recallerId = keys[0];
+            const storedNickname = parsed[recallerId];
+            const members = groupStore.currentGroupMembers;
+            const activeGroupId = sessionStore.currentGroupId;
+            if (members && members.length > 0 && activeGroupId && props.message.groupId && String(props.message.groupId) === String(activeGroupId)) {
+              const recaller = members.find(m => String(m.id) === String(recallerId));
+              if (recaller) {
+                recallNickname = recaller.group_nickname || recaller.nickname || storedNickname;
+              } else {
+                recallNickname = storedNickname;
+              }
+            } else {
+              recallNickname = storedNickname;
+            }
+          }
+        } else {
+          recallNickname = senderNickname.value || '某人';
+        }
+      } catch (e) {
+        recallNickname = senderNickname.value || '某人';
+      }
+      textContent = `${recallNickname}撤回了一条消息`;
       systemMessage = typeof textContent === 'string' ? textContent : String(textContent);
     } else {
       switch (props.message.messageType) {
@@ -352,14 +357,76 @@ const messageData = computed(() => {
         } catch (error) {}
         break;
       case 100: {
-        // 系统消息
-        let sysContent = props.message.content;
-        if (typeof sysContent === 'string' && sysContent.startsWith('{')) {
-          try {
-            const parsed = JSON.parse(sysContent);
-            sysContent = parsed.content || sysContent;
-          } catch {
+        // 系统消息 - content为JSON格式：{userId: nickname, action: "..."}
+        let sysContent;
+        try {
+          const parsed = JSON.parse(props.message.content);
+          if (parsed && parsed.action) {
+            const userId = Object.keys(parsed).find(k => k !== 'action' && k !== 'groupName' && k !== 'content');
+            let displayName = parsed[userId] || '用户';
+            const members = groupStore.currentGroupMembers;
+            const activeGroupId = sessionStore.currentGroupId;
+            if (userId) {
+              if (members && members.length > 0 && activeGroupId && props.message.groupId && String(props.message.groupId) === String(activeGroupId)) {
+                const member = members.find(m => String(m.id) === String(userId));
+                if (member) {
+                  displayName = member.group_nickname || member.nickname || displayName;
+                }
+              }
+            }
+
+            switch (parsed.action) {
+              case 'create': {
+                const otherIds = Object.keys(parsed).filter(k => k !== 'action' && k !== String(userId) && k !== 'groupName' && k !== 'content' && k !== 'otherNames');
+                const otherNamesStr = otherIds.map(id => {
+                  if (members && members.length > 0) {
+                    const m = members.find(m => String(m.id) === String(id));
+                    if (m) return m.group_nickname || m.nickname || parsed[id];
+                  }
+                  return parsed[id] || '用户';
+                }).join('、');
+                sysContent = otherNamesStr
+                  ? `${displayName}创建了群组，同时加入群组的有：${otherNamesStr}`
+                  : `${displayName}创建了群组`;
+                break;
+              }
+              case 'kick':
+                sysContent = `${displayName}被移出了群组`;
+                break;
+              case 'invite': {
+                const inviteeIds = Object.keys(parsed).filter(k => k !== 'action' && k !== String(userId) && k !== 'groupName' && k !== 'content');
+                const inviteeNamesStr = inviteeIds.map(id => {
+                  if (members && members.length > 0) {
+                    const m = members.find(m => String(m.id) === String(id));
+                    if (m) return m.group_nickname || m.nickname || parsed[id];
+                  }
+                  return parsed[id] || '用户';
+                }).join('、');
+                sysContent = inviteeNamesStr
+                  ? `${displayName}邀请${inviteeNamesStr}加入了群组`
+                  : `${displayName}邀请了新成员加入了群组`;
+                break;
+              }
+              case 'join':
+                sysContent = `${displayName}加入了群组`;
+                break;
+              case 'joinByCard':
+                sysContent = `${displayName}通过群名片加入了群组`;
+                break;
+              case 'leave':
+                sysContent = `${displayName}退出了群组`;
+                break;
+              case 'dismiss':
+                sysContent = parsed.content || '群组已解散';
+                break;
+              default:
+                sysContent = parsed.content || String(props.message.content);
+            }
+          } else {
+            sysContent = props.message.content;
           }
+        } catch {
+          sysContent = props.message.content;
         }
         systemMessage = sysContent;
         break;
@@ -551,8 +618,11 @@ const fileIcon = computed(() => {
 const groupCardAvatarUrl = computed(() => {
   if (groupCardAvatarLoadFailed.value) return '';
   
-  if (!groupCardData.value || !groupCardData.value.avatarUrl) return '';
-  return `${baseStore.SERVER_URL}${groupCardData.value.avatarUrl}`;
+  if (!groupCardData.value) return '';
+  const url = groupCardData.value.avatarUrl || groupCardData.value.avatar_url || '';
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  return `${baseStore.SERVER_URL}${url}`;
 });
 
 function handleGroupCardAvatarError() {
@@ -752,7 +822,7 @@ function handleContextMenu(event) {
   const messageElement = event.currentTarget;
   const messageId = messageElement.getAttribute('data-id');
   const currentUserId = baseStore.currentUser?.id;
-  const senderNicknameValue = messageElement.querySelector('.message-sender')?.textContent || '';
+  const senderNicknameValue = messageElement.querySelector('.msg-sender-name')?.textContent || '';
   const messageType = props.message.messageType || 0;
   
   if (!messageId) return;
@@ -878,9 +948,6 @@ function hideContextMenu() {
 
 .message {
   word-break: break-word;
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 10px;
 }
 
 .message-text {

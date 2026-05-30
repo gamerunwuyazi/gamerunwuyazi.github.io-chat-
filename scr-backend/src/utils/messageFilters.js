@@ -47,6 +47,11 @@ export function filterMessageFields(message, messageType) {
     timestampISO: timestampISO
   };
 
+  // 如果有群昵称，作为独立字段传递（不覆盖 nickname）
+  if (message.groupNickname) {
+    baseFields.groupNickname = message.groupNickname;
+  }
+
   if (messageType === 'public') {
     const atUserid = processAtUserid(message.atUserid || message.at_userid);
     if (atUserid) {

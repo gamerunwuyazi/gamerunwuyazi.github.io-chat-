@@ -307,6 +307,13 @@ const showMarkdownToolbar = ref(false);
 const showMoreFunctions = ref(false);
 
 const displayCurrentUserName = computed(() => {
+  const userId = sessionStore.currentPrivateChatUserId;
+  if (userId && friendStore.friendsList) {
+    const currentFriend = friendStore.friendsList.find(f => String(f.id) === String(userId));
+    if (currentFriend && currentFriend.remark && currentFriend.remark.trim()) {
+      return currentFriend.remark.trim();
+    }
+  }
   return currentUserName.value || '好友昵称';
 });
 
@@ -315,14 +322,14 @@ function applySavedPrivateState() {
     setActiveChat('private', sessionStore.currentPrivateChatUserId, false);
     isPrivateChatVisible.value = true;
     currentUserName.value = sessionStore.currentPrivateChatNickname;
-    
+
     const avatarUrl = sessionStore.currentPrivateChatAvatarUrl;
     if (avatarUrl) {
       currentUserAvatarUrl.value = avatarUrl.startsWith('http') ? avatarUrl : `${SERVER_URL}${avatarUrl}`;
     } else {
       currentUserAvatarUrl.value = '';
-      const nickname = sessionStore.currentPrivateChatNickname || '';
-      currentUserInitials.value = nickname ? nickname.charAt(0).toUpperCase() : 'U';
+      const displayName = displayCurrentUserName.value;
+      currentUserInitials.value = displayName ? displayName.charAt(0).toUpperCase() : 'U';
     }
     
     initializePrivateChatInterface();
@@ -765,14 +772,14 @@ function handlePrivateSwitched() {
   if (sessionStore.currentPrivateChatUserId) {
     isPrivateChatVisible.value = true;
     currentUserName.value = sessionStore.currentPrivateChatNickname;
-    
+
     const avatarUrl = sessionStore.currentPrivateChatAvatarUrl;
     if (avatarUrl) {
       currentUserAvatarUrl.value = avatarUrl.startsWith('http') ? avatarUrl : `${SERVER_URL}${avatarUrl}`;
     } else {
       currentUserAvatarUrl.value = '';
-      const nickname = sessionStore.currentPrivateChatNickname || '';
-      currentUserInitials.value = nickname ? nickname.charAt(0).toUpperCase() : 'U';
+      const displayName = displayCurrentUserName.value;
+      currentUserInitials.value = displayName ? displayName.charAt(0).toUpperCase() : 'U';
     }
     
     restoringPrivateDraft = true;

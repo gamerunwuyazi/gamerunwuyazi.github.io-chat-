@@ -14,7 +14,7 @@ import { setSocketDependencies as setMessageDeps } from './services/messageServi
 import { initUserService } from './services/userService.js';
 import { initFileService } from './services/fileService.js';
 import { validateMessageContent, filterMessageFields } from './utils/validators.js';
-import { getClientIP, generateSessionToken, checkAvatarStorage } from './utils/helpers.js';
+import { getClientIP, checkAvatarStorage } from './utils/helpers.js';
 import {
   serverConfig,
   uploadConfig,
@@ -41,7 +41,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "user-id", "session-token"]
+  allowedHeaders: ["Content-Type", "Authorization", "user-id", "session-token", "x-admin-password"]
 };
 
 app.use(cors(corsOptions));
@@ -86,6 +86,28 @@ app.use('/avatars', (req, res, next) => {
 });
 
 app.use(validateIPAndSession);
+
+// API 请求日志中间件（记录到 scr_api_logs 表，异步非阻塞）
+app.use((req, res, next) => {
+  const startTime = Date.now();
+  res.on('finish', () => {
+    if (req.path.startsWith('/api/')) {
+      const duration = Date.now() - startTime;
+      const clientIP = getClientIP(req);
+      pool.execute(
+        'INSERT INTO scr_api_logs (user_id, ip_address, api_path, request_method, timestamp) VALUES (?, ?, ?, ?, NOW())',
+        [req.userId || null, clientIP, req.path, req.method]
+      ).then(() => {
+        trimApiLogs().catch(() => {});
+      }).catch(err => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('记录API日志失败:', err.message);
+        }
+      });
+    }
+  });
+  next();
+});
 
 const io = setupSocketIO(server, {
   pool,
@@ -208,6 +230,7 @@ async function initializeDatabase() {
         user_id INT NOT NULL,
         friend_id INT NOT NULL,
         status TINYINT DEFAULT 1 COMMENT '好友状态：0=被拉黑后删除(污点)，1=正常好友，2=等待对方接受，3=等待自己接受，4=拉黑对方，5=被对方拉黑(污点)，6=被删除，7=待处理已拉黑-被动(污点)，8=待处理已拉黑-主动(污点)，9=彻底清除(污点)，10=双向拉黑，11=双向拉黑后删除(污点)，12=双向彻底清除(污点)，13=待处理双方污点-发送(污点)，14=待处理双方污点-接收(污点)',
+        remark VARCHAR(100) DEFAULT NULL COMMENT '用户给好友设置的备注名',
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES scr_users(id) ON DELETE CASCADE,
         FOREIGN KEY (friend_id) REFERENCES scr_users(id) ON DELETE CASCADE,
@@ -259,6 +282,8 @@ async function initializeDatabase() {
         user_id INT NOT NULL,
         is_admin TINYINT(1) DEFAULT 0,
         is_muted DATETIME NULL DEFAULT NULL COMMENT '禁言状态: NULL=未禁言, 1=永久禁言, 时间戳=临时禁言截止时间',
+        remark VARCHAR(100) DEFAULT NULL COMMENT '用户给群组设置的备注名',
+        group_nickname VARCHAR(50) DEFAULT NULL COMMENT '用户在该群的昵称',
         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         deleted_at TIMESTAMP NULL DEFAULT NULL,
         INDEX group_id_index (group_id),
@@ -397,6 +422,28 @@ async function cleanupExpiredSessions() {
   }
 }
 
+const API_LOG_KEEP = 5000;
+
+export async function trimApiLogs() {
+  try {
+    const [countResult] = await pool.execute('SELECT COUNT(*) as cnt FROM scr_api_logs');
+    const currentCount = countResult[0].cnt;
+    if (currentCount > API_LOG_KEEP) {
+      const toDelete = currentCount - API_LOG_KEEP;
+      await pool.execute(
+        'DELETE FROM scr_api_logs ORDER BY timestamp ASC LIMIT ?',
+        [toDelete]
+      );
+    }
+  } catch (err) {
+    console.error('清理API日志失败:', err.message);
+  }
+}
+
+async function cleanupApiLogs() {
+  await trimApiLogs();
+}
+
 async function cleanExpiredFiles() {
   try {
     const retentionDaysAgo = Date.now() - cronConfig.fileRetentionDays * 24 * 60 * 60 * 1000;
@@ -452,6 +499,7 @@ async function startServer() {
     schedule.scheduleJob(cronConfig.cleanupSchedule, async () => {
       await cleanExpiredFiles();
       await cleanupExpiredSessions();
+      await cleanupApiLogs();
     });
 
     console.log(`
@@ -503,16 +551,7 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
 }
 
 process.on('SIGINT', async () => {
-  console.log('\n🛑 收到关闭信号，正在优雅关闭服务器...');
-  const onlineCount = await getOnlineUserCount();
-  console.log(`📊 关闭前在线用户数: ${onlineCount}`);
-  const sessionCount = await getSessionCount();
-  console.log(`💾 活动会话数: ${sessionCount}`);
-
-  server.close(() => {
-    console.log('✅ 服务器已关闭');
-    process.exit(0);
-  });
+  process.exit(0);
 });
 
 process.on('uncaughtException', (error) => {

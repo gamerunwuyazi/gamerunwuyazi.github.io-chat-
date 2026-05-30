@@ -1,5 +1,6 @@
-import { pool, redisClient, safeRedisExecute } from '../models/database.js';
+import { pool, safeRedisExecute } from '../models/database.js';
 import { rateLimitConfig } from '../config/index.js';
+import { getClientIP } from '../utils/helpers.js';
 
 const RATE_LIMIT_CONFIG = {
   SHORT_WINDOW_MS: rateLimitConfig.shortWindowMs,
@@ -44,19 +45,6 @@ async function checkRateLimit(userId) {
 
     return { allowed: true };
   }, { allowed: true });
-}
-
-function getClientIP(req) {
-  if (req.headers['x-forwarded-for']) {
-    const forwardedFor = req.headers['x-forwarded-for'].trim();
-    const ips = forwardedFor.split(',');
-    const clientIP = ips[0].trim();
-    return clientIP;
-  }
-
-  return req.connection.remoteAddress ||
-      req.socket.remoteAddress ||
-      (req.connection.socket ? req.connection.socket.remoteAddress : null);
 }
 
 async function isIPBanned(ip) {
@@ -229,15 +217,12 @@ const excludedPaths = {
     '/api/check-status',
     '/api/session-check',
     '/api/sessions',
-    '/api/admin/login-ips',
-    '/api/admin/api-logs',
-    '/api/admin/ban-ip',
-    '/api/admin/unban-ip',
-    '/api/admin/banned-ips',
+    '/api/admin/',
     '/api/register',
     '/api/login',
     '/api/refresh-token',
-    '/api/check-username'
+    '/api/check-username',
+    '/api/captcha'
   ],
   'GET': [
     '/avatars',

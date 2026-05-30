@@ -99,8 +99,13 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
   
       // 验证消息内容...
       if (!validateMessageContent(content)) {
-        console.error('❌ 消息内容格式错误或超过 10000 字符限制');
-        socket.emit(SocketEvents.ERROR, { message: '消息内容格式错误或超过 10000 字符限制' });
+        socket.emit(SocketEvents.MESSAGE_SENT, {
+          success: false,
+          error: {
+            code: 'INVALID_CONTENT',
+            message: '消息内容格式错误或超过 10000 字符限制'
+          }
+        });
         return;
       }
   
@@ -231,7 +236,7 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
               // 用户未被禁言，允许发送
             }
           } else {
-            console.warn('未找到成员记录');
+            // 未找到成员记录
           }
         } else {
           // 群主无需禁言检查
@@ -261,15 +266,33 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
           'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
           [userId]
       );
-  
+
       if (users.length === 0) {
         console.error('❌ 用户不存在:', userId);
         socket.emit(SocketEvents.ERROR, { message: '用户不存在' });
         return;
       }
-  
+
       const user = users[0];
-  
+      
+      // 群组消息：获取群昵称作为独立字段（不覆盖全局 nickname）
+      let groupNickname = null;
+      
+      if (groupId) {
+        try {
+          const [memberInfo] = await pool.execute(
+            'SELECT group_nickname FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+            [groupId, userId]
+          );
+
+          if (memberInfo.length > 0 && memberInfo[0].group_nickname) {
+            groupNickname = memberInfo[0].group_nickname;
+          }
+        } catch (nicknameErr) {
+          console.error('获取群昵称失败:', nicknameErr.message);
+        }
+      }
+
       // 不进行严格转义，保持原始内容格式，让前端处理安全的解析和链接显示
       const cleanContent = content;
 
@@ -293,7 +316,7 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       const rawMessage = {
         id: result.insertId,
         userId,
-        nickname: user.nickname,
+        nickname: user.nickname,  // 全局昵称（不覆盖）
         avatarUrl: user.avatar_url,
         content: messageContent,
         atUserid: at_userid,
@@ -302,6 +325,11 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
         timestamp: timestampMs,
         timestampISO: timestamp
       };
+
+      // 群组消息：加上群昵称作为独立字段
+      if (groupId && groupNickname) {
+        rawMessage.groupNickname = groupNickname;
+      }
       
       // 处理图片消息：从content字段解析图片URL
       if (messageType === 1 && cleanContent) {
@@ -414,41 +442,68 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       const operatorNickname = operatorInfo[0]?.nickname || '未知用户';
       const operatorAvatarUrl = operatorInfo[0]?.avatar_url || '';
       
-      // 构建撤回提示内容（使用操作者昵称，纯文本格式）
-      const recallContent = `${operatorNickname}撤回了一条消息`;
-      
-      // 更新原数据库记录（只修改内容为纯文本，不修改messageType）
+      // 群组撤回：获取群昵称作为独立字段
+      let recallGroupNickname = null;
+      if (message.group_id) {
+        try {
+          const [memberInfo] = await pool.execute(
+            'SELECT group_nickname FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+            [message.group_id, userId]
+          );
+          if (memberInfo.length > 0 && memberInfo[0].group_nickname) {
+            recallGroupNickname = memberInfo[0].group_nickname;
+          }
+        } catch (e) {
+          console.error('获取撤回操作的群昵称失败:', e.message);
+        }
+      }
+
+      // 构建被撤回消息的JSON格式内容（用于更新原数据库记录）
+      const recallJson = JSON.stringify({ [userId]: operatorNickname || recallGroupNickname || '用户' });
+
+      // 更新原数据库记录的内容为JSON格式（不是文本占位符）
       await pool.execute(
         'UPDATE scr_messages SET content = ? WHERE id = ?',
-        [recallContent, messageId]
+        [recallJson, messageId]
       );
-      
-      // 单独生成一条简单的101消息（只包含被撤回消息ID）
+
+      // 单独生成一条101消息
       let insertResult;
+      let dbRecallContent;
+      let socketRecallContent;
       if (message.group_id) {
+        dbRecallContent = JSON.stringify({ id: numericMessageId, nickname: { [userId]: recallGroupNickname || operatorNickname || '用户' } });
+        socketRecallContent = dbRecallContent;
         [insertResult] = await pool.execute(
           'INSERT INTO scr_messages (user_id, group_id, content, message_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
-          [userId, message.group_id, String(numericMessageId), 101]
+          [userId, message.group_id, dbRecallContent, 101]
         );
       } else {
+        dbRecallContent = String(numericMessageId);
+        socketRecallContent = dbRecallContent;
         [insertResult] = await pool.execute(
           'INSERT INTO scr_messages (user_id, content, message_type, timestamp) VALUES (?, ?, ?, NOW())',
-          [userId, String(numericMessageId), 101]
+          [userId, dbRecallContent, 101]
         );
       }
-      
-      // 发送简单格式的101消息（content只是被撤回消息ID）
+
+      // 发送101消息
       const rawType101Message = {
-        id: insertResult.insertId,  // 101消息自己的ID
+        id: insertResult.insertId,
         userId: userId,
         nickname: operatorNickname,
         avatarUrl: operatorAvatarUrl,
-        content: String(numericMessageId),  // 只包含被撤回消息ID
+        content: socketRecallContent,
         messageType: 101,
         groupId: message.group_id || null,
         timestamp: Date.now(),
         timestampISO: new Date().toISOString()
       };
+
+      // 群组撤回：加上群昵称
+      if (recallGroupNickname) {
+        rawType101Message.groupNickname = recallGroupNickname;
+      }
       
       // 根据消息类型过滤字段
       const messageTypeStr = message.group_id ? 'group' : 'public';
@@ -698,7 +753,7 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
         
         const safeLimit = parseInt(limit);
         const finalLimit = isNaN(safeLimit) ? 20 : safeLimit;
-        query += ` ORDER BY p.timestamp DESC, p.id DESC LIMIT ?`;
+        query += ' ORDER BY p.timestamp DESC, p.id DESC LIMIT ?';
         params.push(finalLimit);
         
         const [results] = await pool.query(query, params);
@@ -707,9 +762,13 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
           let atUserIds = null;
           if (msg.at_userid) {
             try {
-              atUserIds = JSON.parse(msg.at_userid);
+              const parsed = JSON.parse(msg.at_userid);
+              if (Array.isArray(parsed)) {
+                atUserIds = parsed.filter(id => id !== null && id !== undefined && id !== '' && !isNaN(Number(id))).map(id => Number(id));
+                if (atUserIds.length === 0) atUserIds = null;
+              }
             } catch (e) {
-              atUserIds = msg.at_userid;
+              atUserIds = null;
             }
           }
           const message = {

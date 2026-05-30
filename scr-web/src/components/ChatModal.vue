@@ -29,62 +29,86 @@
               <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
                 <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">群组名称:</label>
                 <template v-if="!editingGroupName">
-                  <span style="font-size: 16px; font-weight: 500; flex: 1;">{{ groupInfoName }}</span>
-                  <button v-if="isCurrentUserGroupOwner || isCurrentUserGroupAdmin" @click="startEditGroupName" style="background: #3498db; padding: 5px 10px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600;">
-                    编辑
-                  </button>
+                  <span v-if="isCurrentUserGroupOwner || isCurrentUserGroupAdmin" 
+                        @click="startEditGroupName" 
+                        style="font-size: 16px; font-weight: 500; flex: 1; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;"
+                        @mouseenter="$event.target.style.background='#e8f4f8'"
+                        @mouseleave="$event.target.style.background='transparent'">
+                    {{ groupInfoName }}
+                  </span>
+                  <span v-else style="font-size: 16px; font-weight: 500; flex: 1; padding: 4px 8px;">{{ groupInfoName }}</span>
                 </template>
                 <template v-else>
-                  <input type="text" v-model="tempGroupName" style="flex: 1; padding: 6px 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
-                  <button @click="saveGroupName" style="background: #2ed573; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600; margin-left: 8px;">
-                    保存
-                  </button>
-                  <button @click="cancelEditGroupName" style="background: #95a5a6; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600; margin-left: 8px;">
-                    取消
-                  </button>
+                  <input type="text" v-model="tempGroupName" ref="groupNameInput" style="flex: 1; padding: 4px 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px; font-weight: 500; box-sizing: border-box;" @keyup.enter="saveGroupName" @keyup.esc="cancelEditGroupName" @blur="handleGroupNameBlur">
                 </template>
               </div>
 
               <!-- 群组ID -->
               <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
                 <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">群组ID:</label>
-                <span style="font-size: 16px;">{{ modalStore.modalData.groupInfo.id }}</span>
+                <span style="font-size: 16px; font-weight: 500; padding: 4px 8px;">{{ modalStore.modalData.groupInfo.id }}</span>
               </div>
 
               <!-- 群组公告 -->
               <div style="display: flex; gap: 10px; margin-bottom: 16px; align-items: flex-start;">
                 <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px; margin-top: 2px;">群组公告:</label>
                 <template v-if="!editingGroupNotice">
-                  <span style="flex: 1; font-size: 14px; word-break: break-word;">{{ groupInfoDescription }}</span>
-                  <button v-if="isCurrentUserGroupOwner || isCurrentUserGroupAdmin" @click="startEditGroupNotice" style="background: #3498db; padding: 5px 10px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 13px; font-weight: 600; flex-shrink: 0;">
-                    编辑
-                  </button>
+                  <span v-if="isCurrentUserGroupOwner || isCurrentUserGroupAdmin" 
+                        @click="startEditGroupNotice" 
+                        style="flex: 1; font-size: 16px; word-break: break-word; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s; font-weight: 500;"
+                        @mouseenter="$event.target.style.background='#e8f4f8'"
+                        @mouseleave="$event.target.style.background='transparent'">
+                    {{ groupInfoDescription }}
+                  </span>
+                  <span v-else style="flex: 1; font-size: 16px; word-break: break-word; font-weight: 500; padding: 4px 8px;">{{ groupInfoDescription }}</span>
                 </template>
                 <template v-else>
-                  <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
-                    <textarea v-model="tempGroupNotice" style="width: 100%; padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; min-height: 80px; resize: vertical; box-sizing: border-box;"></textarea>
-                    <div style="display: flex; gap: 6px;">
-                      <button @click="saveGroupNotice" style="background: #2ed573; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600;">
-                        保存
-                      </button>
-                      <button @click="cancelEditGroupNotice" style="background: #95a5a6; padding: 6px 12px; border-radius: 6px; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 600;">
-                        取消
-                      </button>
-                    </div>
-                  </div>
+                  <textarea v-model="tempGroupNotice" ref="groupNoticeInput" style="flex: 1; width: 100%; padding: 4px 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px; font-weight: 500; min-height: 80px; resize: vertical; box-sizing: border-box;" @keyup.enter="saveGroupNotice" @keyup.esc="cancelEditGroupNotice" @blur="handleGroupNoticeBlur"></textarea>
+                </template>
+              </div>
+
+              <!-- 群组备注 -->
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">备注:</label>
+                <template v-if="!editingGroupRemark">
+                  <span @click="startEditGroupRemark"
+                        style="font-size: 16px; font-weight: 500; flex: 1; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;"
+                        @mouseenter="$event.target.style.background='#e8f4f8'"
+                        @mouseleave="$event.target.style.background='transparent'">
+                    {{ groupUserRemark || '点击设置备注' }}
+                  </span>
+                </template>
+                <template v-else>
+                  <input type="text" v-model="tempGroupRemark" ref="groupRemarkInput" style="flex: 1; padding: 4px 8px; border: 2px solid #3498db; border-radius: 8px; font-size: 16px; font-weight: 500; box-sizing: border-box;" placeholder="输入备注名称" maxlength="100" @keyup.enter="saveGroupRemark" @keyup.esc="cancelEditGroupRemark" @blur="handleGroupRemarkBlur">
+                </template>
+              </div>
+
+              <!-- 群内昵称 -->
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">我的昵称:</label>
+                <template v-if="!editingGroupNickname">
+                  <span @click="startEditGroupNickname"
+                        style="font-size: 16px; font-weight: 500; flex: 1; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;"
+                        @mouseenter="$event.target.style.background='#e8f4f8'"
+                        @mouseleave="$event.target.style.background='transparent'">
+                    {{ groupNickname || '点击设置群昵称' }}
+                  </span>
+                </template>
+                <template v-else>
+                  <input type="text" v-model="tempGroupNickname" ref="groupNicknameInput" style="flex: 1; padding: 4px 8px; border: 2px solid #3498db; border-radius: 8px; font-size: 16px; font-weight: 500; box-sizing: border-box;" placeholder="输入群内昵称" maxlength="50" @keyup.enter="saveGroupNickname" @keyup.esc="cancelEditGroupNickname" @blur="handleGroupNicknameBlur">
                 </template>
               </div>
 
               <!-- 成员数量 -->
               <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
                 <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">成员数量:</label>
-                <span style="font-size: 16px;">{{ groupMembers.length }}</span>
+                <span style="font-size: 16px; font-weight: 500; padding: 4px 8px;">{{ groupMembers.length }}</span>
               </div>
 
               <!-- 群主 -->
               <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
                 <label style="font-size: 16px; font-weight: 700; color: #555; min-width: 80px;">群主:</label>
-                <span style="font-size: 16px;">群主ID: {{ modalStore.modalData.groupInfo.creator_id || '未知' }}</span>
+                <span style="font-size: 16px; font-weight: 500; padding: 4px 8px;">群主ID: {{ modalStore.modalData.groupInfo.creator_id || '未知' }}</span>
               </div>
 
               <!-- 群组成员标题 -->
@@ -93,8 +117,9 @@
               <!-- 群组成员列表 -->
               <div v-if="groupMembers.length > 0" style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 12px; padding: 12px; margin-bottom: 24px;">
                 <div v-for="member in membersWithMuteStatus" :key="member.id" 
-                   style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: white; border-radius: 10px; margin-bottom: 6px; cursor: context-menu;"
-                   @contextmenu.prevent="showMemberContextMenu($event, member)">
+                   style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: white; border-radius: 10px; margin-bottom: 6px;"
+                   :style="{ cursor: (isCurrentUserGroupOwner || isCurrentUserGroupAdmin) ? 'context-menu' : 'default' }"
+                   @contextmenu.prevent="(isCurrentUserGroupOwner || isCurrentUserGroupAdmin) ? showMemberContextMenu($event, member) : null">
                 <div style="display: flex; align-items: center; gap: 10px;">
                   <!-- 成员头像 -->
                   <div style="display: flex; align-items: center; position: relative;">
@@ -107,7 +132,7 @@
                   </div>
                     <!-- 成员昵称和角色 -->
                     <div style="display: flex; align-items: center; gap: 6px;">
-                      <span style="font-size: 14px; font-weight: 500;">{{ member.nickname || member.username }}</span>
+                      <span style="font-size: 14px; font-weight: 500;">{{ getMemberDisplayName(member) }}</span>
                       <span v-if="String(member.id) === String(modalStore.modalData.groupInfo.creator_id)" style="background: #ff4757; color: white; font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 600;">群主</span>
                       <span v-else-if="member.is_admin" style="background: #ffa502; color: white; font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 600;">管理</span>
                       <span v-if="String(member.id) === String(baseStore.currentUser?.id)" style="color: #3498db; font-size: 12px; font-weight: 700;">（我）</span>
@@ -128,8 +153,8 @@
                           :title="getMuteStatusTooltip(member)">
                       {{ member.muteStatusText }}
                     </span>
-                    <!-- 右键提示 -->
-                    <span style="color: #999; font-size: 11px; cursor: help;" title="右键点击查看更多操作">⋮</span>
+                    <!-- 右键提示（仅管理员和群主可见） -->
+                    <span v-if="(isCurrentUserGroupOwner || isCurrentUserGroupAdmin)" style="color: #999; font-size: 11px; cursor: help;" title="右键点击查看更多操作">⋮</span>
                   </div>
                 </div>
                 
@@ -197,17 +222,6 @@
                        @mouseleave="$event.currentTarget.style.background='white'">
                     <span>{{ contextMenu.member?.is_muted ? '🔓' : '🔒' }}</span>
                     <span>{{ contextMenu.member?.is_muted ? '解除禁言' : '禁言成员' }}</span>
-                  </div>
-                  
-                  <!-- 分隔线（如果有操作按钮） -->
-                  <div v-if="canShowContextMenuActions" style="height: 1px; background: #f0f0f0; margin: 6px 0;"></div>
-                  
-                  <!-- 查看详细信息 -->
-                  <div @click="handleContextAction('info')"
-                       style="padding: 10px 16px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 8px; color: #3498db;"
-                       @mouseenter="$event.currentTarget.style.background='#f5f5f5'"
-                       @mouseleave="$event.currentTarget.style.background='white'">
-                    <span>ℹ️</span><span>查看详情</span>
                   </div>
                 </div>
               </div>
@@ -366,6 +380,17 @@
                   :checked="selectedGroupIdForSendCard === group.id"
                   @click.stop
                 >
+                <img
+                  v-if="group.avatar_url || group.avatarUrl"
+                  :src="getGroupAvatarUrl(group)"
+                  :alt="group.group_name || group.name"
+                  style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; margin-left: 10px; flex-shrink: 0;"
+                  @error="$event.target.style.display='none'"
+                >
+                <div
+                  v-else
+                  style="width: 32px; height: 32px; border-radius: 50%; background-color: #3498db; color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; margin-left: 10px; flex-shrink: 0;"
+                >{{ (group.group_name || group.name || 'G').charAt(0).toUpperCase() }}</div>
                 <label 
                   :for="`group-${group.id}`"
                   style="margin-left: 10px; cursor: pointer; flex: 1;"
@@ -419,6 +444,30 @@
                   <span class="user-status">
                     {{ isUserOnline(modalStore.modalData.userProfile.id) ? '在线' : '离线' }}
                   </span>
+                </div>
+                <div v-if="userProfileIsFriend" class="user-profile-item" style="display: flex; align-items: center;">
+                  <label>备注:</label>
+                  <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                    <template v-if="!isEditingRemark">
+                      <span @click="startEditRemark" 
+                            style="flex: 1; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;"
+                            @mouseenter="$event.target.style.background='#e8f4f8'"
+                            @mouseleave="$event.target.style.background='transparent'">
+                        {{ userProfileRemark || modalStore.modalData.userProfile.nickname }}
+                      </span>
+                    </template>
+                    <template v-else>
+                      <input type="text" 
+                             v-model="tempRemark" 
+                             placeholder="输入备注名称"
+                             maxlength="100"
+                             @keyup.enter="saveRemark"
+                             @keyup.esc="cancelEditRemark"
+                             @blur="handleRemarkBlur"
+                             style="flex: 1; padding: 6px 10px; border: 2px solid #3498db; border-radius: 4px; font-size: 14px; outline: none;"
+                             ref="remarkInput">
+                    </template>
+                  </div>
                 </div>
               </div>
               <div v-if="userProfileIsFriend" style="display: flex; align-items: center; gap: 10px;">
@@ -985,7 +1034,8 @@ input:disabled + .slider {
 </style>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
+import localForage from 'localforage';
 
 import { useBaseStore } from "@/stores/baseStore";
 import { useUserStore } from "@/stores/userStore";
@@ -1011,7 +1061,7 @@ import {
 import modal from "@/utils/modal";
 import toast from "@/utils/toast";
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn';
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
 const baseStore = useBaseStore();
 const userStore = useUserStore();
@@ -1045,10 +1095,21 @@ const createGroupMessage = ref('');
 const createGroupMessageType = ref('');
 const showAddGroupMembersModal = ref(false);
 const groupAvatarInput = ref(null);
+const groupNameInput = ref(null);
+const groupNoticeInput = ref(null);
+const groupRemarkInput = ref(null);
+const remarkInput = ref(null);
 const editingGroupName = ref(false);
 const editingGroupNotice = ref(false);
+const editingGroupRemark = ref(false);
 const tempGroupName = ref('');
 const tempGroupNotice = ref('');
+const tempGroupRemark = ref('');
+const groupUserRemark = ref('');
+const editingGroupNickname = ref(false);
+const tempGroupNickname = ref('');
+const groupNickname = ref('');
+const groupNicknameInput = ref(null);
 const availableFriendsForAdd = ref([]);
 const selectedFriendIdsForAdd = ref([]);
 
@@ -1067,6 +1128,10 @@ const userAvatarPopupAvatarLoadFailed = ref(false);
 const userProfileAvatarLoadFailed = ref(false);
 const userProfileIsBlocked = ref(false);
 const userProfileBlockingLoading = ref(false);
+const userProfileRemark = ref('');
+const isEditingRemark = ref(false);
+const tempRemark = ref('');
+const userProfileRemarkLoading = ref(false);
 const groupInfoAvatarLoadFailed = ref(false);
 
 let muteTimer = null;
@@ -1221,12 +1286,21 @@ const userAvatarPopupIsCurrentUser = computed(() => {
   return String(baseStore.currentUser.id) === String(userId);
 });
 
+const userAvatarPopupHasSentRequest = computed(() => {
+  const userId = userAvatarPopupUserId.value;
+  if (!userId || !baseStore.sentFriendRequests) return false;
+  return baseStore.sentFriendRequests.some(req => String(req.id) === String(userId));
+});
+
 const userAvatarPopupAddFriendButtonText = computed(() => {
   if (userAvatarPopupIsCurrentUser.value) {
     return '已添加';
   }
   if (userAvatarPopupIsFriend.value) {
     return '发消息';
+  }
+  if (userAvatarPopupHasSentRequest.value) {
+    return '撤销好友申请';
   }
   return '添加好友';
 });
@@ -1241,6 +1315,13 @@ const userAvatarPopupAddFriendButtonStyle = computed(() => {
       backgroundColor: '#ccc',
       color: 'white',
       cursor: 'not-allowed'
+    };
+  }
+  if (userAvatarPopupHasSentRequest.value) {
+    return {
+      backgroundColor: '#f0ad4e',
+      color: 'white',
+      cursor: 'pointer'
     };
   }
   return {
@@ -1328,7 +1409,7 @@ const groupCardPopupAvatarUrl = computed(() => {
 });
 
 const groupCardPopupIsInGroup = computed(() => {
-  return groupStore.groupsList && groupStore.groupsList.some(g => String(g.id) === String(groupCardPopupData.value?.group_id));
+  return groupStore.groupsList && groupStore.groupsList.some(g => String(g.id) === String(groupCardPopupData.value?.group_id) && g.deleted_at == null);
 });
 
 function closeGroupCardPopup() {
@@ -1514,7 +1595,7 @@ function handleAddFriend(user) {
 }
 
 function isSearchResultUserFriend(userId) {
-  return friendStore.friendsList.some(friend => String(friend.id) === String(userId));
+  return friendStore.friendsList.some(friend => String(friend.id) === String(userId) && !friend.deleted_at);
 }
 
 function handleMessageFriendFromSearch(user) {
@@ -1528,6 +1609,13 @@ function handleMessageFriendFromSearch(user) {
   setTimeout(() => {
     friendStore.updateFriendSessionTime(user.id);
   }, 200);
+}
+
+function getGroupAvatarUrl(group) {
+  const url = group.avatar_url || group.avatarUrl || '';
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  return `${SERVER_URL}${url}`;
 }
 
 function handleSendGroupCard() {
@@ -1554,9 +1642,18 @@ watch(() => modalStore.showUserProfileModal, (newVal) => {
   if (newVal) {
     userProfileAvatarLoadFailed.value = false;
     userProfileIsBlocked.value = false;
-    
-    // 查询拉黑状态
+    isEditingRemark.value = false;
+    tempRemark.value = '';
+    userProfileRemarkLoading.value = false;
+
     const userId = modalStore.modalData.userProfile?.id;
+    if (userId && friendStore.friendsList) {
+      const currentFriend = friendStore.friendsList.find(f => String(f.id) === String(userId));
+      userProfileRemark.value = currentFriend?.remark || '';
+    } else {
+      userProfileRemark.value = '';
+    }
+
     if (userId && userProfileIsFriend.value) {
       fetch(`${SERVER_URL}/api/user/check-block-status/${userId}`, {
         headers: {
@@ -1601,6 +1698,7 @@ async function loadGroupMembers(groupId) {
     
     const data = await response.json();
     if (data.status === 'success' && data.members) {
+      // 1. 更新本地状态（用于模态框显示）
       groupMembers.value = data.members.map(member => ({
         ...member,
         nickname: member.nickname || member.username || '',
@@ -1608,6 +1706,42 @@ async function loadGroupMembers(groupId) {
         muted_until: null,
         isPermanentMuted: false
       }));
+      
+      // 2. 同步更新 groupStore.currentGroupMembers（确保数据一致性）
+      
+      // 构建完整的成员对象（包含群昵称等字段）
+      const storeMembers = data.members.map(member => ({
+        id: Number(member.id),
+        nickname: member.nickname || member.username || '',
+        avatarUrl: member.avatarUrl || '',
+        is_admin: Number(member.is_admin) || 0,
+        is_muted: member.is_muted || null,
+        group_nickname: member.group_nickname || null  // 确保包含群昵称字段
+      }));
+      
+      // 更新 groupStore（触发响应式）
+      groupStore.currentGroupMembers = storeMembers;
+      
+      // 检测群昵称变更并更新消息列表中的 stored groupNickname
+      if (groupId) {
+        groupStore.updateGroupNicknameInMessages(String(groupId), storeMembers);
+        groupStore.detectAndUpdateGroupNicknames(String(groupId));
+      }
+      
+      // 3. 同步更新 IndexedDB 中的成员列表（可选，用于离线访问）
+      try {
+        const userId = baseStore.currentUser?.id || 'guest';
+        const prefix = `chats-${userId}`;
+        const key = `${prefix}-group-${groupId}-members`;
+        
+        await localForage.setItem(key, {
+          members: storeMembers,
+          updatedAt: new Date().toISOString()
+        });
+        
+        } catch (e) {
+        console.warn('⚠️ [loadGroupMembers] IndexedDB 存储失败:', e);
+      }
       
       // 加载禁言状态
       loadGroupMuteStatus(groupId);
@@ -1866,6 +2000,41 @@ watch(() => modalStore.showGroupInfoModal, (newVal) => {
     editingGroupNotice.value = false;
     tempGroupName.value = modalStore.modalData.groupInfo.name || '';
     tempGroupNotice.value = modalStore.modalData.groupInfo.description || '';
+    editingGroupRemark.value = false;
+    tempGroupRemark.value = '';
+    
+    // 加载当前用户的群组备注
+    const groupId = modalStore.modalData.groupInfo?.id;
+    if (groupId) {
+      // 先从本地store中查找
+      const currentGroup = groupStore.groupsList?.find(g => String(g.id) === String(groupId));
+      if (currentGroup && currentGroup.user_remark) {
+        groupUserRemark.value = currentGroup.user_remark;
+      } else {
+        // 如果本地没有，从服务器获取
+        fetch(`${baseStore.SERVER_URL}/api/group-remark/${groupId}`, {
+          headers: {
+            'user-id': baseStore.currentUser?.id || '',
+            'session-token': baseStore.currentSessionToken || ''
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'success') {
+            groupUserRemark.value = data.remark || '';
+          }
+        })
+        .catch(e => {
+          console.error('获取群组备注失败:', e);
+        });
+      }
+      
+      // 加载当前用户的群昵称
+      loadGroupNickname();
+    } else {
+      groupUserRemark.value = '';
+      groupNickname.value = '';
+    }
   }
 });
 
@@ -1878,11 +2047,26 @@ watch(() => modalStore.showGroupCardPopup, (newVal) => {
 function startEditGroupName() {
   tempGroupName.value = modalStore.modalData.groupInfo.name || '';
   editingGroupName.value = true;
+  nextTick(() => {
+    if (groupNameInput.value) {
+      groupNameInput.value.focus();
+      groupNameInput.value.select();
+    }
+  });
 }
 
 function cancelEditGroupName() {
   editingGroupName.value = false;
   tempGroupName.value = modalStore.modalData.groupInfo.name || '';
+}
+
+async function handleGroupNameBlur() {
+  // 只有当值变化时才保存
+  if (tempGroupName.value.trim() !== modalStore.modalData.groupInfo.name) {
+    await saveGroupName();
+  } else {
+    editingGroupName.value = false;
+  }
 }
 
 async function saveGroupName() {
@@ -1923,11 +2107,243 @@ async function saveGroupName() {
 function startEditGroupNotice() {
   tempGroupNotice.value = modalStore.modalData.groupInfo.description || '';
   editingGroupNotice.value = true;
+  nextTick(() => {
+    if (groupNoticeInput.value) {
+      groupNoticeInput.value.focus();
+      groupNoticeInput.value.select();
+    }
+  });
 }
 
 function cancelEditGroupNotice() {
   editingGroupNotice.value = false;
   tempGroupNotice.value = modalStore.modalData.groupInfo.description || '';
+}
+
+async function handleGroupNoticeBlur() {
+  // 只有当值变化时才保存
+  if (tempGroupNotice.value !== modalStore.modalData.groupInfo.description) {
+    await saveGroupNotice();
+  } else {
+    editingGroupNotice.value = false;
+  }
+}
+
+function startEditGroupRemark() {
+  tempGroupRemark.value = groupUserRemark.value || '';
+  editingGroupRemark.value = true;
+  nextTick(() => {
+    if (groupRemarkInput.value) {
+      groupRemarkInput.value.focus();
+      groupRemarkInput.value.select();
+    }
+  });
+}
+
+function cancelEditGroupRemark() {
+  editingGroupRemark.value = false;
+  tempGroupRemark.value = groupUserRemark.value || '';
+}
+
+async function saveGroupRemark() {
+  const groupId = modalStore.modalData.groupInfo?.id;
+  if (!groupId) return;
+
+  const newRemark = tempGroupRemark.value.trim();
+  
+  try {
+    const response = await fetch(`${baseStore.SERVER_URL}/api/set-group-remark`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'user-id': baseStore.currentUser?.id || '',
+        'session-token': baseStore.currentSessionToken || ''
+      },
+      body: JSON.stringify({
+        groupId: Number(groupId),
+        remark: newRemark || null
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.status === 'success') {
+      groupUserRemark.value = newRemark;
+
+      // 更新群组列表中的备注
+      const currentGroup = groupStore.groupsList?.find(g => String(g.id) === String(groupId));
+      if (currentGroup) {
+        currentGroup.user_remark = newRemark || null;
+      }
+
+      // 同步更新 IndexedDB 中的备注数据
+      try {
+        const userId = baseStore.currentUser?.id || 'guest';
+        const prefix = `chats-${userId}`;
+        const key = `${prefix}-group-${groupId}`;
+        const existingData = await localForage.getItem(key);
+        if (existingData) {
+          const updatedData = { ...existingData };
+          updatedData.user_remark = newRemark || null;
+          await localForage.setItem(key, updatedData);
+        }
+      } catch (e) {
+        console.error('更新IndexedDB中的群组备注失败:', e);
+      }
+
+      toast.success(newRemark ? `已设置群组备注：${newRemark}` : '已清除群组备注');
+      editingGroupRemark.value = false;
+    } else {
+      toast.error(data.message || '设置群组备注失败');
+    }
+  } catch (e) {
+    console.error('设置群组备注失败:', e);
+    toast.error('网络错误');
+  }
+}
+
+async function handleGroupRemarkBlur() {
+  // 只有当值变化时才保存
+  const newRemark = tempGroupRemark.value.trim();
+  const oldRemark = groupUserRemark.value || '';
+  if (newRemark !== oldRemark) {
+    await saveGroupRemark();
+  } else {
+    editingGroupRemark.value = false;
+  }
+}
+
+function startEditGroupNickname() {
+  tempGroupNickname.value = groupNickname.value || '';
+  editingGroupNickname.value = true;
+  nextTick(() => {
+    if (groupNicknameInput.value) {
+      groupNicknameInput.value.focus();
+      groupNicknameInput.value.select();
+    }
+  });
+}
+
+function cancelEditGroupNickname() {
+  editingGroupNickname.value = false;
+  tempGroupNickname.value = groupNickname.value || '';
+}
+
+async function saveGroupNickname() {
+  const groupId = modalStore.modalData.groupInfo?.id;
+  if (!groupId) return;
+
+  const newNickname = tempGroupNickname.value.trim();
+
+  try {
+    const response = await fetch(`${baseStore.SERVER_URL}/api/set-group-nickname`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'user-id': baseStore.currentUser?.id || '',
+        'session-token': baseStore.currentSessionToken || ''
+      },
+      body: JSON.stringify({
+        groupId: Number(groupId),
+        groupNickname: newNickname || null
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.status === 'success') {
+      groupNickname.value = newNickname;
+
+      toast.success(newNickname ? `已设置群昵称：${newNickname}` : '已清除群昵称');
+      editingGroupNickname.value = false;
+
+      // 刷新成员列表以获取最新的群昵称数据
+      const groupId = modalStore.modalData.groupInfo?.id;
+      if (groupId) {
+        await loadGroupMembers(groupId);
+      }
+    } else {
+      toast.error(data.message || '设置群昵称失败');
+    }
+  } catch (e) {
+    console.error('设置群昵称失败:', e);
+    toast.error('网络错误');
+  }
+}
+
+async function handleGroupNicknameBlur() {
+  const newNickname = tempGroupNickname.value.trim();
+  const oldNickname = groupNickname.value || '';
+  if (newNickname !== oldNickname) {
+    await saveGroupNickname();
+  } else {
+    editingGroupNickname.value = false;
+  }
+}
+
+async function loadGroupNickname() {
+  const groupId = modalStore.modalData.groupInfo?.id;
+  if (!groupId) return;
+
+  try {
+    const response = await fetch(`${baseStore.SERVER_URL}/api/get-group-nickname/${groupId}`, {
+      method: 'GET',
+      headers: {
+        'user-id': baseStore.currentUser?.id || '',
+        'session-token': baseStore.currentSessionToken || ''
+      }
+    });
+
+    const data = await response.json();
+    if (data.status === 'success') {
+      const newNickname = data.group_nickname || '';
+      
+      // 1. 更新本地状态
+      groupNickname.value = newNickname;
+      
+      // 2. 更新 groupStore 中的成员列表（如果存在）
+      if (groupStore.currentGroupMembers) {
+        const currentUserId = baseStore.currentUser?.id;
+        if (currentUserId) {
+          const memberIndex = groupStore.currentGroupMembers.findIndex(
+            m => String(m.id) === String(currentUserId)
+          );
+          
+          if (memberIndex !== -1) {
+            groupStore.currentGroupMembers[memberIndex].group_nickname = newNickname || null;
+            // 触发响应式更新
+            groupStore.currentGroupMembers = [...groupStore.currentGroupMembers];
+          }
+        }
+      }
+      
+      // 3. 同步更新 IndexedDB 中的群组会话数据
+      try {
+        const userId = baseStore.currentUser?.id || 'guest';
+        const prefix = `chats-${userId}`;
+        const key = `${prefix}-group-${groupId}`;
+        const existingData = await localForage.getItem(key);
+        
+        if (existingData) {
+          const updatedData = { ...existingData };
+        }
+      } catch (e) {
+        console.error('⚠️ [loadGroupNickname] IndexedDB操作失败:', e);
+      }
+    }
+  } catch (e) {
+    console.error('加载群昵称失败:', e);
+  }
+}
+
+function getMemberDisplayName(member) {
+  // 如果是当前用户，显示其设置的群昵称
+  if (String(member.id) === String(baseStore.currentUser?.id)) {
+    return groupNickname.value || member.nickname || '我';
+  }
+
+  // 其他成员如果有群昵称则显示群昵称，否则显示全局昵称
+  return member.group_nickname || member.nickname || member.username || '未知';
 }
 
 async function saveGroupNotice() {
@@ -2476,7 +2892,6 @@ function getMuteStatusText(member) {
     }
     
     const timeStr = formatMuteTime(mutedTime);
-    console.log('⏰ 禁言时间:', timeStr);
     return `⏰ ${timeStr}`;
   }
   
@@ -2674,7 +3089,7 @@ async function handleLeaveGroup() {
       modalStore.closeModal('groupInfo');
       sessionStore.setCurrentGroupId(null);
       
-      await groupStore.markGroupAsDeleted(groupId, false);
+      await groupStore.markGroupAsDeleted(groupId, true);
       
       loadGroupList();
     } else {
@@ -3086,6 +3501,87 @@ async function handleUserProfileToggleBlockUser() {
   }
 }
 
+function startEditRemark() {
+  tempRemark.value = userProfileRemark.value || '';
+  isEditingRemark.value = true;
+  nextTick(() => {
+    if (remarkInput.value) {
+      remarkInput.value.focus();
+      remarkInput.value.select();
+    }
+  });
+}
+
+async function saveRemark() {
+  const targetUserId = modalStore.modalData.userProfile?.id;
+  if (!targetUserId || userProfileRemarkLoading.value) return;
+
+  const newRemark = tempRemark.value.trim();
+  
+  if (newRemark === userProfileRemark.value) {
+    isEditingRemark.value = false;
+    return;
+  }
+
+  userProfileRemarkLoading.value = true;
+
+  try {
+    const response = await fetch(`${SERVER_URL}/api/user/set-friend-remark`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'user-id': baseStore.currentUser?.id || '',
+        'session-token': baseStore.currentSessionToken || ''
+      },
+      body: JSON.stringify({
+        friendId: Number(targetUserId),
+        remark: newRemark || null
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.status === 'success') {
+      userProfileRemark.value = newRemark;
+      
+      const currentFriend = friendStore.friendsList.find(f => String(f.id) === String(targetUserId));
+      if (currentFriend) {
+        currentFriend.remark = newRemark || null;
+      }
+
+      if (typeof loadFriendsList === 'function') {
+        loadFriendsList();
+      }
+
+      toast.success(newRemark ? `已设置备注：${newRemark}` : '已清除备注');
+      isEditingRemark.value = false;
+    } else {
+      toast.error(data.message || '设置备注失败');
+    }
+  } catch (e) {
+    console.error('设置备注失败:', e);
+    toast.error('网络错误');
+  } finally {
+    userProfileRemarkLoading.value = false;
+  }
+}
+
+function cancelEditRemark() {
+  tempRemark.value = userProfileRemark.value || '';
+  isEditingRemark.value = false;
+}
+
+async function handleRemarkBlur() {
+  // 只有当值变化时才保存
+  const newRemark = tempRemark.value.trim();
+  const oldRemark = userProfileRemark.value || '';
+  if (newRemark !== oldRemark) {
+    await saveRemark();
+  } else {
+    isEditingRemark.value = false;
+  }
+}
+
 function openGroupInfoAvatarPreview() {
   if (groupInfoAvatarUrl.value) {
     modalStore.openModal('avatarPreview', groupInfoAvatarUrl.value);
@@ -3112,8 +3608,41 @@ function handleUserAvatarPopupAddFriend() {
     return;
   }
 
+  if (userAvatarPopupHasSentRequest.value) {
+    handleCancelFriendRequest(userAvatarPopupUserId.value);
+    return;
+  }
+
   addFriend(userAvatarPopupUserId.value);
   hideUserAvatarPopupVue();
+}
+
+async function handleCancelFriendRequest(friendId) {
+  const userId = baseStore.currentUser?.id;
+  const sessionToken = baseStore.currentSessionToken;
+  if (!userId || !sessionToken) return;
+
+  try {
+    const response = await fetch(`${SERVER_URL}/api/user/cancel-friend-request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'user-id': userId,
+        'session-token': sessionToken
+      },
+      body: JSON.stringify({ friendId })
+    });
+
+    const data = await response.json();
+
+    if (data.status === 'success') {
+      await baseStore.loadFriendRequests();
+      hideUserAvatarPopupVue();
+      toast.success('已撤销好友申请');
+    }
+  } catch (error) {
+    console.error('撤销好友请求失败:', error);
+  }
 }
 
 function showMemberContextMenu(event, member) {
@@ -3150,27 +3679,12 @@ function hideContextMenu() {
   };
 }
 
-const canShowContextMenuActions = computed(() => {
-  const member = contextMenu.value.member;
-  if (!member) return false;
-  
-  const isOwner = isCurrentUserGroupOwner.value;
-  const isAdmin = isCurrentUserGroupAdmin.value;
-  const isSelf = String(member.id) === String(baseStore.currentUser?.id);
-  const isCreator = String(member.id) === String(modalStore.modalData.groupInfo?.creator_id);
-  
-  return !isSelf && (
-    (isOwner && !isCreator) ||
-    (isAdmin && !member.is_admin && !isCreator)
-  );
-});
-
 async function handleContextAction(action) {
   const member = contextMenu.value.member;
   if (!member) return;
-  
+
   hideContextMenu();
-  
+
   switch (action) {
     case 'remove':
       await handleRemoveGroupMember(member);
@@ -3185,32 +3699,7 @@ async function handleContextAction(action) {
         await handleMuteGroupMember(member);
       }
       break;
-    case 'info':
-      showMemberInfo(member);
-      break;
   }
-}
-
-function showMemberInfo(member) {
-  let infoText = `成员信息\n`;
-  infoText += `━━━━━━━━━━━━\n`;
-  infoText += `昵称：${member.nickname || member.username || '未知'}\n`;
-  infoText += `ID：${member.id}\n`;
-  infoText += `角色：${String(member.id) === String(modalStore.modalData.groupInfo?.creator_id) ? '群主' : member.is_admin ? '管理员' : '普通成员'}\n`;
-  infoText += `状态：${isMemberOnline(member.id) ? '在线' : '离线'}\n`;
-  
-  if (member.is_muted) {
-    infoText += `\n禁言状态：\n`;
-    if (isPermanentMute(member.muted_until) || member.isPermanentMuted) {
-      infoText += `  类型：永久禁言\n`;
-    } else if (member.muted_until) {
-      infoText += `  类型：临时禁言\n`;
-      infoText += `  截止时间：${new Date(member.muted_until).toLocaleString('zh-CN')}\n`;
-      infoText += `  剩余时间：${getMuteStatusText(member)}\n`;
-    }
-  }
-  
-  alert(infoText);
 }
 
 function updateMuteCountdowns() {
@@ -3278,8 +3767,19 @@ function stopMuteTimer() {
   }
 }
 
+function handleGlobalClick(event) {
+  // 现在我们主要依靠blur事件来处理保存/取消
+  // 这个函数可以保持简单，不需要特殊处理
+  // blur事件会自动触发handleXXXBlur函数
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleGlobalClick);
+});
+
 onUnmounted(() => {
   stopMuteTimer();
+  document.removeEventListener('click', handleGlobalClick);
 });
 
 registerPopupFunctions(showUserAvatarPopupVue, hideUserAvatarPopupVue, showGroupCardPopupVue);

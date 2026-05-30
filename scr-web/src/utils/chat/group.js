@@ -120,7 +120,7 @@ async function handleLeaveGroup(groupId) {
             }
             
             if (groupStore) {
-                await groupStore.markGroupAsDeleted(groupId, false);
+                await groupStore.markGroupAsDeleted(groupId, true);
             }
 
             const groupEmptyState = document.getElementById('groupEmptyState');

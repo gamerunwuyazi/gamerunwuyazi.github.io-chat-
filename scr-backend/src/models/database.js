@@ -1,6 +1,6 @@
 import mysql from 'mysql2/promise';
 import { createClient } from 'redis';
-import { dbConfig, getRedisUrl, redisConfig } from '../config/index.js';
+import { dbConfig, getRedisUrl } from '../config/index.js';
 
 const redisClient = createClient({
   url: getRedisUrl()

@@ -11,6 +11,7 @@ import {
   toggleGroupMute 
 } from './group.js';
 import { loadFriendsList, showUserAvatarPopup } from './private.js';
+import { getRouter } from './routerInstance.js';
 import {
   useBaseStore,
   useUserStore,
@@ -31,8 +32,31 @@ import {
 } from './websocket.js';
 import { navigateTo } from './routerInstance.js';
 
-let currentActiveChat = 'main';
 let currentGroupId = null;
+
+// 辅助函数：从sessionStore获取当前活跃会话（统一使用store数据）
+function getCurrentActiveChat() {
+  const sessionStore = useSessionStore();
+  if (!sessionStore) return 'main';
+
+  if (sessionStore.currentPrivateChatUserId) {
+    return `private_${sessionStore.currentPrivateChatUserId}`;
+  } else if (sessionStore.currentGroupId) {
+    return `group_${sessionStore.currentGroupId}`;
+  } else {
+    return 'main';
+  }
+}
+
+// 辅助函数：使用Vue Router获取当前路由路径（统一方法）
+function getCurrentPath() {
+  try {
+    const routerInstance = getRouter();
+    return routerInstance?.currentRoute?.value?.path || window.location.pathname || '';
+  } catch (e) {
+    return window.location.pathname || '';
+  }
+}
 
 function logout() {
   if (disconnectWebSocket) {
@@ -119,11 +143,8 @@ async function refreshToken() {
             localStorage.setItem('refreshToken', data.refreshToken);
             
             currentSessionToken = data.token;
-            if (sessionStore && sessionStore.setCurrentSessionToken) {
-              sessionStore.setCurrentSessionToken(data.token);
-            }
-            if (sessionStore && sessionStore.setCurrentSessionToken) {
-                sessionStore.setCurrentSessionToken(data.token);
+            if (baseStore && baseStore.setCurrentSessionToken) {
+              baseStore.setCurrentSessionToken(data.token);
             }
             
 
@@ -181,6 +202,7 @@ function initializeFocusListeners() {
   document.addEventListener('visibilitychange', handlePageVisibilityChange);
   window.addEventListener('focus', handleFocusChange);
   window.addEventListener('blur', handleFocusChange);
+  window.addEventListener('pageshow', handlePageShow);
 }
 
 function showError(message) {
@@ -191,73 +213,70 @@ function showSuccess(message) {
   toast.success(message);
 }
 
-function handlePageVisibilityChange() {
+function handlePageShow() {
+  setTimeout(() => {
+    tryClearUnreadForCurrentRoute();
+  }, 300);
+}
+
+function tryClearUnreadForCurrentRoute() {
   const unreadStore = useUnreadStore();
   const sessionStore = useSessionStore();
+  const baseStore = useBaseStore();
 
+  if (!baseStore.currentUser?.id) return false;
+  if (!document.hasFocus() && !document.hidden) return false;
+
+  const currentPath = getCurrentPath();
+  const isGroupRoute = currentPath.startsWith('/chat/group');
+  const isPrivateRoute = currentPath.startsWith('/chat/private');
+  const isMainChatRoute = currentPath === '/chat' || currentPath === '/chat/' ||
+    (currentPath.startsWith('/chat') && !currentPath.startsWith('/chat/group') && !currentPath.startsWith('/chat/private'));
+
+  const chat = getCurrentActiveChat();
+
+  if (chat === 'main' && isMainChatRoute) {
+    if (unreadStore && unreadStore.clearGlobalUnread) {
+      unreadStore.clearGlobalUnread();
+      updateUnreadCountsDisplay();
+      return true;
+    }
+  } else if (chat.startsWith('group_') && isGroupRoute) {
+    const groupId = chat.replace('group_', '');
+    if (unreadStore && unreadStore.clearGroupUnread) {
+      unreadStore.clearGroupUnread(groupId);
+      updateUnreadCountsDisplay();
+      return true;
+    }
+  } else if (chat.startsWith('private_') && isPrivateRoute) {
+    const userId = chat.replace('private_', '');
+    if (unreadStore && unreadStore.clearPrivateUnread) {
+      unreadStore.clearPrivateUnread(userId);
+      updateUnreadCountsDisplay();
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function handlePageVisibilityChange() {
   if (!document.hidden) {
-    const chat = currentActiveChat || sessionStore?.currentActiveChat || '';
-    if (typeof chat !== 'string') {
-      return;
+    const cleared = tryClearUnreadForCurrentRoute();
+    if (!cleared) {
+      setTimeout(() => tryClearUnreadForCurrentRoute(), 200);
+      setTimeout(() => tryClearUnreadForCurrentRoute(), 500);
     }
-
-    const path = window.location.pathname;
-    const isMainChat = path === '/chat' || path === '/chat/';
-    const isGroupChat = path.startsWith('/chat/group');
-    const isPrivateChat = path.startsWith('/chat/private');
-
-    if (chat === 'main' && isMainChat) {
-      if (unreadStore && unreadStore.clearGlobalUnread) {
-        unreadStore.clearGlobalUnread();
-      }
-    } else if (chat.startsWith('group_') && isGroupChat) {
-      const groupId = chat.replace('group_', '');
-      if (unreadStore && unreadStore.clearGroupUnread) {
-        unreadStore.clearGroupUnread(groupId);
-      }
-    } else if (chat.startsWith('private_') && isPrivateChat) {
-      const userId = chat.replace('private_', '');
-      if (unreadStore && unreadStore.clearPrivateUnread) {
-        unreadStore.clearPrivateUnread(userId);
-      }
-    }
-
-    updateUnreadCountsDisplay();
   }
 }
 
 function handleFocusChange() {
-  const unreadStore = useUnreadStore();
-  const sessionStore = useSessionStore();
-
   if (document.hasFocus()) {
-    const chat = currentActiveChat || sessionStore?.currentActiveChat || '';
-    if (typeof chat !== 'string') {
-      return;
+    const cleared = tryClearUnreadForCurrentRoute();
+    if (!cleared) {
+      setTimeout(() => tryClearUnreadForCurrentRoute(), 200);
+      setTimeout(() => tryClearUnreadForCurrentRoute(), 500);
     }
-
-    const path = window.location.pathname;
-    const isMainChat = path === '/chat' || path === '/chat/';
-    const isGroupChat = path.startsWith('/chat/group');
-    const isPrivateChat = path.startsWith('/chat/private');
-
-    if (chat === 'main' && isMainChat) {
-      if (unreadStore && unreadStore.clearGlobalUnread) {
-        unreadStore.clearGlobalUnread();
-      }
-    } else if (chat.startsWith('group_') && isGroupChat) {
-      const groupId = chat.replace('group_', '');
-      if (unreadStore && unreadStore.clearGroupUnread) {
-        unreadStore.clearGroupUnread(groupId);
-      }
-    } else if (chat.startsWith('private_') && isPrivateChat) {
-      const userId = chat.replace('private_', '');
-      if (unreadStore && unreadStore.clearPrivateUnread) {
-        unreadStore.clearPrivateUnread(userId);
-      }
-    }
-
-    updateUnreadCountsDisplay();
   }
 }
 
@@ -315,17 +334,17 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
   
   let oldChatType = null;
   let oldChatId = null;
-  
-  if (sessionStore && sessionStore.currentActiveChat) {
-    const activeChat = sessionStore.currentActiveChat;
-    if (activeChat === 'main') {
-      oldChatType = 'main';
-    } else if (activeChat.startsWith('group_')) {
-      oldChatType = 'group';
-      oldChatId = activeChat.replace('group_', '');
-    } else if (activeChat.startsWith('private_')) {
+
+  // 从sessionStore获取当前会话信息（优先使用具体的ID字段）
+  if (sessionStore) {
+    if (sessionStore.currentPrivateChatUserId) {
       oldChatType = 'private';
-      oldChatId = activeChat.replace('private_', '');
+      oldChatId = sessionStore.currentPrivateChatUserId;
+    } else if (sessionStore.currentGroupId) {
+      oldChatType = 'group';
+      oldChatId = sessionStore.currentGroupId;
+    } else {
+      oldChatType = 'main';
     }
   }
   
@@ -357,7 +376,6 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
   }
   
   if (chatType === 'main') {
-    currentActiveChat = 'main';
     if (sessionStore) {
       sessionStore.setCurrentActiveChat('main');
     }
@@ -365,7 +383,6 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
       unreadStore.clearGlobalUnread();
     }
   } else if (chatType === 'group' && id) {
-    currentActiveChat = `group_${id}`;
     if (sessionStore) {
       sessionStore.setCurrentActiveChat(`group_${id}`);
     }
@@ -373,7 +390,6 @@ function setActiveChat(chatType, id = null, clearUnread = false) {
       unreadStore.clearGroupUnread(id);
     }
   } else if (chatType === 'private' && id) {
-    currentActiveChat = `private_${id}`;
     if (sessionStore) {
       sessionStore.setCurrentActiveChat(`private_${id}`);
     }
@@ -388,7 +404,6 @@ function setActiveChatDirect(chatType, id = null, clearUnread = false) {
   const unreadStore = useUnreadStore();
   
   if (chatType === 'main') {
-    currentActiveChat = 'main';
     if (sessionStore) {
       sessionStore.setCurrentActiveChat('main');
     }
@@ -396,7 +411,6 @@ function setActiveChatDirect(chatType, id = null, clearUnread = false) {
       unreadStore.clearGlobalUnread();
     }
   } else if (chatType === 'group' && id) {
-    currentActiveChat = `group_${id}`;
     if (sessionStore) {
       sessionStore.setCurrentActiveChat(`group_${id}`);
     }
@@ -404,7 +418,6 @@ function setActiveChatDirect(chatType, id = null, clearUnread = false) {
       unreadStore.clearGroupUnread(id);
     }
   } else if (chatType === 'private' && id) {
-    currentActiveChat = `private_${id}`;
     if (sessionStore) {
       sessionStore.setCurrentActiveChat(`private_${id}`);
     }
@@ -588,7 +601,6 @@ export {
   adjustChatLayout,
   updateGroupMuteIcon,
   updateGroupListDisplay,
-  currentActiveChat,
   currentGroupId,
   currentGroupName,
   currentUser,

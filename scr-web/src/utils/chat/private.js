@@ -203,7 +203,7 @@ async function updateFriendsList(friends) {
 
     for (const friend of friends) {
       const existingFriend = existingFriendMap.get(String(friend.id));
-      
+
       try {
         const key = `${prefix}-private-${friend.id}`;
         const existingData = await localForage.getItem(key) || { messages: [] };
@@ -212,9 +212,14 @@ async function updateFriendsList(friends) {
         if (friend.username) updatedSessionData.username = friend.username;
         if (friend.avatar_url) updatedSessionData.avatarUrl = friend.avatar_url;
         else if (friend.avatarUrl) updatedSessionData.avatarUrl = friend.avatarUrl;
-        
+        if (friend.remark !== undefined && friend.remark !== null) {
+          updatedSessionData.remark = friend.remark;
+        } else if (!updatedSessionData.remark) {
+          updatedSessionData.remark = null;
+        }
+
         delete updatedSessionData.deleted_at;
-        
+
         await localForage.setItem(key, updatedSessionData);
       } catch (e) {
         console.error('更新IndexedDB中的好友会话信息失败:', e);
@@ -323,7 +328,8 @@ async function updateFriendsList(friends) {
             nickname: friendNickname,
             username: data.username || 'user',
             avatarUrl: data.avatarUrl,
-            deleted_at: data.deleted_at
+            deleted_at: data.deleted_at,
+            remark: data.remark || null
           };
           
           if (data.last_message_time) {

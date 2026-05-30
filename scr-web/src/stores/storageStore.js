@@ -308,17 +308,21 @@ export const useStorageStore = defineStore('storage', () => {
       if (message.atUserid !== undefined && message.atUserid !== null) {
         const atUserid = Array.isArray(message.atUserid) ? message.atUserid : [message.atUserid];
         if (atUserid.length > 0) {
-          processedMessage.atUserid = atUserid.map(id => Number(id));
+          processedMessage.atUserid = atUserid.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
         }
       }
     } else if (message.type === 'group') {
       if (message.atUserid !== undefined && message.atUserid !== null) {
         const atUserid = Array.isArray(message.atUserid) ? message.atUserid : [message.atUserid];
         if (atUserid.length > 0) {
-          processedMessage.atUserid = atUserid.map(id => Number(id));
+          processedMessage.atUserid = atUserid.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
         }
       }
       processedMessage.groupId = Number(message.groupId);
+      // 保存后端传来的群昵称
+      if (message.groupNickname) {
+        processedMessage.groupNickname = message.groupNickname;
+      }
     } else if (message.type === 'private') {
       processedMessage.senderId = Number(message.senderId);
       processedMessage.receiverId = Number(message.receiverId);
@@ -331,6 +335,9 @@ export const useStorageStore = defineStore('storage', () => {
       try {
         const updateData = JSON.parse(processedMessage.content);
         const userId = processedMessage.userId;
+
+        processUserInfoUpdateForRecallMessages(userId, updateData);
+
         if (updateData.type === 'nickname' && updateData.nickname) {
           if (userStore.onlineUsers) {
             const userIndex = userStore.onlineUsers.findIndex(u => String(u.id) === String(userId));
@@ -398,7 +405,11 @@ export const useStorageStore = defineStore('storage', () => {
     if (message.type === 'public') {
       const isWithdrawMessage = processedMessage.messageType === 101;
       if (isWithdrawMessage) {
-        const messageIdToDelete = processedMessage.content;
+        const messageIdToDelete = String(processedMessage.content).trim();
+        const recallerId = String(processedMessage.userId || '');
+        const recallNickname = processedMessage.nickname || '某人';
+        const recallJson = recallerId ? JSON.stringify({ [recallerId]: recallNickname }) : '';
+
         if (messageIdToDelete) {
           if (fullPublicMessages.value !== null && fullPublicMessages.value !== undefined) {
             const updates = fixQuotedMessagesForWithdrawn(messageIdToDelete, fullPublicMessages.value);
@@ -426,7 +437,7 @@ export const useStorageStore = defineStore('storage', () => {
           if (targetIndex !== -1) {
             fullPublicMessages.value[targetIndex] = toRaw({
               ...toRaw(fullPublicMessages.value[targetIndex]),
-              content: `${processedMessage.nickname || '某人'}撤回了一条消息`,
+              content: recallJson,
               isRecalled: true,
               isSystemMessage: true
             });
@@ -436,7 +447,7 @@ export const useStorageStore = defineStore('storage', () => {
           if (displayIndex !== -1) {
             publicStore.publicMessages[displayIndex] = toRaw({
               ...toRaw(publicStore.publicMessages[displayIndex]),
-              content: `${processedMessage.nickname || '某人'}撤回了一条消息`,
+              content: recallJson,
               isRecalled: true,
               isSystemMessage: true
             });
@@ -473,10 +484,45 @@ export const useStorageStore = defineStore('storage', () => {
       const groupId = message.groupId;
       const isWithdrawMessage = processedMessage.messageType === 101;
       if (isWithdrawMessage) {
-        const messageIdToDelete = processedMessage.content;
+        // 解析101撤回消息的content（可能是JSON格式或纯数字）
+        let messageIdToDelete = null;
+        let recallNickname = null;
+        let recallerId = null;
+
+        try {
+          const parsed = JSON.parse(processedMessage.content);
+          
+          if (parsed && parsed.id) {
+            messageIdToDelete = String(parsed.id).trim();
+            if (parsed.nickname) {
+              let nicknameObj;
+              if (typeof parsed.nickname === 'object' && !Array.isArray(parsed.nickname)) {
+                nicknameObj = parsed.nickname;
+              } else if (typeof parsed.nickname === 'string') {
+                try { nicknameObj = JSON.parse(parsed.nickname); } catch (e) { nicknameObj = {}; }
+              }
+              if (nicknameObj && typeof nicknameObj === 'object' && !Array.isArray(nicknameObj)) {
+                const keys = Object.keys(nicknameObj);
+                if (keys.length > 0) {
+                  recallerId = keys[0];
+                  recallNickname = nicknameObj[recallerId];
+                }
+              }
+            }
+          } else {
+            messageIdToDelete = String(processedMessage.content).trim();
+          }
+        } catch (e) {
+          messageIdToDelete = String(processedMessage.content).trim();
+        }
+
+        // 构建JSON格式的存储内容
+        const recallJson = recallerId ? JSON.stringify({ [recallerId]: recallNickname || processedMessage.nickname || '某人' }) : '';
+
         if (messageIdToDelete) {
           if (fullGroupMessages.value && fullGroupMessages.value[groupId]) {
             const updates = fixQuotedMessagesForWithdrawn(messageIdToDelete, fullGroupMessages.value[groupId]);
+            
             updates.forEach(update => {
               if (groupStore.groupMessages[groupId]) {
                 const index = groupStore.groupMessages[groupId].findIndex(m => String(m.id) === String(update.messageId));
@@ -503,17 +549,17 @@ export const useStorageStore = defineStore('storage', () => {
           if (targetIndex !== -1) {
             fullGroupMessages.value[groupId][targetIndex] = toRaw({
               ...toRaw(fullGroupMessages.value[groupId][targetIndex]),
-              content: `${processedMessage.nickname || '某人'}撤回了一条消息`,
+              content: recallJson,
               isRecalled: true,
               isSystemMessage: true
             });
             groupStore.groupStored[groupId] = false;
           }
           const displayIndex = groupStore.groupMessages[groupId]?.findIndex(m => String(m.id) === String(messageIdToDelete));
-          if (displayIndex !== -1) {
+          if (displayIndex !== -1 && groupStore.groupMessages[groupId]) {
             groupStore.groupMessages[groupId][displayIndex] = toRaw({
               ...toRaw(groupStore.groupMessages[groupId][displayIndex]),
-              content: `${processedMessage.nickname || '某人'}撤回了一条消息`,
+              content: recallJson,
               isRecalled: true,
               isSystemMessage: true
             });
@@ -583,7 +629,11 @@ export const useStorageStore = defineStore('storage', () => {
       const isReadReceiptMessage = processedMessage.messageType === 103;
 
       if (isWithdrawMessage) {
-        const messageIdToDelete = processedMessage.content;
+        const messageIdToDelete = String(processedMessage.content).trim();
+        const recallerId = String(processedMessage.userId || processedMessage.senderId || '');
+        const recallNickname = processedMessage.nickname || '某人';
+        const recallJson = recallerId ? JSON.stringify({ [recallerId]: recallNickname }) : '';
+
         if (messageIdToDelete) {
           if (fullPrivateMessages.value && fullPrivateMessages.value[otherUserId]) {
             const updates = fixQuotedMessagesForWithdrawn(messageIdToDelete, fullPrivateMessages.value[otherUserId]);
@@ -613,7 +663,7 @@ export const useStorageStore = defineStore('storage', () => {
           if (targetIndex !== -1) {
             fullPrivateMessages.value[otherUserId][targetIndex] = toRaw({
               ...toRaw(fullPrivateMessages.value[otherUserId][targetIndex]),
-              content: `${processedMessage.nickname || '某人'}撤回了一条消息`,
+              content: recallJson,
               isRecalled: true,
               isSystemMessage: true
             });
@@ -623,7 +673,7 @@ export const useStorageStore = defineStore('storage', () => {
           if (displayIndex !== -1) {
             friendStore.privateMessages[otherUserId][displayIndex] = toRaw({
               ...toRaw(friendStore.privateMessages[otherUserId][displayIndex]),
-              content: `${processedMessage.nickname || '某人'}撤回了一条消息`,
+              content: recallJson,
               isRecalled: true,
               isSystemMessage: true
             });
@@ -1064,11 +1114,24 @@ export const useStorageStore = defineStore('storage', () => {
   }
 
   function updateUserInfoInMessages(userId, updates) {
+    const updateMsg = (msg) => {
+      if (updates.nickname) msg.nickname = updates.nickname;
+      if (updates.avatarUrl) msg.avatarUrl = updates.avatarUrl;
+      if (msg.messageType === 100 && msg.content && typeof msg.content === 'string' && updates.nickname) {
+        try {
+          const parsed = JSON.parse(msg.content);
+          if (parsed && parsed.action && parsed[String(userId)] !== undefined) {
+            parsed[String(userId)] = updates.nickname;
+            msg.content = JSON.stringify(parsed);
+          }
+        } catch {}
+      }
+    };
+
     if (fullPublicMessages.value) {
       fullPublicMessages.value.forEach(msg => {
         if (String(msg.userId) === String(userId)) {
-          if (updates.nickname) msg.nickname = updates.nickname;
-          if (updates.avatarUrl) msg.avatarUrl = updates.avatarUrl;
+          updateMsg(msg);
         }
       });
     }
@@ -1076,8 +1139,7 @@ export const useStorageStore = defineStore('storage', () => {
     Object.keys(fullGroupMessages.value).forEach(groupId => {
       fullGroupMessages.value[groupId].forEach(msg => {
         if (String(msg.userId) === String(userId)) {
-          if (updates.nickname) msg.nickname = updates.nickname;
-          if (updates.avatarUrl) msg.avatarUrl = updates.avatarUrl;
+          updateMsg(msg);
         }
       });
     });
@@ -1085,8 +1147,7 @@ export const useStorageStore = defineStore('storage', () => {
     Object.keys(fullPrivateMessages.value).forEach(otherUserId => {
       fullPrivateMessages.value[otherUserId].forEach(msg => {
         if (String(msg.senderId) === String(userId) || String(msg.receiverId) === String(userId)) {
-          if (updates.nickname) msg.nickname = updates.nickname;
-          if (updates.avatarUrl) msg.avatarUrl = updates.avatarUrl;
+          updateMsg(msg);
         }
       });
     });
@@ -1098,20 +1159,75 @@ export const useStorageStore = defineStore('storage', () => {
     let content = message.content || '';
     let msgType = message.messageType;
 
+    const getFileTypePlaceholder = (fileContent) => {
+      try {
+        const fileData = JSON.parse(fileContent);
+        const filename = fileData.filename || fileData.name || '';
+        const ext = filename.split('.').pop().toLowerCase();
+        const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico'];
+        const videoExts = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm', 'm4v'];
+        const audioExts = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma'];
+        if (imageExts.includes(ext)) return '[图片]';
+        if (videoExts.includes(ext)) return '[视频]';
+        if (audioExts.includes(ext)) return '[音频]';
+        return '[文件]';
+      } catch {
+        return '[文件]';
+      }
+    };
+
     const parseQuotedContent = (quotedMsg) => {
       if (!quotedMsg) return '';
       const qType = quotedMsg.messageType;
       if (qType === 1) return '[图片]';
-      if (qType === 2) return '[文件]';
+      if (qType === 2) return getFileTypePlaceholder(quotedMsg.content || '');
       if (qType === 3) return '[群名片]';
       if (qType === 101) return '撤回了一条消息';
       if (qType === 4 && (quotedMsg.quotedMessage || quotedMsg.quoted_message || quotedMsg.quoted)) return parseQuotedContent(quotedMsg.quotedMessage || quotedMsg.quoted_message || quotedMsg.quoted);
       return quotedMsg.content || '';
     };
 
+    const getSystemMessageText = (parsed) => {
+      const userId = Object.keys(parsed).find(k => k !== 'action' && k !== 'groupName' && k !== 'content');
+      const displayName = userId ? parsed[userId] : '用户';
+
+      switch (parsed.action) {
+        case 'create': {
+          const otherIds = Object.keys(parsed).filter(k => k !== 'action' && k !== String(userId) && k !== 'groupName' && k !== 'content' && k !== 'otherNames');
+          const otherNamesStr = otherIds.map(id => parsed[id] || '用户').join('、');
+          return otherNamesStr
+            ? `${displayName}创建了群组，同时加入群组的有：${otherNamesStr}`
+            : `${displayName}创建了群组`;
+        }
+        case 'kick':
+          return `${displayName}被移出了群组`;
+        case 'invite': {
+          const inviteeIds = Object.keys(parsed).filter(k => k !== 'action' && k !== String(userId) && k !== 'groupName' && k !== 'content');
+          const inviteeNamesStr = inviteeIds.map(id => parsed[id] || '用户').join('、');
+          return inviteeNamesStr
+            ? `${displayName}邀请${inviteeNamesStr}加入了群组`
+            : `${displayName}邀请了新成员加入了群组`;
+        }
+        case 'join':
+          return `${displayName}加入了群组`;
+        case 'joinByCard':
+          return `${displayName}通过群名片加入了群组`;
+        case 'leave':
+          return `${displayName}退出了群组`;
+        case 'dismiss':
+          return parsed.content || '群组已解散';
+        default:
+          return parsed.content || '';
+      }
+    };
+
     if (msgType === 100) {
       if (typeof content === 'string' && content.startsWith('{')) {
-        try { const parsed = JSON.parse(content); return parsed.content || ''; } catch {}
+        try {
+          const parsed = JSON.parse(content);
+          if (parsed.action) return getSystemMessageText(parsed);
+          return parsed.content || '';
+        } catch {}
       }
       return content || '';
     } else if (msgType === 4) {
@@ -1126,7 +1242,7 @@ export const useStorageStore = defineStore('storage', () => {
       }
       return '[引用]';
     } else if (msgType === 1) return '[图片]';
-    else if (msgType === 2) return '[文件]';
+    else if (msgType === 2) return getFileTypePlaceholder(content);
     else if (msgType === 3) return '[群名片]';
     else if (msgType === 101) return content || '撤回了一条消息';
     else if (message.group_card || message.groupCard) return '[群名片]';
@@ -1431,6 +1547,148 @@ export const useStorageStore = defineStore('storage', () => {
     return updates;
   }
 
+  function processUserInfoUpdateForRecallMessages(userId, updates) {
+    if (!updates || (!updates.nickname && !updates.avatarUrl)) return;
+
+    const updateNickname = (msg) => {
+      if (updates.nickname) msg.nickname = updates.nickname;
+      if (updates.avatarUrl) msg.avatarUrl = updates.avatarUrl;
+    };
+
+    const updateRecallContent = (msg) => {
+      if (msg.isRecalled && !msg.messageType) {
+        const recallTextMatch = msg.content ? msg.content.match(/^(.+)撤回了一条消息$/) : null;
+        if (recallTextMatch && updates.nickname) {
+          msg.content = `${updates.nickname}撤回了一条消息`;
+        }
+      }
+    };
+
+    const updateSystemMessageContent = (msg) => {
+      if (msg.messageType === 100 && msg.content && typeof msg.content === 'string' && updates.nickname) {
+        try {
+          const parsed = JSON.parse(msg.content);
+          if (parsed && parsed.action && parsed[String(userId)] !== undefined) {
+            parsed[String(userId)] = updates.nickname;
+            msg.content = JSON.stringify(parsed);
+          }
+        } catch {}
+      }
+    };
+
+    const updateMessages = (messages) => {
+      if (!messages || !Array.isArray(messages)) return;
+      messages.forEach(msg => {
+        if ((msg.messageType === 101 || msg.isRecalled || msg.messageType === 100) && String(msg.userId) === String(userId)) {
+          updateNickname(msg);
+          updateRecallContent(msg);
+          updateSystemMessageContent(msg);
+        }
+      });
+    };
+
+    if (fullPublicMessages.value) {
+      updateMessages(fullPublicMessages.value);
+    }
+
+    Object.keys(fullGroupMessages.value).forEach(groupId => {
+      updateMessages(fullGroupMessages.value[groupId]);
+    });
+
+    Object.keys(fullPrivateMessages.value).forEach(otherUserId => {
+      const messages = fullPrivateMessages.value[otherUserId];
+      if (messages && Array.isArray(messages)) {
+        messages.forEach(msg => {
+          if ((msg.messageType === 101 || msg.isRecalled || msg.messageType === 100) &&
+              (String(msg.userId) === String(userId) ||
+               String(msg.senderId) === String(userId) ||
+               String(msg.receiverId) === String(userId))) {
+            updateNickname(msg);
+            updateRecallContent(msg);
+            updateSystemMessageContent(msg);
+          }
+        });
+      }
+    });
+  }
+
+  async function savePrivateMessageToIndexedDB(chatPartnerId, message) {
+    const baseStore = useBaseStore();
+    const friendStore = useFriendStore();
+    const prefix = getStorageKeyPrefix();
+    const key = `${prefix}-private-${chatPartnerId}`;
+    try {
+      const rawMsg = toRaw(message);
+      const existingData = await localForage.getItem(key);
+      const sessionData = existingData ? toRaw(existingData) : { messages: [] };
+      const msgIndex = sessionData.messages.findIndex(m => String(m.id) === String(rawMsg.id));
+      if (msgIndex !== -1) {
+        sessionData.messages[msgIndex] = rawMsg;
+      } else {
+        sessionData.messages.push(rawMsg);
+      }
+      if (friendStore.friendsList) {
+        const friendInfo = friendStore.friendsList.find(f => String(f.id) === String(chatPartnerId));
+        if (friendInfo) {
+          const rawFriendInfo = toRaw(friendInfo);
+          if (rawFriendInfo.nickname) sessionData.nickname = rawFriendInfo.nickname;
+          if (rawFriendInfo.avatarUrl) sessionData.avatarUrl = rawFriendInfo.avatarUrl;
+        }
+      }
+      await localForage.setItem(key, sessionData);
+    } catch (e) {
+      console.error('保存私信消息到IndexedDB失败:', e);
+    }
+  }
+
+  async function saveGroupMessageToIndexedDB(groupId, message) {
+    const baseStore = useBaseStore();
+    const groupStore = useGroupStore();
+    const prefix = getStorageKeyPrefix();
+    const key = `${prefix}-group-${groupId}`;
+    try {
+      const rawMsg = toRaw(message);
+      const existingData = await localForage.getItem(key);
+      const sessionData = existingData ? toRaw(existingData) : { messages: [] };
+      const msgIndex = sessionData.messages.findIndex(m => String(m.id) === String(rawMsg.id));
+      if (msgIndex !== -1) {
+        sessionData.messages[msgIndex] = rawMsg;
+      } else {
+        sessionData.messages.push(rawMsg);
+      }
+      if (groupStore.groupsList) {
+        const groupInfo = groupStore.groupsList.find(g => String(g.id) === String(groupId));
+        if (groupInfo) {
+          const rawGroupInfo = toRaw(groupInfo);
+          if (rawGroupInfo.name) sessionData.name = rawGroupInfo.name;
+          if (rawGroupInfo.avatarUrl) sessionData.avatarUrl = rawGroupInfo.avatarUrl;
+        }
+      }
+      await localForage.setItem(key, sessionData);
+    } catch (e) {
+      console.error('保存群组消息到IndexedDB失败:', e);
+    }
+  }
+
+  async function savePublicMessageToIndexedDB(message) {
+    const prefix = getStorageKeyPrefix();
+    const key = `${prefix}-public`;
+    try {
+      const rawMsg = toRaw(message);
+      const existingData = await localForage.getItem(key);
+      const sessionData = existingData ? toRaw(existingData) : { messages: [] };
+      const msgIndex = sessionData.messages.findIndex(m => String(m.id) === String(rawMsg.id));
+      if (msgIndex !== -1) {
+        sessionData.messages[msgIndex] = rawMsg;
+      } else {
+        sessionData.messages.push(rawMsg);
+      }
+      await localForage.setItem(key, sessionData);
+    } catch (e) {
+      console.error('保存公共消息到IndexedDB失败:', e);
+    }
+  }
+
   function getCachePublic() { return cachePublicMessages; }
   function setCachePublic(val) { cachePublicMessages = val; }
   function getCacheGroup() { return cacheGroupMessages; }
@@ -1465,6 +1723,10 @@ export const useStorageStore = defineStore('storage', () => {
     fixQuotedMessagesForWithdrawn,
     updateSessionLastMessageTime,
     updateUserInfoInMessages,
+    processUserInfoUpdateForRecallMessages,
+    savePrivateMessageToIndexedDB,
+    saveGroupMessageToIndexedDB,
+    savePublicMessageToIndexedDB,
     getCachePublic,
     setCachePublic,
     getCacheGroup,

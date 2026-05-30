@@ -12,7 +12,8 @@ import {
   handleBlockUser,
   handleUnblockUser,
   handleCheckBlockStatus,
-  handleSearchUsers
+  handleSearchUsers,
+  handleSetFriendRemark
 } from '../services/friendService.js';
 
 export function setupRoutes(app, io) {
@@ -70,5 +71,9 @@ export function setupRoutes(app, io) {
 
   app.get('/api/user/search', (req, res) => {
     handleSearchUsers(req, res, io);
+  });
+
+  app.post('/api/user/set-friend-remark', (req, res) => {
+    handleSetFriendRemark(req, res, io);
   });
 }

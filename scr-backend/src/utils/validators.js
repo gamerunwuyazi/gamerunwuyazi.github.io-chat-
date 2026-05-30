@@ -1,6 +1,4 @@
-import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
+
 
 export const sqlInjectionPattern = /(^'|'$|^"|"$|;|--|\/\*|\*\/|\b(or|and|union|select|insert|update|delete|drop|create|alter|exec|execute|xp_)|\b(1=1|0=0)\b|\bwhere\b|\bfrom\b|\bjoin\b|\bcase\b|\bwhen\b|\bthen\b|\belse\b|\bend\b)/i;
 
@@ -64,6 +62,9 @@ export function filterMessageFields(message, messageType) {
       baseFields.atUserid = atUserid;
     }
     baseFields.groupId = Number(message.groupId);
+    if (message.groupNickname) {
+      baseFields.groupNickname = message.groupNickname;
+    }
   } else if (messageType === 'private') {
     baseFields.senderId = Number(message.senderId);
     baseFields.receiverId = Number(message.receiverId);

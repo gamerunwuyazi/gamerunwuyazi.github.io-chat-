@@ -181,7 +181,6 @@ export const {
   adjustChatLayout,
   updateGroupMuteIcon,
   updateGroupListDisplay,
-  currentActiveChat,
   currentGroupId,
   currentGroupName,
   currentUser,

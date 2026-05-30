@@ -26,8 +26,13 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
 
       // 验证消息内容
       if (!validateMessageContent(content)) {
-        console.error('❌ 消息内容格式错误或超过 10000 字符限制');
-        socket.emit(SocketEvents.ERROR, { message: '消息内容格式错误或超过 10000 字符限制' });
+        socket.emit(SocketEvents.PRIVATE_MESSAGE_SENT, {
+          success: false,
+          error: {
+            code: 'INVALID_CONTENT',
+            message: '消息内容格式错误或超过 10000 字符限制'
+          }
+        });
         return;
       }
 

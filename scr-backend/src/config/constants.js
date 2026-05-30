@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 
 export const FRIEND_STATUS = {
   STAIN_AFTER_BLOCK_AND_DELETE: 0,
@@ -113,6 +112,3 @@ export function validateMessageContent(content) {
   return false;
 }
 
-export function generateSessionToken() {
-  return crypto.randomBytes(32).toString('hex');
-}

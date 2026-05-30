@@ -9,7 +9,7 @@ function notFoundHandler(req, res, next) {
 
 function globalErrorHandler(err, req, res, next) {
   if (err instanceof multer.MulterError) {
-    let errorMessage = '文件上传错误';
+    let errorMessage;
 
     switch (err.code) {
       case 'LIMIT_FILE_SIZE':

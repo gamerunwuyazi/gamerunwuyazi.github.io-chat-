@@ -25,7 +25,7 @@ const avatarStorage = multer.diskStorage({
       return cb(new Error('用户ID不能为空'), false);
     }
 
-    const ext = path.extname(file.originalname).replace(/[/\x00]/g, '_');
+    const ext = path.extname(file.originalname).replace(/[/\0]/g, '_');
     const filename = `avatar_${userId}${ext}`;
 
     cb(null, filename);
@@ -39,7 +39,7 @@ const groupAvatarStorage = multer.diskStorage({
   filename: function (req, file, cb) {
     const groupId = req.params.groupId;
 
-    const ext = path.extname(file.originalname).replace(/[/\x00]/g, '_');
+    const ext = path.extname(file.originalname).replace(/[/\0]/g, '_');
     const filename = `group_avatar_${groupId}${ext}`;
 
     cb(null, filename);
@@ -96,6 +96,7 @@ const storage = multer.diskStorage({
     try {
       originalName = decodeURIComponent(escape(originalName));
     } catch (e) {
+      // 保持原始文件名
     }
 
     const ext = path.extname(originalName);

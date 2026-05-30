@@ -5,10 +5,10 @@
     <div class="decoration decoration-1"></div>
     <div class="decoration decoration-2"></div>
     <div class="decoration decoration-3"></div>
-    
+
     <div class="register-form">
       <h1>注册聊天室账号</h1>
-      <form @submit.prevent="handleRegister">
+      <form @submit.prevent="handleRegisterClick">
         <div class="input-group">
           <label for="username">用户名</label>
           <input 
@@ -101,18 +101,7 @@
             </label>
           </div>
         </div>
-        <div class="input-group">
-          <label>人机验证</label>
-          <div class="turnstile-container">
-            <VueTurnstile 
-              ref="turnstileRef"
-              :site-key="TURNSTILE_SITE_KEY"
-              v-model="turnstileToken"
-              theme="light"
-            />
-          </div>
-        </div>
-        <button type="submit" ref="registerButton" :disabled="!isFormValid || isSubmitting">
+        <button type="submit" ref="registerButton" :disabled="!isFormValid || isSubmitting || captchaModalVisible">
           {{ isSubmitting ? '注册中...' : '注册' }}
         </button>
       </form>
@@ -121,22 +110,55 @@
         {{ message }}
       </div>
     </div>
+
+    <!-- 验证码模态框 -->
+    <Teleport to="body">
+      <div v-if="captchaModalVisible" class="captcha-modal-overlay" @click.self="closeCaptchaModal">
+        <div class="captcha-modal">
+          <div class="captcha-modal-header">
+            <span>请完成人机验证</span>
+            <button class="captcha-close-btn" @click="closeCaptchaModal">&times;</button>
+          </div>
+          <div class="captcha-modal-body">
+            <SliderCaptcha
+              :bg-base64="modalBgBase64"
+              :puzzle-base64="modalPuzzleBase64"
+              :target-y="modalTargetY"
+              :puzzle-size="modalPuzzleSize"
+              :width="300"
+              :height="150"
+              :public-key="modalPublicKey"
+              @verify="onCaptchaVerify"
+            />
+            <div v-if="captchaError" class="captcha-error">{{ captchaError }}</div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
 import { debounce } from 'lodash';
-import { ref, reactive, computed } from 'vue';
+import { SliderCaptcha } from 'scr-slider-captcha/frontend';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import VueTurnstile from 'vue-turnstile';
 
+import { useCaptcha } from '@/composables/useCaptcha';
 import { login } from '@/utils/chat';
+import { originalFetch } from "@/utils/chat/config.js";
 
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
-const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
+
+const {
+  captchaError
+} = useCaptcha();
 
 const router = useRouter();
+
+onMounted(() => {
+});
 
 const formData = reactive({
   username: '',
@@ -146,12 +168,19 @@ const formData = reactive({
   gender: '0'
 });
 
-const turnstileRef = ref(null);
-const turnstileToken = ref('');
 const message = ref('');
 const messageType = ref('error');
 const isSubmitting = ref(false);
 const registerButton = ref(null);
+
+// 模态框状态
+const captchaModalVisible = ref(false);
+const modalBgBase64 = ref('');
+const modalPuzzleBase64 = ref('');
+const modalTargetY = ref(0);
+const modalPuzzleSize = ref(50);
+const modalPublicKey = ref('');
+let pendingCaptchaId = '';
 
 const validation = reactive({
   username: '',
@@ -172,8 +201,7 @@ const isFormValid = computed(() => {
   const nicknameValid = !!formData.nickname && String(formData.nickname).trim().length > 0 && validation.nicknameClass === 'success';
   const passwordValid = !!formData.password && String(formData.password).trim().length >= 6;
   const confirmPasswordValid = !!formData.confirmPassword && String(formData.confirmPassword).trim().length >= 6 && formData.password === formData.confirmPassword;
-  const turnstileValid = !!turnstileToken.value && String(turnstileToken.value).length > 0;
-  return usernameValid && nicknameValid && passwordValid && confirmPasswordValid && turnstileValid;
+  return usernameValid && nicknameValid && passwordValid && confirmPasswordValid;
 });
 
 function showMessage(msg, type) {
@@ -182,13 +210,6 @@ function showMessage(msg, type) {
   setTimeout(() => {
     message.value = '';
   }, 5000);
-}
-
-function resetTurnstile() {
-  if (turnstileRef.value) {
-    turnstileToken.value = '';
-    turnstileRef.value.reset();
-  }
 }
 
 async function validateUsername() {
@@ -209,7 +230,7 @@ async function validateUsername() {
   validation.usernameClass = '';
 
   try {
-    const response = await fetch(`${SERVER_URL}/api/check-username?username=${encodeURIComponent(username)}`);
+    const response = await originalFetch(`${SERVER_URL}/api/check-username?username=${encodeURIComponent(username)}`);
     const data = await response.json();
 
     if (data.status === 'success') {
@@ -320,30 +341,63 @@ function validateConfirmPassword() {
   return true;
 }
 
-async function validateAll() {
+async function openCaptchaModal() {
+  captchaError.value = '';
+  captchaModalVisible.value = true;
+  try {
+    const res = await originalFetch(`${SERVER_URL}/api/captcha/create`, {
+      method: 'POST'
+    });
+    const data = await res.json();
+    if (data.captchaId) {
+      pendingCaptchaId = data.captchaId;
+      modalBgBase64.value = data.bgBase64;
+      modalPuzzleBase64.value = data.puzzleBase64;
+      modalTargetY.value = data.targetY;
+      modalPuzzleSize.value = data.puzzleSize;
+      modalPublicKey.value = data.publicKey || '';
+    } else {
+      captchaError.value = data.message || '获取验证码失败';
+    }
+  } catch (err) {
+    const msg = err?.message || '';
+    if (msg && !msg.includes('Failed to fetch')) {
+      captchaError.value = msg;
+    } else {
+      captchaError.value = '网络错误，请稍后重试';
+    }
+  }
+}
+
+function closeCaptchaModal() {
+  captchaModalVisible.value = false;
+  modalBgBase64.value = '';
+  modalPuzzleBase64.value = '';
+  isSubmitting.value = false;
+}
+
+async function onCaptchaVerify(encryptedData) {
+  await doRegisterRequest(pendingCaptchaId, encryptedData);
+}
+
+async function handleRegisterClick() {
   const isUsernameValid = await validateUsername();
   const isNicknameValid = validateNickname();
   const isPasswordValid = validatePassword();
   const isConfirmPasswordValid = validateConfirmPassword();
-  const isTurnstileValid = turnstileToken.value !== '';
 
-  if (!isTurnstileValid) {
-    showMessage('请完成人机验证', 'error');
-  }
-
-  return isUsernameValid && isNicknameValid && isPasswordValid && isConfirmPasswordValid && isTurnstileValid;
-}
-
-async function handleRegister() {
-  if (!await validateAll()) {
+  if (!(isUsernameValid && isNicknameValid && isPasswordValid && isConfirmPasswordValid)) {
     showMessage('请修正表单中的错误后再提交', 'error');
     return;
   }
+  openCaptchaModal();
+}
 
+async function doRegisterRequest(captchaIdVal, encryptedTrajectoryVal) {
   isSubmitting.value = true;
 
   try {
-    const registerResponse = await fetch(`${SERVER_URL}/api/register`, {
+    const registerResponse = await originalFetch(`${SERVER_URL}/api/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -353,7 +407,8 @@ async function handleRegister() {
         nickname: formData.nickname,
         password: formData.password,
         gender: parseInt(formData.gender),
-        turnstileToken: turnstileToken.value
+        captchaId: captchaIdVal,
+        encryptedTrajectory: encryptedTrajectoryVal
       })
     });
 
@@ -364,27 +419,45 @@ async function handleRegister() {
       registerData = JSON.parse(registerResponseText);
     } catch (parseError) {
       showMessage('服务器响应格式错误，请稍后重试', 'error');
-      isSubmitting.value = false;
-      resetTurnstile();
+      closeCaptchaModal();
       return;
     }
 
     if (!(registerData.success || registerData.status === 'success' || registerData.code === 200)) {
       const errorMessage = registerData.message || registerData.msg || '注册失败，请稍后重试';
-      showMessage(errorMessage, 'error');
-      resetTurnstile();
+
+      if (registerResponse.status === 400 && (errorMessage.includes('用户名') || errorMessage.includes('密码') || errorMessage.includes('昵称'))) {
+        closeCaptchaModal();
+        showMessage(errorMessage, 'error');
+        isSubmitting.value = false;
+        return;
+      }
+
+      if (errorMessage.includes('人机验证') || errorMessage.includes('验证码')) {
+        captchaError.value = '人机验证失败，请重试';
+        modalBgBase64.value = '';
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await openCaptchaModal();
+        isSubmitting.value = false;
+        return;
+      }
+
+      captchaError.value = errorMessage;
       isSubmitting.value = false;
       return;
     }
 
+    closeCaptchaModal();
     showMessage('注册成功，正在自动登录...', 'success');
-    
-    const loginResponse = await fetch(`${SERVER_URL}/api/login`, {
+
+    const loginResponse = await originalFetch(`${SERVER_URL}/api/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        username: formData.username,
+        password: formData.password,
         autoLoginToken: registerData.autoLoginToken
       })
     });
@@ -449,8 +522,8 @@ async function handleRegister() {
       isSubmitting.value = false;
     }
   } catch (error) {
+    closeCaptchaModal();
     showMessage('注册请求失败，请检查用户名/昵称/密码是否合法，并稍后重试', 'error');
-    resetTurnstile();
     isSubmitting.value = false;
   }
 }
@@ -477,13 +550,13 @@ async function handleRegister() {
 .decoration {
   position: absolute;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(150, 200, 255, 0.6);
 }
 
 .decoration-1 {
   width: 150px;
   height: 150px;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(150, 200, 255, 0.6);
   top: -150px;
   right: 0px;
   animation: float 16s infinite ease-in-out;
@@ -492,7 +565,7 @@ async function handleRegister() {
 .decoration-2 {
   width: 200px;
   height: 200px;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(140, 190, 255, 0.55);
   bottom: -100px;
   left: -50px;
   animation: float 12s infinite ease-in-out;
@@ -501,7 +574,7 @@ async function handleRegister() {
 .decoration-3 {
   width: 100px;
   height: 100px;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(160, 210, 255, 0.5);
   top: 50%;
   right: 50px;
   animation: float 8s infinite ease-in-out;
@@ -589,12 +662,6 @@ input:focus {
   border-color: #0072ff;
   background-color: white;
   box-shadow: 0 0 0 3px rgba(0, 114, 255, 0.1);
-}
-
-/* Turnstile 容器样式 */
-.turnstile-container {
-  display: flex;
-  justify-content: flex-start;
 }
 
 /* 按钮样式 */
@@ -724,6 +791,80 @@ button:disabled {
 
 .gender-option:hover {
   color: #0072ff;
+}
+
+/* 验证码模态框 */
+.captcha-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.captcha-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  padding: 24px;
+  max-width: 360px;
+  width: 90%;
+  animation: modalIn 0.2s ease-out;
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.captcha-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.captcha-close-btn {
+  background: none;
+  border: none;
+  font-size: 22px;
+  color: #999;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.2s;
+  margin-top: 0;
+}
+
+.captcha-close-btn:hover {
+  color: #333;
+}
+
+.captcha-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.captcha-error {
+  color: #d32f2f;
+  font-size: 13px;
+  margin-top: 10px;
+  text-align: center;
 }
 
 /* 响应式设计 */

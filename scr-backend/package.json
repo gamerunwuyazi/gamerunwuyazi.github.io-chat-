@@ -4,11 +4,12 @@
   "description": "A simple chat server",
   "main": "app.js",
   "scripts": {
-    "start": "node -e \"console.log('警告：使用本命令前请先运行 npm run build 脚本，尽量使用 npm run server 命令启动')\" && node app.js",
+    "start": "node src/index.js",
     "server": "node esbuild.config.mjs && node app.js",
     "dev": "node esbuild.config.mjs --watch",
     "devbuild": "node esbuild.config.mjs --dev",
     "build": "node esbuild.config.mjs",
+    "generate-keys": "node generate-keys.mjs",
     "lint": "eslint src/"
   },
   "keywords": [],
@@ -24,6 +25,7 @@
     "mysql2": "^3.15.1",
     "node-schedule": "^2.1.1",
     "redis": "^5.11.0",
+    "scr-slider-captcha": "^1.1.0",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {

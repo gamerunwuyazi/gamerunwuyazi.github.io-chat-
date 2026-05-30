@@ -10,7 +10,7 @@ import { socketConfig } from '../config/index.js';
 // 添加在线用户
 async function addOnlineUser(socketId, userData, redisClient) {
   try {
-    await redisClient.hSet('scr:online_users', socketId, JSON.stringify(userData));
+    await redisClient.hSet('scr:online_users', String(socketId), JSON.stringify(userData));
   } catch (err) {
     console.error('添加在线用户失败:', err.message);
   }
@@ -19,7 +19,7 @@ async function addOnlineUser(socketId, userData, redisClient) {
 // 移除在线用户
 async function removeOnlineUser(socketId, redisClient) {
   try {
-    await redisClient.hDel('scr:online_users', socketId);
+    await redisClient.hDel('scr:online_users', String(socketId));
   } catch (err) {
     console.error('移除在线用户失败:', err.message);
   }
@@ -28,7 +28,7 @@ async function removeOnlineUser(socketId, redisClient) {
 // 获取在线用户
 async function getOnlineUser(socketId, redisClient) {
   try {
-    const userData = await redisClient.hGet('scr:online_users', socketId);
+    const userData = await redisClient.hGet('scr:online_users', String(socketId));
     return userData ? JSON.parse(userData) : null;
   } catch (err) {
     console.error('获取在线用户失败:', err.message);
@@ -42,7 +42,18 @@ async function getAllOnlineUsers(redisClient) {
     const users = await redisClient.hGetAll('scr:online_users');
     const result = [];
     for (const socketId in users) {
-      result.push({ socketId, ...JSON.parse(users[socketId]) });
+      try {
+        const userData = JSON.parse(users[socketId]);
+        if (userData && userData.id) {
+          result.push({ socketId, ...userData });
+        } else {
+          console.warn(`⚠️ 在线用户数据无效(socketId: ${socketId})，已跳过`);
+          await redisClient.hDel('scr:online_users', String(socketId));
+        }
+      } catch (parseErr) {
+        console.error(`❌ 解析在线用户数据失败(socketId: ${socketId}):`, parseErr.message);
+        await redisClient.hDel('scr:online_users', String(socketId));
+      }
     }
     return result;
   } catch (err) {
@@ -82,10 +93,15 @@ async function updateOnlineUserByUserId(userId, updates, redisClient) {
   try {
     const users = await redisClient.hGetAll('scr:online_users');
     for (const socketId in users) {
-      const userData = JSON.parse(users[socketId]);
-      if (String(userData.id) === String(userId)) {
-        const updatedUser = { ...userData, ...updates };
-        await redisClient.hSet('scr:online_users', socketId, JSON.stringify(updatedUser));
+      try {
+        const userData = JSON.parse(users[socketId]);
+        if (userData && userData.id && String(userData.id) === String(userId)) {
+          const updatedUser = { ...userData, ...updates };
+          await redisClient.hSet('scr:online_users', socketId, JSON.stringify(updatedUser));
+        }
+      } catch (parseErr) {
+        console.error(`❌ 解析在线用户数据失败(socketId: ${socketId}):`, parseErr.message);
+        await redisClient.hDel('scr:online_users', String(socketId));
       }
     }
   } catch (err) {

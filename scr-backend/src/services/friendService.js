@@ -6,13 +6,13 @@ export async function handleGetFriends(req, res, io) {
     const userId = parseInt(req.userId);
 
     const [friends] = await pool.execute(`
-      SELECT cu.id, cu.nickname, cu.username, cu.gender, cu.avatar_url, cf.status
+      SELECT cu.id, cu.nickname, cu.username, cu.gender, cu.avatar_url, cf.status, cf.remark
       FROM scr_friends cf
       JOIN scr_users cu ON cf.friend_id = cu.id
       WHERE cf.user_id = ? AND cf.status NOT IN (0, 2, 3, 6, 7, 8, 9, 11, 12, 13, 14)
       ORDER BY cf.id DESC
     `, [userId]);
-    
+
     res.json({
       status: 'success',
       friends: friends,
@@ -1033,9 +1033,11 @@ export async function handleRemoveFriend(req, res, io) {
         } else if (friendStatus === 10) {
           await pool.execute('UPDATE scr_friends SET status = 11, created_at = NOW() WHERE user_id = ? AND friend_id = ?', [friendIdNum, userId]);
         } else if (friendStatus === 0 || friendStatus === 9 || friendStatus === 12) {
+          // 状态已正确，无需更新
         } else if (friendStatus === 7 || friendStatus === 8) {
           await pool.execute('UPDATE scr_friends SET status = 0, created_at = NOW() WHERE user_id = ? AND friend_id = ?', [friendIdNum, userId]);
         } else if (friendStatus === 11) {
+          // 状态已正确，无需更新
         } else {
           await pool.execute('UPDATE scr_friends SET status = 0, created_at = NOW() WHERE user_id = ? AND friend_id = ?', [friendIdNum, userId]);
         }
@@ -1366,5 +1368,49 @@ export async function handleSearchUsers(req, res, io) {
   } catch (err) {
     console.error('搜索用户失败:', err.message);
     res.status(500).json({ status: 'error', message: '搜索用户失败' });
+  }
+}
+
+export async function handleSetFriendRemark(req, res, io) {
+  try {
+    const userId = parseInt(req.userId);
+    const { friendId, remark } = req.body;
+
+    if (!friendId) {
+      return res.status(400).json({ status: 'error', message: '好友ID不能为空' });
+    }
+
+    if (remark !== null && typeof remark !== 'string') {
+      return res.status(400).json({ status: 'error', message: '备注格式不正确' });
+    }
+
+    if (remark && remark.length > 100) {
+      return res.status(400).json({ status: 'error', message: '备注长度不能超过100个字符' });
+    }
+
+    const [existingFriend] = await pool.execute(
+      `SELECT id FROM scr_friends WHERE user_id = ? AND friend_id = ? AND status = 1`,
+      [userId, friendId]
+    );
+
+    if (existingFriend.length === 0) {
+      return res.status(404).json({ status: 'error', message: '未找到该好友或不是正常好友关系' });
+    }
+
+    const remarkValue = (remark && remark.trim()) ? remark.trim() : null;
+
+    await pool.execute(
+      `UPDATE scr_friends SET remark = ? WHERE user_id = ? AND friend_id = ?`,
+      [remarkValue, userId, friendId]
+    );
+
+    res.json({
+      status: 'success',
+      message: remarkValue ? '备注设置成功' : '备注已清除',
+      remark: remarkValue
+    });
+  } catch (err) {
+    console.error('设置好友备注失败:', err.message);
+    res.status(500).json({ status: 'error', message: '设置好友备注失败' });
   }
 }

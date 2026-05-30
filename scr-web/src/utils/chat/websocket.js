@@ -1,4 +1,5 @@
 import localForage from 'localforage';
+import { toRaw } from 'vue';
 
 import modal from '../modal.js';
 
@@ -27,10 +28,9 @@ import {
 import { refreshTokenWithQueue } from './tokenManager.js';
 import { 
   updateUnreadCountsDisplay, 
-  currentActiveChat, 
   logout
 } from './ui.js';
-import { navigateTo } from './routerInstance.js';
+import { navigateTo, getRouter } from './routerInstance.js';
 
 
 let avatarVersions = {};
@@ -166,17 +166,52 @@ function initializeWebSocket() {
         
         // 检查是否是类型101撤回消息
         if (message.messageType === 101) {
-            // 101消息的content是被撤回消息的ID（简单字符串格式）
-            const originalMessageId = String(message.content).trim();
+            let originalMessageId;
+            let recallNickname = null;
+            let recallerId = null;
             
+            const isGroupRecall = !!message.groupId;
+
+            if (isGroupRecall) {
+                try {
+                    const parsed = JSON.parse(message.content);
+                    if (parsed && parsed.id) {
+                        originalMessageId = String(parsed.id).trim();
+                        if (parsed.nickname && typeof parsed.nickname === 'object' && !Array.isArray(parsed.nickname)) {
+                            const keys = Object.keys(parsed.nickname);
+                            if (keys.length > 0) {
+                                recallerId = keys[0];
+                                recallNickname = parsed.nickname[recallerId];
+                            }
+                        }
+                    }
+                } catch (e) {
+                    originalMessageId = String(message.content).trim();
+                }
+            } else {
+                originalMessageId = String(message.content).trim();
+                recallerId = String(message.userId || message.senderId || '');
+                recallNickname = message.nickname;
+            }
+
             if (!originalMessageId || !storageStore) {
                 return;
             }
 
+            let computedRecallNickname = recallNickname;
+            if (isGroupRecall && recallerId) {
+                const members = groupStore.currentGroupMembers;
+                if (members && Array.isArray(members) && members.length > 0) {
+                    const recaller = members.find(m => String(m.id) === String(recallerId));
+                    if (recaller) {
+                        computedRecallNickname = recaller.group_nickname || recaller.nickname || recallNickname || '某人';
+                    }
+                }
+            }
+
             // 先查找并替换引用该被撤回消息的消息
             if (storageStore.fixQuotedMessagesForWithdrawn) {
-                if (message.groupId) {
-                    // 群组消息 - 从 fullGroupMessages 中查找
+                if (isGroupRecall) {
                     if (storageStore.fullGroupMessages !== null && storageStore.fullGroupMessages !== undefined && storageStore.fullGroupMessages[message.groupId]) {
                         const messages = storageStore.fullGroupMessages[message.groupId];
                         const updates = storageStore.fixQuotedMessagesForWithdrawn(originalMessageId, messages);
@@ -187,7 +222,6 @@ function initializeWebSocket() {
                         });
                     }
                 } else if (message.senderId && message.receiverId) {
-                    // 私信消息 - 从 fullPrivateMessages 中查找
                     const currentUser = baseStore.currentUser;
                     const msgSenderId = String(message.senderId);
                     const msgReceiverId = String(message.receiverId);
@@ -203,7 +237,6 @@ function initializeWebSocket() {
                         });
                     }
                 } else {
-                    // 公共消息 - 从 fullPublicMessages 中查找
                     if (storageStore.fullPublicMessages !== null && storageStore.fullPublicMessages !== undefined) {
                         const messages = storageStore.fullPublicMessages;
                         const updates = storageStore.fixQuotedMessagesForWithdrawn(originalMessageId, messages);
@@ -216,50 +249,58 @@ function initializeWebSocket() {
                 }
             }
 
+            // 构建撤回人昵称JSON存储格式：{撤回人id:撤回人昵称}
+            // 如果没有recallerId，使用message中的userId作为后备
+            const fallbackRecallerId = recallerId || String(message.userId || '');
+            const fallbackRecallNickname = computedRecallNickname || message.nickname || '某人';
+            const recallJson = fallbackRecallerId 
+                ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname }) 
+                : '';
+
             // 根据被撤回消息ID找到原消息并标记为已撤回
-            if (message.groupId) {
-                // 群组消息撤回
+            if (message.groupId) {                
                 const groupMessages = storageStore.fullGroupMessages?.[message.groupId];
 
                 if (groupMessages) {
                     const targetMsg = groupMessages.find(m => String(m.id) === originalMessageId);
+                    
                     if (targetMsg) {
-                        // 使用101消息中的信息构建撤回提示（不依赖本地旧content）
-                        const recallText = `${message.nickname || '某人'}撤回了一条消息`;
+                        // 确保content使用正确的JSON格式
+                        const finalContent = recallJson || (fallbackRecallerId 
+                            ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname })
+                            : targetMsg.content);  // 如果都为空，保留原内容
                         
-                        // 标记为已撤回并应用系统样式
                         Object.assign(targetMsg, {
                             isRecalled: true,
                             isSystemMessage: true,
-                            content: recallText,  // 直接使用构建的撤回提示
-                            nickname: message.nickname || targetMsg.nickname,
+                            content: finalContent,
+                            nickname: computedRecallNickname || message.nickname || targetMsg.nickname,
                             avatarUrl: message.avatarUrl || targetMsg.avatarUrl
                         });
 
-                        // 触发UI更新
                         if (groupStore.updateGroupMessage) {
                             groupStore.updateGroupMessage(message.groupId, originalMessageId, targetMsg);
                         }
 
-                        // 持久化到IndexedDB（更新现有记录，不删除）
                         if (storageStore.saveGroupMessageToIndexedDB) {
                             storageStore.saveGroupMessageToIndexedDB(message.groupId, targetMsg);
                         }
                     }
                 }
 
-                // 更新群组会话的最后消息时间
                 if (groupStore && groupStore.groupsList) {
                     const group = groupStore.groupsList.find(g => String(g.id) === String(message.groupId));
                     if (group) {
                         const newTime = new Date(message.timestamp || Date.now()).toISOString();
-                        const recallText = `${message.nickname || '某人'}撤回了一条消息`;
                         group.last_message_time = newTime;
                         group.session_last_active_time = newTime;
                         group.lastMessage = {
                             ...message,
-                            content: recallText,
-                            nickname: message.nickname || targetMsg?.nickname
+                            content: recallJson || (fallbackRecallerId 
+                                ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname })
+                                : message.content),
+                            nickname: computedRecallNickname || message.nickname || targetMsg?.nickname,
+                            isRecalled: true
                         };
                         groupStore.sortGroupsByLastMessageTime();
                         if (storageStore.updateSessionLastMessageTime) {
@@ -268,7 +309,6 @@ function initializeWebSocket() {
                     }
                 }
             } else if (message.senderId && message.receiverId) {
-                // 私信消息撤回
                 const currentUser = baseStore.currentUser;
                 const msgSenderId = String(message.senderId);
                 const msgReceiverId = String(message.receiverId);
@@ -278,42 +318,34 @@ function initializeWebSocket() {
                 if (privateMessages) {
                     const targetMsg = privateMessages.find(m => String(m.id) === originalMessageId);
                     if (targetMsg) {
-                        // 使用101消息中的信息构建撤回提示（不依赖本地旧content）
-                        const recallText = `${message.nickname || '某人'}撤回了一条消息`;
-                        
-                        // 标记为已撤回并应用系统样式
                         Object.assign(targetMsg, {
                             isRecalled: true,
                             isSystemMessage: true,
-                            content: recallText,  // 直接使用构建的撤回提示
-                            nickname: message.nickname || targetMsg.nickname,
+                            content: recallJson,
+                            nickname: computedRecallNickname || message.nickname || targetMsg.nickname,
                             avatarUrl: message.avatarUrl || targetMsg.avatarUrl
                         });
 
-                        // 触发UI更新
                         if (friendStore.updatePrivateMessage) {
                             friendStore.updatePrivateMessage(chatPartnerId, originalMessageId, targetMsg);
                         }
 
-                        // 持久化到IndexedDB（更新现有记录，不删除）
                         if (storageStore.savePrivateMessageToIndexedDB) {
                             storageStore.savePrivateMessageToIndexedDB(chatPartnerId, targetMsg);
                         }
                     }
                 }
 
-                // 更新私信会话的最后消息时间
                 if (friendStore && friendStore.friendsList) {
                     const friend = friendStore.friendsList.find(f => String(f.id) === String(chatPartnerId));
                     if (friend) {
                         const newTime = new Date(message.timestamp || Date.now()).toISOString();
-                        const recallText = `${message.nickname || '某人'}撤回了一条消息`;
                         friend.last_message_time = newTime;
                         friend.session_last_active_time = newTime;
                         friend.lastMessage = {
                             ...message,
-                            content: recallText,
-                            nickname: message.nickname || targetMsg?.nickname
+                            content: recallJson,
+                            nickname: computedRecallNickname || message.nickname || targetMsg?.nickname
                         };
                         friendStore.sortFriendsByLastMessageTime();
                         if (storageStore.updateSessionLastMessageTime) {
@@ -322,37 +354,33 @@ function initializeWebSocket() {
                     }
                 }
             } else {
-                // 公共消息撤回
                 const publicMessages = storageStore.fullPublicMessages;
                 if (publicMessages) {
                     const targetMsg = publicMessages.find(m => String(m.id) === originalMessageId);
                     if (targetMsg) {
-                        // 使用101消息中的信息构建撤回提示（不依赖本地旧content）
-                        const recallText = `${message.nickname || '某人'}撤回了一条消息`;
+                        const finalContent = recallJson || (fallbackRecallerId 
+                            ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname })
+                            : targetMsg.content);
                         
-                        // 标记为已撤回并应用系统样式
                         Object.assign(targetMsg, {
                             isRecalled: true,
                             isSystemMessage: true,
-                            content: recallText,  // 直接使用构建的撤回提示
-                            nickname: message.nickname || targetMsg.nickname,
+                            content: finalContent,
+                            nickname: computedRecallNickname || message.nickname || targetMsg.nickname,
                             avatarUrl: message.avatarUrl || targetMsg.avatarUrl
                         });
 
-                        // 触发UI更新
                         if (publicStore.updatePublicMessage) {
                             publicStore.updatePublicMessage(originalMessageId, targetMsg);
                         }
 
-                        // 持久化到IndexedDB（更新现有记录，不删除）
                         if (storageStore.savePublicMessageToIndexedDB) {
                             storageStore.savePublicMessageToIndexedDB(targetMsg);
                         }
                     }
                 }
             }
-            
-            // 更新对应的 minId
+
             if (message.id && storageStore.publicAndGroupMinId !== undefined) {
                 if (message.id > storageStore.publicAndGroupMinId) {
                     storageStore.publicAndGroupMinId = message.id;
@@ -369,6 +397,14 @@ function initializeWebSocket() {
             try {
                 const updateData = JSON.parse(message.content);
                 const userId = message.userId;
+
+                if (storageStore && storageStore.processUserInfoUpdateForRecallMessages) {
+                    storageStore.processUserInfoUpdateForRecallMessages(userId, updateData);
+                }
+
+                // ========== 处理全局用户信息更新的102消息 ==========
+
+                // 1. 全局昵称更新（原有逻辑）
                 if (updateData.type === 'nickname' && updateData.nickname) {
                     if (userStore && userStore.onlineUsers) {
                         const userIndex = userStore.onlineUsers.findIndex(u => String(u.id) === String(userId));
@@ -400,6 +436,24 @@ function initializeWebSocket() {
                     }
                     if (storageStore && storageStore.updateUserInfoInMessages) {
                         storageStore.updateUserInfoInMessages(userId, { nickname: updateData.nickname });
+                    }
+                    if (friendStore && friendStore.privateMessages) {
+                        const privateMsgs = toRaw(friendStore.privateMessages);
+                        Object.keys(privateMsgs).forEach(otherUserId => {
+                            const messages = privateMsgs[otherUserId];
+                            if (messages && Array.isArray(messages)) {
+                                let hasChanges = false;
+                                messages.forEach(msg => {
+                                    if (String(msg.senderId) === String(userId)) {
+                                        msg.nickname = updateData.nickname;
+                                        hasChanges = true;
+                                    }
+                                });
+                                if (hasChanges) {
+                                    friendStore.privateMessages[otherUserId] = [...messages];
+                                }
+                            }
+                        });
                     }
                 } else if (updateData.type === 'avatar' && updateData.avatarUrl) {
                     if (userStore && userStore.onlineUsers) {
@@ -436,6 +490,24 @@ function initializeWebSocket() {
                     }
                     if (storageStore && storageStore.updateUserInfoInMessages) {
                         storageStore.updateUserInfoInMessages(userId, { avatarUrl: updateData.avatarUrl });
+                    }
+                    if (friendStore && friendStore.privateMessages) {
+                        const privateMsgs = toRaw(friendStore.privateMessages);
+                        Object.keys(privateMsgs).forEach(otherUserId => {
+                            const messages = privateMsgs[otherUserId];
+                            if (messages && Array.isArray(messages)) {
+                                let hasChanges = false;
+                                messages.forEach(msg => {
+                                    if (String(msg.senderId) === String(userId)) {
+                                        msg.avatarUrl = updateData.avatarUrl;
+                                        hasChanges = true;
+                                    }
+                                });
+                                if (hasChanges) {
+                                    friendStore.privateMessages[otherUserId] = [...messages];
+                                }
+                            }
+                        });
                     }
                 }
             } catch (e) {
@@ -516,35 +588,43 @@ function initializeWebSocket() {
             }
             
             // 更新群组未读计数
-            // 规则：如果不是自己发送的消息，且 (不在当前群组页面 或 页面不可见 或 浏览器没有焦点)，则增加未读计数
-            // 另外：如果是免打扰群组，则不增加未读计数
-            
+            // 核心规则：只有在浏览器焦点在本网页 且 当前路由在群组页面 且 sessionStore打开了该群组 时，才不增加未读计数
+
             const isOwnMessage = String(currentUser.id) === String(message.userId);
             const groupIdStr = String(message.groupId);
-            const isCurrentGroup = currentActiveChat === `group_${groupIdStr}`;
+
+            // 1. 检查sessionStore是否打开了该群组会话
+            const isCurrentGroupOpen = sessionStore && String(sessionStore.currentGroupId) === groupIdStr;
+
+            // 2. 检查当前路由是否在群组页面（使用Vue Router原生方法，匹配 /chat/group 前缀）
+            const routerInstanceForGroup = getRouter();
+            const currentPathForGroup = routerInstanceForGroup?.currentRoute?.value?.path || window.location.pathname || '';
+            const isOnGroupRoute = currentPathForGroup.startsWith('/chat/group') ||
+                currentPathForGroup === '/chat/group' ||
+                currentPathForGroup.startsWith('/chat/group/') ||
+                currentPathForGroup.startsWith('/chat/group?');
+
             const isGroupMutedLocal = typeof isGroupMuted === 'function' && isGroupMuted(message.groupId);
-            
-            // 只有在当前群组页面且浏览器有焦点且页面可见时，才不增加未读计数
-            const shouldAddGroupUnread = !isOwnMessage && !(isCurrentGroup && isPageVisible && isBrowserFocused) && !isGroupMutedLocal;
-            
+
+            // 判断用户是否正在关注此群组会话（必须同时满足：路由正确 + 会话打开 + 焦点状态）
+            const isUserFocusedOnThisGroupChat = isCurrentGroupOpen && isOnGroupRoute && isPageVisible && isBrowserFocused;
+            const shouldAddGroupUnread = !isOwnMessage && !isUserFocusedOnThisGroupChat && !isGroupMutedLocal;
+
             if (shouldAddGroupUnread) {
                 if (unreadStore && unreadStore.incrementGroupUnread) {
                     unreadStore.incrementGroupUnread(message.groupId);
                 }
                 updateUnreadCountsDisplay();
-            }
-            
-            // 如果用户当前正在该群组聊天中且浏览器有焦点且页面可见，自动清除未读
-            if (isCurrentGroup && isPageVisible && isBrowserFocused && !isOwnMessage) {
-                // 立即清除群组未读计数
+            } else if (isUserFocusedOnThisGroupChat && !isOwnMessage) {
+                // 用户正在关注此会话，自动清除之前累积的未读计数
                 if (unreadStore && unreadStore.clearGroupUnread) {
                     unreadStore.clearGroupUnread(message.groupId);
                 }
                 updateUnreadCountsDisplay();
             }
-            
-            // 如果当前焦点在群组页面，将群组移到顶部
-            if (pageVisible && currentActiveChat === `group_${groupIdStr}`) {
+
+            // 如果当前打开的是该群组且页面可见，将群组移到顶部
+            if (pageVisible && isCurrentGroupOpen) {
                 if (groupStore && groupStore.moveGroupToTop) {
                     groupStore.moveGroupToTop(message.groupId);
                 }
@@ -565,27 +645,33 @@ function initializeWebSocket() {
             }
             
             // 更新公共聊天未读计数
-            // 规则：如果不是自己发送的消息，且 (不在主聊天室路由 或 页面不可见 或 浏览器没有焦点)，则增加未读计数
+            // 核心规则：只有在浏览器焦点在本网页 且 当前路由在主聊天室 且 没有打开群组/私信会话 时，才不增加未读计数
+
             const isOwnMessage = String(currentUser.id) === String(message.userId);
-            
-            // 检查当前路由是否在主聊天室（/chat 或 /chat/）
-            const baseStore = useBaseStore();
-            const currentPath = baseStore?.currentRoute?.path || '';
-            const isInMainChatRoute = currentPath === '/chat' || currentPath === '/chat/';
-            
-            // 只有在主聊天室路由且浏览器有焦点且页面可见时，才不增加未读计数
-            const shouldAddUnread = !isOwnMessage && !(isInMainChatRoute && isPageVisible && isBrowserFocused);
-            
+
+            // 使用 Vue Router 原生方法获取当前路由路径
+            const routerInstance = getRouter();
+            const currentPath = routerInstance?.currentRoute?.value?.path || window.location.pathname || '';
+            const isInMainChatRoute = currentPath === '/chat' || currentPath === '/chat/' ||
+                (currentPath.startsWith('/chat') && !currentPath.startsWith('/chat/group') && !currentPath.startsWith('/chat/private'));
+
+            // 使用 sessionStore 判断是否真的在主聊天（没有打开群组或私信）
+            const isReallyInMainChat = isInMainChatRoute &&
+                sessionStore &&
+                !sessionStore.currentGroupId &&
+                !sessionStore.currentPrivateChatUserId;
+
+            // 判断用户是否正在关注公共聊天
+            const isUserFocusedOnPublicChat = isReallyInMainChat && isPageVisible && isBrowserFocused;
+            const shouldAddUnread = !isOwnMessage && !isUserFocusedOnPublicChat;
+
             if (shouldAddUnread) {
                 if (unreadStore && unreadStore.incrementGlobalUnread) {
                     unreadStore.incrementGlobalUnread();
                 }
                 updateUnreadCountsDisplay();
-            }
-            
-            // 如果用户当前正在主聊天室路由且浏览器有焦点且页面可见，自动清除未读
-            if (isInMainChatRoute && isPageVisible && isBrowserFocused && !isOwnMessage) {
-                // 清除主聊天室未读计数
+            } else if (isUserFocusedOnPublicChat && !isOwnMessage) {
+                // 用户正在关注公共聊天，自动清除之前累积的未读计数
                 if (unreadStore && unreadStore.clearGlobalUnread) {
                     unreadStore.clearGlobalUnread();
                 }
@@ -607,16 +693,54 @@ function initializeWebSocket() {
             
             // 检查是否是类型101撤回消息
             if (confirmedMessage.messageType === 101) {
-                // 101消息的content是被撤回消息的ID（简单字符串格式）
-                const originalMessageId = String(confirmedMessage.content).trim();
+                let originalMessageId;
+                let recallNickname = null;
+                let recallerId = null;
                 
+                const isGroupRecall = !!confirmedMessage.groupId;
+
+                if (isGroupRecall) {
+                    try {
+                        const parsed = JSON.parse(confirmedMessage.content);
+                        if (parsed && parsed.id) {
+                            originalMessageId = String(parsed.id).trim();
+                            if (parsed.nickname && typeof parsed.nickname === 'object' && !Array.isArray(parsed.nickname)) {
+                                const keys = Object.keys(parsed.nickname);
+                                if (keys.length > 0) {
+                                    recallerId = keys[0];
+                                    recallNickname = parsed.nickname[recallerId];
+                                }
+                            }
+                        } else {
+                            originalMessageId = String(confirmedMessage.content).trim();
+                        }
+                    } catch (e) {
+                        originalMessageId = String(confirmedMessage.content).trim();
+                    }
+                } else {
+                    originalMessageId = String(confirmedMessage.content).trim();
+                    recallerId = String(confirmedMessage.userId || confirmedMessage.senderId || '');
+                    recallNickname = confirmedMessage.nickname;
+                }
+
                 if (!originalMessageId || !storageStore) {
                     return;
                 }
 
+                let computedRecallNickname = recallNickname;
+                if (isGroupRecall && recallerId) {
+                    const members = groupStore.currentGroupMembers;
+                    if (members && Array.isArray(members) && members.length > 0) {
+                        const recaller = members.find(m => String(m.id) === String(recallerId));
+                        if (recaller) {
+                            computedRecallNickname = recaller.group_nickname || recaller.nickname || recallNickname || '某人';
+                        }
+                    }
+                }
+
                 // 先查找并替换引用该消息的消息
                 if (storageStore.fixQuotedMessagesForWithdrawn) {
-                    if (confirmedMessage.groupId) {
+                    if (isGroupRecall) {
                         // 群组消息 - 从 fullGroupMessages 中查找
                         if (storageStore.fullGroupMessages !== null && storageStore.fullGroupMessages !== undefined && storageStore.fullGroupMessages[confirmedMessage.groupId]) {
                             const messages = storageStore.fullGroupMessages[confirmedMessage.groupId];
@@ -641,22 +765,33 @@ function initializeWebSocket() {
                     }
                 }
 
+                // 构建撤回人昵称JSON存储格式：{撤回人id:撤回人昵称}
+                // 如果没有recallerId，使用confirmedMessage中的userId作为后备
+                const fallbackRecallerId = recallerId || String(confirmedMessage.userId || '');
+                const fallbackRecallNickname = computedRecallNickname || confirmedMessage.nickname || '某人';
+                const recallJson = fallbackRecallerId 
+                    ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname }) 
+                    : '';
+
                 // 根据被撤回消息ID找到原消息并标记为已撤回
-                if (confirmedMessage.groupId) {
+                if (confirmedMessage.groupId) {                    
                     // 群组消息撤回
                     const groupMessages = storageStore.fullGroupMessages?.[confirmedMessage.groupId];
                     if (groupMessages) {
                         const targetMsg = groupMessages.find(m => String(m.id) === originalMessageId);
+                        
                         if (targetMsg) {
-                            // 使用101消息中的信息构建撤回提示（不依赖本地旧content）
-                            const recallText = `${confirmedMessage.nickname || '某人'}撤回了一条消息`;
+                            // 确保content使用正确的JSON格式
+                            const finalContent = recallJson || (fallbackRecallerId 
+                                ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname })
+                                : targetMsg.content);
                             
-                            // 标记为已撤回并应用系统样式
+                            // 标记为已撤回并应用系统样式，使用JSON格式存储
                             Object.assign(targetMsg, {
                                 isRecalled: true,
                                 isSystemMessage: true,
-                                content: recallText,  // 直接使用构建的撤回提示
-                                nickname: confirmedMessage.nickname || targetMsg.nickname,
+                                content: finalContent,  // JSON格式：{userId: 昵称}
+                                nickname: computedRecallNickname || confirmedMessage.nickname || targetMsg.nickname,
                                 avatarUrl: confirmedMessage.avatarUrl || targetMsg.avatarUrl
                             });
 
@@ -665,7 +800,7 @@ function initializeWebSocket() {
                                 groupStore.updateGroupMessage(confirmedMessage.groupId, originalMessageId, targetMsg);
                             }
 
-                            // 持久化到IndexedDB（更新现有记录，不删除）
+                            // 持久化到IndexedDB（更新现有记录，保持JSON格式）
                             if (storageStore.saveGroupMessageToIndexedDB) {
                                 storageStore.saveGroupMessageToIndexedDB(confirmedMessage.groupId, targetMsg);
                             }
@@ -677,13 +812,15 @@ function initializeWebSocket() {
                         const group = groupStore.groupsList.find(g => String(g.id) === String(confirmedMessage.groupId));
                         if (group) {
                             const newTime = new Date(confirmedMessage.timestamp || Date.now()).toISOString();
-                            const recallText = `${confirmedMessage.nickname || '某人'}撤回了一条消息`;
                             group.last_message_time = newTime;
                             group.session_last_active_time = newTime;
                             group.lastMessage = {
                                 ...confirmedMessage,
-                                content: recallText,
-                                nickname: confirmedMessage.nickname || targetMsg?.nickname
+                                content: recallJson || (fallbackRecallerId 
+                                    ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname })
+                                    : confirmedMessage.content),  // JSON格式
+                                nickname: computedRecallNickname || confirmedMessage.nickname || targetMsg?.nickname,
+                                isRecalled: true
                             };
                             groupStore.sortGroupsByLastMessageTime();
                             if (storageStore.updateSessionLastMessageTime) {
@@ -697,15 +834,16 @@ function initializeWebSocket() {
                     if (publicMessages) {
                         const targetMsg = publicMessages.find(m => String(m.id) === originalMessageId);
                         if (targetMsg) {
-                            // 使用101消息中的信息构建撤回提示（不依赖本地旧content）
-                            const recallText = `${confirmedMessage.nickname || '某人'}撤回了一条消息`;
+                            const finalContent = recallJson || (fallbackRecallerId 
+                                ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname })
+                                : targetMsg.content);
                             
-                            // 标记为已撤回并应用系统样式
+                            // 标记为已撤回并应用系统样式，使用JSON格式存储
                             Object.assign(targetMsg, {
                                 isRecalled: true,
                                 isSystemMessage: true,
-                                content: recallText,  // 直接使用构建的撤回提示
-                                nickname: confirmedMessage.nickname || targetMsg.nickname,
+                                content: finalContent,  // JSON格式：{userId: 昵称}
+                                nickname: computedRecallNickname || confirmedMessage.nickname || targetMsg.nickname,
                                 avatarUrl: confirmedMessage.avatarUrl || targetMsg.avatarUrl
                             });
 
@@ -714,12 +852,14 @@ function initializeWebSocket() {
                                 publicStore.updatePublicMessage(originalMessageId, targetMsg);
                             }
 
-                            // 持久化到IndexedDB（更新现有记录，不删除）
+                            // 持久化到IndexedDB（更新现有记录，保持JSON格式）
                             if (storageStore.savePublicMessageToIndexedDB) {
                                 storageStore.savePublicMessageToIndexedDB(targetMsg);
                             }
                         }
                     }
+
+                    // 更新公共聊天最后消息时间（如果有lastMessage机制）
                 }
                 return;
             }
@@ -744,9 +884,19 @@ function initializeWebSocket() {
                     groupStore.addGroupMessage(groupId, confirmedMessage);
                 }
                 
-                // 更新群组最后消息
-                if (groupStore && groupStore.updateGroupLastMessage) {
-                    groupStore.updateGroupLastMessage(groupId, confirmedMessage);
+                // 更新群组最后消息时间并重新排序（与 message-received 事件保持一致）
+                if (groupStore && groupStore.groupsList) {
+                    const group = groupStore.groupsList.find(g => String(g.id) === String(groupId));
+                    if (group) {
+                        const newTime = new Date(confirmedMessage.timestamp || Date.now()).toISOString();
+                        group.last_message_time = newTime;
+                        group.session_last_active_time = newTime;
+                        group.lastMessage = confirmedMessage;
+                        groupStore.sortGroupsByLastMessageTime();
+                        if (storageStore && storageStore.updateSessionLastMessageTime) {
+                            storageStore.updateSessionLastMessageTime('group', groupId, newTime);
+                        }
+                    }
                 }
                 
                 // 将群组移到列表顶部
@@ -763,6 +913,12 @@ function initializeWebSocket() {
                 // 添加确认后的消息到 store
                 if (publicStore && publicStore.addPublicMessage) {
                     publicStore.addPublicMessage(confirmedMessage);
+                }
+
+                // 更新公共聊天最后消息时间到 IndexedDB
+                if (storageStore && storageStore.updateSessionLastMessageTime && confirmedMessage.messageType !== 101 && confirmedMessage.messageType !== 103) {
+                    const newTime = new Date(confirmedMessage.timestamp || Date.now()).toISOString();
+                    storageStore.updateSessionLastMessageTime('public', null, newTime);
                 }
                 
                 // 清空公共聊天草稿
@@ -823,7 +979,7 @@ function initializeWebSocket() {
 
         if (data && data.groupId) {
             if (groupStore && groupStore.markGroupAsDeleted) {
-                groupStore.markGroupAsDeleted(data.groupId);
+                groupStore.markGroupAsDeleted(data.groupId, true);
             }
             // 把解散状态记录到 IndexedDB
             try {
@@ -1039,133 +1195,6 @@ function initializeWebSocket() {
     });
 
     // 头像更新事件
-    socket.on('avatar-updated', async (data) => {
-        const userStore = useUserStore();
-        const friendStore = useFriendStore();
-        const storageStore = useStorageStore();
-        const baseStore = useBaseStore();
-        const sessionStore = useSessionStore();
-
-        // 刷新所有相关的头像显示
-        if (data.userId && data.avatarUrl) {
-            // 更新在线用户列表中的头像
-            if (userStore && userStore.onlineUsers) {
-                const userIndex = userStore.onlineUsers.findIndex(u => String(u.id) === String(data.userId));
-                if (userIndex !== -1) {
-                    // 更新在线用户的头像（支持 avatar、avatarUrl、avatar_url 三种字段名）
-                    userStore.onlineUsers[userIndex].avatar = data.avatarUrl;
-                    userStore.onlineUsers[userIndex].avatarUrl = data.avatarUrl;
-                    userStore.onlineUsers[userIndex].avatar_url = data.avatarUrl;
-                }
-            }
-            
-            // 直接更新好友列表中的头像，而不是重新从服务器加载
-            if (friendStore && friendStore.friendsList) {
-                const friendIndex = friendStore.friendsList.findIndex(f => String(f.id) === String(data.userId));
-                if (friendIndex !== -1) {
-                    // 更新好友的头像 URL（支持 avatarUrl、avatar_url、avatar 三种字段名）
-                    friendStore.friendsList[friendIndex].avatarUrl = data.avatarUrl;
-                    friendStore.friendsList[friendIndex].avatar_url = data.avatarUrl;
-                    friendStore.friendsList[friendIndex].avatar = data.avatarUrl;
-                    // 触发响应式更新
-                    friendStore.friendsList = [...friendStore.friendsList];
-                }
-            }
-            
-            // 更新所有消息列表中该用户的头像
-            if (storageStore && storageStore.updateUserInfoInMessages) {
-                storageStore.updateUserInfoInMessages(data.userId, { avatarUrl: data.avatarUrl });
-            }
-            
-            // 更新 IndexedDB 中的会话信息（无论好友是否已删除）
-            try {
-                const currentUser = baseStore.currentUser;
-                const userIdForStorage = currentUser?.id || 'guest';
-                const prefix = `chats-${userIdForStorage}`;
-                const key = `${prefix}-private-${data.userId}`;
-                const existingData = await localForage.getItem(key);
-                if (existingData) {
-                    const updatedSessionData = { ...existingData };
-                    updatedSessionData.avatarUrl = data.avatarUrl;
-                    await localForage.setItem(key, updatedSessionData);
-                }
-            } catch (e) {
-                console.error('更新IndexedDB中的好友头像失败:', e);
-            }
-            
-            // 刷新群组列表中的头像
-            loadGroupList();
-            // 刷新当前聊天界面中的头像
-            if (sessionStore.currentPrivateChatUserId) {
-                // 如果当前在私信聊天，刷新私信界面的头像
-                const privateUserAvatar = document.querySelector('#privateChatInterface .chat-avatar img');
-                if (privateUserAvatar && sessionStore.currentPrivateChatUserId === data.userId) {
-                    // 直接使用服务器返回的完整 URL（已包含?v=参数）
-                    const fullUrl = data.avatarUrl.startsWith('http') ? data.avatarUrl : `${SERVER_URL}${data.avatarUrl}`;
-                    privateUserAvatar.src = fullUrl;
-                }
-            }
-        }
-    });
-
-    // 昵称更新事件
-    socket.on('nickname-updated', async (data) => {
-        const userStore = useUserStore();
-        const friendStore = useFriendStore();
-        const storageStore = useStorageStore();
-        const baseStore = useBaseStore();
-        const sessionStore = useSessionStore();
-
-        if (data.userId && data.nickname) {
-            // 更新在线用户列表中的昵称
-            if (userStore && userStore.onlineUsers) {
-                const userIndex = userStore.onlineUsers.findIndex(u => String(u.id) === String(data.userId));
-                if (userIndex !== -1) {
-                    userStore.onlineUsers[userIndex].nickname = data.nickname;
-                }
-            }
-            
-            // 更新好友列表中的昵称
-            if (friendStore && friendStore.friendsList) {
-                const friendIndex = friendStore.friendsList.findIndex(f => String(f.id) === String(data.userId));
-                if (friendIndex !== -1) {
-                    friendStore.friendsList[friendIndex].nickname = data.nickname;
-                    // 触发响应式更新
-                    friendStore.friendsList = [...friendStore.friendsList];
-                }
-            }
-            
-            // 更新所有消息列表中该用户的昵称
-            if (storageStore && storageStore.updateUserInfoInMessages) {
-                storageStore.updateUserInfoInMessages(data.userId, { nickname: data.nickname });
-            }
-            
-            // 更新 IndexedDB 中的会话信息（无论好友是否已删除）
-            try {
-                const currentUser = baseStore.currentUser;
-                const userIdForStorage = currentUser?.id || 'guest';
-                const prefix = `chats-${userIdForStorage}`;
-                const key = `${prefix}-private-${data.userId}`;
-                const existingData = await localForage.getItem(key);
-                if (existingData) {
-                    const updatedSessionData = { ...existingData };
-                    updatedSessionData.nickname = data.nickname;
-                    await localForage.setItem(key, updatedSessionData);
-                }
-            } catch (e) {
-                console.error('更新IndexedDB中的好友昵称失败:', e);
-            }
-            
-            // 如果当前在私信聊天且是更新的用户，刷新私信界面的昵称
-            if (sessionStore.currentPrivateChatUserId && String(sessionStore.currentPrivateChatUserId) === String(data.userId)) {
-                const privateUserName = document.querySelector('#privateChatInterface .private-user-details h2');
-                if (privateUserName) {
-                    privateUserName.textContent = data.nickname;
-                }
-            }
-        }
-    });
-
     // 群头像更新事件
     socket.on('group-avatar-updated', async (data) => {
         const groupStore = useGroupStore();
@@ -1210,6 +1239,223 @@ function initializeWebSocket() {
             if (modalStore && modalStore.modalData && modalStore.modalData.groupInfo && 
                 String(modalStore.modalData.groupInfo.id) === String(data.groupId)) {
                 modalStore.modalData.groupInfo.avatar_url = data.avatarUrl;
+            }
+        }
+    });
+
+    // 群昵称更新专用事件
+    socket.on('group-nickname-updated', async (data) => {
+        const groupStore = useGroupStore();
+        const baseStore = useBaseStore();
+        const storageStore = useStorageStore();
+
+        if (!data.userId || !data.groupId) {
+            return;
+        }
+
+        const sessionStore = useSessionStore();
+        const currentGroupId = sessionStore.currentGroupId;
+        const newNickname = data.action === 'update_group_nickname' ? data.newNickname : null;
+        const groupNicknameValue = data.groupNickname || data.newNickname;
+
+        // 更新群组最后消息的 groupNickname（无论是否在当前群组）
+        if (groupStore && groupStore.groupsList) {
+            const group = groupStore.groupsList.find(g => String(g.id) === String(data.groupId));
+            if (group && group.lastMessage) {
+                const isTargetUserMsg = String(group.lastMessage.userId) === String(data.userId);
+                const isType100 = group.lastMessage.messageType === 100;
+                const isType101 = group.lastMessage.messageType === 101 || group.lastMessage.isRecalled;
+
+                // 判断是否要更新内容中的昵称：发送者匹配，或 100/101 消息内容中包含该用户
+                let shouldUpdateContent = isTargetUserMsg;
+                if (isType100 || isType101) {
+                    try {
+                        const contentParsed = JSON.parse(group.lastMessage.content);
+                        if (contentParsed && typeof contentParsed === 'object' && contentParsed[String(data.userId)] !== undefined) {
+                            shouldUpdateContent = true;
+                        }
+                    } catch (e) {}
+                }
+
+                if (shouldUpdateContent) {
+                    const newDisplayName = groupNicknameValue || data.nickname;
+
+                    // 更新群昵称（所有消息类型都需要）
+                    if (isTargetUserMsg) {
+                        if (groupNicknameValue) {
+                            group.lastMessage.groupNickname = groupNicknameValue;
+                        } else {
+                            group.lastMessage.groupNickname = null;
+                        }
+                    }
+
+                    // 101 撤回消息 - 替换内容中的昵称
+                    if (isType101) {
+                        try {
+                            const contentParsed = JSON.parse(group.lastMessage.content);
+                            if (contentParsed.id && contentParsed.nickname && typeof contentParsed.nickname === 'object') {
+                                contentParsed.nickname[String(data.userId)] = newDisplayName;
+                            } else {
+                                contentParsed[String(data.userId)] = newDisplayName;
+                            }
+                            group.lastMessage.content = JSON.stringify(contentParsed);
+                        } catch (e) {}
+                    }
+
+                    // 100 系统消息 - 替换内容中的昵称
+                    if (isType100) {
+                        try {
+                            const parsed = JSON.parse(group.lastMessage.content);
+                            if (parsed && parsed.action && parsed[String(data.userId)] !== undefined) {
+                                parsed[String(data.userId)] = newDisplayName;
+                                group.lastMessage.content = JSON.stringify(parsed);
+                            }
+                        } catch {}
+                    }
+                }
+            }
+        }
+
+        // 先执行 updateUserGroupNicknameInMessages（在 storageStore 循环之前，以便能检测到原始状态的变化）
+        if (groupStore && groupStore.updateUserGroupNicknameInMessages && data.groupId) {
+            groupStore.updateUserGroupNicknameInMessages(data.groupId, data.userId, groupNicknameValue || null, data.nickname);
+        }
+
+        // 同时更新 storageStore 中的消息
+        if (storageStore && storageStore.fullGroupMessages) {
+            const groupIdStr = String(data.groupId);
+            if (storageStore.fullGroupMessages[groupIdStr]) {
+                const messages = storageStore.fullGroupMessages[groupIdStr];
+                let updatedCount = 0;
+                let lastMessageUpdated = false;
+                let newLastMessageContent = null;
+                const updatedMessages = [];
+                for (const msg of messages) {
+                    if (String(msg.userId) === String(data.userId)) {
+                        updatedCount++;
+                        // 使用 toRaw 确保数据可被 IndexedDB 克隆
+                        const rawMsg = toRaw(msg);
+                        
+                        // 同步更新 stored groupNickname（有群昵称则设置，没有则清除）
+                        const groupNicknameValue = data.groupNickname || data.newNickname;
+                        if (groupNicknameValue) {
+                            rawMsg.groupNickname = groupNicknameValue;
+                        } else {
+                            rawMsg.groupNickname = null;
+                        }
+
+                        if (rawMsg.messageType === 100) {
+                            try {
+                                const parsed = JSON.parse(rawMsg.content);
+                                if (parsed && parsed.action && parsed[String(data.userId)] !== undefined) {
+                                    const newDisplayName = groupNicknameValue || data.nickname;
+                                    parsed[String(data.userId)] = newDisplayName;
+                                    rawMsg.content = JSON.stringify(parsed);
+                                }
+                            } catch {}
+                        }
+
+                        if (rawMsg.isRecalled || rawMsg.messageType === 101) {
+                            try {
+                                const contentParsed = JSON.parse(rawMsg.content);
+                                if (contentParsed && typeof contentParsed === 'object') {
+                                    const newDisplayName = groupNicknameValue || data.nickname;
+                                    if (contentParsed.id && contentParsed.nickname && typeof contentParsed.nickname === 'object') {
+                                        if (contentParsed.nickname[String(data.userId)] !== undefined) {
+                                            contentParsed.nickname[String(data.userId)] = newDisplayName;
+                                            rawMsg.content = JSON.stringify(contentParsed);
+                                        }
+                                    } else if (contentParsed[String(data.userId)] !== undefined) {
+                                        contentParsed[String(data.userId)] = newDisplayName;
+                                        rawMsg.content = JSON.stringify(contentParsed);
+                                    }
+                                }
+                            } catch {}
+                        }
+
+                        updatedMessages.push(rawMsg);
+
+                        // 检查是否是最后一条有效消息（非101/102/103类型）
+                        const isLastIndex = messages.indexOf(msg) === messages.length - 1;
+                        if (isLastIndex && ![101, 102, 103].includes(rawMsg.messageType)) {
+                            lastMessageUpdated = true;
+                            newLastMessageContent = {
+                                ...rawMsg,
+                                content: rawMsg.content
+                            };
+                        }
+                    } else if (msg.messageType === 100 || msg.messageType === 101 || msg.isRecalled) {
+                        // 非发送者匹配但 100/101 消息内容中包含该用户，只更新内容不更新 groupNickname
+                        const rawMsg = toRaw(msg);
+                        try {
+                            const newDisplayName = data.groupNickname || data.newNickname || data.nickname;
+                            const contentParsed = JSON.parse(rawMsg.content);
+                            if (contentParsed && typeof contentParsed === 'object') {
+                                let contentUpdated = false;
+                                if (contentParsed.id && contentParsed.nickname && typeof contentParsed.nickname === 'object') {
+                                    if (contentParsed.nickname[String(data.userId)] !== undefined) {
+                                        contentParsed.nickname[String(data.userId)] = newDisplayName;
+                                        contentUpdated = true;
+                                    }
+                                } else if (contentParsed[String(data.userId)] !== undefined) {
+                                    contentParsed[String(data.userId)] = newDisplayName;
+                                    contentUpdated = true;
+                                }
+                                if (contentUpdated) {
+                                    rawMsg.content = JSON.stringify(contentParsed);
+                                }
+                            }
+                        } catch (e) {}
+                        updatedMessages.push(rawMsg);
+                    } else {
+                        updatedMessages.push(msg);
+                    }
+                }
+                storageStore.fullGroupMessages[groupIdStr] = updatedMessages;
+
+                // 如果最后消息被更新且是撤回消息，同步更新群组的lastMessage
+                if (lastMessageUpdated && newLastMessageContent && groupStore && groupStore.groupsList) {
+                    const group = groupStore.groupsList.find(g => String(g.id) === String(data.groupId));
+                    if (group && group.lastMessage) {
+                        group.lastMessage = newLastMessageContent;
+                    }
+                }
+            }
+        }
+
+        // 强制持久化 + 触发响应式更新（确保 storageStore 循环的变更通过新数组引用触发 Vue 响应式）
+        if (data.groupId) {
+            const gId = String(data.groupId);
+            if (groupStore && groupStore.groupMessages && groupStore.groupMessages[gId]) {
+                groupStore.groupMessages[gId] = [...groupStore.groupMessages[gId]];
+            }
+            if (groupStore && groupStore.syncLastMessageGroupNickname) {
+                groupStore.syncLastMessageGroupNickname(gId);
+            }
+            if (storageStore) {
+                storageStore.saveToStorage();
+            }
+
+            // 触发侧边栏响应式更新（确保 group.lastMessage 的嵌套属性变更能被 Vue 检测）
+            if (groupStore && groupStore.groupsList) {
+                groupStore.groupsList = [...groupStore.groupsList];
+                groupStore.syncLastMessageGroupNickname(gId);
+            }
+        }
+
+        // 仅处理当前群组的成员列表更新
+        if (currentGroupId && String(currentGroupId) === String(data.groupId)) {
+            if (groupStore && groupStore.currentGroupMembers) {
+                const memberIndex = groupStore.currentGroupMembers.findIndex(
+                    m => String(m.id) === String(data.userId)
+                );
+
+                if (memberIndex !== -1) {
+                    groupStore.currentGroupMembers[memberIndex].group_nickname = newNickname;
+
+                    // 触发 Vue 响应式更新
+                    groupStore.currentGroupMembers = [...groupStore.currentGroupMembers];
+                }
             }
         }
     });
@@ -1741,9 +1987,14 @@ function initializeWebSocket() {
             
             // 检查是否是类型101撤回消息
             if (confirmedMessage.messageType === 101) {
-                // 101消息的content是被撤回消息的ID（简单字符串格式）
-                const originalMessageId = String(confirmedMessage.content).trim();
-                
+                let originalMessageId;
+                let recallNickname = null;
+                let recallerId = null;
+
+                originalMessageId = String(confirmedMessage.content).trim();
+                recallerId = String(confirmedMessage.userId || confirmedMessage.senderId || '');
+                recallNickname = confirmedMessage.nickname;
+
                 if (!originalMessageId || !storageStore) {
                     return;
                 }
@@ -1768,20 +2019,30 @@ function initializeWebSocket() {
                         }
                     }
 
+                    // 构建撤回人昵称JSON存储格式：{撤回人id:撤回人昵称}
+                    // 如果没有recallerId，使用confirmedMessage中的userId作为后备
+                    const fallbackRecallerId = recallerId || String(confirmedMessage.userId || '');
+                    const fallbackRecallNickname = recallNickname || confirmedMessage.nickname || '某人';
+                    const recallJson = fallbackRecallerId 
+                        ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname }) 
+                        : '';
+
                     // 私信消息撤回 - 根据被撤回消息ID找到原消息并标记为已撤回
                     const privateMessages = storageStore.fullPrivateMessages?.[chatPartnerId];
                     if (privateMessages) {
                         const targetMsg = privateMessages.find(m => String(m.id) === originalMessageId);
                         if (targetMsg) {
-                            // 使用101消息中的信息构建撤回提示（不依赖本地旧content）
-                            const recallText = `${confirmedMessage.nickname || '某人'}撤回了一条消息`;
+                            // 确保content使用正确的JSON格式
+                            const finalContent = recallJson || (fallbackRecallerId 
+                                ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname })
+                                : targetMsg.content);
                             
-                            // 标记为已撤回并应用系统样式
+                            // 标记为已撤回并应用系统样式，使用JSON格式存储
                             Object.assign(targetMsg, {
                                 isRecalled: true,
                                 isSystemMessage: true,
-                                content: recallText,  // 直接使用构建的撤回提示
-                                nickname: confirmedMessage.nickname || targetMsg.nickname,
+                                content: finalContent,  // JSON格式：{userId: 昵称}
+                                nickname: recallNickname || confirmedMessage.nickname || targetMsg.nickname,
                                 avatarUrl: confirmedMessage.avatarUrl || targetMsg.avatarUrl
                             });
 
@@ -1790,7 +2051,7 @@ function initializeWebSocket() {
                                 friendStore.updatePrivateMessage(chatPartnerId, originalMessageId, targetMsg);
                             }
 
-                            // 持久化到IndexedDB（更新现有记录，不删除）
+                            // 持久化到IndexedDB（更新现有记录，保持JSON格式）
                             if (storageStore.savePrivateMessageToIndexedDB) {
                                 storageStore.savePrivateMessageToIndexedDB(chatPartnerId, targetMsg);
                             }
@@ -1802,13 +2063,14 @@ function initializeWebSocket() {
                         const friend = friendStore.friendsList.find(f => String(f.id) === String(chatPartnerId));
                         if (friend) {
                             const newTime = new Date(confirmedMessage.timestamp || Date.now()).toISOString();
-                            const recallText = `${confirmedMessage.nickname || '某人'}撤回了一条消息`;
                             friend.last_message_time = newTime;
                             friend.session_last_active_time = newTime;
                             friend.lastMessage = {
                                 ...confirmedMessage,
-                                content: recallText,
-                                nickname: confirmedMessage.nickname || targetMsg?.nickname
+                                content: recallJson || (fallbackRecallerId 
+                                    ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname })
+                                    : confirmedMessage.content),  // JSON格式
+                                nickname: recallNickname || confirmedMessage.nickname || targetMsg?.nickname
                             };
                             friendStore.sortFriendsByLastMessageTime();
                             if (storageStore.updateSessionLastMessageTime) {
@@ -1832,35 +2094,47 @@ function initializeWebSocket() {
             
             // 添加确认后的私信消息到 store
             if (friendStore && friendStore.addPrivateMessage) {
-                const currentPrivateUserId = sessionStore.currentPrivateChatUserId;
-                if (currentPrivateUserId) {
-                    friendStore.addPrivateMessage(currentPrivateUserId, confirmedMessage);
-                }
+                // 使用消息本身的信息确定聊天对象ID（不依赖sessionStore）
+                const msgSenderId = String(confirmedMessage.senderId);
+                const msgReceiverId = String(confirmedMessage.receiverId);
+                const currentUser = baseStore.currentUser;
+                const chatPartnerIdFromMsg = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
+                
+                friendStore.addPrivateMessage(chatPartnerIdFromMsg, confirmedMessage);
             }
             
             // 更新好友最后消息
             if (friendStore && friendStore.updateFriendLastMessage) {
-                const currentPrivateUserId = sessionStore.currentPrivateChatUserId;
-                if (currentPrivateUserId) {
-                    friendStore.updateFriendLastMessage(currentPrivateUserId, confirmedMessage);
-                }
+                // 使用消息本身的信息确定聊天对象ID
+                const msgSenderId = String(confirmedMessage.senderId);
+                const msgReceiverId = String(confirmedMessage.receiverId);
+                const currentUser = baseStore.currentUser;
+                const chatPartnerIdForLastMsg = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
+                
+                friendStore.updateFriendLastMessage(chatPartnerIdForLastMsg, confirmedMessage);
             }
             
             // 更新会话最后消息时间到 IndexedDB
             if (storageStore && storageStore.updateSessionLastMessageTime && confirmedMessage.messageType !== 101 && confirmedMessage.messageType !== 103) {
-                const currentPrivateUserId = sessionStore.currentPrivateChatUserId;
-                if (currentPrivateUserId) {
-                    const newTime = new Date(confirmedMessage.timestamp || Date.now()).toISOString();
-                    storageStore.updateSessionLastMessageTime('friend', currentPrivateUserId, newTime);
-                }
+                // 使用消息本身的信息确定聊天对象ID
+                const msgSenderId = String(confirmedMessage.senderId);
+                const msgReceiverId = String(confirmedMessage.receiverId);
+                const currentUser = baseStore.currentUser;
+                const chatPartnerIdForStorage = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
+                
+                const newTime = new Date(confirmedMessage.timestamp || Date.now()).toISOString();
+                storageStore.updateSessionLastMessageTime('friend', chatPartnerIdForStorage, newTime);
             }
             
             // 将私信好友移到列表顶部
             if (friendStore && friendStore.moveFriendToTop) {
-                const currentPrivateUserId = sessionStore.currentPrivateChatUserId;
-                if (currentPrivateUserId) {
-                    friendStore.moveFriendToTop(currentPrivateUserId);
-                }
+                // 使用消息本身的信息确定聊天对象ID
+                const msgSenderId = String(confirmedMessage.senderId);
+                const msgReceiverId = String(confirmedMessage.receiverId);
+                const currentUser = baseStore.currentUser;
+                const chatPartnerIdForTop = String(currentUser.id) === msgReceiverId ? msgSenderId : msgReceiverId;
+                
+                friendStore.moveFriendToTop(chatPartnerIdForTop);
             }
             
             // 清空私信草稿
@@ -1881,6 +2155,10 @@ function initializeWebSocket() {
         const friendStore = useFriendStore();
         const unreadStore = useUnreadStore();
 
+        // 获取浏览器焦点状态
+        const isPageVisible = !document.hidden;
+        const isBrowserFocused = document.hasFocus();
+
         // 检查消息中是否包含新的会话令牌
         if (message.sessionToken) {
             // 更新会话令牌
@@ -1889,9 +2167,16 @@ function initializeWebSocket() {
 
         // 检查是否是类型101撤回消息
         if (message.messageType === 101) {
-            // 101消息的content是被撤回消息的ID（简单字符串格式）
-            const originalMessageId = String(message.content).trim();
-            
+            // 101消息的content现在是JSON格式：{"id":被撤回消息ID, "nickname":"{撤回人id:撤回人昵称}"}
+            // 兼容旧格式：纯数字字符串（被撤回消息ID）
+            let originalMessageId;
+            let recallNickname = null;
+            let recallerId = null;
+
+            originalMessageId = String(message.content).trim();
+            recallerId = String(message.userId || message.senderId || '');
+            recallNickname = message.nickname;
+
             if (!originalMessageId || !storageStore) {
                 return;
             }
@@ -1916,20 +2201,30 @@ function initializeWebSocket() {
                     }
                 }
 
+                // 构建撤回人昵称JSON存储格式：{撤回人id:撤回人昵称}
+                // 如果没有recallerId，使用message中的userId作为后备
+                const fallbackRecallerId = recallerId || String(message.userId || '');
+                const fallbackRecallNickname = recallNickname || message.nickname || '某人';
+                const recallJson = fallbackRecallerId 
+                    ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname }) 
+                    : '';
+
                 // 私信消息撤回 - 根据被撤回消息ID找到原消息并标记为已撤回
                 const privateMessages = storageStore.fullPrivateMessages?.[chatPartnerId];
                 if (privateMessages) {
                     const targetMsg = privateMessages.find(m => String(m.id) === originalMessageId);
                     if (targetMsg) {
-                        // 使用101消息中的信息构建撤回提示（不依赖本地旧content）
-                        const recallText = `${message.nickname || '某人'}撤回了一条消息`;
+                        // 确保content使用正确的JSON格式
+                        const finalContent = recallJson || (fallbackRecallerId 
+                            ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname })
+                            : targetMsg.content);
                         
-                        // 标记为已撤回并应用系统样式
+                        // 标记为已撤回并应用系统样式，使用JSON格式存储
                         Object.assign(targetMsg, {
                             isRecalled: true,
                             isSystemMessage: true,
-                            content: recallText,  // 直接使用构建的撤回提示
-                            nickname: message.nickname || targetMsg.nickname,
+                            content: finalContent,  // JSON格式：{userId: 昵称}
+                            nickname: recallNickname || message.nickname || targetMsg.nickname,
                             avatarUrl: message.avatarUrl || targetMsg.avatarUrl
                         });
 
@@ -1938,7 +2233,7 @@ function initializeWebSocket() {
                             friendStore.updatePrivateMessage(chatPartnerId, originalMessageId, targetMsg);
                         }
 
-                        // 持久化到IndexedDB（更新现有记录，不删除）
+                        // 持久化到IndexedDB（更新现有记录，保持JSON格式）
                         if (storageStore.savePrivateMessageToIndexedDB) {
                             storageStore.savePrivateMessageToIndexedDB(chatPartnerId, targetMsg);
                         }
@@ -1950,13 +2245,14 @@ function initializeWebSocket() {
                     const friend = friendStore.friendsList.find(f => String(f.id) === String(chatPartnerId));
                     if (friend) {
                         const newTime = new Date(message.timestamp || Date.now()).toISOString();
-                        const recallText = `${message.nickname || '某人'}撤回了一条消息`;
                         friend.last_message_time = newTime;
                         friend.session_last_active_time = newTime;
                         friend.lastMessage = {
                             ...message,
-                            content: recallText,
-                            nickname: message.nickname || targetMsg?.nickname
+                            content: recallJson || (fallbackRecallerId 
+                                ? JSON.stringify({ [fallbackRecallerId]: fallbackRecallNickname })
+                                : message.content),  // JSON格式
+                            nickname: recallNickname || message.nickname || targetMsg?.nickname
                         };
                         friendStore.sortFriendsByLastMessageTime();
                         if (storageStore.updateSessionLastMessageTime) {
@@ -2018,7 +2314,8 @@ function initializeWebSocket() {
             }
         }
         
-        if (pageVisible && currentActiveChat === `private_${chatPartnerId}`) {
+        // 如果当前打开的是该私信会话且页面可见，将好友移到顶部
+        if (pageVisible && sessionStore && String(sessionStore.currentPrivateChatUserId) === String(chatPartnerId)) {
             if (friendStore && friendStore.moveFriendToTop) {
                 friendStore.moveFriendToTop(chatPartnerId);
             }
@@ -2045,30 +2342,38 @@ function initializeWebSocket() {
         }
 
         // 更新未读计数
-        // 如果页面不可见，或者用户不在当前私信聊天中，或者浏览器没有焦点，添加未读计数
+        // 核心规则：只有在浏览器焦点在本网页 且 当前路由在该私信页面 且 打开了该私信会话 时，才不增加未读计数
         // 排除自己发送的消息，排除101撤回消息和103已读回执消息
-        const isPageInvisible = document.hidden;
-        const isBrowserNotFocused = !document.hasFocus();
-        const isCurrentPrivateChat = currentActiveChat === `private_${chatPartnerId}`;
-        
-        // 只有在当前私信聊天且浏览器有焦点且页面可见时，才不增加未读计数
-        // 同时排除撤回消息和已读回执消息
-        const shouldAddPrivateUnread = !isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && !(isCurrentPrivateChat && !isPageInvisible && !isBrowserNotFocused);
-        
+
+        // 1. 检查sessionStore是否打开了该私信会话
+        const isCurrentPrivateChatOpen = sessionStore && String(sessionStore.currentPrivateChatUserId) === String(chatPartnerId);
+
+        // 2. 检查当前路由是否在私信页面（使用Vue Router原生方法，匹配 /chat/private 前缀）
+        const routerInstanceForPrivate = getRouter();
+        const currentPathForPrivate = routerInstanceForPrivate?.currentRoute?.value?.path || window.location.pathname || '';
+        const isOnPrivateRoute = currentPathForPrivate.startsWith('/chat/private') ||
+            currentPathForPrivate === '/chat/private' ||
+            currentPathForPrivate.startsWith('/chat/private/') ||
+            currentPathForPrivate.startsWith('/chat/private?');
+
+        // 判断用户是否正在关注此私信会话（必须同时满足：路由正确 + 会话打开 + 焦点状态）
+        const isUserFocusedOnThisPrivateChat = isCurrentPrivateChatOpen && isOnPrivateRoute && isPageVisible && isBrowserFocused;
+
+        // 判断是否应该添加未读计数
+        const shouldAddPrivateUnread = !isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && !isUserFocusedOnThisPrivateChat;
+
         if (shouldAddPrivateUnread) {
             // 更新未读消息计数 - 使用 chatPartnerId 作为键
             if (unreadStore && unreadStore.incrementPrivateUnread) {
                 unreadStore.incrementPrivateUnread(chatPartnerId);
             }
             updateUnreadCountsDisplay();
-        } else if (!isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && isCurrentPrivateChat && !isPageInvisible && !isBrowserNotFocused) {
-            // 用户正在当前私信聊天中且页面可见且浏览器有焦点，自动发送已读事件
+        } else if (!isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && isUserFocusedOnThisPrivateChat) {
+            // 用户正在关注此私信会话
+            // 1. 自动发送已读事件（通知对方已读）
             sendReadMessageEvent('private', { friendId: chatPartnerId });
-        }
-        
-        // 如果用户当前正在该私信聊天中且浏览器有焦点且页面可见，自动清除未读
-        if (isCurrentPrivateChat && !isPageInvisible && !isBrowserNotFocused && !isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage) {
-            // 清除私信未读计数
+
+            // 2. 清除之前累积的未读计数
             if (unreadStore && unreadStore.clearPrivateUnread) {
                 unreadStore.clearPrivateUnread(chatPartnerId);
             }

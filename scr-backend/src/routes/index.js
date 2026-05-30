@@ -5,6 +5,7 @@ import { setupRoutes as setupFriendRoutes } from './friend.js';
 import { setupRoutes as setupGroupRoutes } from './group.js';
 import { setupRoutes as setupMessageRoutes } from './message.js';
 import { setupRoutes as setupFileRoutes } from './file.js';
+import { setupRoutes as setupCaptchaRoutes } from './captcha.js';
 
 export function setupAllRoutes(app, io) {
   setupHealthRoutes(app, io);
@@ -14,4 +15,5 @@ export function setupAllRoutes(app, io) {
   setupGroupRoutes(app, io);
   setupMessageRoutes(app, io);
   setupFileRoutes(app, io);
+  setupCaptchaRoutes(app, io);
 }

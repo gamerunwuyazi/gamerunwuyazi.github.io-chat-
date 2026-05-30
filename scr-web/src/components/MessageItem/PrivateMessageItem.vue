@@ -12,31 +12,25 @@
     :class="['message', isOwn ? 'own-message' : 'other-message', { 'active': isActive }]"
     :data-id="message.id"
     :data-identifier="messageIdentifier"
-    :style="messageStyle"
     @contextmenu="handleContextMenu"
   >
-    <div class="message-header" style="display: flex; align-items: center; margin-bottom: 5px;">
-      <div style="flex: 1;">
-        <span class="message-time" :style="isOwn ? 'float: right;' : 'float: left;'" style="color: #999; font-size: 12px;">
-          {{ messageTime }}
-          <span v-if="isOwn" class="read-status" :class="isRead ? 'read' : 'unread'">
-            {{ isRead ? '已读' : '未读' }}
-          </span>
-        </span>
-      </div>
+    <div v-if="!isOwn" class="msg-avatar" @click="handleSenderAvatarClick">
+      <img v-if="senderAvatarIsImage" :src="fullSenderAvatarUrl" :alt="senderNickname" class="msg-avatar-img" @error="handleSenderAvatarError" />
+      <span v-else class="msg-avatar-initials">{{ senderInitials }}</span>
     </div>
-    <div class="message-content" style="position: relative;">
-      <div v-if="systemMessage" class="system-message-container" :class="systemMessageType">
-        <div class="system-message-text">{{ systemMessage }}</div>
-      </div>
-      <div v-else-if="imageUrl" class="message-image-container">
+    <div v-if="isOwn" class="msg-avatar" @click="handleOwnAvatarClick">
+      <img v-if="ownAvatarIsImage" :src="fullOwnAvatarUrl" :alt="ownNickname" class="msg-avatar-img" @error="handleOwnAvatarError" />
+      <span v-else class="msg-avatar-initials">{{ ownInitials }}</span>
+    </div>
+    <div class="msg-body" :class="{ 'own-body': isOwn }">
+      <div class="msg-bubble">
+        <div class="msg-bubble-content">
+      <div v-if="imageUrl" class="message-image-container">
         <img 
           :src="fullImageUrl" 
           :alt="filename || '图片'"
-          :width="imageWidth"
-          :height="imageHeight"
           class="message-image"
-          style="max-width: 100%; height: auto; cursor: pointer;"
+          style="cursor: pointer;"
           @click="handleImageClick(fullImageUrl)"
         >
       </div>
@@ -112,9 +106,15 @@
         </div>
         <QuotedMessage :quoted-message-data="quotedMessageData.quoted" />
       </template>
+        </div>
+      </div>
+      <div class="msg-time">
+        {{ messageTime }}
+        <span v-if="isOwn" class="msg-read-status" :class="isRead ? 'read' : 'unread'">{{ isRead ? '已读' : '未读' }}</span>
+      </div>
     </div>
   </div>
-</template>
+  </template>
 
 <script setup>
 import DOMPurify from 'dompurify';
@@ -129,6 +129,7 @@ import { useModalStore } from '@/stores/modalStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useInputStore } from '@/stores/inputStore';
 import { showGroupCardPopup, getChatSocket } from '@/utils/chat';
+import { openUserAvatarPopup } from '@/stores/index.js';
 
 let currentMessageContextMenu = null;
 
@@ -150,6 +151,8 @@ const sessionStore = useSessionStore();
 const inputStore = useInputStore();
 
 const isActive = ref(false);
+const senderAvatarLoadFailed = ref(false);
+const ownAvatarLoadFailed = ref(false);
 const groupCardAvatarLoadFailed = ref(false);
 
 onMounted(() => {
@@ -175,6 +178,115 @@ const messageTime = computed(() => {
   return new Date(timestamp).toLocaleTimeString();
 });
 
+const senderNickname = computed(() => {
+  if (props.message.nickname) {
+    if (!props.isOwn) {
+      const currentUserNick = baseStore.currentUser?.nickname;
+      if (props.message.nickname === currentUserNick) {
+        const senderId = props.message.userId || props.message.senderId;
+        const friend = friendStore.friendsList?.find(f => String(f.id) === String(senderId));
+        if (friend?.nickname) return friend.nickname;
+      }
+    }
+    return props.message.nickname;
+  }
+  const senderId = props.message.userId || props.message.senderId;
+  const friend = friendStore.friendsList?.find(f => String(f.id) === String(senderId));
+  return friend?.nickname || '未知用户';
+});
+
+const senderUser = computed(() => {
+  return {
+    id: props.message.userId || props.message.senderId,
+    nickname: senderNickname.value,
+    avatarUrl: props.message.avatarUrl || props.message.avatar_url
+  };
+});
+
+const senderInitials = computed(() => {
+  return senderNickname.value ? senderNickname.value.charAt(0).toUpperCase() : '?';
+});
+
+const senderAvatarUrl = computed(() => {
+  return props.message.avatarUrl || props.message.avatar_url || '';
+});
+
+const isSenderSvgAvatar = computed(() => {
+  if (!senderAvatarUrl.value) return false;
+  return typeof senderAvatarUrl.value === 'string' &&
+    (/\.(svg)$/i.test(senderAvatarUrl.value) || senderAvatarUrl.value.includes('.svg'));
+});
+
+const fullSenderAvatarUrl = computed(() => {
+  const url = senderAvatarUrl.value;
+  if (url && !isSenderSvgAvatar.value && url !== '/') {
+    return `${baseStore.SERVER_URL}${url}`;
+  }
+  return '';
+});
+
+const senderAvatarIsImage = computed(() => {
+  if (!fullSenderAvatarUrl.value) return false;
+  if (senderAvatarLoadFailed.value) return false;
+  if (senderAvatarUrl.value === ownAvatarUrl.value) return false;
+  return true;
+});
+
+const ownNickname = computed(() => {
+  const user = baseStore.currentUser;
+  return user?.nickname || user?.username || '我';
+});
+
+const ownInitials = computed(() => {
+  return ownNickname.value ? ownNickname.value.charAt(0).toUpperCase() : 'M';
+});
+
+const ownAvatarUrl = computed(() => {
+  return baseStore.currentUser?.avatarUrl || baseStore.currentUser?.avatar_url;
+});
+
+const isOwnSvgAvatar = computed(() => {
+  if (!ownAvatarUrl.value) return false;
+  return typeof ownAvatarUrl.value === 'string' &&
+    (/\.(svg)$/i.test(ownAvatarUrl.value) || ownAvatarUrl.value.includes('.svg'));
+});
+
+const fullOwnAvatarUrl = computed(() => {
+  if (ownAvatarUrl.value && !isOwnSvgAvatar.value) {
+    return `${baseStore.SERVER_URL}${ownAvatarUrl.value}`;
+  }
+  return '';
+});
+
+const ownAvatarIsImage = computed(() => fullOwnAvatarUrl.value !== '' && !ownAvatarLoadFailed.value);
+
+function handleSenderAvatarError() {
+  senderAvatarLoadFailed.value = true;
+}
+
+function handleOwnAvatarError() {
+  ownAvatarLoadFailed.value = true;
+}
+
+function handleSenderAvatarClick(event) {
+  event.stopPropagation();
+  openUserAvatarPopup(event, senderUser.value);
+}
+
+const ownUser = computed(() => {
+  const user = baseStore.currentUser;
+  return {
+    id: user?.id,
+    nickname: user?.nickname,
+    avatarUrl: user?.avatarUrl || user?.avatar_url
+  };
+});
+
+function handleOwnAvatarClick(event) {
+  event.stopPropagation();
+  openUserAvatarPopup(event, ownUser.value);
+}
+
 const isRead = computed(() => {
   return props.message.isRead === 1;
 });
@@ -194,36 +306,6 @@ const messageIdentifier = computed(() => {
   return Math.abs(hash).toString(16);
 });
 
-const messageStyle = computed(() => {
-  const baseStyle = {
-    display: 'flex',
-    flexDirection: 'column',
-    marginBottom: '10px',
-    minWidth: '70px',
-    maxWidth: '80%',
-    padding: '10px 15px',
-    borderRadius: '18px',
-    position: 'relative'
-  };
-  
-  if (props.isOwn) {
-    return {
-      ...baseStyle,
-      backgroundColor: '#E8F5E8',
-      alignSelf: 'flex-end',
-      transition: 'all 0.2s'
-    };
-  } else {
-    return {
-      ...baseStyle,
-      marginLeft: '10px',
-      backgroundColor: '#FFFFFF',
-      alignSelf: 'flex-start',
-      border: '1px solid #E0E0E0'
-    };
-  }
-});
-
 const messageData = computed(() => {
   let imageUrl = props.message.imageUrl;
   let fileUrl = props.message.fileUrl;
@@ -239,8 +321,20 @@ const messageData = computed(() => {
   if (props.message.messageType !== undefined) {
     // 优先检查是否是已撤回的消息（通过isRecalled或isSystemMessage标记）
     if (props.message.isRecalled || props.message.isSystemMessage) {
-      // 撤回消息 - content已经是纯文本格式
-      textContent = props.message.content || `${props.message.nickname || '某人'}撤回了一条消息`;
+      // 撤回消息 - content为JSON格式：{撤回人id:撤回人昵称}
+      let recallNickname = '某人';
+      try {
+        const parsed = JSON.parse(props.message.content);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const keys = Object.keys(parsed);
+          if (keys.length > 0) {
+            recallNickname = parsed[keys[0]];
+          }
+        }
+      } catch (e) {
+        recallNickname = props.message.nickname || '某人';
+      }
+      textContent = `${recallNickname}撤回了一条消息`;
       systemMessage = typeof textContent === 'string' ? textContent : String(textContent);
     } else {
       switch (props.message.messageType) {
@@ -501,11 +595,13 @@ const fileIcon = computed(() => {
 });
 
 const groupCardAvatarUrl = computed(() => {
-  // 如果头像加载失败，返回空字符串
   if (groupCardAvatarLoadFailed.value) return '';
-  
-  if (!groupCardData.value || !groupCardData.value.avatarUrl) return '';
-  return `${baseStore.SERVER_URL}${groupCardData.value.avatarUrl}`;
+
+  if (!groupCardData.value) return '';
+  const url = groupCardData.value.avatarUrl || groupCardData.value.avatar_url || '';
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  return `${baseStore.SERVER_URL}${url}`;
 });
 
 function handleGroupCardAvatarError() {
@@ -702,7 +798,7 @@ function handleContextMenu(event) {
   const messageElement = event.currentTarget;
   const messageId = messageElement.getAttribute('data-id');
   const currentUserId = baseStore.currentUser?.id;
-  const senderNicknameValue = messageElement.querySelector('.message-sender')?.textContent || '';
+  const senderNicknameValue = messageElement.querySelector('.msg-sender-name')?.textContent || '';
   const messageType = props.message.messageType || 0;
   
   if (!messageId) return;
@@ -840,19 +936,6 @@ function hideContextMenu() {
   max-width: 100%;
   height: auto;
   cursor: pointer;
-}
-
-.read-status {
-  margin-left: 5px;
-  font-size: 10px;
-}
-
-.read-status.unread {
-  color: #e74c3c;
-}
-
-.read-status.read {
-  color: #999;
 }
 
 .system-message-container {

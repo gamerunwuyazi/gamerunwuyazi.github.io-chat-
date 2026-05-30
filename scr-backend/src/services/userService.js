@@ -1,10 +1,10 @@
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import path from 'path';
+import crypto from 'crypto';
+import multer from 'multer';
 import fs from 'fs';
-import { pool, redisClient } from '../models/database.js';
+import { pool, redisClient} from '../models/database.js';
 import { checkRegisterRateLimit, checkLoginRateLimit } from '../utils/rateLimiters.js';
-import { verifyTurnstileToken } from '../utils/turnstile.js';
 import { validateUsername, validatePassword, validateNickname } from '../utils/validators.js';
 import { getClientIP, generateSessionToken } from '../utils/helpers.js';
 import { filterMessageFields } from '../utils/messageFilters.js';
@@ -20,6 +20,33 @@ import {
 import { isIPBanned } from '../middleware/auth.js';
 
 let io;
+let cachedPrivateKey = null;
+
+function getPrivateKey() {
+  if (!cachedPrivateKey) {
+    const keysDir = path.join(process.cwd(), 'keys');
+    cachedPrivateKey = fs.readFileSync(path.join(keysDir, 'private.pem'), 'utf8');
+  }
+  return cachedPrivateKey;
+}
+
+async function verifyCaptchaToken(captchaId, encryptedTrajectory) {
+  if (!captchaId || !encryptedTrajectory) {
+    return { success: false, message: '缺少验证码参数' };
+  }
+  try {
+    const { verifyCaptcha } = await import('scr-slider-captcha/backend');
+    const privateKey = getPrivateKey();
+    const result = verifyCaptcha(captchaId, encryptedTrajectory, privateKey, 70);
+    if (result.success) {
+      return { success: true };
+    }
+    return { success: false, message: '人机验证失败' };
+  } catch (err) {
+    console.error('验证码验证失败:', err.message);
+    return { success: false, message: '验证码验证失败' };
+  }
+}
 
 export function initUserService(dependencies) {
   ({ io } = dependencies);
@@ -30,7 +57,7 @@ const avatarDir = path.join(process.cwd(), 'public', 'avatars');
 
 export async function register(req, res) {
   try {
-    const { username, password, nickname, gender, turnstileToken } = req.body;
+    const { username, password, nickname, gender, captchaId, encryptedTrajectory } = req.body;
     const clientIP = getClientIP(req);
 
     const registerRateLimit = await checkRegisterRateLimit(clientIP);
@@ -54,8 +81,8 @@ export async function register(req, res) {
       return res.status(403).json({ status: 'error', message: '您的 IP 已被封禁', isBanned: true, remainingTime: banInfo.remainingTime });
     }
 
-    if (!username || !password || !nickname || !turnstileToken) {
-      return res.status(400).json({ status: 'error', message: '请填写所有字段并完成人机验证' });
+    if (!username || !password || !nickname || !captchaId || !encryptedTrajectory) {
+      return res.status(400).json({ status: 'error', message: '请填写所有字段' });
     }
 
     const genderNum = parseInt(gender);
@@ -63,9 +90,9 @@ export async function register(req, res) {
       return res.status(400).json({ status: 'error', message: '性别参数非法' });
     }
 
-    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIP);
-    if (!turnstileResult.success) {
-      return res.status(400).json({ status: 'error', message: turnstileResult.message || '人机验证失败，请重试' });
+    const captchaResult = await verifyCaptchaToken(captchaId, encryptedTrajectory);
+    if (!captchaResult.success) {
+      return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
     }
 
     if (!validateUsername(username) && !validatePassword(password) && !validateNickname(nickname)) {
@@ -89,15 +116,11 @@ export async function register(req, res) {
     );
 
     await logIPAction(result.insertId, clientIP, 'register');
+    console.log(`用户注册,id:${result.insertId},IP:${clientIP}`);
 
-    const autoLoginToken = `${result.insertId}_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+    const autoLoginToken = crypto.randomBytes(32).toString('hex');
 
-    const tokenData = {
-      token: autoLoginToken,
-      expire: Date.now() + 5 * 60 * 1000
-    };
-
-    await redisClient.set(`scr:auto_login_token:${result.insertId}`, JSON.stringify(tokenData), {
+    await redisClient.set(`scr:auto_login_token:${result.insertId}`, autoLoginToken, {
       EX: 300
     });
 
@@ -115,7 +138,7 @@ export async function register(req, res) {
 
 export async function login(req, res) {
   try {
-    const { username, password, turnstileToken, autoLoginToken } = req.body;
+    const { username, password, captchaId, encryptedTrajectory, autoLoginToken } = req.body;
     const clientIP = getClientIP(req);
 
     const loginRateLimit = await checkLoginRateLimit(clientIP);
@@ -154,50 +177,67 @@ export async function login(req, res) {
       });
     }
 
-    if (autoLoginToken) {
-      const tokenParts = autoLoginToken.split('_');
-      if (tokenParts.length < 3) {
-        return res.status(400).json({ status: 'error', message: '自动登录 token 格式无效' });
-      }
+    // 账号密码登录（必须提供 username 和 password）
+    if (username !== undefined && password !== undefined) {
+      const isAutoLogin = !!autoLoginToken;
 
-      const userId = tokenParts[0];
+      if (!isAutoLogin) {
+        if (!captchaId || !encryptedTrajectory) {
+          return res.status(400).json({ status: 'error', message: '请完成人机验证' });
+        }
 
-      const tokenDataStr = await redisClient.get(`scr:auto_login_token:${userId}`);
+        const captchaResult = await verifyCaptchaToken(captchaId, encryptedTrajectory);
+        if (!captchaResult.success) {
+          return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
+        }
+      } else {
+        const [tokenUsers] = await pool.execute(
+          'SELECT id FROM scr_users WHERE username = ?',
+          [username]
+        );
 
-      if (!tokenDataStr) {
-        return res.status(400).json({ status: 'error', message: '自动登录 token 无效或已过期' });
-      }
+        if (tokenUsers.length === 0) {
+          return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
+        }
 
-      const tokenData = JSON.parse(tokenDataStr);
+        const tokenUserId = tokenUsers[0].id;
+        const storedToken = await redisClient.get(`scr:auto_login_token:${tokenUserId}`);
 
-      if (tokenData.token !== autoLoginToken) {
-        return res.status(400).json({ status: 'error', message: '自动登录 token 不匹配' });
-      }
-
-      if (Date.now() > tokenData.expire) {
-        await redisClient.del(`scr:auto_login_token:${userId}`);
-        return res.status(400).json({ status: 'error', message: '自动登录 token 已过期，请使用验证码登录' });
+        if (!storedToken || storedToken !== autoLoginToken) {
+          return res.status(400).json({ status: 'error', message: '自动登录 token 无效或已过期，请使用账号密码登录' });
+        }
       }
 
       const [users] = await pool.execute(
-        'SELECT id, username, nickname, gender, avatar_url FROM scr_users WHERE id = ?',
-        [userId]
+          'SELECT id, username, password, nickname, gender, avatar_url FROM scr_users WHERE username = ?',
+          [username]
       );
 
       if (users.length === 0) {
-        return res.status(404).json({ status: 'error', message: '用户不存在' });
+        await logIPAction(null, clientIP, 'login_failed');
+        return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
       }
 
       const user = users[0];
-      const session = await createUserSession(userId);
+      const isPasswordValid = await bcrypt.compare(password, user.password);
 
-      await redisClient.del(`scr:auto_login_token:${userId}`);
+      if (!isPasswordValid) {
+        await logIPAction(user.id, clientIP, 'login_failed');
+        return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
+      }
 
-      await logIPAction(userId, clientIP, 'auto-login');
+      if (autoLoginToken) {
+        await redisClient.del(`scr:auto_login_token:${user.id}`);
+      }
+
+      const session = await createUserSession(user.id);
+
+      await logIPAction(user.id, clientIP, 'login');
+      console.log(`用户登录,id:${user.id},IP:${clientIP}`);
 
       res.json({
         status: 'success',
-        message: '自动登录成功',
+        message: '登录成功',
         user: {
           id: user.id,
           username: user.username,
@@ -210,47 +250,7 @@ export async function login(req, res) {
       return;
     }
 
-    if (!username || !password || !turnstileToken) {
-      return res.status(400).json({ status: 'error', message: '请填写用户名、密码并完成人机验证' });
-    }
-
-    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIP);
-    if (!turnstileResult.success) {
-      return res.status(400).json({ status: 'error', message: turnstileResult.message || '人机验证失败，请重试' });
-    }
-
-    const [users] = await pool.execute(
-        'SELECT id, username, password, nickname, gender, avatar_url FROM scr_users WHERE username = ?',
-        [username]
-    );
-
-    if (users.length === 0) {
-      return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
-    }
-
-    const user = users[0];
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
-    }
-
-    const session = await createUserSession(user.id);
-
-    await logIPAction(user.id, clientIP, 'login');
-
-    res.json({
-      status: 'success',
-      message: '登录成功',
-      user: {
-        id: user.id,
-        username: user.username,
-        nickname: user.nickname,
-        gender: user.gender,
-        avatar_url: user.avatar_url
-      },
-      ...session
-    });
+    return res.status(400).json({ status: 'error', message: '请提供账号密码' });
   } catch (err) {
     console.error('登录失败:', err.message);
     res.status(500).json({ status: 'error', message: '登录失败' });
@@ -419,9 +419,9 @@ export async function changePassword(req, res) {
   try {
     const userId = req.userId;
     const clientIP = getClientIP(req);
-    const { oldPassword, newPassword, turnstileToken } = req.body;
+    const { oldPassword, newPassword, captchaId, encryptedTrajectory } = req.body;
 
-    if (!oldPassword || !newPassword || !turnstileToken) {
+    if (!oldPassword || !newPassword || !captchaId || !encryptedTrajectory) {
       return res.status(400).json({ status: 'error', message: '缺少必要参数' });
     }
 
@@ -429,9 +429,9 @@ export async function changePassword(req, res) {
       return res.status(400).json({ status: 'error', message: '新密码格式错误' });
     }
 
-    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIP);
-    if (!turnstileResult.success) {
-      return res.status(400).json({ status: 'error', message: turnstileResult.message || '人机验证失败，请重试' });
+    const captchaResult = await verifyCaptchaToken(captchaId, encryptedTrajectory);
+    if (!captchaResult.success) {
+      return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
     }
 
     const [users] = await pool.execute(
@@ -459,6 +459,34 @@ export async function changePassword(req, res) {
   } catch (err) {
     console.error('修改密码失败:', err.message);
     res.status(500).json({ status: 'error', message: '修改密码失败' });
+  }
+}
+
+export function checkAvatarStorage() {
+  const MAX_AVATAR_SIZE_MB = 100;
+  const MAX_AVATAR_FILES = 10000;
+
+  try {
+    if (!fs.existsSync(avatarDir)) {
+      return { full: false, message: '' };
+    }
+
+    const stats = fs.statSync(avatarDir);
+    const sizeInMB = stats.size / (1024 * 1024);
+
+    if (sizeInMB > MAX_AVATAR_SIZE_MB) {
+      return { full: true, message: `头像存储空间不足（当前${sizeInMB.toFixed(2)}MB，限制${MAX_AVATAR_SIZE_MB}MB）` };
+    }
+
+    const files = fs.readdirSync(avatarDir);
+    if (files.length > MAX_AVATAR_FILES) {
+      return { full: true, message: `头像文件数量过多（当前${files.length}个，限制${MAX_AVATAR_FILES}个）` };
+    }
+
+    return { full: false, message: '' };
+  } catch (error) {
+    console.error('检查头像存储失败:', error.message);
+    return { full: false, message: '' };
   }
 }
 
@@ -624,71 +652,4 @@ export async function getUserById(req, res) {
     console.error('获取用户信息失败:', err.message);
     res.status(500).json({ status: 'error', message: '获取用户信息失败' });
   }
-}
-
-export async function searchUsers(req, res) {
-  try {
-    const { keyword } = req.query;
-
-    if (!keyword || keyword.trim().length === 0) {
-      return res.status(400).json({ status: 'error', message: '搜索关键词不能为空' });
-    }
-
-    let escapedKeyword = keyword.trim();
-    escapedKeyword = escapedKeyword.replace(/\\/g, '\\\\');
-    escapedKeyword = escapedKeyword.replace(/%/g, '\\%');
-
-    const searchKeyword = `%${escapedKeyword}%`;
-
-    const [users] = await pool.execute(`
-      SELECT id, nickname, username, gender, avatar_url
-      FROM scr_users
-      WHERE username LIKE ? OR nickname LIKE ?
-      LIMIT 20
-    `, [searchKeyword, searchKeyword]);
-
-    res.json({
-      status: 'success',
-      users: users,
-      message: '搜索用户成功'
-    });
-  } catch (err) {
-    console.error('搜索用户失败:', err.message);
-    res.status(500).json({ status: 'error', message: '搜索用户失败' });
-  }
-}
-
-export function checkAvatarStorage() {
-  let totalSize = 0;
-
-  if (fs.existsSync(avatarDir)) {
-    const files = fs.readdirSync(avatarDir);
-    for (const file of files) {
-      const filePath = path.join(avatarDir, file);
-      try {
-        const stats = fs.statSync(filePath);
-        totalSize += stats.size;
-      } catch (err) {
-        console.error('获取文件状态失败:', filePath, err.message);
-      }
-    }
-  }
-
-  const sizeInMB = totalSize / (1024 * 1024);
-
-  if (sizeInMB >= 5000) {
-    return {
-      full: true,
-      size: sizeInMB,
-      sizeInGB: (sizeInMB / 1024).toFixed(2),
-      message: `服务器头像存储已满（超过5GB，当前使用: ${(sizeInMB / 1024).toFixed(2)}GB/5GB）`
-    };
-  }
-
-  return {
-    full: false,
-    size: sizeInMB,
-    sizeInGB: (sizeInMB / 1024).toFixed(2),
-    message: `当前头像存储使用: ${sizeInMB.toFixed(2)}MB (${(sizeInMB / 1024).toFixed(2)}GB/5GB)`
-  };
 }

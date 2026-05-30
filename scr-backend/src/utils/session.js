@@ -1,15 +1,11 @@
-import crypto from 'crypto';
 import { pool, redisClient } from '../models/database.js';
 import { sessionConfig } from '../config/index.js';
+import { generateSessionToken } from './helpers.js';
 
 let io = null;
 
-export function setSocketIO(socketIO) {
-  io = socketIO;
-}
-
-export function generateSessionToken() {
-  return crypto.randomBytes(32).toString('hex');
+export function setSocketIO(socketIo) {
+  io = socketIo;
 }
 
 export async function setUserSession(userId, session, expires, refreshExpires) {
@@ -75,16 +71,64 @@ export async function createUserSession(userId) {
   return { token, refreshToken, expiresIn: 20 * 60 };
 }
 
-export async function updateOnlineUserByUserId(userId, socketId, nickname, avatarUrl) {
-  const userData = {
-    id: parseInt(userId),
-    socketId,
-    nickname,
-    avatarUrl,
-    lastSeen: new Date().toISOString()
-  };
+export async function updateOnlineUserByUserId(userId, updates) {
+  try {
+    const users = await redisClient.hGetAll('scr:online_users');
+    for (const socketId in users) {
+      try {
+        const userData = JSON.parse(users[socketId]);
+        if (userData && userData.id && String(userData.id) === String(userId)) {
+          const updatedUser = { ...userData, ...updates };
+          await redisClient.hSet('scr:online_users', socketId, JSON.stringify(updatedUser));
+        }
+      } catch (parseErr) {
+        console.error(`❌ 解析在线用户数据失败(socketId: ${socketId}):`, parseErr.message);
+        await redisClient.hDel('scr:online_users', String(socketId));
+      }
+    }
+  } catch (err) {
+    console.error('按用户ID更新在线用户失败:', err.message);
+  }
+}
 
-  await redisClient.hSet('scr:online_users', String(userId), JSON.stringify(userData));
+export async function getOnlineUser(socketId) {
+  try {
+    const userData = await redisClient.hGet('scr:online_users', String(socketId));
+    return userData ? JSON.parse(userData) : null;
+  } catch (err) {
+    console.error('获取在线用户失败:', err.message);
+    return null;
+  }
+}
+
+export async function removeOnlineUser(socketId) {
+  try {
+    await redisClient.hDel('scr:online_users', String(socketId));
+  } catch (err) {
+    console.error('移除在线用户失败:', err.message);
+  }
+}
+
+export async function getAllOnlineUsers() {
+  try {
+    const users = await redisClient.hGetAll('scr:online_users');
+    const result = [];
+    for (const socketId in users) {
+      try {
+        const userData = JSON.parse(users[socketId]);
+        if (userData && userData.id) {
+          result.push({ socketId, ...userData });
+        }
+      } catch (parseErr) {
+        console.error('解析在线用户数据失败:', parseErr.message);
+        await redisClient.hDel('scr:online_users', String(socketId));
+      }
+    }
+    return result;
+  } catch (err) {
+    console.error('获取所有在线用户失败:', err.message);
+    return [];
+  }
 }
 
 export async function logIPAction(userId, ip, action) {
@@ -93,10 +137,26 @@ export async function logIPAction(userId, ip, action) {
       'INSERT INTO scr_ip_logs (user_id, ip_address, action) VALUES (?, ?, ?)',
       [userId, ip, action]
     );
-    await pool.execute(
-      'DELETE FROM scr_ip_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM scr_ip_logs ORDER BY timestamp DESC LIMIT 6000) AS tmp)'
-    );
+    await trimIPLogs();
   } catch (err) {
     console.error('记录IP日志失败:', err.message);
+  }
+}
+
+const IP_LOG_KEEP = 8000;
+
+export async function trimIPLogs() {
+  try {
+    const [countResult] = await pool.execute('SELECT COUNT(*) as cnt FROM scr_ip_logs');
+    const currentCount = countResult[0].cnt;
+    if (currentCount > IP_LOG_KEEP) {
+      const toDelete = currentCount - IP_LOG_KEEP;
+      await pool.execute(
+        'DELETE FROM scr_ip_logs ORDER BY timestamp ASC LIMIT ?',
+        [toDelete]
+      );
+    }
+  } catch (err) {
+    console.error('清理IP日志失败:', err.message);
   }
 }

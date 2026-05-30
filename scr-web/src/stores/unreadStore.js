@@ -62,7 +62,11 @@ export const useUnreadStore = defineStore('unread', () => {
   function loadUnreadCountsFromLocalStorage() {
     const baseStore = useBaseStore();
     try {
-      const userId = baseStore.currentUser?.id || null;
+      let userId = baseStore.currentUser?.id || null;
+      if (!userId) {
+        const storedUserId = localStorage.getItem('chatUserId');
+        if (storedUserId) userId = storedUserId;
+      }
       if (!userId) return;
       const data = localStorage.getItem(`unread_counts_${userId}`);
       if (data) {
@@ -77,7 +81,11 @@ export const useUnreadStore = defineStore('unread', () => {
   function loadUnreadCountsFromStorage() {
     const baseStore = useBaseStore();
     try {
-      const userId = baseStore.currentUser?.id || null;
+      let userId = baseStore.currentUser?.id || null;
+      if (!userId) {
+        const storedUserId = localStorage.getItem('chatUserId');
+        if (storedUserId) userId = storedUserId;
+      }
       if (!userId) return { global: 0, groups: {}, private: {} };
       const data = localStorage.getItem(`unread_counts_${userId}`);
       if (data) return JSON.parse(data);
@@ -88,7 +96,11 @@ export const useUnreadStore = defineStore('unread', () => {
   function saveUnreadCountsToLocalStorage() {
     const baseStore = useBaseStore();
     try {
-      const userId = baseStore.currentUser?.id || null;
+      let userId = baseStore.currentUser?.id || null;
+      if (!userId) {
+        const storedUserId = localStorage.getItem('chatUserId');
+        if (storedUserId) userId = storedUserId;
+      }
       if (!userId) return;
       const counts = { global: unreadMessages.value.global, groups: unreadMessages.value.groups, private: unreadMessages.value.private };
       localStorage.setItem(`unread_counts_${userId}`, JSON.stringify(counts));
@@ -98,7 +110,11 @@ export const useUnreadStore = defineStore('unread', () => {
   function saveUnreadCountsToLocalStorageDirect(counts) {
     const baseStore = useBaseStore();
     try {
-      const userId = baseStore.currentUser?.id || null;
+      let userId = baseStore.currentUser?.id || null;
+      if (!userId) {
+        const storedUserId = localStorage.getItem('chatUserId');
+        if (storedUserId) userId = storedUserId;
+      }
       if (!userId) return;
       localStorage.setItem(`unread_counts_${userId}`, JSON.stringify(counts));
       unreadMessages.value.global = counts.global || 0;

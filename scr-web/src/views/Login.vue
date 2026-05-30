@@ -5,10 +5,10 @@
     <div class="decoration decoration-1"></div>
     <div class="decoration decoration-2"></div>
     <div class="decoration decoration-3"></div>
-    
+
     <div class="login-form">
       <h1>登录聊天室</h1>
-      <form @submit.prevent="handleLogin">
+      <form @submit.prevent="handleLoginClick">
         <div class="input-group">
           <label for="username">用户名</label>
           <input 
@@ -31,18 +31,7 @@
             placeholder="请输入密码"
           >
         </div>
-        <div class="input-group">
-          <label>人机验证</label>
-          <div class="turnstile-container">
-            <VueTurnstile 
-              ref="turnstileRef"
-              :site-key="TURNSTILE_SITE_KEY"
-              v-model="turnstileToken"
-              theme="light"
-            />
-          </div>
-        </div>
-        <button type="submit" :disabled="!isFormValid || isSubmitting">
+        <button type="submit" :disabled="!isFormValid || isSubmitting || captchaModalVisible">
           {{ isSubmitting ? '登录中...' : '登录' }}
         </button>
       </form>
@@ -51,32 +40,82 @@
         {{ message }}
       </div>
     </div>
+
+    <!-- 验证码模态框 -->
+    <Teleport to="body">
+      <div v-if="captchaModalVisible" class="captcha-modal-overlay" @click.self="closeCaptchaModal">
+        <div class="captcha-modal">
+          <div class="captcha-modal-header">
+            <span>请完成人机验证</span>
+            <button class="captcha-close-btn" @click="closeCaptchaModal">&times;</button>
+          </div>
+          <div class="captcha-modal-body">
+            <SliderCaptcha
+              :bg-base64="modalBgBase64"
+              :puzzle-base64="modalPuzzleBase64"
+              :target-y="modalTargetY"
+              :puzzle-size="modalPuzzleSize"
+              :width="300"
+              :height="150"
+              :public-key="modalPublicKey"
+              @verify="onCaptchaVerify"
+            />
+            <div v-if="captchaError" class="captcha-error">{{ captchaError }}</div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
+import { SliderCaptcha } from 'scr-slider-captcha/frontend';
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
-import VueTurnstile from 'vue-turnstile';
 
+import { useCaptcha } from '@/composables/useCaptcha';
 import { login } from "@/utils/chat";
+import { originalFetch } from "@/utils/chat/config.js";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
-const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
+
+const {
+  captchaError
+} = useCaptcha();
+
+const formData = reactive({
+  username: '',
+  password: ''
+});
+
+const message = ref('');
+const messageType = ref('error');
+const isSubmitting = ref(false);
+
+// 模态框状态
+const captchaModalVisible = ref(false);
+const modalBgBase64 = ref('');
+const modalPuzzleBase64 = ref('');
+const modalTargetY = ref(0);
+const modalPuzzleSize = ref(50);
+const modalPublicKey = ref('');
+let pendingCaptchaId = '';
 
 // 调试函数：使用自动登录Token登录
-async function autoLoginWithTokenFunc(autoLoginToken) {
-  if (!autoLoginToken) {
-    console.error('请提供autoLoginToken');
+async function autoLoginWithTokenFunc(autoLoginToken, username, password) {
+  if (!autoLoginToken || !username || !password) {
+    console.error('请提供autoLoginToken、username和password');
     return;
   }
 
   try {
-    const loginResponse = await fetch(`${SERVER_URL}/api/login`, {
+    const loginResponse = await originalFetch(`${SERVER_URL}/api/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        username: username,
+        password: password,
         autoLoginToken: autoLoginToken
       })
     });
@@ -133,7 +172,6 @@ async function autoLoginWithTokenFunc(autoLoginToken) {
   }
 }
 
-// 在开发环境的登录页面挂载时添加全局函数，卸载时移除
 if (import.meta.env.DEV) {
   onMounted(() => {
     window.autoLoginWithToken = autoLoginWithTokenFunc;
@@ -142,26 +180,12 @@ if (import.meta.env.DEV) {
   onUnmounted(() => {
     delete window.autoLoginWithToken;
   });
-} else {
-  window.autoLoginWithToken = undefined;
 }
-
-const formData = reactive({
-  username: '',
-  password: ''
-});
-
-const turnstileRef = ref(null);
-const turnstileToken = ref('');
-const message = ref('');
-const messageType = ref('error');
-const isSubmitting = ref(false);
 
 const isFormValid = computed(() => {
   const usernameValid = !!formData.username && String(formData.username).trim().length > 0;
   const passwordValid = !!formData.password && String(formData.password).trim().length > 0;
-  const turnstileValid = !!turnstileToken.value && String(turnstileToken.value).length > 0;
-  return usernameValid && passwordValid && turnstileValid;
+  return usernameValid && passwordValid;
 });
 
 function showMessage(msg, type) {
@@ -172,28 +196,58 @@ function showMessage(msg, type) {
   }, 5000);
 }
 
-function resetTurnstile() {
-  if (turnstileRef.value) {
-    turnstileToken.value = '';
-    turnstileRef.value.reset();
+async function openCaptchaModal() {
+  captchaError.value = '';
+  captchaModalVisible.value = true;
+  try {
+    const res = await originalFetch(`${SERVER_URL}/api/captcha/create`, {
+      method: 'POST'
+    });
+    const data = await res.json();
+    if (data.captchaId) {
+      pendingCaptchaId = data.captchaId;
+      modalBgBase64.value = data.bgBase64;
+      modalPuzzleBase64.value = data.puzzleBase64;
+      modalTargetY.value = data.targetY;
+      modalPuzzleSize.value = data.puzzleSize;
+      modalPublicKey.value = data.publicKey || '';
+    } else {
+      captchaError.value = data.message || '获取验证码失败';
+    }
+  } catch (err) {
+    const msg = err?.message || '';
+    if (msg && !msg.includes('Failed to fetch')) {
+      captchaError.value = msg;
+    } else {
+      captchaError.value = '网络错误，请稍后重试';
+    }
   }
 }
 
-async function handleLogin() {
+function closeCaptchaModal() {
+  captchaModalVisible.value = false;
+  modalBgBase64.value = '';
+  modalPuzzleBase64.value = '';
+  isSubmitting.value = false;
+}
+
+async function onCaptchaVerify(encryptedData) {
+  await doLoginRequest(pendingCaptchaId, encryptedData);
+}
+
+function handleLoginClick() {
   if (!formData.username || !formData.password) {
     showMessage('请输入用户名和密码', 'error');
     return;
   }
+  openCaptchaModal();
+}
 
-  if (!turnstileToken.value) {
-    showMessage('请完成人机验证', 'error');
-    return;
-  }
-
+async function doLoginRequest(captchaIdVal, encryptedTrajectoryVal) {
   isSubmitting.value = true;
 
   try {
-    const response = await fetch(`${SERVER_URL}/api/login`, {
+    const response = await originalFetch(`${SERVER_URL}/api/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -201,7 +255,8 @@ async function handleLogin() {
       body: JSON.stringify({
         username: formData.username,
         password: formData.password,
-        turnstileToken: turnstileToken.value
+        captchaId: captchaIdVal,
+        encryptedTrajectory: encryptedTrajectoryVal
       })
     });
 
@@ -212,8 +267,7 @@ async function handleLogin() {
       data = JSON.parse(responseText);
     } catch (parseError) {
       showMessage('服务器响应格式错误，请稍后重试', 'error');
-      isSubmitting.value = false;
-      resetTurnstile();
+      closeCaptchaModal();
       return;
     }
 
@@ -228,8 +282,7 @@ async function handleLogin() {
 
       if (!userId || !sessionToken) {
         showMessage('登录响应数据不完整，请稍后重试', 'error');
-        resetTurnstile();
-        isSubmitting.value = false;
+        closeCaptchaModal();
         return;
       }
 
@@ -248,22 +301,33 @@ async function handleLogin() {
         localStorage.setItem('refreshToken', refreshToken);
       }
 
+      closeCaptchaModal();
       showMessage('登录成功，正在跳转...', 'success');
       setTimeout(() => {
         login();
       }, 500);
     } else {
       let errorMessage = data.message || data.msg || '登录失败';
-      
+
+      if (response.status === 401 || errorMessage.includes('用户名') || errorMessage.includes('密码')) {
+        closeCaptchaModal();
+        showMessage(errorMessage, 'error');
+        isSubmitting.value = false;
+        return;
+      }
+
       if (response.status === 400) {
-        if (errorMessage.includes('人机验证') || errorMessage.includes('turnstile')) {
-          errorMessage = '人机验证失败，请刷新页面后重试';
-        } else if (errorMessage.includes('用户名') || errorMessage.includes('密码')) {
-          errorMessage = errorMessage;
+        if (errorMessage.includes('人机验证') || errorMessage.includes('验证码')) {
+          captchaError.value = '人机验证失败，请重试';
+          modalBgBase64.value = '';
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          await openCaptchaModal();
+          isSubmitting.value = false;
+          return;
         } else if (errorMessage.includes('频繁') || errorMessage.includes('频率')) {
-          errorMessage = errorMessage;
+          // keep original
         } else if (errorMessage.includes('封禁')) {
-          errorMessage = errorMessage;
+          // keep original
         } else {
           errorMessage = errorMessage || '登录信息有误，请检查后重试';
         }
@@ -272,14 +336,13 @@ async function handleLogin() {
       } else if (response.status === 403) {
         errorMessage = errorMessage || '账号异常，请联系管理员';
       }
-      
-      showMessage(errorMessage, 'error');
-      resetTurnstile();
+
+      captchaError.value = errorMessage;
       isSubmitting.value = false;
     }
   } catch (error) {
+    closeCaptchaModal();
     showMessage('登录请求失败，请检查网络连接或稍后重试', 'error');
-    resetTurnstile();
     isSubmitting.value = false;
   }
 }
@@ -306,13 +369,13 @@ async function handleLogin() {
 .decoration {
   position: absolute;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(150, 200, 255, 0.6);
 }
 
 .decoration-1 {
   width: 150px;
   height: 150px;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(150, 200, 255, 0.6);
   top: -150px;
   right: 0px;
   animation: float 16s infinite ease-in-out;
@@ -321,7 +384,7 @@ async function handleLogin() {
 .decoration-2 {
   width: 200px;
   height: 200px;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(140, 190, 255, 0.55);
   bottom: -100px;
   left: -50px;
   animation: float 12s infinite ease-in-out;
@@ -330,7 +393,7 @@ async function handleLogin() {
 .decoration-3 {
   width: 100px;
   height: 100px;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(160, 210, 255, 0.5);
   top: 50%;
   right: 50px;
   animation: float 8s infinite ease-in-out;
@@ -373,7 +436,6 @@ async function handleLogin() {
   box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
 }
 
-/* 标题样式 */
 h1 {
   text-align: center;
   color: #333;
@@ -382,28 +444,24 @@ h1 {
   font-weight: 600;
 }
 
-/* 表单样式 */
 form {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-/* 输入组样式 */
 .input-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-/* 标签样式 */
 label {
   font-size: 14px;
   font-weight: 500;
   color: #555;
 }
 
-/* 输入框样式 */
 input {
   padding: 12px 15px;
   border: 2px solid #e1e5e9;
@@ -420,13 +478,6 @@ input:focus {
   box-shadow: 0 0 0 3px rgba(0, 114, 255, 0.1);
 }
 
-/* Turnstile 容器样式 */
-.turnstile-container {
-  display: flex;
-  justify-content: flex-start;
-}
-
-/* 按钮样式 */
 button {
   background: #0072ff;
   color: white;
@@ -456,7 +507,6 @@ button:disabled {
   transform: none;
 }
 
-/* 注册链接样式 */
 .register-link {
   text-align: center;
   margin-top: 25px;
@@ -476,7 +526,6 @@ button:disabled {
   text-decoration: underline;
 }
 
-/* 消息提示样式 */
 .login-message {
   text-align: center;
   font-size: 14px;
@@ -498,7 +547,80 @@ button:disabled {
   border-color: #c8e6c9;
 }
 
-/* 响应式设计 */
+/* 验证码模态框 */
+.captcha-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.captcha-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  padding: 24px;
+  max-width: 360px;
+  width: 90%;
+  animation: modalIn 0.2s ease-out;
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.captcha-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.captcha-close-btn {
+  background: none;
+  border: none;
+  font-size: 22px;
+  color: #999;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.2s;
+  margin-top: 0;
+}
+
+.captcha-close-btn:hover {
+  color: #333;
+}
+
+.captcha-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.captcha-error {
+  color: #d32f2f;
+  font-size: 13px;
+  margin-top: 10px;
+  text-align: center;
+}
+
 @media (max-width: 480px) {
   .login-form {
     padding: 30px 20px;

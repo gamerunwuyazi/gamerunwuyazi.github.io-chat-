@@ -4,7 +4,7 @@ import { ref } from 'vue';
 export const useBaseStore = defineStore('base', () => {
   const currentUser = ref(null);
   const currentSessionToken = ref(localStorage.getItem('currentSessionToken') || null);
-  const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn';
+  const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
   const loading = ref(false);
   const isConnected = ref(false);
   const isFetchingOfflineMessages = ref(false);
@@ -13,6 +13,7 @@ export const useBaseStore = defineStore('base', () => {
   const hasReceivedGroupHistory = ref(false);
   const hasReceivedPrivateHistory = ref(false);
   const friendVerification = ref(false);
+  const messageStyle = ref(localStorage.getItem('messageStyle') || 'new');
   const receivedFriendRequests = ref([]);
   const sentFriendRequests = ref([]);
 
@@ -64,6 +65,11 @@ export const useBaseStore = defineStore('base', () => {
       console.error('设置好友验证失败:', error);
       return { success: false, message: '设置好友验证失败' };
     }
+  }
+
+  function setMessageStyle(style) {
+    messageStyle.value = style;
+    localStorage.setItem('messageStyle', style);
   }
 
   async function loadFriendRequests() {
@@ -123,6 +129,7 @@ export const useBaseStore = defineStore('base', () => {
     hasReceivedGroupHistory,
     hasReceivedPrivateHistory,
     friendVerification,
+    messageStyle,
     receivedFriendRequests,
     sentFriendRequests,
     getStorageKeyPrefix,
@@ -130,6 +137,7 @@ export const useBaseStore = defineStore('base', () => {
     setCurrentSessionToken,
     setLoading,
     setFriendVerification,
+    setMessageStyle,
     loadFriendRequests,
     updateReceivedFriendRequests,
     updateSentFriendRequests

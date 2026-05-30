@@ -1,20 +1,27 @@
 <script setup>
+import { SliderCaptcha } from 'scr-slider-captcha/frontend';
 import {ref, computed, onMounted, onUnmounted} from "vue";
-import VueTurnstile from 'vue-turnstile';
 
+import 'scr-slider-captcha/frontend/style.css';
+import { useCaptcha } from '@/composables/useCaptcha';
 import {useBaseStore} from "@/stores/baseStore";
 import {useStorageStore} from "@/stores/storageStore";
 import {useUnreadStore} from "@/stores/unreadStore";
 import {currentSessionToken} from "@/utils/chat";
 import modal from "@/utils/modal";
+import { originalFetch } from "@/utils/chat/config.js";
 
 const baseStore = useBaseStore();
 const storageStore = useStorageStore();
 const unreadStore = useUnreadStore();
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn'
-const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || ''
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || ''
 
 const currentUser = computed(() => baseStore.currentUser);
+
+const {
+  resetCaptcha,
+  captchaError
+} = useCaptcha();
 
 const currentSetting = ref('')
 
@@ -26,15 +33,20 @@ const passwordForm = ref({
 const passwordMessage = ref('')
 const passwordMessageClass = ref('')
 
-const turnstileRef = ref(null)
-const turnstileToken = ref('')
+// 模态框状态
+const captchaModalVisible = ref(false);
+const modalBgBase64 = ref('');
+const modalPuzzleBase64 = ref('');
+const modalTargetY = ref(0);
+const modalPuzzleSize = ref(50);
+const modalPublicKey = ref('');
+let pendingCaptchaId = '';
 
 const isPasswordFormValid = computed(() => {
   const oldPasswordValid = !!passwordForm.value.oldPassword && String(passwordForm.value.oldPassword).trim().length > 0;
   const newPasswordValid = !!passwordForm.value.newPassword && String(passwordForm.value.newPassword).trim().length >= 6;
   const confirmPasswordValid = !!passwordForm.value.confirmPassword && String(passwordForm.value.confirmPassword).trim().length >= 6 && passwordForm.value.newPassword === passwordForm.value.confirmPassword;
-  const turnstileValid = !!turnstileToken.value && String(turnstileToken.value).length > 0;
-  return oldPasswordValid && newPasswordValid && confirmPasswordValid && turnstileValid;
+  return oldPasswordValid && newPasswordValid && confirmPasswordValid;
 })
 
 const nicknameForm = ref({
@@ -90,11 +102,42 @@ function getCurrentSessionToken() {
   return localStorage.getItem('currentSessionToken') || ''
 }
 
-function resetTurnstile() {
-  if (turnstileRef.value) {
-    turnstileToken.value = ''
-    turnstileRef.value.reset()
+async function openCaptchaModal() {
+  captchaError.value = '';
+  captchaModalVisible.value = true;
+  try {
+    const res = await originalFetch(`${SERVER_URL}/api/captcha/create`, {
+      method: 'POST'
+    });
+    const data = await res.json();
+    if (data.captchaId) {
+      pendingCaptchaId = data.captchaId;
+      modalBgBase64.value = data.bgBase64;
+      modalPuzzleBase64.value = data.puzzleBase64;
+      modalTargetY.value = data.targetY;
+      modalPuzzleSize.value = data.puzzleSize;
+      modalPublicKey.value = data.publicKey || '';
+    } else {
+      captchaError.value = data.message || '获取验证码失败';
+    }
+  } catch (err) {
+    const msg = err?.message || '';
+    if (msg && !msg.includes('Failed to fetch')) {
+      captchaError.value = msg;
+    } else {
+      captchaError.value = '网络错误，请稍后重试';
+    }
   }
+}
+
+function closeCaptchaModal() {
+  captchaModalVisible.value = false;
+  modalBgBase64.value = '';
+  modalPuzzleBase64.value = '';
+}
+
+async function onCaptchaVerify(encryptedData) {
+  await doChangePassword(pendingCaptchaId, encryptedData);
 }
 
 function handleSettingClick(setting) {
@@ -116,32 +159,31 @@ function handleSettingClick(setting) {
   }
 }
 
-async function handleChangePassword() {
-  passwordMessage.value = ''
-  
+function handlePasswordClick() {
+  passwordMessage.value = '';
+
   if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
     passwordMessage.value = '两次输入的密码不一致'
     passwordMessageClass.value = 'error'
     return
   }
 
-  if (!turnstileToken.value) {
-    passwordMessage.value = '请完成人机验证'
-    passwordMessageClass.value = 'error'
-    return
-  }
-  
   const userId = getCurrentUserId()
-  const sessionToken = getCurrentSessionToken()
-  
   if (!userId) {
     passwordMessage.value = '用户未登录'
     passwordMessageClass.value = 'error'
     return
   }
-  
+
+  openCaptchaModal();
+}
+
+async function doChangePassword(captchaIdVal, encryptedTrajectoryVal) {
+  const userId = getCurrentUserId()
+  const sessionToken = getCurrentSessionToken()
+
   try {
-    const response = await fetch(`${SERVER_URL}/api/user/change-password`, {
+    const response = await originalFetch(`${SERVER_URL}/api/user/change-password`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -151,27 +193,42 @@ async function handleChangePassword() {
       body: JSON.stringify({
         oldPassword: passwordForm.value.oldPassword,
         newPassword: passwordForm.value.newPassword,
-        turnstileToken: turnstileToken.value
+        captchaId: captchaIdVal,
+        encryptedTrajectory: encryptedTrajectoryVal
       })
     })
-    
+
     const data = await response.json()
-    
+
     if (data.status === 'success') {
+      closeCaptchaModal();
       passwordMessage.value = '密码修改成功'
       passwordMessageClass.value = 'success'
       passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
-      resetTurnstile()
+      resetCaptcha();
     } else {
-      passwordMessage.value = data.message || '密码修改失败'
-      passwordMessageClass.value = 'error'
-      resetTurnstile()
+      const errorMessage = data.message || '密码修改失败';
+
+      if (response.status === 400 && errorMessage.includes('原密码')) {
+        closeCaptchaModal();
+        passwordMessage.value = errorMessage;
+        passwordMessageClass.value = 'error';
+      } else if (errorMessage.includes('人机验证') || errorMessage.includes('验证码')) {
+        captchaError.value = errorMessage;
+        modalBgBase64.value = '';
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await openCaptchaModal();
+      } else {
+        captchaError.value = errorMessage;
+        resetCaptcha();
+        await openCaptchaModal();
+      }
     }
   } catch (error) {
     console.error('修改密码失败:', error)
-    passwordMessage.value = '网络错误'
-    passwordMessageClass.value = 'error'
-    resetTurnstile()
+    closeCaptchaModal();
+    passwordMessage.value = '网络错误';
+    passwordMessageClass.value = 'error';
   }
 }
 
@@ -212,9 +269,10 @@ async function handleChangeNickname() {
     if (data.status === 'success') {
       nicknameMessage.value = '昵称修改成功'
       nicknameMessageClass.value = 'success'
-      const user = JSON.parse(localStorage.getItem('currentUser') || '{}')
+      const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
       user.nickname = newNickname
       localStorage.setItem('currentUser', JSON.stringify(user))
+      baseStore.setCurrentUser(user)
     } else {
       nicknameMessage.value = data.message || '昵称修改失败'
       nicknameMessageClass.value = 'error'
@@ -249,9 +307,10 @@ async function handleChangeSignature() {
     if (data.status === 'success') {
       signatureMessage.value = '个性签名修改成功'
       signatureMessageClass.value = 'success'
-      const user = JSON.parse(localStorage.getItem('currentUser') || '{}')
+      const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
       user.signature = signatureForm.value.newSignature
       localStorage.setItem('currentUser', JSON.stringify(user))
+      baseStore.setCurrentUser(user)
     } else {
       signatureMessage.value = data.message || '个性签名修改失败'
       signatureMessageClass.value = 'error'
@@ -377,8 +436,9 @@ async function handleUploadAvatar() {
     if (data.status === 'success') {
       avatarMessage.value = '头像上传成功'
       avatarMessageClass.value = 'success'
-      const user = JSON.parse(localStorage.getItem('currentUser') || '{}')
+      const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
       user.avatarUrl = data.avatarUrl
+      user.avatar_url = data.avatarUrl
       user.avatarVersion = Date.now()
       localStorage.setItem('currentUser', JSON.stringify(user))
       
@@ -552,7 +612,7 @@ onUnmounted(() => {
     <div v-else class="settings-container" style="display: flex; flex-direction: column;">
       <div v-if="currentSetting === 'change-password'" class="settings-detail">
         <h2>修改密码</h2>
-        <form class="settings-form" @submit.prevent="handleChangePassword">
+        <form class="settings-form" @submit.prevent="handlePasswordClick">
           <div class="form-group">
             <label for="oldPassword">原密码</label>
             <input type="password" id="oldPassword" v-model="passwordForm.oldPassword" placeholder="请输入原密码" required>
@@ -564,17 +624,6 @@ onUnmounted(() => {
           <div class="form-group">
             <label for="confirmPassword">确认新密码</label>
             <input type="password" id="confirmPassword" v-model="passwordForm.confirmPassword" placeholder="请再次输入新密码" required>
-          </div>
-          <div class="form-group">
-            <label>人机验证</label>
-            <div class="turnstile-container">
-              <VueTurnstile 
-                ref="turnstileRef"
-                :site-key="TURNSTILE_SITE_KEY"
-                v-model="turnstileToken"
-                theme="light"
-              />
-            </div>
           </div>
           <div v-if="passwordMessage" :class="'form-message ' + passwordMessageClass">{{ passwordMessage }}</div>
           <div class="form-actions">
@@ -695,15 +744,15 @@ onUnmounted(() => {
         <div class="version-info">
           <div class="version-item">
             <div class="version-label">当前版本</div>
-            <div class="version-value">26.5.3</div>
+            <div class="version-value">1.0.0</div>
           </div>
           <div class="version-item">
             <div class="version-label">最后更新</div>
-            <div class="version-value">2026.5.3</div>
+            <div class="version-value">2026.5.30</div>
           </div>
           <div class="version-item">
             <div class="version-label">开发者</div>
-            <div class="version-value">gamerunwuyazi</div>
+            <div class="version-value">无崖子——gamerunwuyazi</div>
           </div>
         </div>
         <div class="form-actions" style="margin-top: 20px;">
@@ -824,14 +873,117 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- 验证码模态框 -->
+    <Teleport to="body">
+      <div v-if="captchaModalVisible" class="captcha-modal-overlay" @click.self="closeCaptchaModal">
+        <div class="captcha-modal">
+          <div class="captcha-modal-header">
+            <span>请完成人机验证</span>
+            <button class="captcha-close-btn" @click="closeCaptchaModal">&times;</button>
+          </div>
+          <div class="captcha-modal-body">
+            <SliderCaptcha
+              :bg-base64="modalBgBase64"
+              :puzzle-base64="modalPuzzleBase64"
+              :target-y="modalTargetY"
+              :puzzle-size="modalPuzzleSize"
+              :width="300"
+              :height="150"
+              :public-key="modalPublicKey"
+              @verify="onCaptchaVerify"
+            />
+            <div v-if="captchaError" class="captcha-error">{{ captchaError }}</div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
-.turnstile-container {
+.captcha-container {
   display: flex;
-  justify-content: flex-start;
-  margin-top: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.captcha-error {
+  color: #d32f2f;
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+/* 验证码模态框 */
+.captcha-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.captcha-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  padding: 24px;
+  max-width: 360px;
+  width: 90%;
+  animation: modalIn 0.2s ease-out;
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.captcha-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.captcha-close-btn {
+  background: none;
+  border: none;
+  font-size: 22px;
+  color: #999;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.captcha-close-btn:hover {
+  color: #333;
+}
+
+.captcha-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.captcha-loading {
+  padding: 40px 0;
+  color: #999;
+  font-size: 14px;
 }
 
 .save-btn:disabled {

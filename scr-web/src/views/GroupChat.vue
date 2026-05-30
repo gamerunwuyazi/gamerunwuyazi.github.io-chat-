@@ -393,6 +393,15 @@ function handleAvatarError(userId) {
 }
 
 const displayGroupName = computed(() => {
+  const groupId = sessionStore.currentGroupId;
+  if (!groupId) return currentGroupName.value || '群组名称';
+
+  // 优先显示用户设置的备注
+  const currentGroup = groupStore.groupsList?.find(g => String(g.id) === String(groupId));
+  if (currentGroup?.user_remark && currentGroup.user_remark.trim()) {
+    return currentGroup.user_remark.trim();
+  }
+
   return currentGroupName.value || '群组名称';
 });
 
@@ -502,6 +511,25 @@ function loadCurrentGroupInfo() {
     .then(data => {
       if (data.status === 'success') {
         groupMembers.value = data.members || [];
+
+        // 同步到 groupStore，供 GroupMessageItem 计算属性使用
+        if (data.members && data.members.length > 0) {
+          const storeMembers = data.members.map(m => ({
+            id: Number(m.id),
+            nickname: m.nickname || '',
+            avatarUrl: m.avatarUrl || '',
+            is_admin: Number(m.is_admin) || 0,
+            is_muted: m.is_muted || null,
+            group_nickname: m.group_nickname || null
+          }));
+          groupStore.currentGroupMembers = storeMembers;
+          // 检测群昵称变更并更新消息列表中的 stored groupNickname
+          groupStore.updateGroupNicknameInMessages(sessionStore.currentGroupId, storeMembers);
+          // 检测最后消息的 stored groupNickname 是否与成员信息一致
+          groupStore.detectAndUpdateGroupNicknames(sessionStore.currentGroupId);
+        } else {
+          groupStore.currentGroupMembers = [];
+        }
       }
     })
     .catch(err => {

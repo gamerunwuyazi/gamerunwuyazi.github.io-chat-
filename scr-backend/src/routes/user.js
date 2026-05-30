@@ -59,7 +59,7 @@ export function setupRoutes(app, io) {
     }
   });
 
-  app.post('/api/update-nickname', (req, res) => {
+  app.post('/api/user/update-nickname', (req, res) => {
     updateNickname(req, res);
   });
 

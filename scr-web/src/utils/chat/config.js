@@ -7,7 +7,7 @@ import { refreshTokenWithQueue, isTokenRefreshing, addHttpRequestToQueue } from 
 
 export { marked, io, toast };
 
-export const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://back.hs.airoe.cn';
+export const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
 // 保存原始的 fetch
 const originalFetch = window.fetch;

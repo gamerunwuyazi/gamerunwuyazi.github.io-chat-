@@ -100,6 +100,31 @@ function isSvgAvatar(url) {
   return url && /\.svg$/i.test(url);
 }
 
+// 工具函数：获取好友显示名称（优先备注，其次昵称）
+function getFriendDisplayName(friend) {
+  if (friend.remark && friend.remark.trim()) {
+    return friend.remark.trim();
+  }
+  return friend.nickname || friend.username || '未知用户';
+}
+
+function tryGetRecallNickname(content) {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (parsed.id && parsed.nickname && typeof parsed.nickname === 'object') {
+        const keys = Object.keys(parsed.nickname);
+        if (keys.length > 0) return parsed.nickname[keys[0]];
+      }
+      const keys = Object.keys(parsed).filter(k => k !== 'id');
+      if (keys.length === 1 && typeof parsed[keys[0]] === 'string') {
+        return parsed[keys[0]];
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
 function getPrivateLastMessage(friend) {
   if (draftStore.drafts && draftStore.drafts.private && draftStore.drafts.private[friend.id]) {
     const draftContent = draftStore.drafts.private[friend.id];
@@ -110,7 +135,15 @@ function getPrivateLastMessage(friend) {
   
   const lastMessage = friend.lastMessage || storageStore.getPrivateLastMessage(friend.id);
   if (!lastMessage) return '';
-  
+
+  const recallNickname = tryGetRecallNickname(lastMessage.content);
+  if (lastMessage.messageType === 101 || lastMessage.isRecalled || recallNickname) {
+    if (recallNickname) {
+      return `${recallNickname}撤回了一条消息`;
+    }
+    return '撤回了一条消息';
+  }
+
   return storageStore.formatMessageContent(lastMessage);
 }
 
@@ -129,7 +162,8 @@ const filteredFriendsList = computed(() => {
   }
   const keyword = privateChatSearchKeyword.value.toLowerCase();
   return allFriends.filter(friend => {
-    return (friend.nickname || '').toLowerCase().includes(keyword);
+    const displayName = getFriendDisplayName(friend).toLowerCase();
+    return displayName.includes(keyword) || (friend.username || '').toLowerCase().includes(keyword);
   });
 });
 
@@ -216,19 +250,19 @@ function handleSearchUserClick() {
                     :class="{ 'deleted-item': friend.deleted_at }"
                     @click="handleFriendClick(friend)"
                     @contextmenu.prevent="handleFriendRightClick($event, friend)">
-                    <span class="user-avatar-wrapper" @click.stop="handleUserAvatarClick($event, friend)">
+                    <span class="user-avatar-wrapper">
                         <span v-if="getAvatarUrl(friend) && !isSvgAvatar(getAvatarUrl(friend))" class="user-avatar">
-                            <img :src="`${baseStore.SERVER_URL}${getAvatarUrl(friend)}`" :alt="friend.nickname" @error="handleAvatarError($event, friend)">
+                            <img :src="`${baseStore.SERVER_URL}${getAvatarUrl(friend)}`" :alt="getFriendDisplayName(friend)" @error="handleAvatarError($event, friend)">
                             <span v-if="friend.deleted_at" class="deleted-icon">🗑️</span>
                         </span>
                         <span v-else class="user-avatar">
-                            {{ friend.nickname ? friend.nickname.charAt(0).toUpperCase() : 'U' }}
+                            {{ getFriendDisplayName(friend).charAt(0).toUpperCase() }}
                             <span v-if="friend.deleted_at" class="deleted-icon">🗑️</span>
                         </span>
                         <span v-if="isUserOnline(friend.id) && !friend.deleted_at" class="online-indicator"></span>
                     </span>
                     <div class="friend-info">
-                        <span class="friend-name" :style="{ color: friend.deleted_at ? '#000' : '' }">{{ friend.nickname }} <span v-if="friend.deleted_at" style="font-size: 12px;">(已删除)</span></span>
+                        <span class="friend-name" :style="{ color: friend.deleted_at ? '#000' : '' }">{{ getFriendDisplayName(friend) }} <span v-if="friend.deleted_at" style="font-size: 12px;">(已删除)</span></span>
                         <span v-if="hasDraft(friend) && !friend.deleted_at" class="friend-last-message draft-text">{{ getPrivateLastMessage(friend) }}</span>
                         <span v-else-if="friend.deleted_at" class="friend-last-message" style="color: #000;">该会话已被删除</span>
                         <span v-else class="friend-last-message">{{ getPrivateLastMessage(friend) }}</span>

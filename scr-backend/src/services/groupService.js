@@ -268,7 +268,8 @@ export async function createGroup(req, res) {
 
     // 先广播类型100的系统消息：XXX创建了群组
     const now = new Date();
-    let createContent = `${creatorInfo[0]?.nickname || '用户'}创建了群组`;
+    const creatorNickname = creatorInfo[0]?.nickname || '用户';
+    const createContentObj = { [String(userId)]: creatorNickname, action: 'create' };
     
     // 如果有同时加入的成员，添加到消息内容
     const otherMemberIds = allMemberIds.filter(id => id !== parseInt(userId));
@@ -277,9 +278,13 @@ export async function createGroup(req, res) {
         `SELECT u.id, u.nickname FROM scr_users u WHERE u.id IN (${otherMemberIds.map(() => '?').join(',')})`,
         otherMemberIds
       );
-      const otherMemberNames = otherMembersInfo.map(m => m.nickname || '用户').join('、');
-      createContent += `，同时加入群组的有：${otherMemberNames}`;
+      createContentObj.otherNames = otherMembersInfo.map(m => m.nickname || '用户').join('、');
+      otherMembersInfo.forEach(m => {
+        createContentObj[String(m.id)] = m.nickname || '用户';
+      });
     }
+    
+    const createContent = JSON.stringify(createContentObj);
     
     const [insertResult] = await pool.execute(
       'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
@@ -290,7 +295,7 @@ export async function createGroup(req, res) {
     const rawType100Message = {
       id: insertResult.insertId,
       userId: userId,
-      nickname: creatorInfo[0]?.nickname || '',
+      nickname: creatorNickname,
       avatarUrl: creatorInfo[0]?.avatar_url || '',
       content: createContent,
       messageType: 100,
@@ -337,9 +342,9 @@ export async function getUserGroups(req, res) {
     }
 
     const [groups] = await pool.execute(`
-      SELECT g.*
-      FROM scr_groups g 
-      JOIN scr_group_members gm ON g.id = gm.group_id 
+      SELECT g.*, gm.remark as user_remark
+      FROM scr_groups g
+      JOIN scr_group_members gm ON g.id = gm.group_id
       WHERE gm.user_id = ? AND g.deleted_at IS NULL AND gm.deleted_at IS NULL
       ORDER BY g.id DESC
     `, [userId]);
@@ -437,7 +442,7 @@ export async function getGroupMembers(req, res) {
     const groupId = req.params.groupId;
 
     const [members] = await pool.execute(`
-      SELECT u.id, u.nickname, u.avatar_url as avatarUrl, gm.is_admin, gm.is_muted
+      SELECT u.id, u.nickname, u.avatar_url as avatarUrl, gm.is_admin, gm.is_muted, gm.group_nickname
       FROM scr_group_members gm 
       JOIN scr_users u ON gm.user_id = u.id 
       WHERE gm.group_id = ? AND gm.deleted_at IS NULL
@@ -449,7 +454,8 @@ export async function getGroupMembers(req, res) {
       nickname: member.nickname,
       avatarUrl: member.avatarUrl,
       is_admin: Number(member.is_admin),
-      is_muted: member.is_muted
+      is_muted: member.is_muted,
+      group_nickname: member.group_nickname
     }));
 
     res.json({
@@ -513,7 +519,10 @@ export async function removeGroupMember(req, res) {
 
     // 先广播类型100的系统消息：XXX被踢出了群组
     const now = new Date();
-    const kickedContent = `${memberInfo[0]?.nickname || '用户'}被移出了群组`;
+    const kickedNickname = memberInfo[0]?.nickname || '用户';
+    const kickerNickname = creatorInfo[0]?.nickname || '用户';
+    const kickedContentObj = { [String(memberId)]: kickedNickname, [String(userId)]: kickerNickname, action: 'kick' };
+    const kickedContent = JSON.stringify(kickedContentObj);
     const [insertResult] = await pool.execute(
       'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [userId, kickedContent, 100, groupId]
@@ -522,9 +531,9 @@ export async function removeGroupMember(req, res) {
     // 构建100类型消息对象
     const rawType100Message = {
       id: insertResult.insertId,
-      userId: userId,
-      nickname: creatorInfo[0]?.nickname || '',
-      avatarUrl: creatorInfo[0]?.avatar_url || '',
+      userId: memberId,
+      nickname: kickedNickname,
+      avatarUrl: memberInfo[0]?.avatar_url || '',
       content: kickedContent,
       messageType: 100,
       groupId: groupId,
@@ -747,9 +756,12 @@ export async function addGroupMembers(req, res) {
 
     // 插入类型100的系统消息：XXX邀请XXX加入了群组
     const now = new Date();
-    const newMemberNames = newMembersInfo.map(m => m.nickname || '用户').join('、');
     const inviterName = creatorInfo[0]?.nickname || '用户';
-    const addedContent = `${inviterName}邀请${newMemberNames}加入了群组`;
+    const addedContentObj = { [String(userId)]: inviterName, action: 'invite' };
+    newMembersInfo.forEach(m => {
+      addedContentObj[String(m.id)] = m.nickname || '用户';
+    });
+    const addedContent = JSON.stringify(addedContentObj);
     const [insertResult] = await pool.execute(
       'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [userId, addedContent, 100, groupId]
@@ -759,7 +771,7 @@ export async function addGroupMembers(req, res) {
     const rawType100Message = {
       id: insertResult.insertId,
       userId: userId,
-      nickname: creatorInfo[0]?.nickname || '',
+      nickname: inviterName,
       avatarUrl: creatorInfo[0]?.avatar_url || '',
       content: addedContent,
       messageType: 100,
@@ -942,12 +954,9 @@ export async function joinGroupWithToken(req, res) {
     
     // 插入类型100的系统消息
     const now = new Date();
-    let joinContent;
-    if (isFromGroupCard) {
-      joinContent = `${userInfo[0]?.nickname || '用户'}通过群名片加入了群组`;
-    } else {
-      joinContent = `${userInfo[0]?.nickname || '用户'}加入了群组`;
-    }
+    const joinerNickname = userInfo[0]?.nickname || '用户';
+    const joinContentObj = { [String(userId)]: joinerNickname, action: isFromGroupCard ? 'joinByCard' : 'join' };
+    const joinContent = JSON.stringify(joinContentObj);
     const [insertResult] = await pool.execute(
       'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [userId, joinContent, 100, groupId]
@@ -957,7 +966,7 @@ export async function joinGroupWithToken(req, res) {
     const rawType100Message = {
       id: insertResult.insertId,
       userId: userId,
-      nickname: userInfo[0]?.nickname || '',
+      nickname: joinerNickname,
       avatarUrl: userInfo[0]?.avatar_url || '',
       content: joinContent,
       messageType: 100,
@@ -1054,7 +1063,9 @@ export async function leaveGroup(req, res) {
 
     // 先广播类型100的系统消息：XXX退出了群组
     const now = new Date();
-    const leaveContent = `${userInfo[0]?.nickname || '用户'}退出了群组`;
+    const leaverNickname = userInfo[0]?.nickname || '用户';
+    const leaveContentObj = { [String(userId)]: leaverNickname, action: 'leave' };
+    const leaveContent = JSON.stringify(leaveContentObj);
     const [insertResult] = await pool.execute(
       'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [userId, leaveContent, 100, groupId]
@@ -1064,7 +1075,7 @@ export async function leaveGroup(req, res) {
     const rawType100Message = {
       id: insertResult.insertId,
       userId: userId,
-      nickname: userInfo[0]?.nickname || '',
+      nickname: leaverNickname,
       avatarUrl: userInfo[0]?.avatar_url || '',
       content: leaveContent,
       messageType: 100,
@@ -1199,8 +1210,10 @@ export async function dissolveGroup(req, res) {
       
       // 只添加一条群组解散消息，发送人是群主
       const dissolvedContent = JSON.stringify({
+        [String(userId)]: creatorInfo[0]?.nickname || '',
         groupName: group.name,
-        content: '群组已解散'
+        content: '群组已解散',
+        action: 'dismiss'
       });
       const [insertResult] = await pool.execute(
         'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
@@ -1663,5 +1676,169 @@ export async function getMuteStatus(req, res) {
   } catch (err) {
     console.error('获取禁言状态失败:', err.message);
     res.status(500).json({ status: 'error', message: '获取禁言状态失败' });
+  }
+}
+
+export async function setGroupRemark(req, res) {
+  try {
+    const userId = parseInt(req.userId);
+    const { groupId, remark } = req.body;
+
+    if (!groupId) {
+      return res.status(400).json({ status: 'error', message: '群组ID不能为空' });
+    }
+
+    if (remark !== null && typeof remark !== 'string') {
+      return res.status(400).json({ status: 'error', message: '备注格式不正确' });
+    }
+
+    if (remark && remark.length > 100) {
+      return res.status(400).json({ status: 'error', message: '备注长度不能超过100个字符' });
+    }
+
+    // 验证用户是否是该群组的成员
+    const [memberCheck] = await pool.execute(
+      `SELECT id FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL`,
+      [groupId, userId]
+    );
+
+    if (memberCheck.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群组成员，无法设置备注' });
+    }
+
+    const remarkValue = (remark && remark.trim()) ? remark.trim() : null;
+
+    // 直接更新成员表的备注字段
+    await pool.execute(
+      `UPDATE scr_group_members SET remark = ? WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL`,
+      [remarkValue, groupId, userId]
+    );
+
+    res.json({
+      status: 'success',
+      message: remarkValue ? '备注设置成功' : '备注已清除',
+      remark: remarkValue
+    });
+  } catch (err) {
+    console.error('设置群组备注失败:', err.message);
+    res.status(500).json({ status: 'error', message: '设置群组备注失败' });
+  }
+}
+
+export async function getGroupRemark(req, res) {
+  try {
+    const userId = parseInt(req.userId);
+    const { groupId } = req.params;
+
+    if (!groupId) {
+      return res.status(400).json({ status: 'error', message: '群组ID不能为空' });
+    }
+
+    const [remarkData] = await pool.execute(
+      `SELECT remark FROM scr_group_members WHERE user_id = ? AND group_id = ? AND deleted_at IS NULL`,
+      [userId, parseInt(groupId)]
+    );
+
+    const remark = remarkData.length > 0 ? remarkData[0].remark : null;
+
+    res.json({
+      status: 'success',
+      remark: remark
+    });
+  } catch (err) {
+    console.error('获取群组备注失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取群组备注失败' });
+  }
+}
+
+export async function setGroupNickname(req, res) {
+  try {
+    const userId = parseInt(req.userId);
+    const { groupId, groupNickname } = req.body;
+
+    if (!groupId) {
+      return res.status(400).json({ status: 'error', message: '群组ID不能为空' });
+    }
+
+    if (groupNickname !== null && typeof groupNickname !== 'string') {
+      return res.status(400).json({ status: 'error', message: '群昵称格式不正确' });
+    }
+
+    if (groupNickname && groupNickname.length > 50) {
+      return res.status(400).json({ status: 'error', message: '群昵称长度不能超过50个字符' });
+    }
+
+    const nicknameValue = (groupNickname && groupNickname.trim()) ? groupNickname.trim() : null;
+
+    const [memberCheck] = await pool.execute(
+      `SELECT id FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL`,
+      [groupId, userId]
+    );
+
+    if (memberCheck.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群组成员，无法设置群昵称' });
+    }
+
+    await pool.execute(
+      `UPDATE scr_group_members SET group_nickname = ? WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL`,
+      [nicknameValue, groupId, userId]
+    );
+
+    // 获取用户信息用于通知
+    const [userInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
+      [userId]
+    );
+
+    // ✨ 优化：使用专门的Socket事件通知群昵称更新（不保存到数据库）
+    const now = new Date();
+    const nicknameEvent = {
+      action: nicknameValue ? 'update_group_nickname' : 'clear_group_nickname',
+      userId: userId,
+      groupId: groupId,
+      nickname: userInfo[0]?.nickname || '',
+      newNickname: nicknameValue || null,
+      avatarUrl: userInfo[0]?.avatar_url || '',
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+
+    // 向当前群组发送专用事件（不经过message-received通道）
+    io.to(`group_${groupId}`).emit('group-nickname-updated', nicknameEvent);
+
+    res.json({
+      status: 'success',
+      message: nicknameValue ? '群昵称设置成功' : '群昵称已清除',
+      group_nickname: nicknameValue
+    });
+  } catch (err) {
+    console.error('设置群昵称失败:', err.message);
+    res.status(500).json({ status: 'error', message: '设置群昵称失败' });
+  }
+}
+
+export async function getGroupNickname(req, res) {
+  try {
+    const userId = parseInt(req.userId);
+    const { groupId } = req.params;
+
+    if (!groupId) {
+      return res.status(400).json({ status: 'error', message: '群组ID不能为空' });
+    }
+
+    const [nicknameData] = await pool.execute(
+      `SELECT group_nickname FROM scr_group_members WHERE user_id = ? AND group_id = ? AND deleted_at IS NULL`,
+      [userId, parseInt(groupId)]
+    );
+
+    const groupNickname = nicknameData.length > 0 ? nicknameData[0].group_nickname : null;
+
+    res.json({
+      status: 'success',
+      group_nickname: groupNickname
+    });
+  } catch (err) {
+    console.error('获取群昵称失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取群昵称失败' });
   }
 }

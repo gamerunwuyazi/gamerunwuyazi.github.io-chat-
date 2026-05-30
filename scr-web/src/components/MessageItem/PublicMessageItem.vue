@@ -12,36 +12,22 @@
     :class="['message', isOwn ? 'own-message' : 'other-message', { 'active': isActive }]"
     :data-id="message.id"
     :data-user-id="senderId"
-    :style="messageStyle"
     @contextmenu="handleContextMenu"
   >
-    <div class="message-header" style="display: flex; align-items: center; margin-bottom: 5px;">
-        <component 
-          :is="avatarIsImage ? 'img' : 'div'"
-          :src="avatarIsImage ? fullAvatarUrl : undefined"
-          :alt="senderNickname"
-          class="user-avatar"
-          :class="{ 'default-avatar': !avatarIsImage }"
-          style="width: 32px; height: 32px; border-radius: 50%; margin-right: 10px; background-color: #e0e0e0; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #666; cursor: pointer;"
-          @click="handleAvatarClick"
-          @error="handleAvatarError"
-        >
-          {{ !avatarIsImage ? senderInitials : '' }}
-        </component>
-        <div style="flex: 1;">
-          <span class="message-sender" style="font-weight: bold;">{{ senderNickname }}</span>
-          <span class="message-time" style="float: right; color: #999; font-size: 12px;">{{ messageTime }}</span>
-        </div>
+    <div class="msg-avatar" @click="handleAvatarClick">
+      <img v-if="avatarIsImage" :src="fullAvatarUrl" :alt="senderNickname" class="msg-avatar-img" @error="handleAvatarError" />
+      <span v-else class="msg-avatar-initials">{{ senderInitials }}</span>
     </div>
-    <div class="message-content">
+    <div class="msg-body">
+      <div v-if="!isOwn" class="msg-sender-name">{{ senderNickname }}</div>
+      <div class="msg-bubble">
+        <div class="msg-bubble-content">
       <div v-if="imageUrl" class="message-image-container">
         <img 
           :src="fullImageUrl" 
           :alt="filename || '图片'"
-          :width="imageWidth"
-          :height="imageHeight"
           class="message-image"
-          style="max-width: 100%; height: auto; cursor: pointer;"
+          style="cursor: pointer;"
           @click="handleImageClick(fullImageUrl)"
         >
       </div>
@@ -109,7 +95,6 @@
           点击查看群组详情
         </div>
       </div>
-      <!-- 引用消息单独处理 -->
       <template v-else-if="quotedMessageData">
         <div v-if="quotedMessageData.text" class="message-text">
           <p v-if="!quotedMessageData.markdone">{{ quotedMessageData.text }}</p>
@@ -118,6 +103,9 @@
         <QuotedMessage :quoted-message-data="quotedMessageData.quoted" />
       </template>
       <div v-else-if="parsedContent" v-html="parsedContent" class="message-text"></div>
+        </div>
+      </div>
+      <div class="msg-time">{{ messageTime }}</div>
     </div>
   </div>
 </template>
@@ -220,36 +208,6 @@ const messageTime = computed(() => {
   return new Date().toLocaleTimeString();
 });
 
-const messageStyle = computed(() => {
-  if (props.isOwn) {
-    return {
-      backgroundColor: '#E8F5E8',
-      borderRadius: '18px',
-      padding: '10px 15px',
-      maxWidth: '80%',
-      minWidth: '70px',
-      alignSelf: 'flex-end',
-      display: 'flex',
-      flexDirection: 'column',
-      marginBottom: '10px'
-    };
-  } else {
-    return {
-      marginLeft: '10px',
-      backgroundColor: '#FFFFFF',
-      borderRadius: '18px',
-      padding: '10px 15px',
-      maxWidth: '80%',
-      minWidth: '70px',
-      alignSelf: 'flex-start',
-      border: '1px solid #E0E0E0',
-      display: 'flex',
-      flexDirection: 'column',
-      marginBottom: '10px'
-    };
-  }
-});
-
 const messageData = computed(() => {
   let imageUrl = props.message.imageUrl;
   let fileUrl = props.message.fileUrl;
@@ -264,8 +222,20 @@ const messageData = computed(() => {
   if (props.message.messageType !== undefined) {
     // 优先检查是否是已撤回的消息（通过isRecalled或isSystemMessage标记）
     if (props.message.isRecalled || props.message.isSystemMessage) {
-      // 撤回消息 - content已经是纯文本格式
-      textContent = props.message.content || `${props.message.nickname || '某人'}撤回了一条消息`;
+      // 撤回消息 - content为JSON格式：{撤回人id:撤回人昵称}
+      let recallNickname = '某人';
+      try {
+        const parsed = JSON.parse(props.message.content);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const keys = Object.keys(parsed);
+          if (keys.length > 0) {
+            recallNickname = parsed[keys[0]];
+          }
+        }
+      } catch (e) {
+        recallNickname = props.message.nickname || '某人';
+      }
+      textContent = `${recallNickname}撤回了一条消息`;
       systemMessage = typeof textContent === 'string' ? textContent : String(textContent);
     } else {
       switch (props.message.messageType) {
@@ -528,11 +498,13 @@ const fileIcon = computed(() => {
 });
 
 const groupCardAvatarUrl = computed(() => {
-  // 如果头像加载失败，返回空字符串
   if (groupCardAvatarLoadFailed.value) return '';
-  
-  if (!groupCardData.value || !groupCardData.value.avatarUrl) return '';
-  return `${baseStore.SERVER_URL}${groupCardData.value.avatarUrl}`;
+
+  if (!groupCardData.value) return '';
+  const url = groupCardData.value.avatarUrl || groupCardData.value.avatar_url || '';
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  return `${baseStore.SERVER_URL}${url}`;
 });
 
 function handleGroupCardAvatarError() {
@@ -726,7 +698,7 @@ function handleContextMenu(event) {
   const messageId = messageElement.getAttribute('data-id');
   const userId = messageElement.getAttribute('data-user-id');
   const currentUserId = baseStore.currentUser?.id;
-  const senderNicknameValue = messageElement.querySelector('.message-sender')?.textContent || '';
+  const senderNicknameValue = messageElement.querySelector('.msg-sender-name')?.textContent || '';
   const messageType = props.message.messageType || 0;
   
   if (!messageId) return;

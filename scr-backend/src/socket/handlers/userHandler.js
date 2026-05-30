@@ -1,4 +1,5 @@
 import { SocketEvents } from '../events.js';
+import { trimIPLogs } from '../../utils/session.js';
 
 export function registerUserHandlers(socket, io, { pool, addOnlineUser, removeOnlineUser, getOnlineUser, getAllOnlineUsers, addAuthenticatedUser, removeAuthenticatedUser, forceDisconnectUser }) {
   
@@ -118,12 +119,10 @@ export function registerUserHandlers(socket, io, { pool, addOnlineUser, removeOn
           'INSERT INTO scr_ip_logs (user_id, ip_address, action) VALUES (?, ?, ?)',
           [userId, clientIP, 'check_status']
         );
-        // 清理旧记录，保持最多6000条
-        await pool.execute(
-          'DELETE FROM scr_ip_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM scr_ip_logs ORDER BY timestamp DESC LIMIT 6000) AS tmp)'
-        );
+        // 清理旧记录，保持最多8000条
+        await trimIPLogs();
       } catch (logErr) {
-        // 记录失败不影响主要功能
+        console.error('记录IP日志失败:', logErr.message);
       }
 
       // 广播更新后的用户列表

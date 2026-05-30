@@ -19,15 +19,20 @@ import {
   muteGroupMember,
   unmuteGroupMember,
   setMuteAll,
-  getMuteStatus
+  getMuteStatus,
+  setGroupRemark,
+  getGroupRemark,
+  setGroupNickname,
+  getGroupNickname
 } from '../services/groupService.js';
+import { groupAvatarUpload } from '../middleware/upload.js';
 
 export function setupRoutes(app, io) {
   app.get('/api/group/:id', (req, res) => {
     getGroupById(req, res);
   });
 
-  app.post('/api/upload-group-avatar/:groupId', (req, res) => {
+  app.post('/api/upload-group-avatar/:groupId', groupAvatarUpload.single('avatar'), (req, res) => {
     uploadGroupAvatar(req, res);
   });
 
@@ -105,5 +110,21 @@ export function setupRoutes(app, io) {
 
   app.get('/api/mute-status/:groupId', (req, res) => {
     getMuteStatus(req, res);
+  });
+
+  app.post('/api/set-group-remark', (req, res) => {
+    setGroupRemark(req, res);
+  });
+
+  app.get('/api/group-remark/:groupId', (req, res) => {
+    getGroupRemark(req, res);
+  });
+
+  app.post('/api/set-group-nickname', (req, res) => {
+    setGroupNickname(req, res);
+  });
+
+  app.get('/api/get-group-nickname/:groupId', (req, res) => {
+    getGroupNickname(req, res);
   });
 }

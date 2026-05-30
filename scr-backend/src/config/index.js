@@ -129,8 +129,7 @@ export const cronConfig = {
 // 安全配置
 // ============================================
 export const securityConfig = {
-  adminPassword: process.env.ADMIN_PASSWORD,
-  turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY || ''
+  adminPassword: process.env.ADMIN_PASSWORD
 };
 
 // ============================================
@@ -142,7 +141,6 @@ export const logConfig = {
 
 // 兼容性导出（保持向后兼容）
 export const ADMIN_PASSWORD = securityConfig.adminPassword;
-export const TURNSTILE_SECRET_KEY = securityConfig.turnstileSecretKey;
 
 // 获取 Redis 连接 URL（优先使用完整URL，否则构建）
 export function getRedisUrl() {
@@ -170,6 +168,5 @@ export default {
   securityConfig,
   logConfig,
   ADMIN_PASSWORD,
-  TURNSTILE_SECRET_KEY,
   getRedisUrl
 };

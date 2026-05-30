@@ -1,4 +1,21 @@
-import { pool } from '../models/database.js';
+import { pool, redisClient } from '../models/database.js';
+import { ADMIN_PASSWORD } from '../config/index.js';
+import { getOnlineUser, removeOnlineUser, getAllOnlineUsers } from '../utils/session.js';
+
+// 管理员认证中间件
+async function authenticateAdmin(req, res, next) {
+  const adminPassword = req.headers['x-admin-password'] || req.body.adminPassword;
+
+  if (!ADMIN_PASSWORD) {
+    return res.status(500).json({ status: 'error', message: '管理员密码未配置' });
+  }
+
+  if (!adminPassword || adminPassword !== ADMIN_PASSWORD) {
+    return res.status(401).json({ status: 'error', message: '管理员认证失败' });
+  }
+
+  next();
+}
 
 export function setupRoutes(app, io) {
   app.get('/api/sessions', async (req, res) => {
@@ -22,26 +39,178 @@ export function setupRoutes(app, io) {
     }
   });
 
-  app.post('/api/admin/ban-ip', async (req, res) => {
+  // 封禁IP或用户（支持传 ipAddress 或 userId 任意一个参数）
+  app.post('/api/admin/ban-ip', authenticateAdmin, async (req, res) => {
     try {
-      const { ip, reason, duration } = req.body;
+      const { ipAddress, userId, reason, expiresAt } = req.body;
 
-      if (!ip) {
-        return res.status(400).json({ status: 'error', message: 'IP地址不能为空' });
+      if (!ipAddress && !userId) {
+        return res.status(400).json({ status: 'error', message: '请提供 ipAddress 或 userId 至少一个参数' });
       }
 
-      const expiresAt = duration ? new Date(Date.now() + duration * 60 * 60 * 1000) : null;
+      let expiresDate = null;
+      if (expiresAt) {
+        expiresDate = new Date(expiresAt);
+        if (isNaN(expiresDate.getTime())) {
+          return res.status(400).json({ status: 'error', message: '解封时间格式错误' });
+        }
+      }
 
-      await pool.execute(
-        'INSERT INTO scr_banned_ips (ip, reason, created_by, expires_at) VALUES (?, ?, ?, ?)',
-        [ip, reason || '', req.userId || null, expiresAt]
-      );
+      const banData = {
+        reason: reason || '违反使用规则',
+        expires_at: expiresDate
+      };
 
+      if (ipAddress) {
+        await pool.execute(
+          'INSERT INTO scr_banned_ips (ip_address, user_id, reason, expires_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE reason = VALUES(reason), expires_at = VALUES(expires_at)',
+          [ipAddress, userId || null, reason || '违反使用规则', expiresDate]
+        );
+
+        await redisClient.hSet('scr:banned_ips', ipAddress, JSON.stringify(banData));
+
+        io.to(`ip_${ipAddress}`).emit('ip-banned', {
+          ipAddress: ipAddress,
+          userId: userId,
+          reason: reason || '违反使用规则',
+          expiresAt: expiresDate
+        });
+
+        const socketsInRoom = await io.in(`ip_${ipAddress}`).fetchSockets();
+        for (const socket of socketsInRoom) {
+          const user = await getOnlineUser(socket.id);
+          if (user) {
+            await removeOnlineUser(socket.id);
+            await redisClient.sRem('scr:authenticated_users', String(user.id));
+
+            try {
+              await pool.execute(
+                'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
+                [user.id]
+              );
+            } catch (err) {
+              // ignore
+            }
+          }
+        }
+
+        io.to(`ip_${ipAddress}`).disconnectSockets(true);
+
+        const allOnlineUsers = await getAllOnlineUsers();
+        const onlineUsersArray = allOnlineUsers.map(u => ({
+          id: u.id,
+          nickname: u.nickname,
+          avatarUrl: u.avatarUrl,
+          isOnline: true
+        }));
+
+        const onlineUserIds = new Set(onlineUsersArray.map(u => u.id));
+
+        const [offlineUsersData] = await pool.execute(`
+          SELECT id, nickname, last_online, avatar_url as avatarUrl
+          FROM scr_users
+          WHERE last_online IS NOT NULL
+          AND last_online >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+          ORDER BY last_online DESC
+        `);
+
+        const offlineUsersArray = offlineUsersData
+          .filter(u => !onlineUserIds.has(u.id))
+          .map(u => ({
+            id: u.id,
+            nickname: u.nickname,
+            avatarUrl: u.avatarUrl,
+            isOnline: false,
+            lastOnline: u.last_online
+          }));
+
+        io.to('authenticated_users').emit('users-list', {
+          online: onlineUsersArray,
+          offline: offlineUsersArray
+        });
+      }
+
+      if (userId) {
+        const userIdStr = String(userId);
+
+        if (!ipAddress) {
+          await pool.execute(
+            'INSERT INTO scr_banned_ips (ip_address, user_id, reason, expires_at) VALUES (?, ?, ?, ?)',
+            [null, userId, reason || '违反使用规则', expiresDate]
+          );
+        }
+
+        await redisClient.hSet('scr:banned_users', userIdStr, JSON.stringify(banData));
+
+        io.to(`user_${userId}`).emit('user-banned', {
+          ipAddress: ipAddress,
+          userId: userId,
+          reason: reason || '违反使用规则',
+          expiresAt: expiresDate
+        });
+
+        const userSocketsInRoom = await io.in(`user_${userId}`).fetchSockets();
+        for (const socket of userSocketsInRoom) {
+          const user = await getOnlineUser(socket.id);
+          if (user) {
+            await removeOnlineUser(socket.id);
+            await redisClient.sRem('scr:authenticated_users', String(user.id));
+
+            try {
+              await pool.execute(
+                'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
+                [user.id]
+              );
+            } catch (err) {
+              // ignore
+            }
+          }
+        }
+
+        io.to(`user_${userId}`).disconnectSockets(true);
+
+        if (!ipAddress) {
+          const allOnlineUsers = await getAllOnlineUsers();
+          const onlineUsersArray = allOnlineUsers.map(u => ({
+            id: u.id,
+            nickname: u.nickname,
+            avatarUrl: u.avatarUrl,
+            isOnline: true
+          }));
+
+          const onlineUserIds = new Set(onlineUsersArray.map(u => u.id));
+
+          const [offlineUsersData] = await pool.execute(`
+            SELECT id, nickname, last_online, avatar_url as avatarUrl
+            FROM scr_users
+            WHERE last_online IS NOT NULL
+            AND last_online >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+            ORDER BY last_online DESC
+          `);
+
+          const offlineUsersArray = offlineUsersData
+            .filter(u => !onlineUserIds.has(u.id))
+            .map(u => ({
+              id: u.id,
+              nickname: u.nickname,
+              avatarUrl: u.avatarUrl,
+              isOnline: false,
+              lastOnline: u.last_online
+            }));
+
+          io.to('authenticated_users').emit('users-list', {
+            online: onlineUsersArray,
+            offline: offlineUsersArray
+          });
+        }
+      }
+
+      const bannedTarget = ipAddress ? `IP ${ipAddress}` : `用户 ${userId}`;
       res.json({
         status: 'success',
-        message: `IP ${ip} 已被封禁`,
-        bannedIp: ip,
-        expiresAt: expiresAt
+        message: `${bannedTarget} 已被封禁`,
+        bannedAt: new Date().toISOString(),
+        expiresAt: expiresDate ? expiresDate.toISOString() : null
       });
     } catch (err) {
       console.error('封禁IP失败:', err.message);
@@ -49,23 +218,37 @@ export function setupRoutes(app, io) {
     }
   });
 
-  app.post('/api/admin/unban-ip', async (req, res) => {
+  // 解封IP或用户（支持传 ipAddress 或 userId 任意一个参数）
+  app.post('/api/admin/unban-ip', authenticateAdmin, async (req, res) => {
     try {
-      const { ip } = req.body;
+      const { ipAddress, userId } = req.body;
 
-      if (!ip) {
-        return res.status(400).json({ status: 'error', message: 'IP地址不能为空' });
+      if (!ipAddress && !userId) {
+        return res.status(400).json({ status: 'error', message: '请提供 ipAddress 或 userId 至少一个参数' });
       }
 
-      await pool.execute(
-        'DELETE FROM scr_banned_ips WHERE ip = ?',
-        [ip]
-      );
+      if (ipAddress) {
+        await pool.execute(
+          'DELETE FROM scr_banned_ips WHERE ip_address = ?',
+          [ipAddress]
+        );
 
+        await redisClient.hDel('scr:banned_ips', ipAddress);
+      }
+
+      if (userId) {
+        await pool.execute(
+          'DELETE FROM scr_banned_ips WHERE user_id = ?',
+          [userId]
+        );
+
+        await redisClient.hDel('scr:banned_users', String(userId));
+      }
+
+      const unbannedTarget = ipAddress ? `IP ${ipAddress}` : `用户 ${userId}`;
       res.json({
         status: 'success',
-        message: `IP ${ip} 已解封`,
-        unbannedIp: ip
+        message: `${unbannedTarget} 已解封`
       });
     } catch (err) {
       console.error('解封IP失败:', err.message);
@@ -73,21 +256,23 @@ export function setupRoutes(app, io) {
     }
   });
 
-  app.get('/api/admin/banned-ips', async (req, res) => {
+  // 获取封禁列表
+  app.get('/api/admin/banned-ips', authenticateAdmin, async (req, res) => {
     try {
       const [bannedIps] = await pool.execute(`
-        SELECT *, 
-          CASE WHEN expires_at IS NULL THEN '永久'
-               WHEN expires_at > NOW() THEN CONCAT('剩余 ', TIMESTAMPDIFF(HOUR, NOW(), expires_at), ' 小时')
+        SELECT b.*, u.username, u.nickname,
+          CASE WHEN b.expires_at IS NULL THEN '永久'
+               WHEN b.expires_at > NOW() THEN CONCAT('剩余 ', TIMESTAMPDIFF(HOUR, NOW(), b.expires_at), ' 小时')
                ELSE '已过期'
           END as status
-        FROM scr_banned_ips
-        ORDER BY created_at DESC
+        FROM scr_banned_ips b
+        LEFT JOIN scr_users u ON b.user_id = u.id
+        ORDER BY b.banned_at DESC
       `);
 
       res.json({
         status: 'success',
-        bannedIps: bannedIps,
+        bannedList: bannedIps,
         count: bannedIps.length
       });
     } catch (err) {
@@ -96,48 +281,50 @@ export function setupRoutes(app, io) {
     }
   });
 
-  app.get('/api/admin/login-ips', async (req, res) => {
+  // 获取IP操作日志
+  app.get('/api/admin/login-ips', authenticateAdmin, async (req, res) => {
     try {
       const [loginIps] = await pool.execute(`
         SELECT lip.*, u.username, u.nickname
-        FROM scr_login_ips lip
-        JOIN scr_users u ON lip.user_id = u.id
-        ORDER BY lip.last_login DESC
-        LIMIT 100
+        FROM scr_ip_logs lip
+        LEFT JOIN scr_users u ON lip.user_id = u.id
+        ORDER BY lip.timestamp DESC
+        LIMIT 5000
       `);
 
       res.json({
         status: 'success',
-        loginIps: loginIps,
-        count: loginIps.length
+        loginIPs: loginIps,
+        totalLogs: loginIps.length
       });
     } catch (err) {
-      console.error('获取登录IP记录失败:', err.message);
-      res.status(500).json({ status: 'error', message: '获取登录IP记录失败' });
+      console.error('获取IP操作日志失败:', err.message);
+      res.status(500).json({ status: 'error', message: '获取IP操作日志失败' });
     }
   });
 
-  app.get('/api/admin/api-logs', async (req, res) => {
+  // 获取API请求日志
+  app.get('/api/admin/api-logs', authenticateAdmin, async (req, res) => {
     try {
       const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 50;
+      const limit = parseInt(req.query.limit) || 3000;
       const offset = (page - 1) * limit;
 
-      const [logs] = await pool.execute(`
+      const [logs] = await pool.query(`
         SELECT *
         FROM scr_api_logs
-        ORDER BY created_at DESC
+        ORDER BY timestamp DESC
         LIMIT ? OFFSET ?
       `, [limit, offset]);
 
-      const [countResult] = await pool.execute(
+      const [countResult] = await pool.query(
         'SELECT COUNT(*) as total FROM scr_api_logs'
       );
       const total = countResult[0].total;
 
       res.json({
         status: 'success',
-        logs: logs,
+        apiLogs: logs,
         pagination: {
           page: page,
           limit: limit,

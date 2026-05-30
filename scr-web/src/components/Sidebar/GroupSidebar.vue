@@ -65,6 +65,23 @@ function unescapeHtml(html) {
   return text.value;
 }
 
+function tryGetRecallNickname(content) {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (parsed.id && parsed.nickname && typeof parsed.nickname === 'object') {
+        const keys = Object.keys(parsed.nickname);
+        if (keys.length > 0) return parsed.nickname[keys[0]];
+      }
+      const keys = Object.keys(parsed).filter(k => k !== 'id');
+      if (keys.length === 1 && typeof parsed[keys[0]] === 'string') {
+        return parsed[keys[0]];
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
 function getGroupLastMessage(group) {
   if (draftStore.drafts && draftStore.drafts.groups && draftStore.drafts.groups[group.id]) {
     const draftContent = draftStore.drafts.groups[group.id];
@@ -75,10 +92,27 @@ function getGroupLastMessage(group) {
   
   const lastMessage = group.lastMessage || storageStore.getGroupLastMessage(group.id);
   if (!lastMessage) return '';
-  
+
   let content = storageStore.formatMessageContent(lastMessage);
-  const senderName = lastMessage.nickname || '群成员';
+
+  const recallNickname = tryGetRecallNickname(lastMessage.content);
+  if (lastMessage.messageType === 101 || lastMessage.isRecalled || recallNickname) {
+    if (recallNickname) {
+      return `${recallNickname}撤回了一条消息`;
+    }
+    return '撤回了一条消息';
+  }
+
+  if (lastMessage.messageType === 100 || lastMessage.messageType === 102) {
+    return content;
+  }
+
+  let senderName = lastMessage.nickname || '群成员';
   
+  if (lastMessage.groupNickname) {
+    senderName = lastMessage.groupNickname;
+  }
+
   return `${senderName}: ${content}`;
 }
 
@@ -93,6 +127,14 @@ function getMutedGroups() {
   } catch {
     return [];
   }
+}
+
+// 工具函数：获取群组显示名称（优先备注，其次群组名）
+function getGroupDisplayName(group) {
+  if (group.user_remark && group.user_remark.trim()) {
+    return group.user_remark.trim();
+  }
+  return group.name || '未知群组';
 }
 
 // 检查群组是否被免打扰
@@ -135,8 +177,8 @@ const filteredGroupsList = computed(() => {
   }
   const keyword = groupSearchKeyword.value.toLowerCase();
   return allGroups.filter(group => {
-    const groupName = group.name || '';
-    return groupName.toLowerCase().includes(keyword);
+    const displayName = getGroupDisplayName(group).toLowerCase();
+    return displayName.includes(keyword);
   });
 });
 
@@ -148,7 +190,7 @@ function clearGroupSearch() {
 // 处理群组点击
 function handleGroupClick(group) {
   hideContextMenu();
-  const originalGroupName = group.name || '';
+  const originalGroupName = getGroupDisplayName(group);
   switchToGroupChat(group.id, originalGroupName, group.avatar_url || group.avatarUrl || '');
 }
 
@@ -229,20 +271,20 @@ function handleGroupAvatarError(event, group) {
                 </li>
                 <li v-else v-for="group in filteredGroupsList" :key="group.id" 
                     :data-group-id="group.id" 
-                    :data-group-name="group.name"
+                    :data-group-name="getGroupDisplayName(group)"
                     :class="{ 'deleted-item': group.deleted_at }"
                     @click="handleGroupClick(group)"
                     @contextmenu.prevent="handleGroupRightClick($event, group)">
-                    <span v-if="getGroupAvatarUrl(group) && !isSvgAvatar(getGroupAvatarUrl(group))" class="group-avatar" @click="handleGroupAvatarClick($event, group)">
-                        <img :src="`${baseStore.SERVER_URL}${getGroupAvatarUrl(group)}`" :alt="group.name" @error="handleGroupAvatarError($event, group)">
+                    <span v-if="getGroupAvatarUrl(group) && !isSvgAvatar(getGroupAvatarUrl(group))" class="group-avatar">
+                        <img :src="`${baseStore.SERVER_URL}${getGroupAvatarUrl(group)}`" :alt="getGroupDisplayName(group)" @error="handleGroupAvatarError($event, group)">
                         <span v-if="group.deleted_at" class="deleted-icon">🗑️</span>
                     </span>
-                    <span v-else class="group-avatar" @click="handleGroupAvatarClick($event, group)">
-                        {{ group.name.charAt(0).toUpperCase() }}
+                    <span v-else class="group-avatar">
+                        {{ getGroupDisplayName(group).charAt(0).toUpperCase() }}
                         <span v-if="group.deleted_at" class="deleted-icon">🗑️</span>
                     </span>
                     <div class="group-info">
-                        <span class="group-name" :style="{ color: group.deleted_at ? '#000' : '' }">{{ group.name }} <span v-if="group.deleted_at" style="font-size: 12px;">(已删除)</span></span>
+                        <span class="group-name" :style="{ color: group.deleted_at ? '#000' : '' }">{{ getGroupDisplayName(group) }} <span v-if="group.deleted_at" style="font-size: 12px;">(已删除)</span></span>
                         <span v-if="groupStore.hasGroupAtMe && groupStore.hasGroupAtMe(group.id) && !group.deleted_at" class="group-last-message at-me-text">[有人@我]</span>
                         <span v-else-if="hasDraft(group) && !group.deleted_at" class="group-last-message draft-text">{{ getGroupLastMessage(group) }}</span>
                         <span v-else-if="group.deleted_at" class="group-last-message" style="color: #000;">该会话已被删除</span>
