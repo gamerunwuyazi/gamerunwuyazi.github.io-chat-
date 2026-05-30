@@ -44,9 +44,10 @@ noscript {
 }
 
 .quoted-highlight,
-.message.active {
-    border-radius: 8px;
-    transition: background-color 0.5s ease-out;
+.message.active,
+.msg-bubble-content.active {
+  border-radius: 8px;
+  transition: background-color 0.5s ease-out;
 }
 
 /* 登录和注册页面样式 */

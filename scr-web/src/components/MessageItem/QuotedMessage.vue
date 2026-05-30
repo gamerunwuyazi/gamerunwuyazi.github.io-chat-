@@ -374,18 +374,21 @@ async function handleQuotedMessageClick() {
 }
 
 function scrollToMessageElement(messageElement) {
+  const contentContainer = messageElement.querySelector(':scope > .msg-body > .msg-bubble > .msg-bubble-content');
   messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
   setTimeout(() => {
     const isOwn = messageElement.classList.contains('own-message');
-    const originalBg = isOwn ? '#E8F5E8' : '#FFFFFF';
-    messageElement.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
-    messageElement.classList.add('active');
-    setTimeout(() => {
-      messageElement.style.backgroundColor = originalBg;
+    const originalBg = isOwn ? 'rgb(232, 245, 232)' : 'rgb(255, 255, 255)';
+    if (contentContainer) {
+      contentContainer.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
+      contentContainer.classList.add('active');
       setTimeout(() => {
-        messageElement.classList.remove('active');
-      }, 500);
-    }, 3000);
+        contentContainer.style.backgroundColor = originalBg;
+        setTimeout(() => {
+          contentContainer.classList.remove('active');
+        }, 500);
+      }, 3000);
+    }
   }, 500);
 }
 
