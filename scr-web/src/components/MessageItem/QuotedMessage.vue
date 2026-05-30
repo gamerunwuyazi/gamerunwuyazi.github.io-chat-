@@ -373,11 +373,19 @@ async function handleQuotedMessageClick() {
   }
 }
 
+function clearHighlight() {
+  document.querySelectorAll('.msg-bubble.active').forEach(el => {
+    el.classList.remove('active');
+    el.style.backgroundColor = '';
+  });
+}
+
 function scrollToMessageElement(messageElement) {
   const targetContainer = messageElement.querySelector(':scope > .msg-body > .msg-bubble');
   messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
   setTimeout(() => {
     if (targetContainer) {
+      clearHighlight();
       targetContainer.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
       targetContainer.classList.add('active');
       setTimeout(() => {

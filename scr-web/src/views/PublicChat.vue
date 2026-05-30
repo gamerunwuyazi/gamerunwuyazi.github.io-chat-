@@ -1125,47 +1125,31 @@ function formatTime(timestamp) {
 
 function scrollToMessage(message) {
   closeSearchModal();
-  
-  const messageElement = document.querySelector(`[data-id="${message.id}"]`);
-  if (messageElement) {
-    messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const clear = () => document.querySelectorAll('.msg-bubble.active').forEach(el => { el.classList.remove('active'); el.style.backgroundColor = ''; });
+  const highlight = (el) => {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     setTimeout(() => {
-      const isOwn = messageElement.classList.contains('own-message');
-      const originalBg = isOwn ? '#E8F5E8' : '#FFFFFF';
-      messageElement.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
-      messageElement.classList.add('active');
+      const bubble = el.querySelector(':scope > .msg-body > .msg-bubble') || el;
+      clear();
+      bubble.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
+      bubble.classList.add('active');
       setTimeout(() => {
-        messageElement.style.backgroundColor = originalBg;
-        setTimeout(() => {
-          messageElement.classList.remove('active');
-        }, 500);
+        bubble.style.backgroundColor = '';
+        setTimeout(() => bubble.classList.remove('active'), 500);
       }, 3000);
     }, 500);
-  } else {
-    const allMessages = publicStore.publicMessages;
-    const messageIndex = allMessages.findIndex(m => m.id === message.id);
-    
-    if (messageIndex !== -1 && messageContainerRef.value) {
-      const container = messageContainerRef.value;
-      const messageElements = container.querySelectorAll('.message');
-      const targetElement = messageElements[messageIndex];
-      
-      if (targetElement) {
-        targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        setTimeout(() => {
-          const isOwn = targetElement.classList.contains('own-message');
-          const originalBg = isOwn ? '#E8F5E8' : '#FFFFFF';
-          targetElement.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
-          targetElement.classList.add('active');
-          setTimeout(() => {
-            targetElement.style.backgroundColor = originalBg;
-            setTimeout(() => {
-              targetElement.classList.remove('active');
-            }, 500);
-          }, 3000);
-        }, 500);
-      }
-    }
+  };
+  const messageElement = document.querySelector(`[data-id="${message.id}"]`);
+  if (messageElement) {
+    highlight(messageElement);
+    return;
+  }
+  const allMessages = publicStore.publicMessages;
+  const messageIndex = allMessages.findIndex(m => m.id === message.id);
+  if (messageIndex !== -1 && messageContainerRef.value) {
+    const messageElements = messageContainerRef.value.querySelectorAll('.message');
+    const targetElement = messageElements[messageIndex];
+    if (targetElement) highlight(targetElement);
   }
 }
 </script>
