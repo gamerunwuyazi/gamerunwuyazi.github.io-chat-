@@ -50,6 +50,14 @@ noscript {
   transition: background-color 0.5s ease-out;
 }
 
+.message-context-menu .context-menu-item:hover {
+  background-color: #f0f0f0;
+}
+
+.message-context-menu {
+  user-select: none;
+}
+
 /* 登录和注册页面样式 */
 .login-container,
 .register-container {
@@ -2983,6 +2991,36 @@ noscript {
     margin-bottom: 12px;
     padding-bottom: 10px;
     border-bottom: 1px solid #eee;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.search-nav-btns {
+    display: flex;
+    gap: 4px;
+}
+
+.search-nav-btn {
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 11px;
+    color: #666;
+    transition: all 0.2s;
+}
+
+.search-nav-btn:hover:not(:disabled) {
+    background: #4CAF50;
+    color: white;
+    border-color: #4CAF50;
+}
+
+.search-nav-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .search-results-list {

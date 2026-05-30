@@ -122,6 +122,7 @@ import { useModalStore } from '@/stores/modalStore';
 import { useInputStore } from '@/stores/inputStore';
 import { openUserAvatarPopup } from '@/stores/index.js';
 import { showGroupCardPopup, getChatSocket } from '@/utils/chat';
+import toast from '@/utils/toast';
 
 import QuotedMessage from './QuotedMessage.vue';
 
@@ -753,6 +754,25 @@ function handleContextMenu(event) {
   
   contextMenu.appendChild(quoteMenuItem);
   
+  const copyMenuItem = document.createElement('div');
+  copyMenuItem.className = 'context-menu-item';
+  copyMenuItem.textContent = '复制消息';
+  copyMenuItem.style.padding = '8px 15px';
+  copyMenuItem.style.cursor = 'pointer';
+  copyMenuItem.style.fontSize = '14px';
+  copyMenuItem.style.whiteSpace = 'nowrap';
+  copyMenuItem.addEventListener('mouseenter', () => copyMenuItem.style.backgroundColor = '#f0f0f0');
+  copyMenuItem.addEventListener('mouseleave', () => copyMenuItem.style.backgroundColor = 'transparent');
+  copyMenuItem.addEventListener('click', () => {
+    const textContent = (props.message.messageType === 4)
+      ? (() => { try { return JSON.parse(props.message.content).text || ''; } catch { return props.message.content || ''; } })()
+      : (props.message.content || '');
+    navigator.clipboard.writeText(textContent).catch(() => {});
+    toast.info('已复制到剪贴板', 1500);
+    hideContextMenu();
+  });
+  contextMenu.appendChild(copyMenuItem);
+  
   const deleteMenuItem = document.createElement('div');
   deleteMenuItem.className = 'context-menu-item';
   deleteMenuItem.textContent = '删除';
@@ -796,6 +816,10 @@ function handleContextMenu(event) {
   
   currentMessageContextMenu = contextMenu;
   
+  const escHandler = (e) => { if (e.key === 'Escape') hideContextMenu(); };
+  document.addEventListener('keydown', escHandler);
+  contextMenu._escHandler = escHandler;
+  
   setTimeout(() => {
     document.addEventListener('click', hideContextMenu);
   }, 0);
@@ -803,6 +827,9 @@ function handleContextMenu(event) {
 
 function hideContextMenu() {
   if (currentMessageContextMenu) {
+    if (currentMessageContextMenu._escHandler) {
+      document.removeEventListener('keydown', currentMessageContextMenu._escHandler);
+    }
     document.body.removeChild(currentMessageContextMenu);
     currentMessageContextMenu = null;
   }

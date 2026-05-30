@@ -156,7 +156,13 @@
                 </button>
               </div>
               <div v-if="searchResults.length > 0" class="search-results">
-                <div class="search-results-count">找到 {{ searchResults.length }} 条消息</div>
+                <div class="search-results-count">
+                  找到 {{ searchResults.length }} 条消息
+                  <span class="search-nav-btns">
+                    <button class="search-nav-btn" @click="navigateToPrevSearchResult" :disabled="searchResults.length <= 1">▲</button>
+                    <button class="search-nav-btn" @click="navigateToNextSearchResult" :disabled="searchResults.length <= 1">▼</button>
+                  </span>
+                </div>
                 <div class="search-results-list">
                   <GroupMessageItem 
                     v-for="result in searchResults" 
@@ -327,6 +333,7 @@ import {
   switchingGroupWithExistingMessages
 } from "@/utils/chat";
 import toast from "@/utils/toast";
+import { useMessageHighlight } from "@/composables/useMessageHighlight";
 
 const baseStore = useBaseStore();
 const userStore = useUserStore();
@@ -334,6 +341,7 @@ const groupStore = useGroupStore();
 const sessionStore = useSessionStore();
 const inputStore = useInputStore();
 const draftStore = useDraftStore();
+const { scrollAndHighlight } = useMessageHighlight();
 const friendStore = useFriendStore();
 const publicStore = usePublicStore();
 const modalStore = useModalStore();
@@ -1119,6 +1127,7 @@ const searchResults = ref([]);
 const isSearching = ref(false);
 const hasSearched = ref(false);
 const searchInputRef = ref(null);
+const currentSearchIndex = ref(0);
 
 function openSearchModal() {
   showSearchModal.value = true;
@@ -1223,28 +1232,26 @@ function formatTime(timestamp) {
 
 function scrollToMessage(message) {
   closeSearchModal();
-  const clear = () => document.querySelectorAll('.msg-bubble.active').forEach(el => { el.classList.remove('active'); el.style.backgroundColor = ''; });
-  const highlight = (el) => {
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setTimeout(() => {
-      const bubble = el.querySelector(':scope > .msg-body > .msg-bubble') || el;
-      clear();
-      bubble.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
-      bubble.classList.add('active');
-      setTimeout(() => {
-        bubble.style.backgroundColor = '';
-        setTimeout(() => bubble.classList.remove('active'), 500);
-      }, 3000);
-    }, 500);
-  };
   const groupId = sessionStore.currentGroupId;
   const messages = groupStore.groupMessages[groupId] || [];
   const messageIndex = messages.findIndex(m => m.id === message.id);
   if (messageIndex !== -1 && groupMessageContainerRef.value) {
     const messageElements = groupMessageContainerRef.value.querySelectorAll('.message');
     const targetElement = messageElements[messageIndex];
-    if (targetElement) highlight(targetElement);
+    if (targetElement) scrollAndHighlight(targetElement);
   }
+}
+
+function navigateToNextSearchResult() {
+  if (searchResults.value.length <= 1) return;
+  currentSearchIndex.value = (currentSearchIndex.value + 1) % searchResults.value.length;
+  scrollToMessage(searchResults.value[currentSearchIndex.value]);
+}
+
+function navigateToPrevSearchResult() {
+  if (searchResults.value.length <= 1) return;
+  currentSearchIndex.value = (currentSearchIndex.value - 1 + searchResults.value.length) % searchResults.value.length;
+  scrollToMessage(searchResults.value[currentSearchIndex.value]);
 }
 
 function handleGroupSwitched() {

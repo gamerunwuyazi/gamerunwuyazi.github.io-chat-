@@ -79,6 +79,7 @@ import { usePublicStore } from '@/stores/publicStore';
 import { useModalStore } from '@/stores/modalStore';
 import { useStorageStore } from '@/stores/storageStore';
 import { showGroupCardPopup } from '@/utils/chat';
+import { useMessageHighlight } from '@/composables/useMessageHighlight';
 import toast from '@/utils/toast';
 
 const props = defineProps({
@@ -95,6 +96,7 @@ const publicStore = usePublicStore();
 const modalStore = useModalStore();
 const storageStore = useStorageStore();
 const groupCardAvatarLoadFailed = ref(false);
+const { scrollAndHighlight } = useMessageHighlight();
 
 function escapeHtmlForMarkdown(str) {
   return String(str)
@@ -373,29 +375,8 @@ async function handleQuotedMessageClick() {
   }
 }
 
-function clearHighlight() {
-  document.querySelectorAll('.msg-bubble.active').forEach(el => {
-    el.classList.remove('active');
-    el.style.backgroundColor = '';
-  });
-}
-
 function scrollToMessageElement(messageElement) {
-  const targetContainer = messageElement.querySelector(':scope > .msg-body > .msg-bubble');
-  messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  setTimeout(() => {
-    if (targetContainer) {
-      clearHighlight();
-      targetContainer.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
-      targetContainer.classList.add('active');
-      setTimeout(() => {
-        targetContainer.style.backgroundColor = '';
-        setTimeout(() => {
-          targetContainer.classList.remove('active');
-        }, 500);
-      }, 3000);
-    }
-  }, 500);
+  scrollAndHighlight(messageElement);
 }
 
 function handleImageClick(url) {

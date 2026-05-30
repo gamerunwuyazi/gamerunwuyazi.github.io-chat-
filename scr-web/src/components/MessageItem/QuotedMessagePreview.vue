@@ -46,6 +46,7 @@ import { marked } from 'marked';
 import { computed, ref } from 'vue';
 
 import { useBaseStore } from '@/stores/baseStore';
+import { useMessageHighlight } from '@/composables/useMessageHighlight';
 
 const props = defineProps({
  quotedMessage: {
@@ -58,6 +59,7 @@ defineEmits(['close']);
 
 const baseStore = useBaseStore();
 const groupCardAvatarLoadFailed = ref(false);
+const { scrollAndHighlight } = useMessageHighlight();
 
 function escapeHtmlForMarkdown(str) {
  return String(str)
@@ -196,25 +198,14 @@ const isMarkdownContent = computed(() => {
 });
 
 function handleScrollToQuoted() {
- const quotedId = props.quotedMessage?.id;
- if (!quotedId) return;
- const messageEl = document.querySelector(`[data-id="${quotedId}"]`);
- if (!messageEl) return;
- try {
- const clear = () => document.querySelectorAll('.msg-bubble.active').forEach(el => { el.classList.remove('active'); el.style.backgroundColor = ''; });
- const bubble = messageEl.querySelector(':scope > .msg-body > .msg-bubble') || messageEl;
- messageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
- setTimeout(() => {
- clear();
- bubble.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
- bubble.classList.add('active');
- setTimeout(() => {
- bubble.style.backgroundColor = '';
- setTimeout(() => bubble.classList.remove('active'), 500);
- }, 3000);
- }, 500);
- } catch {
- const original = messageEl; if (original) original.scrollIntoView({ behavior: 'smooth', block: 'center' });
- }
+  const quotedId = props.quotedMessage?.id;
+  if (!quotedId) return;
+  const messageEl = document.querySelector(`[data-id="${quotedId}"]`);
+  if (!messageEl) return;
+  try {
+    scrollAndHighlight(messageEl);
+  } catch {
+    if (messageEl) messageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 </script>
