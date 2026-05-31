@@ -1184,6 +1184,311 @@ body.dark-mode tr:hover {
     background-color: #21262d;
 }
 
+/* === ChatModal 模态框覆盖（内联样式需!important） === */
+body.dark-mode .modal-content[style*="background"] {
+    background: #161b22 !important;
+}
+
+body.dark-mode .modal-header[style*="background"] {
+    background: #21262d !important;
+}
+
+body.dark-mode .modal-footer[style*="background"] {
+    background: #21262d !important;
+}
+
+body.dark-mode .member-item[style*="background"] {
+    background: #21262d !important;
+    border-color: #30363d !important;
+}
+
+body.dark-mode .member-item[style*="border"] {
+    border-color: #30363d !important;
+}
+
+body.dark-mode .cancel-btn[style*="background"] {
+    background: #484f58 !important;
+}
+
+body.dark-mode .save-btn[style*="background"] {
+    background: #238636 !important;
+}
+
+body.dark-mode #userAvatarPopup {
+    background: #161b22 !important;
+    border-color: #30363d !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.4) !important;
+}
+
+body.dark-mode #userAvatarPopup h3,
+body.dark-mode #userAvatarPopup p {
+    color: #c9d1d9;
+}
+
+body.dark-mode .slider {
+    background-color: #30363d !important;
+}
+
+body.dark-mode .slider:before {
+    background-color: #c9d1d9 !important;
+}
+
+body.dark-mode .modal-content {
+    color: #c9d1d9;
+}
+
+body.dark-mode .modal-content label {
+    color: #c9d1d9;
+}
+
+body.dark-mode .modal-content .form-group input,
+body.dark-mode .modal-content .form-group textarea,
+body.dark-mode .modal-content .form-group select {
+    background-color: #21262d;
+    color: #c9d1d9;
+    border-color: #30363d;
+}
+
+body.dark-mode .modal-content .form-group input::placeholder {
+    color: #484f58;
+}
+
+body.dark-mode .modal-content .search-group input {
+    background-color: #21262d;
+    color: #c9d1d9;
+    border-color: #30363d;
+}
+
+body.dark-mode .modal-content .search-group input::placeholder {
+    color: #484f58;
+}
+
+body.dark-mode .modal-content .member-item:hover {
+    background-color: #30363d !important;
+}
+
+/* === 侧边栏深色覆盖（scoped样式需!important） === */
+body.dark-mode .friend-item,
+body.dark-mode .group-item {
+    background: #161b22 !important;
+}
+
+body.dark-mode .friend-item:hover,
+body.dark-mode .group-item:hover {
+    background: #21262d !important;
+}
+
+body.dark-mode .friend-item.active,
+body.dark-mode .group-item.active {
+    background: #1f3a5f !important;
+}
+
+body.dark-mode .friend-item .friend-name,
+body.dark-mode .group-item .group-name {
+    color: #c9d1d9 !important;
+}
+
+body.dark-mode .friend-item .friend-last-message,
+body.dark-mode .group-item .group-last-message {
+    color: #8b949e !important;
+}
+
+body.dark-mode .deleted-item {
+    background-color: #21262d !important;
+}
+
+body.dark-mode .deleted-item:hover {
+    background-color: #30363d !important;
+}
+
+body.dark-mode .deleted-icon {
+    background: #21262d !important;
+}
+
+body.dark-mode .online-indicator {
+    border-color: #161b22 !important;
+}
+
+body.dark-mode .context-menu-item:hover {
+    background-color: #21262d !important;
+}
+
+body.dark-mode .sidebar .friend-item,
+body.dark-mode .sidebar .group-item,
+body.dark-mode .secondary-sidebar .secondary-list-item {
+    background: #161b22 !important;
+}
+
+body.dark-mode .sidebar .friend-item:hover,
+body.dark-mode .sidebar .group-item:hover,
+body.dark-mode .secondary-sidebar .secondary-list-item:hover {
+    background: #21262d !important;
+}
+
+body.dark-mode .secondary-sidebar .secondary-list-item.active {
+    background: #1f3a5f !important;
+}
+
+/* === UserSettings 表单 === */
+body.dark-mode .settings-form-section input,
+body.dark-mode .settings-form-section textarea,
+body.dark-mode .settings-form-section select {
+    background-color: #21262d !important;
+    color: #c9d1d9 !important;
+    border-color: #30363d !important;
+}
+
+body.dark-mode .settings-form-section input::placeholder {
+    color: #484f58 !important;
+}
+
+body.dark-mode .settings-form-section label {
+    color: #8b949e !important;
+}
+
+/* === 群信息模态框 === */
+body.dark-mode .group-info-section {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+body.dark-mode .group-info-section h3 {
+    color: #c9d1d9;
+}
+
+body.dark-mode .group-info-item label {
+    color: #8b949e;
+}
+
+body.dark-mode .group-info-item span {
+    color: #c9d1d9;
+}
+
+body.dark-mode .group-member-list .member-item {
+    background-color: #21262d !important;
+    border-color: #30363d !important;
+}
+
+body.dark-mode .group-member-list .member-item:hover {
+    background-color: #30363d !important;
+}
+
+/* === 搜索侧边栏 === */
+body.dark-mode .search-sidebar {
+    background-color: #161b22;
+    border-color: #30363d;
+}
+
+body.dark-mode .search-sidebar h3 {
+    color: #c9d1d9;
+}
+
+body.dark-mode .search-sidebar input {
+    background-color: #21262d;
+    color: #c9d1d9;
+    border-color: #30363d;
+}
+
+body.dark-mode .search-sidebar input::placeholder {
+    color: #484f58;
+}
+
+body.dark-mode .search-result-item {
+    border-color: #30363d;
+}
+
+body.dark-mode .search-result-item:hover {
+    background-color: #21262d;
+}
+
+/* === 设置页面 === */
+body.dark-mode .settings-container {
+    background-color: #0d1117;
+}
+
+body.dark-mode .settings-card {
+    background-color: #161b22;
+    border-color: #30363d;
+}
+
+body.dark-mode .settings-card h3 {
+    color: #c9d1d9;
+}
+
+body.dark-mode .settings-card p {
+    color: #8b949e;
+}
+
+body.dark-mode .settings-card .setting-item {
+    border-color: #30363d;
+}
+
+body.dark-mode .settings-card .setting-label {
+    color: #c9d1d9;
+}
+
+body.dark-mode .settings-card .setting-desc {
+    color: #8b949e;
+}
+
+/* === 好友/群组列表项 === */
+body.dark-mode .friend-info .friend-name,
+body.dark-mode .group-info .group-name {
+    color: #c9d1d9 !important;
+}
+
+body.dark-mode .friend-info .friend-last-message,
+body.dark-mode .group-info .group-last-message {
+    color: #8b949e !important;
+}
+
+/* === 单选按钮/复选框 === */
+body.dark-mode input[type="radio"],
+body.dark-mode input[type="checkbox"] {
+    accent-color: #58a6ff;
+}
+
+/* === 消息通知设置 === */
+body.dark-mode .notification-item {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+body.dark-mode .notification-item .notification-title {
+    color: #c9d1d9;
+}
+
+body.dark-mode .notification-item .notification-desc {
+    color: #8b949e;
+}
+
+/* === 加载状态 === */
+body.dark-mode .loading-spinner {
+    border-color: #30363d;
+    border-top-color: #58a6ff;
+}
+
+body.dark-mode .loading-text {
+    color: #8b949e;
+}
+
+/* === 空状态 === */
+body.dark-mode .empty-list {
+    color: #8b949e;
+}
+
+body.dark-mode .empty-list-icon {
+    color: #484f58;
+}
+
+/* === 工具提示 === */
+body.dark-mode .tooltip,
+body.dark-mode [title] {
+    background-color: #21262d;
+    color: #c9d1d9;
+    border-color: #30363d;
+}
+
 /* 全局滚动条样式 - 与 messageContainer 完全一致 */
 ::-webkit-scrollbar {
     width: 6px;

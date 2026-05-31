@@ -221,11 +221,9 @@ function handlePageShow() {
 
 function tryClearUnreadForCurrentRoute() {
   const unreadStore = useUnreadStore();
-  const sessionStore = useSessionStore();
   const baseStore = useBaseStore();
 
   if (!baseStore.currentUser?.id) return false;
-  if (!document.hasFocus() && !document.hidden) return false;
 
   const currentPath = getCurrentPath();
   const isGroupRoute = currentPath.startsWith('/chat/group');
@@ -233,27 +231,31 @@ function tryClearUnreadForCurrentRoute() {
   const isMainChatRoute = currentPath === '/chat' || currentPath === '/chat/' ||
     (currentPath.startsWith('/chat') && !currentPath.startsWith('/chat/group') && !currentPath.startsWith('/chat/private'));
 
-  const chat = getCurrentActiveChat();
-
-  if (chat === 'main' && isMainChatRoute) {
+  if (isMainChatRoute) {
     if (unreadStore && unreadStore.clearGlobalUnread) {
       unreadStore.clearGlobalUnread();
       updateUnreadCountsDisplay();
       return true;
     }
-  } else if (chat.startsWith('group_') && isGroupRoute) {
-    const groupId = chat.replace('group_', '');
-    if (unreadStore && unreadStore.clearGroupUnread) {
-      unreadStore.clearGroupUnread(groupId);
-      updateUnreadCountsDisplay();
-      return true;
+  } else if (isGroupRoute) {
+    const match = currentPath.match(/\/chat\/group\/(\d+)/);
+    if (match) {
+      const groupId = match[1];
+      if (unreadStore && unreadStore.clearGroupUnread) {
+        unreadStore.clearGroupUnread(groupId);
+        updateUnreadCountsDisplay();
+        return true;
+      }
     }
-  } else if (chat.startsWith('private_') && isPrivateRoute) {
-    const userId = chat.replace('private_', '');
-    if (unreadStore && unreadStore.clearPrivateUnread) {
-      unreadStore.clearPrivateUnread(userId);
-      updateUnreadCountsDisplay();
-      return true;
+  } else if (isPrivateRoute) {
+    const match = currentPath.match(/\/chat\/private\/(\d+)/);
+    if (match) {
+      const userId = match[1];
+      if (unreadStore && unreadStore.clearPrivateUnread) {
+        unreadStore.clearPrivateUnread(userId);
+        updateUnreadCountsDisplay();
+        return true;
+      }
     }
   }
 
