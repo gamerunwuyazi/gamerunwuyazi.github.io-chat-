@@ -102,7 +102,6 @@
             ⋯ <span class="button-text">更多</span>
           </button>
           <button class="toggle-btn" 
-            style="background: #f1f1f1; border: 1px solid #ddd; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: #666; transition: all 0.2s; margin-left: 5px;"
             @click="toggleMarkdownToolbar">
             <i v-if="!showMarkdownToolbar" class="fas fa-chevron-down"></i>
             <i v-else class="fas fa-chevron-up"></i>

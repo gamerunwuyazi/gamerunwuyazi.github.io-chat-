@@ -1,46 +1,46 @@
 <template>
- <div class="quoted-message-preview" style="display: flex; align-items: center; padding: 8px 12px; background: #f5f5f5; border-left: 3px solid #4CAF50; margin-bottom: 8px; border-radius: 4px; max-width: 100%; box-sizing: border-box;">
- <div style="flex: 1; min-width: 0; overflow: hidden;">
- <div style="font-size: 12px; color: #666; display: flex; align-items: center; gap: 6px;">
-   <img v-if="senderAvatarUrl && !senderAvatarError" :src="senderAvatarUrl" style="width: 16px; height: 16px; border-radius: 50%; object-fit: cover;" @error="senderAvatarError = true">
-   <div v-else style="width: 16px; height: 16px; border-radius: 50%; background-color: #4CAF50; color: white; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">{{ senderInitial }}</div>
+ <div class="quoted-message-preview quoted-preview-wrapper">
+ <div class="quoted-preview-body">
+ <div class="quoted-preview-header">
+   <img v-if="senderAvatarUrl && !senderAvatarError" :src="senderAvatarUrl" class="quoted-preview-avatar" @error="senderAvatarError = true">
+   <div v-else class="quoted-preview-avatar-fallback">{{ senderInitial }}</div>
    引用: <strong>{{ resolvedUserInfo.nickname }}</strong>
  </div>
  <!-- 引用图片 -->
- <div v-if="isImage" style="margin-top: 5px;">
- <img :src="fullImageUrl" alt="引用图片" style="max-width: 100px; max-height: 80px; border-radius: 4px; object-fit: cover;">
+ <div v-if="isImage" class="quoted-preview-section">
+ <img :src="fullImageUrl" alt="引用图片" class="quoted-preview-image">
  </div>
  <!-- 引用文件 -->
- <div v-else-if="isFile" style="margin-top: 5px;">
- <span style="font-size: 16px;">{{ fileIcon }}</span>
- <span style="font-size: 13px; margin-left: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: calc(100% - 21px); vertical-align: middle;">{{ displayFilename }}</span>
+ <div v-else-if="isFile" class="quoted-preview-section">
+ <span class="quoted-preview-file-icon">{{ fileIcon }}</span>
+ <span class="quoted-preview-file-name">{{ displayFilename }}</span>
  </div>
  <!-- 引用群名片 -->
- <div v-else-if="isGroupCard" style="margin-top: 5px; background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 4px; padding: 6px;">
- <div style="font-weight: bold; color: #3498db; font-size: 13px; display: flex; align-items: center; gap: 4px;">
+ <div v-else-if="isGroupCard" class="quoted-preview-section quoted-preview-group-card">
+ <div class="quoted-preview-group-card-header">
  <img
  v-if="groupCardAvatarUrl && !isSvgAvatar(groupCardAvatarUrl) && !groupCardAvatarLoadFailed"
  :src="groupCardAvatarUrl"
- style="width: 16px; height: 16px; border-radius: 50%; object-fit: cover;"
+ class="quoted-preview-group-card-avatar"
  @error="groupCardAvatarLoadFailed = true"
  >
  <div
  v-else
- style="width: 16px; height: 16px; border-radius: 50%; background-color: #3498db; color: white; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;"
+ class="quoted-preview-group-card-avatar-fallback"
  >
  {{ groupCardInitials }}
  </div>
- <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">{{ groupCardGroupName }}</span>
+ <span class="quoted-preview-group-card-name">{{ groupCardGroupName }}</span>
  </div>
  </div>
  <!-- 普通文本 -->
- <div v-else style="font-size: 13px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+ <div v-else class="quoted-preview-text">
  <span v-if="isMarkdownContent" v-html="displayContent"></span>
  <template v-else>{{ displayContent }}</template>
  </div>
  </div>
- <button @click="handleScrollToQuoted" style="background: none; border: none; color: #4CAF50; font-size: 12px; cursor: pointer; padding: 0 6px; flex-shrink: 0;">跳转</button>
- <button @click="$emit('close')" style="background: none; border: none; color: #999; font-size: 18px; cursor: pointer; padding: 0 5px; flex-shrink: 0;">×</button>
+ <button @click="handleScrollToQuoted" class="quoted-preview-jump-btn">跳转</button>
+ <button @click="$emit('close')" class="quoted-preview-close-btn">×</button>
  </div>
 </template>
 

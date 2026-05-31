@@ -43,7 +43,7 @@
         >
           您的浏览器不支持视频播放
         </video>
-        <div style="font-size: 12px; color: #999; margin-top: 5px;">{{ displayFilename }}</div>
+        <div class="message-filename">{{ displayFilename }}</div>
       </div>
       <div v-else-if="isAudioFile" class="audio-container" style="width: 300px; max-width: 400px;">
         <audio 
@@ -54,7 +54,7 @@
         >
           您的浏览器不支持音频播放
         </audio>
-        <div style="font-size: 12px; color: #999; margin-top: 5px;">{{ displayFilename }}</div>
+        <div class="message-filename">{{ displayFilename }}</div>
       </div>
       <div v-else-if="fileUrl" class="file-link-container">
         <a 
@@ -71,10 +71,9 @@
         v-else-if="groupCardData" 
         class="group-card-container"
         :data-group-id="groupCardData.group_id"
-        style="background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 8px; padding: 10px; cursor: pointer; margin-top: 5px;"
         @click="handleGroupCardClick"
       >
-        <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px; display: flex; align-items: center; gap: 8px;">
+        <div class="group-card-header">
           <img 
             v-if="groupCardAvatarUrl"
             :src="groupCardAvatarUrl"
@@ -91,10 +90,10 @@
           </div>
           {{ groupCardGroupName }}
         </div>
-        <div class="group-card-description" style="color: #666; font-size: 14px; margin-bottom: 5px;">
+        <div class="group-card-description">
           {{ groupCardGroupDescription }}
         </div>
-        <div class="group-card-footer" style="font-size: 12px; color: #999;">
+        <div class="group-card-footer">
           点击查看群组详情
         </div>
       </div>
