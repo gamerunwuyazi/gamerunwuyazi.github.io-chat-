@@ -130,6 +130,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useInputStore } from '@/stores/inputStore';
 import { showGroupCardPopup, getChatSocket } from '@/utils/chat';
 import toast from '@/utils/toast';
+import { useContextMenuKeyboard } from "@/composables/useContextMenuKeyboard";
 import { openUserAvatarPopup } from '@/stores/index.js';
 
 let currentMessageContextMenu = null;
@@ -150,6 +151,7 @@ const friendStore = useFriendStore();
 const modalStore = useModalStore();
 const sessionStore = useSessionStore();
 const inputStore = useInputStore();
+const { setupKeyboard } = useContextMenuKeyboard();
 
 const isActive = ref(false);
 const senderAvatarLoadFailed = ref(false);
@@ -922,26 +924,8 @@ function handleContextMenu(event) {
   
   currentMessageContextMenu = contextMenu;
   
-  const escHandler = (e) => {
-    if (e.key === 'Escape') { hideContextMenu(); return; }
-    const items = contextMenu.querySelectorAll('.context-menu-item');
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      const current = contextMenu.querySelector('.context-menu-item.focused');
-      const idx = current ? Array.from(items).indexOf(current) : -1;
-      if (idx >= 0) items[idx].classList.remove('focused');
-      const next = e.key === 'ArrowDown'
-        ? (idx + 1) % items.length
-        : (idx - 1 + items.length) % items.length;
-      items[next].classList.add('focused');
-    }
-    if (e.key === 'Enter') {
-      const focused = contextMenu.querySelector('.context-menu-item.focused');
-      if (focused) focused.click();
-    }
-  };
-  document.addEventListener('keydown', escHandler);
-  contextMenu._escHandler = escHandler;
+  const cleanup = setupKeyboard(contextMenu, hideContextMenu);
+  contextMenu._cleanup = cleanup;
   
   setTimeout(() => {
     document.addEventListener('click', hideContextMenu);
@@ -950,8 +934,8 @@ function handleContextMenu(event) {
 
 function hideContextMenu() {
   if (currentMessageContextMenu) {
-    if (currentMessageContextMenu._escHandler) {
-      document.removeEventListener('keydown', currentMessageContextMenu._escHandler);
+    if (currentMessageContextMenu._cleanup) {
+      currentMessageContextMenu._cleanup();
     }
     document.body.removeChild(currentMessageContextMenu);
     currentMessageContextMenu = null;

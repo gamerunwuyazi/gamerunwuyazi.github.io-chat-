@@ -286,6 +286,7 @@ import {
 } from "@/utils/chat";
 import { clearContentEditable } from "@/utils/chat/message.js";
 import { useMessageHighlight } from "@/composables/useMessageHighlight";
+import { useSearchNavigation } from "@/composables/useSearchNavigation";
 
 const baseStore = useBaseStore();
 const userStore = useUserStore();
@@ -293,6 +294,15 @@ const publicStore = usePublicStore();
 const inputStore = useInputStore();
 const draftStore = useDraftStore();
 const { scrollAndHighlight } = useMessageHighlight();
+const { currentSearchIndex, navigateToNextSearchResult: navNext, navigateToPrevSearchResult: navPrev } = useSearchNavigation();
+
+function navigateToNextSearchResult() {
+  navNext(searchResults.value, scrollToMessage);
+}
+
+function navigateToPrevSearchResult() {
+  navPrev(searchResults.value, scrollToMessage);
+}
 const groupStore = useGroupStore();
 const friendStore = useFriendStore();
 const route = useRoute();
@@ -1030,7 +1040,6 @@ const searchResults = ref([]);
 const isSearching = ref(false);
 const hasSearched = ref(false);
 const searchInputRef = ref(null);
-const currentSearchIndex = ref(0);
 
 function openSearchModal() {
   showSearchModal.value = true;
@@ -1148,15 +1157,5 @@ function scrollToMessage(message) {
   }
 }
 
-function navigateToNextSearchResult() {
-  if (searchResults.value.length <= 1) return;
-  currentSearchIndex.value = (currentSearchIndex.value + 1) % searchResults.value.length;
-  scrollToMessage(searchResults.value[currentSearchIndex.value]);
-}
 
-function navigateToPrevSearchResult() {
-  if (searchResults.value.length <= 1) return;
-  currentSearchIndex.value = (currentSearchIndex.value - 1 + searchResults.value.length) % searchResults.value.length;
-  scrollToMessage(searchResults.value[currentSearchIndex.value]);
-}
 </script>

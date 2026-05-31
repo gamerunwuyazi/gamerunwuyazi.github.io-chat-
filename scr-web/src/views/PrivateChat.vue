@@ -225,6 +225,7 @@ import {
   resetLoadingState
 } from "@/utils/chat";
 import { useMessageHighlight } from "@/composables/useMessageHighlight";
+import { useSearchNavigation } from "@/composables/useSearchNavigation";
 
 const baseStore = useBaseStore();
 const userStore = useUserStore();
@@ -233,6 +234,15 @@ const sessionStore = useSessionStore();
 const inputStore = useInputStore();
 const draftStore = useDraftStore();
 const { scrollAndHighlight } = useMessageHighlight();
+const { currentSearchIndex, navigateToNextSearchResult: navNext, navigateToPrevSearchResult: navPrev } = useSearchNavigation();
+
+function navigateToNextSearchResult() {
+  navNext(searchResults.value, scrollToMessage);
+}
+
+function navigateToPrevSearchResult() {
+  navPrev(searchResults.value, scrollToMessage);
+}
 const groupStore = useGroupStore();
 const publicStore = usePublicStore();
 const SERVER_URL = baseStore.SERVER_URL || import.meta.env.VITE_SERVER_URL || '';
@@ -641,7 +651,6 @@ const searchResults = ref([]);
 const isSearching = ref(false);
 const hasSearched = ref(false);
 const searchInputRef = ref(null);
-const currentSearchIndex = ref(0);
 
 function openSearchModal() {
   showSearchModal.value = true;
@@ -753,18 +762,6 @@ function scrollToMessage(message) {
     const targetElement = messageElements[messageIndex];
     if (targetElement) scrollAndHighlight(targetElement);
   }
-}
-
-function navigateToNextSearchResult() {
-  if (searchResults.value.length <= 1) return;
-  currentSearchIndex.value = (currentSearchIndex.value + 1) % searchResults.value.length;
-  scrollToMessage(searchResults.value[currentSearchIndex.value]);
-}
-
-function navigateToPrevSearchResult() {
-  if (searchResults.value.length <= 1) return;
-  currentSearchIndex.value = (currentSearchIndex.value - 1 + searchResults.value.length) % searchResults.value.length;
-  scrollToMessage(searchResults.value[currentSearchIndex.value]);
 }
 
 function isUserOnline(userId) {
