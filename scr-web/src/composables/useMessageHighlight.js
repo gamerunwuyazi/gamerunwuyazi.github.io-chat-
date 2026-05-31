@@ -41,15 +41,18 @@ export function useMessageHighlight() {
     returnButtonEl = btn;
   }
 
-  function saveScrollState() {
-    const containers = document.querySelectorAll('.message-container, [class*="message-container"], .chat-messages');
-    if (containers.length > 0) {
-      savedScrollContainer = containers[0];
-      savedScrollTop = savedScrollContainer.scrollTop;
-    } else {
-      savedScrollContainer = document.scrollingElement || document.documentElement;
-      savedScrollTop = savedScrollContainer.scrollTop;
+  function findScrollContainer() {
+    const ids = ['messageContainer', 'privateMessageContainer', 'groupMessageContainer'];
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el) return el;
     }
+    return document.scrollingElement || document.documentElement;
+  }
+
+  function saveScrollState() {
+    savedScrollContainer = findScrollContainer();
+    savedScrollTop = savedScrollContainer.scrollTop;
   }
 
   function restoreScrollState() {

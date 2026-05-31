@@ -7,7 +7,7 @@
     <div style="font-size: 12px; color: #666; display: flex; align-items: center; gap: 6px;">
     <img v-if="senderAvatarUrl && !senderAvatarError" :src="senderAvatarUrl" style="width: 16px; height: 16px; border-radius: 50%; object-fit: cover;" @error="senderAvatarError = true">
     <div v-else style="width: 16px; height: 16px; border-radius: 50%; background-color: #4CAF50; color: white; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">{{ senderInitial }}</div>
-    引用: <strong>{{ quotedMessageData.nickname }}</strong>
+    引用: <strong>{{ resolvedUserInfo.nickname }}</strong>
   </div>
     
     <!-- 引用图片 -->
@@ -80,6 +80,7 @@ import { useBaseStore } from '@/stores/baseStore';
 import { useGroupStore } from '@/stores/groupStore';
 import { useFriendStore } from '@/stores/friendStore';
 import { usePublicStore } from '@/stores/publicStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import { useModalStore } from '@/stores/modalStore';
 import { useStorageStore } from '@/stores/storageStore';
 import { showGroupCardPopup } from '@/utils/chat';
@@ -99,18 +100,63 @@ const friendStore = useFriendStore();
 const publicStore = usePublicStore();
 const modalStore = useModalStore();
 const storageStore = useStorageStore();
+const sessionStore = useSessionStore();
 const groupCardAvatarLoadFailed = ref(false);
 const senderAvatarError = ref(false);
 const { scrollAndHighlight } = useMessageHighlight();
 
+function findUserInfo() {
+  const qm = props.quotedMessageData;
+  if (!qm) return { nickname: '', avatarUrl: '' };
+  let nickname = qm.nickname || '';
+  let avatarUrl = qm.avatarUrl || '';
+  if (!nickname || !avatarUrl) {
+    const uid = String(qm.userId || '');
+    if (uid) {
+      if (String(sessionStore.userId) === uid) {
+        if (!nickname) nickname = sessionStore.nickname || '';
+        if (!avatarUrl) avatarUrl = sessionStore.avatarUrl || '';
+      } else {
+        const groupId = sessionStore.currentGroupId;
+        if (groupId && groupStore.groups?.[groupId]) {
+          const members = groupStore.groups[groupId].members || [];
+          const member = members.find(m => String(m.id || m.user_id || m.userId) === uid);
+          if (member) {
+            if (!nickname) nickname = member.group_nickname || member.nickname || '';
+            if (!avatarUrl) avatarUrl = member.avatar_url || member.avatarUrl || member.avatar || '';
+          }
+        }
+        if (!nickname || !avatarUrl) {
+          const friends = friendStore.friends || [];
+          const friend = friends.find(f => String(f.id || f.userId) === uid);
+          if (friend) {
+            if (!nickname) nickname = friend.nickname || '';
+            if (!avatarUrl) avatarUrl = friend.avatarUrl || friend.avatar_url || '';
+          }
+        }
+        if (!nickname || !avatarUrl) {
+          const publicUser = publicStore.getPublicUser?.(uid);
+          if (publicUser) {
+            if (!nickname) nickname = publicUser.nickname || '';
+            if (!avatarUrl) avatarUrl = publicUser.avatarUrl || publicUser.avatar_url || '';
+          }
+        }
+      }
+    }
+  }
+  return { nickname, avatarUrl };
+}
+
+const resolvedUserInfo = computed(() => findUserInfo());
+
 const senderAvatarUrl = computed(() => {
-  const avatar = props.quotedMessageData?.avatar || props.quotedMessageData?.avatarUrl || '';
+  const avatar = findUserInfo().avatarUrl;
   if (!avatar) return '';
   return avatar.startsWith('http') ? avatar : `${baseStore.SERVER_URL}${avatar}`;
 });
 
 const senderInitial = computed(() => {
-  const name = props.quotedMessageData?.nickname || '';
+  const name = findUserInfo().nickname;
   return name ? name.charAt(0).toUpperCase() : '?';
 });
 
