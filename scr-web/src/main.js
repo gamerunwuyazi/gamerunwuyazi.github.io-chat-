@@ -12,6 +12,13 @@ import './assets/css/index.css'
 import './assets/css/code-highlight.css'
 import './assets/css/mobile.css'
 
+try {
+  const savedDarkMode = localStorage.getItem('dark-mode');
+  if (savedDarkMode === '1') {
+    document.body.classList.add('dark-mode');
+  }
+} catch {}
+
 const router = createRouter({
     history: createWebHistory(),
     routes: [

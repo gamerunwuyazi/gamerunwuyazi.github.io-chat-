@@ -4,7 +4,11 @@
     style="border-left: 3px solid #4CAF50; padding-left: 10px; margin-bottom: 8px; background: #f5f5f5; border-radius: 4px; padding: 8px; cursor: pointer;" 
     @click="handleQuotedMessageClick"
   >
-    <div style="font-size: 12px; color: #666;">引用: <strong>{{ quotedMessageData.nickname }}</strong></div>
+    <div style="font-size: 12px; color: #666; display: flex; align-items: center; gap: 6px;">
+    <img v-if="senderAvatarUrl && !senderAvatarError" :src="senderAvatarUrl" style="width: 16px; height: 16px; border-radius: 50%; object-fit: cover;" @error="senderAvatarError = true">
+    <div v-else style="width: 16px; height: 16px; border-radius: 50%; background-color: #4CAF50; color: white; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">{{ senderInitial }}</div>
+    引用: <strong>{{ quotedMessageData.nickname }}</strong>
+  </div>
     
     <!-- 引用图片 -->
     <div v-if="imageUrl" style="margin-top: 5px;">
@@ -96,7 +100,19 @@ const publicStore = usePublicStore();
 const modalStore = useModalStore();
 const storageStore = useStorageStore();
 const groupCardAvatarLoadFailed = ref(false);
+const senderAvatarError = ref(false);
 const { scrollAndHighlight } = useMessageHighlight();
+
+const senderAvatarUrl = computed(() => {
+  const avatar = props.quotedMessageData?.avatar || props.quotedMessageData?.avatarUrl || '';
+  if (!avatar) return '';
+  return avatar.startsWith('http') ? avatar : `${baseStore.SERVER_URL}${avatar}`;
+});
+
+const senderInitial = computed(() => {
+  const name = props.quotedMessageData?.nickname || '';
+  return name ? name.charAt(0).toUpperCase() : '?';
+});
 
 function escapeHtmlForMarkdown(str) {
   return String(str)

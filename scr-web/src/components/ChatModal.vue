@@ -550,7 +550,7 @@
 
   <!-- 图片预览模态框 -->
   <Teleport to="body" v-if="modalStore.showImagePreviewModal">
-    <div id="imagePreviewModal" class="modal" :style="imagePreviewModalStyle" @click="modalStore.closeModal('imagePreview')">
+    <div id="imagePreviewModal" class="modal" :style="imagePreviewModalStyle" @click="modalStore.closeModal('imagePreview')" @keydown="handleImagePreviewKeydown" tabindex="0" ref="imagePreviewRef">
       <div style="position: relative; max-width: 90%; max-height: 90%;" @click.stop>
         <img id="previewImgElement" :src="modalStore.modalData.imagePreviewUrl" alt="图片预览" style="width: 100%; height: auto; max-width: 90vw; max-height: 90vh; aspect-ratio: 16/9; object-fit: contain;" loading="lazy">
         <span class="close" id="closeImagePreviewModal" style="position: absolute; top: -30px; right: -30px; color: #f1f1f1; font-size: 40px; font-weight: bold; cursor: pointer;" @click="modalStore.closeModal('imagePreview')">&times;</span>
@@ -1162,6 +1162,24 @@ const imagePreviewModalStyle = computed(() => ({
   justifyContent: 'center',
   alignItems: 'center'
 }));
+
+const imagePreviewRef = ref(null);
+
+function handleImagePreviewKeydown(e) {
+  if (e.key === 'Escape') {
+    modalStore.closeModal('imagePreview');
+  }
+}
+
+watch(() => modalStore.showImagePreviewModal, (newVal) => {
+  if (newVal) {
+    nextTick(() => {
+      if (imagePreviewRef.value) {
+        imagePreviewRef.value.focus();
+      }
+    });
+  }
+});
 
 const avatarPreviewModalStyle = computed(() => ({
   display: 'flex',

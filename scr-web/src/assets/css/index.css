@@ -5,6 +5,83 @@ body {
     background-color: #f0f2f5;
 }
 
+body.dark-mode {
+    background-color: #1a1a2e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .message-container,
+body.dark-mode .chat-container {
+    background-color: #1a1a2e;
+}
+
+body.dark-mode .msg-bubble {
+    background-color: #2a2a3e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .own-message .msg-bubble {
+    background-color: #1e3a5f;
+}
+
+body.dark-mode .msg-sender-name {
+    color: #aaa;
+}
+
+body.dark-mode .sidebar,
+body.dark-mode .secondary-sidebar {
+    background-color: #16213e;
+}
+
+body.dark-mode .sidebar-section h3 {
+    color: #aaa;
+}
+
+body.dark-mode .settings-item:hover,
+body.dark-mode .friend-item:hover,
+body.dark-mode .group-item:hover {
+    background-color: #2a2a3e;
+}
+
+body.dark-mode .message-input-area {
+    background-color: #16213e;
+}
+
+body.dark-mode .quoted-message-preview {
+    background: #2a2a3e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .quoted-message-display {
+    background: #2a2a3e;
+}
+
+body.dark-mode .context-menu,
+body.dark-mode .message-context-menu {
+    background-color: #2a2a3e;
+    border-color: #444;
+}
+
+body.dark-mode .context-menu-item:hover {
+    background-color: #3a3a4e;
+}
+
+body.dark-mode .search-modal {
+    background-color: #1a1a2e;
+    color: #e0e0e0;
+}
+
+body.dark-mode .search-input-container input {
+    background-color: #2a2a3e;
+    color: #e0e0e0;
+    border-color: #444;
+}
+
+body.dark-mode .system-message-text {
+    background-color: #2a2a3e;
+    color: #888;
+}
+
 /* 全局滚动条样式 - 与 messageContainer 完全一致 */
 ::-webkit-scrollbar {
     width: 6px;
@@ -54,8 +131,18 @@ noscript {
   background-color: #f0f0f0;
 }
 
+.message-context-menu .context-menu-item.focused {
+  background-color: #e8f5e9;
+  outline: none;
+}
+
 .message-context-menu {
   user-select: none;
+}
+
+.return-position-btn:hover {
+  opacity: 0.9;
+  transform: translateX(-50%) scale(1.05);
 }
 
 /* 登录和注册页面样式 */

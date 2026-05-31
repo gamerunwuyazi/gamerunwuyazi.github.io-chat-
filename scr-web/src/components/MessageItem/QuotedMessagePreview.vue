@@ -1,7 +1,11 @@
 <template>
  <div class="quoted-message-preview" style="display: flex; align-items: center; padding: 8px 12px; background: #f5f5f5; border-left: 3px solid #4CAF50; margin-bottom: 8px; border-radius: 4px; max-width: 100%; box-sizing: border-box;">
  <div style="flex: 1; min-width: 0; overflow: hidden;">
- <div style="font-size: 12px; color: #666;">引用: <strong>{{ quotedMessage.nickname }}</strong></div>
+ <div style="font-size: 12px; color: #666; display: flex; align-items: center; gap: 6px;">
+   <img v-if="senderAvatarUrl && !senderAvatarError" :src="senderAvatarUrl" style="width: 16px; height: 16px; border-radius: 50%; object-fit: cover;" @error="senderAvatarError = true">
+   <div v-else style="width: 16px; height: 16px; border-radius: 50%; background-color: #4CAF50; color: white; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">{{ senderInitial }}</div>
+   引用: <strong>{{ quotedMessage.nickname }}</strong>
+ </div>
  <!-- 引用图片 -->
  <div v-if="isImage" style="margin-top: 5px;">
  <img :src="fullImageUrl" alt="引用图片" style="max-width: 100px; max-height: 80px; border-radius: 4px; object-fit: cover;">
@@ -59,7 +63,19 @@ defineEmits(['close']);
 
 const baseStore = useBaseStore();
 const groupCardAvatarLoadFailed = ref(false);
+const senderAvatarError = ref(false);
 const { scrollAndHighlight } = useMessageHighlight();
+
+const senderAvatarUrl = computed(() => {
+  const avatar = props.quotedMessage?.avatar || props.quotedMessage?.avatarUrl || '';
+  if (!avatar) return '';
+  return avatar.startsWith('http') ? avatar : `${baseStore.SERVER_URL}${avatar}`;
+});
+
+const senderInitial = computed(() => {
+  const name = props.quotedMessage?.nickname || '';
+  return name ? name.charAt(0).toUpperCase() : '?';
+});
 
 function escapeHtmlForMarkdown(str) {
  return String(str)
