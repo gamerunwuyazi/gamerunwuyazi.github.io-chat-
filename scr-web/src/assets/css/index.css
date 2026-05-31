@@ -6,80 +6,445 @@ body {
 }
 
 body.dark-mode {
-    background-color: #1a1a2e;
-    color: #e0e0e0;
+    background-color: #0d1117;
+    color: #e6edf3;
 }
 
+body.dark-mode .body-bg {
+    background-color: #0d1117;
+}
+
+/* === 消息容器 === */
+body.dark-mode #messageContainer,
+body.dark-mode #privateMessageContainer,
+body.dark-mode #groupMessageContainer,
 body.dark-mode .message-container,
 body.dark-mode .chat-container {
-    background-color: #1a1a2e;
+    background-color: #0d1117;
 }
 
-body.dark-mode .msg-bubble {
-    background-color: #2a2a3e;
-    color: #e0e0e0;
+body.dark-mode #privateEmptyState,
+body.dark-mode #groupEmptyState,
+body.dark-mode .empty-state,
+body.dark-mode .empty-chat-state {
+    background-color: #0d1117;
+    color: #8b949e;
 }
 
-body.dark-mode .own-message .msg-bubble {
-    background-color: #1e3a5f;
+/* === 聊天界面 === */
+body.dark-mode .private-chat-interface,
+body.dark-mode .group-chat-interface,
+body.dark-mode #groupChatInterface {
+    background-color: #0d1117;
 }
 
-body.dark-mode .msg-sender-name {
-    color: #aaa;
+body.dark-mode .chat-interface {
+    background-color: #0d1117;
 }
 
+/* === 输入区域 === */
+body.dark-mode .input-area,
+body.dark-mode .group-message-input-area {
+    background-color: #161b22;
+    border-color: #30363d;
+}
+
+body.dark-mode .input-container,
+body.dark-mode .group-input-container,
+body.dark-mode .message-input-area {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+body.dark-mode #messageInput,
+body.dark-mode #groupMessageInput,
+body.dark-mode #privateMessageInput,
+body.dark-mode .editable-div,
+body.dark-mode [contenteditable="true"] {
+    color: #e6edf3;
+}
+
+body.dark-mode .more-functions {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+/* === 消息气泡 === */
+body.dark-mode .message.other-message .msg-bubble {
+    background: #21262d;
+    border-color: #30363d;
+}
+
+body.dark-mode .message.own-message .msg-bubble {
+    background: #0d419d;
+}
+
+body.dark-mode .msg-bubble-content,
+body.dark-mode .message-content {
+    color: #e6edf3;
+}
+
+body.dark-mode .msg-time {
+    color: #8b949e;
+}
+
+body.dark-mode .msg-sender-name,
+body.dark-mode .message-sender {
+    color: #8b949e;
+}
+
+/* === 侧边栏 === */
 body.dark-mode .sidebar,
 body.dark-mode .secondary-sidebar {
-    background-color: #16213e;
+    background-color: #161b22;
+    border-color: #30363d;
 }
 
 body.dark-mode .sidebar-section h3 {
-    color: #aaa;
+    color: #8b949e;
+}
+
+body.dark-mode .settings-item,
+body.dark-mode .friend-item,
+body.dark-mode .group-item {
+    color: #e6edf3;
 }
 
 body.dark-mode .settings-item:hover,
 body.dark-mode .friend-item:hover,
 body.dark-mode .group-item:hover {
-    background-color: #2a2a3e;
+    background-color: #21262d;
 }
 
-body.dark-mode .message-input-area {
-    background-color: #16213e;
+body.dark-mode .secondary-sidebar .secondary-list-item {
+    color: #e6edf3;
 }
 
-body.dark-mode .quoted-message-preview {
-    background: #2a2a3e;
-    color: #e0e0e0;
+body.dark-mode .secondary-sidebar .secondary-list-item:hover {
+    background-color: #21262d;
 }
 
-body.dark-mode .quoted-message-display {
-    background: #2a2a3e;
+body.dark-mode .secondary-sidebar .secondary-list-item .secondary-list-name {
+    color: #e6edf3;
 }
 
-body.dark-mode .context-menu,
-body.dark-mode .message-context-menu {
-    background-color: #2a2a3e;
-    border-color: #444;
+body.dark-mode .secondary-sidebar .secondary-list-item .secondary-list-last-msg {
+    color: #8b949e;
 }
 
-body.dark-mode .context-menu-item:hover {
-    background-color: #3a3a4e;
+body.dark-mode .secondary-sidebar .secondary-list-item .secondary-list-time {
+    color: #484f58;
 }
 
+/* === 聊天头部 === */
+body.dark-mode .private-chat-header,
+body.dark-mode .public-chat-header,
+body.dark-mode .public-header {
+    background-color: #161b22;
+    border-color: #30363d;
+}
+
+body.dark-mode .private-user-details h3,
+body.dark-mode .public-header h2 {
+    color: #e6edf3;
+}
+
+body.dark-mode .private-user-details #privateUserStatus,
+body.dark-mode .private-user-details .user-status {
+    color: #8b949e;
+}
+
+body.dark-mode .private-actions button {
+    background-color: #21262d;
+    color: #e6edf3;
+}
+
+body.dark-mode .private-actions button:hover {
+    background-color: #30363d;
+}
+
+/* === 模态框 === */
+body.dark-mode .modal-content {
+    background-color: #161b22;
+    border-color: #30363d;
+}
+
+body.dark-mode .modal-header {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+body.dark-mode .modal-header h2 {
+    color: #e6edf3;
+}
+
+body.dark-mode .modal-footer {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+body.dark-mode .close {
+    color: #8b949e;
+}
+
+body.dark-mode .close:hover,
+body.dark-mode .close:focus {
+    color: #e6edf3;
+}
+
+/* === 搜索模态框 === */
 body.dark-mode .search-modal {
-    background-color: #1a1a2e;
-    color: #e0e0e0;
+    background: #161b22;
+    color: #e6edf3;
+}
+
+body.dark-mode .search-modal-header {
+    border-color: #30363d;
+}
+
+body.dark-mode .search-modal-header h3 {
+    color: #e6edf3;
+}
+
+body.dark-mode .search-result-item {
+    border-color: #30363d;
+}
+
+body.dark-mode .search-result-item:hover {
+    background-color: #21262d;
+}
+
+body.dark-mode .search-result-nickname {
+    color: #e6edf3;
+}
+
+body.dark-mode .search-result-username {
+    color: #8b949e;
+}
+
+/* === 搜索结果 === */
+body.dark-mode .search-results {
+    color: #e6edf3;
+}
+
+body.dark-mode .search-results-count {
+    color: #8b949e;
+    border-color: #30363d;
+}
+
+/* === 表单与输入 === */
+body.dark-mode input,
+body.dark-mode textarea,
+body.dark-mode select {
+    background-color: #21262d;
+    color: #e6edf3;
+    border-color: #30363d;
+}
+
+body.dark-mode input::placeholder,
+body.dark-mode textarea::placeholder {
+    color: #484f58;
 }
 
 body.dark-mode .search-input-container input {
-    background-color: #2a2a3e;
-    color: #e0e0e0;
-    border-color: #444;
+    background-color: #21262d;
+    color: #e6edf3;
+    border-color: #30363d;
 }
 
+/* === 按钮 === */
+body.dark-mode .markdown-btn {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #e6edf3;
+}
+
+body.dark-mode .markdown-btn:hover {
+    background-color: #30363d;
+    border-color: #58a6ff;
+}
+
+body.dark-mode .toggle-btn {
+    background-color: #21262d;
+    color: #e6edf3;
+    border-color: #30363d;
+}
+
+/* === 右键菜单 === */
+body.dark-mode .context-menu,
+body.dark-mode .message-context-menu {
+    background-color: #161b22;
+    border-color: #30363d;
+}
+
+body.dark-mode .context-menu-item {
+    color: #e6edf3;
+}
+
+body.dark-mode .context-menu-item:hover {
+    background-color: #21262d;
+}
+
+body.dark-mode .context-menu-item.focused {
+    background-color: #1f3a5f;
+}
+
+/* === 引用消息 === */
+body.dark-mode .quoted-message-preview {
+    background: #21262d;
+    color: #e6edf3;
+}
+
+body.dark-mode .quoted-message-display {
+    background: #21262d;
+}
+
+body.dark-mode .quoted-message-display strong {
+    color: #e6edf3;
+}
+
+/* === 系统消息 === */
 body.dark-mode .system-message-text {
-    background-color: #2a2a3e;
-    color: #888;
+    background-color: #21262d;
+    color: #8b949e;
+}
+
+/* === 滚动条 === */
+body.dark-mode ::-webkit-scrollbar-track {
+    background: #161b22;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb {
+    background: #30363d;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+body.dark-mode #messageContainer::-webkit-scrollbar-track,
+body.dark-mode #privateMessageContainer::-webkit-scrollbar-track,
+body.dark-mode #groupMessageContainer::-webkit-scrollbar-track {
+    background: #161b22;
+}
+
+body.dark-mode #messageContainer::-webkit-scrollbar-thumb,
+body.dark-mode #privateMessageContainer::-webkit-scrollbar-thumb,
+body.dark-mode #groupMessageContainer::-webkit-scrollbar-thumb {
+    background: #30363d;
+}
+
+body.dark-mode #messageContainer::-webkit-scrollbar-thumb:hover,
+body.dark-mode #privateMessageContainer::-webkit-scrollbar-thumb:hover,
+body.dark-mode #groupMessageContainer::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+/* === 群组成员 === */
+body.dark-mode .group-members-list {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+body.dark-mode .member-item:hover {
+    background-color: #21262d;
+}
+
+body.dark-mode .group-member-item {
+    border-color: #30363d;
+}
+
+body.dark-mode .group-member-name {
+    color: #e6edf3;
+}
+
+body.dark-mode .group-member-id {
+    color: #8b949e;
+}
+
+body.dark-mode .group-manage-section {
+    border-color: #30363d;
+}
+
+body.dark-mode .group-manage-section h3 {
+    color: #e6edf3;
+}
+
+/* === 设置区域 === */
+body.dark-mode .settings-form-section,
+body.dark-mode .settings-section {
+    color: #e6edf3;
+}
+
+body.dark-mode .shortcut-item {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+body.dark-mode .shortcut-action {
+    color: #e6edf3;
+}
+
+body.dark-mode .shortcut-key {
+    background-color: #30363d;
+    color: #e6edf3;
+    border-color: #484f58;
+}
+
+/* === 通用覆盖 === */
+body.dark-mode .group-info-item label {
+    color: #8b949e;
+}
+
+body.dark-mode .group-info-item span {
+    color: #e6edf3;
+}
+
+body.dark-mode .loading-members {
+    color: #8b949e;
+}
+
+/* === 登录页 === */
+body.dark-mode .login-container,
+body.dark-mode .register-container {
+    background-color: #0d1117;
+}
+
+body.dark-mode .login-form,
+body.dark-mode .register-form {
+    background-color: #161b22;
+    border-color: #30363d;
+}
+
+body.dark-mode .login-form h2,
+body.dark-mode .register-form h2 {
+    color: #e6edf3;
+}
+
+/* === 版本/帮助 === */
+body.dark-mode .version-info,
+body.dark-mode .help-content {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+body.dark-mode .version-info h4,
+body.dark-mode .help-content h4 {
+    color: #e6edf3;
+}
+
+body.dark-mode .version-info p,
+body.dark-mode .help-content p {
+    color: #8b949e;
+}
+
+/* === 消息图片/文件 === */
+body.dark-mode .quoted-message-display strong {
+    color: #e6edf3;
+}
+
+body.dark-mode .quoted-message-preview strong {
+    color: #e6edf3;
 }
 
 /* 全局滚动条样式 - 与 messageContainer 完全一致 */
