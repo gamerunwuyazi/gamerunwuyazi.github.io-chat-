@@ -4,8 +4,13 @@ export function useMessageHighlight() {
   let savedScrollContainer = null;
   let savedScrollTop = 0;
   let returnButtonEl = null;
+  let scrollListenerCleanup = null;
 
   function removeReturnButton() {
+    if (scrollListenerCleanup) {
+      scrollListenerCleanup();
+      scrollListenerCleanup = null;
+    }
     if (returnButtonEl && returnButtonEl.parentNode) {
       returnButtonEl.parentNode.removeChild(returnButtonEl);
       returnButtonEl = null;
@@ -39,6 +44,17 @@ export function useMessageHighlight() {
     `;
     document.body.appendChild(btn);
     returnButtonEl = btn;
+
+    const scrollContainer = savedScrollContainer || findScrollContainer();
+    if (scrollContainer) {
+      const onScroll = () => {
+        if (scrollContainer.scrollTop <= savedScrollTop + 50) {
+          removeReturnButton();
+        }
+      };
+      scrollContainer.addEventListener('scroll', onScroll, { passive: true });
+      scrollListenerCleanup = () => scrollContainer.removeEventListener('scroll', onScroll);
+    }
   }
 
   function findScrollContainer() {
