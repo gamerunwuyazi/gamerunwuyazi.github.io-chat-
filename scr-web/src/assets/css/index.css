@@ -1108,6 +1108,78 @@ body.dark-mode #groupMessageContainer::-webkit-scrollbar-thumb:hover {
     background: #484f58;
 }
 
+/* === 消息文本区域滚动条 === */
+body.dark-mode .message-content .message-text {
+    scrollbar-color: #30363d transparent;
+}
+
+body.dark-mode .message-content .message-text::-webkit-scrollbar-thumb {
+    background: #30363d;
+}
+
+body.dark-mode .message-content .message-text::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+/* === 输入框滚动条 === */
+body.dark-mode #messageInput,
+body.dark-mode #groupMessageInput,
+body.dark-mode #privateMessageInput,
+body.dark-mode .editable-div {
+    scrollbar-color: #30363d transparent;
+}
+
+body.dark-mode #messageInput::-webkit-scrollbar-thumb,
+body.dark-mode #groupMessageInput::-webkit-scrollbar-thumb,
+body.dark-mode #privateMessageInput::-webkit-scrollbar-thumb,
+body.dark-mode .editable-div::-webkit-scrollbar-thumb {
+    background-color: #30363d;
+}
+
+body.dark-mode #messageInput::-webkit-scrollbar-thumb:hover,
+body.dark-mode #groupMessageInput::-webkit-scrollbar-thumb:hover,
+body.dark-mode #privateMessageInput::-webkit-scrollbar-thumb:hover,
+body.dark-mode .editable-div::-webkit-scrollbar-thumb:hover {
+    background-color: #484f58;
+}
+
+/* === 侧边栏滚动条 === */
+body.dark-mode #secondary-sidebar::-webkit-scrollbar-track {
+    background: #161b22;
+}
+
+body.dark-mode #secondary-sidebar::-webkit-scrollbar-thumb {
+    background: #30363d;
+}
+
+body.dark-mode #secondary-sidebar::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+/* === 全局滚动条 === */
+body.dark-mode ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+body.dark-mode ::-webkit-scrollbar-track {
+    background: #161b22;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border-radius: 4px;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+body.dark-mode {
+    scrollbar-color: #30363d #161b22;
+    scrollbar-width: thin;
+}
+
 /* === Drop区域 === */
 body.dark-mode .drop-overlay {
     background-color: rgba(13, 17, 23, 0.85);
