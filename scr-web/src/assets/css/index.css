@@ -1274,7 +1274,7 @@ body.dark-mode .modal-content .member-item:hover {
 /* === 侧边栏深色覆盖（scoped样式需!important） === */
 body.dark-mode .friend-item,
 body.dark-mode .group-item {
-    background: #161b22 !important;
+    background: transparent !important;
 }
 
 body.dark-mode .friend-item:hover,
