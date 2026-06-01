@@ -861,7 +861,7 @@ function handleContextMenu(event) {
   
   const copyMenuItem = document.createElement('div');
   copyMenuItem.className = 'context-menu-item';
-  copyMenuItem.textContent = '复制消息';
+  copyMenuItem.textContent = '复制';
   copyMenuItem.style.padding = '8px 15px';
   copyMenuItem.style.cursor = 'pointer';
   copyMenuItem.style.fontSize = '14px';
