@@ -51,8 +51,8 @@ body {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background-color: #4CAF50;
-    color: white;
+    background-color: #e0e0e0;
+    color: #666;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -119,8 +119,8 @@ body {
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background-color: #3498db;
-    color: white;
+    background-color: #e0e0e0;
+    color: #666;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -185,8 +185,8 @@ body {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background-color: #4CAF50;
-    color: white;
+    background-color: #e0e0e0;
+    color: #666;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -247,8 +247,8 @@ body {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background-color: #3498db;
-    color: white;
+    background-color: #e0e0e0;
+    color: #666;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -455,6 +455,14 @@ body.dark-mode .message-text {
 }
 
 body.dark-mode .msg-time {
+    color: #8b949e;
+}
+
+body.dark-mode .msg-avatar {
+    background-color: #30363d;
+}
+
+body.dark-mode .msg-avatar .msg-avatar-initials {
     color: #8b949e;
 }
 
@@ -839,8 +847,8 @@ body.dark-mode .quoted-group-card-hint {
 }
 
 body.dark-mode .quoted-group-card-avatar-fallback {
-    background-color: #58a6ff;
-    color: #fff;
+    background-color: #30363d;
+    color: #8b949e;
 }
 
 /* === 引用预览 === */
@@ -862,8 +870,8 @@ body.dark-mode .quoted-preview-text {
 }
 
 body.dark-mode .quoted-preview-avatar-fallback {
-    background-color: #2ea043;
-    color: #fff;
+    background-color: #30363d;
+    color: #8b949e;
 }
 
 body.dark-mode .quoted-preview-jump-btn {
@@ -896,8 +904,8 @@ body.dark-mode .quoted-preview-group-card-name {
 }
 
 body.dark-mode .quoted-preview-group-card-avatar-fallback {
-    background-color: #58a6ff;
-    color: #fff;
+    background-color: #30363d;
+    color: #8b949e;
 }
 
 body.dark-mode .quoted-preview-file-name {

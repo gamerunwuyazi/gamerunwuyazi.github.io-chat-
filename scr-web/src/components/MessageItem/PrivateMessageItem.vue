@@ -840,6 +840,7 @@ function handleContextMenu(event) {
         id: messageId,
         userId: userId,
         nickname: senderNicknameValue,
+        avatarUrl: senderAvatarUrl.value || '',
         content: parsedContent.content || '',
         messageType: isMarkdown ? 5 : 0
       };
@@ -848,6 +849,7 @@ function handleContextMenu(event) {
         id: messageId,
         userId: userId,
         nickname: senderNicknameValue,
+        avatarUrl: senderAvatarUrl.value || '',
         content: props.message.content,
         messageType: messageType
       };
