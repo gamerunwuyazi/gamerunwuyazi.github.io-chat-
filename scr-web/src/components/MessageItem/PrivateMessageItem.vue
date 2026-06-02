@@ -841,8 +841,8 @@ function handleContextMenu(event) {
         userId: userId,
         nickname: senderNicknameValue,
         avatarUrl: senderAvatarUrl.value || '',
-        content: parsedContent.content || '',
-        messageType: isMarkdown ? 5 : 0
+        content: isMarkdown ? (parsedContent.content || '') : props.message.content,
+        messageType: isMarkdown ? 5 : 4
       };
     } else {
       quotedMsgData = {

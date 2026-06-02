@@ -739,7 +739,7 @@ function handleContextMenu(event) {
         userId: userId,
         nickname: senderNicknameValue,
         avatarUrl: senderAvatarUrl.value || '',
-        content: parsedContent.text,
+        content: isMarkdown ? parsedContent.text : props.message.content,
         messageType: isMarkdown ? 5 : 4
       };
     } else {
