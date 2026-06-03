@@ -5,10 +5,11 @@ export function findUserInfo(quotedMessage, storeContext) {
   if (!nickname || !avatarUrl) {
     const uid = String(quotedMessage.userId || '');
     if (uid) {
-      const { sessionStore, groupStore, friendStore, publicStore } = storeContext;
-      if (String(sessionStore.userId) === uid) {
-        if (!nickname) nickname = sessionStore.nickname || '';
-        if (!avatarUrl) avatarUrl = sessionStore.avatarUrl || '';
+      const { sessionStore, groupStore, friendStore, publicStore, baseStore } = storeContext;
+      const currentUserId = baseStore?.currentUser?.id;
+      if (currentUserId !== undefined && String(currentUserId) === uid) {
+        if (!nickname) nickname = baseStore.currentUser.nickname || '';
+        if (!avatarUrl) avatarUrl = baseStore.currentUser.avatarUrl || '';
       } else {
         const groupId = sessionStore.currentGroupId;
         if (groupId && groupStore.groups?.[groupId]) {

@@ -76,7 +76,7 @@ const senderAvatarError = ref(false);
 const { scrollAndHighlight } = useMessageHighlight();
 
 function getQuotedUserInfo() {
-  return findUserInfo(props.quotedMessage, { sessionStore, groupStore, friendStore, publicStore });
+  return findUserInfo(props.quotedMessage, { sessionStore, groupStore, friendStore, publicStore, baseStore });
 }
 
 const resolvedUserInfo = computed(() => getQuotedUserInfo());
