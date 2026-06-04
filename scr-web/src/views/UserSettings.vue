@@ -986,6 +986,23 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
+:global(body.dark-mode) .settings-detail {
+  background-color: #161b22 !important;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+:global(body.dark-mode) .settings-detail h2,
+:global(body.dark-mode) .settings-detail h3,
+:global(body.dark-mode) .shortcut-name,
+:global(body.dark-mode) .version-label,
+:global(body.dark-mode) .version-value,
+:global(body.dark-mode) .help-content h3,
+:global(body.dark-mode) .help-content p {
+  color: #c9d1d9;
+}
+
 .save-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -1106,6 +1123,12 @@ input:checked + .slider:before {
   transition: all 0.2s;
 }
 
+:global(body.dark-mode) .request-item {
+  background: #161b22;
+  border-color: #30363d;
+  color: #c9d1d9;
+}
+
 .request-item:hover {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   border-color: #2196F3;
@@ -1148,6 +1171,10 @@ input:checked + .slider:before {
   font-size: 15px;
   font-weight: 500;
   color: #333;
+}
+
+:global(body.dark-mode) .request-nickname {
+  color: #c9d1d9;
 }
 
 .request-time {

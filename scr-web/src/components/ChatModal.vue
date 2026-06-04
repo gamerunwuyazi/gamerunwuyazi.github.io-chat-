@@ -115,8 +115,9 @@
               <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 12px;">群组成员</h3>
 
               <!-- 群组成员列表 -->
-              <div v-if="groupMembers.length > 0" style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 12px; padding: 12px; margin-bottom: 24px;">
+              <div v-if="groupMembers.length > 0" class="group-members-panel" style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 12px; padding: 12px; margin-bottom: 24px;">
                 <div v-for="member in membersWithMuteStatus" :key="member.id" 
+                   class="group-member-row"
                    style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: white; border-radius: 10px; margin-bottom: 6px;"
                    :style="{ cursor: (isCurrentUserGroupOwner || isCurrentUserGroupAdmin) ? 'context-menu' : 'default' }"
                    @contextmenu.prevent="(isCurrentUserGroupOwner || isCurrentUserGroupAdmin) ? showMemberContextMenu($event, member) : null">
@@ -1030,6 +1031,50 @@ input:disabled + .slider {
 #groupCardPopup .add-friend-btn:disabled {
   background: #bdc3c7;
   cursor: not-allowed;
+}
+
+:global(body.dark-mode) .group-members-panel,
+:global(body.dark-mode) .member-list {
+  background: #0d1117 !important;
+  border-color: #30363d !important;
+}
+
+:global(body.dark-mode) .group-member-row,
+:global(body.dark-mode) .member-item,
+:global(body.dark-mode) .user-search-result {
+  background: #161b22 !important;
+  border-color: #30363d !important;
+  color: #c9d1d9 !important;
+}
+
+:global(body.dark-mode) .user-search-result .user-avatar-small {
+  background: #21262d !important;
+}
+
+:global(body.dark-mode) .user-search-result .user-username,
+:global(body.dark-mode) .member-item span[style*="color: #666"] {
+  color: #8b949e !important;
+}
+
+:global(body.dark-mode) #userAvatarPopup,
+:global(body.dark-mode) #groupCardPopup {
+  background: #161b22;
+  border-color: #30363d;
+  color: #c9d1d9;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+:global(body.dark-mode) #userAvatarPopup .popup-info #popupUsername,
+:global(body.dark-mode) #userAvatarPopup .signature-content,
+:global(body.dark-mode) #groupCardPopup .popup-username,
+:global(body.dark-mode) #groupCardPopup .signature-content {
+  color: #8b949e;
+}
+
+:global(body.dark-mode) #userAvatarPopup .popup-signature-section,
+:global(body.dark-mode) #groupCardPopup .popup-signature-section,
+:global(body.dark-mode) #groupCardPopup .popup-actions {
+  border-color: #30363d;
 }
 </style>
 

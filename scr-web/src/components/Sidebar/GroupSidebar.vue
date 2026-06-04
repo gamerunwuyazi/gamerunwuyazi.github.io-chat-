@@ -362,8 +362,22 @@ function handleGroupAvatarError(event, group) {
     transition: background-color 0.2s;
 }
 
+:global(body.dark-mode) .context-menu {
+    background: #161b22;
+    border-color: #30363d;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+:global(body.dark-mode) .context-menu-item {
+    color: #c9d1d9 !important;
+}
+
 .context-menu-item:hover {
     background-color: #f5f5f5;
+}
+
+:global(body.dark-mode) .context-menu-item:hover {
+    background-color: #21262d;
 }
 
 .group-info {
