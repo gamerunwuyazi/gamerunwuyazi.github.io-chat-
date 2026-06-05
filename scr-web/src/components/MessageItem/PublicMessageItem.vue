@@ -40,7 +40,7 @@
         >
           您的浏览器不支持视频播放
         </video>
-        <div style="font-size: 12px; color: #999; margin-top: 5px;">{{ displayFilename }}</div>
+        <div class="message-filename">{{ displayFilename }}</div>
       </div>
       <div v-else-if="isAudioFile" class="audio-container" style="width: 300px; max-width: 400px;">
         <audio 
@@ -51,7 +51,7 @@
         >
           您的浏览器不支持音频播放
         </audio>
-        <div style="font-size: 12px; color: #999; margin-top: 5px;">{{ displayFilename }}</div>
+        <div class="message-filename">{{ displayFilename }}</div>
       </div>
       <div v-else-if="fileUrl" class="file-link-container">
         <a 
@@ -68,10 +68,9 @@
         v-else-if="groupCardData" 
         class="group-card-container"
         :data-group-id="groupCardData.group_id"
-        style="background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 8px; padding: 10px; cursor: pointer; margin-top: 5px;"
         @click="handleGroupCardClick"
       >
-        <div class="group-card-header" style="font-weight: bold; color: #3498db; margin-bottom: 5px; display: flex; align-items: center; gap: 8px;">
+        <div class="group-card-header">
           <img 
             v-if="groupCardAvatarUrl"
             :src="groupCardAvatarUrl"
@@ -88,10 +87,10 @@
           </div>
           {{ groupCardGroupName }}
         </div>
-        <div class="group-card-description" style="color: #666; font-size: 14px; margin-bottom: 5px;">
+        <div class="group-card-description">
           {{ groupCardGroupDescription }}
         </div>
-        <div class="group-card-footer" style="font-size: 12px; color: #999;">
+        <div class="group-card-footer">
           点击查看群组详情
         </div>
       </div>
@@ -122,6 +121,9 @@ import { useModalStore } from '@/stores/modalStore';
 import { useInputStore } from '@/stores/inputStore';
 import { openUserAvatarPopup } from '@/stores/index.js';
 import { showGroupCardPopup, getChatSocket } from '@/utils/chat';
+import toast from '@/utils/toast';
+import { useContextMenuKeyboard } from "@/composables/useContextMenuKeyboard";
+import { useMessageHighlight } from "@/composables/useMessageHighlight";
 
 import QuotedMessage from './QuotedMessage.vue';
 
@@ -143,6 +145,8 @@ const publicStore = usePublicStore();
 const modalStore = useModalStore();
 const inputStore = useInputStore();
 
+const { setupKeyboard } = useContextMenuKeyboard();
+const { scrollAndHighlight } = useMessageHighlight();
 const isActive = ref(false);
 const avatarLoadFailed = ref(false);
 const groupCardAvatarLoadFailed = ref(false);
@@ -734,7 +738,8 @@ function handleContextMenu(event) {
         id: messageId,
         userId: userId,
         nickname: senderNicknameValue,
-        content: parsedContent.text,
+        avatarUrl: senderAvatarUrl.value || '',
+        content: isMarkdown ? parsedContent.text : props.message.content,
         messageType: isMarkdown ? 5 : 4
       };
     } else {
@@ -742,6 +747,7 @@ function handleContextMenu(event) {
         id: messageId,
         userId: userId,
         nickname: senderNicknameValue,
+        avatarUrl: senderAvatarUrl.value || '',
         content: props.message.content,
         messageType: messageType
       };
@@ -752,6 +758,25 @@ function handleContextMenu(event) {
   });
   
   contextMenu.appendChild(quoteMenuItem);
+  
+  const copyMenuItem = document.createElement('div');
+  copyMenuItem.className = 'context-menu-item';
+  copyMenuItem.textContent = '复制';
+  copyMenuItem.style.padding = '8px 15px';
+  copyMenuItem.style.cursor = 'pointer';
+  copyMenuItem.style.fontSize = '14px';
+  copyMenuItem.style.whiteSpace = 'nowrap';
+  copyMenuItem.addEventListener('mouseenter', () => copyMenuItem.style.backgroundColor = '#f0f0f0');
+  copyMenuItem.addEventListener('mouseleave', () => copyMenuItem.style.backgroundColor = 'transparent');
+  copyMenuItem.addEventListener('click', () => {
+    const textContent = (props.message.messageType === 4)
+      ? (() => { try { return JSON.parse(props.message.content).text || ''; } catch { return props.message.content || ''; } })()
+      : (props.message.content || '');
+    navigator.clipboard.writeText(textContent).catch(() => {});
+    toast.info('已复制到剪贴板', 1500);
+    hideContextMenu();
+  });
+  contextMenu.appendChild(copyMenuItem);
   
   const deleteMenuItem = document.createElement('div');
   deleteMenuItem.className = 'context-menu-item';
@@ -796,6 +821,9 @@ function handleContextMenu(event) {
   
   currentMessageContextMenu = contextMenu;
   
+  const cleanup = setupKeyboard(contextMenu, hideContextMenu);
+  contextMenu._cleanup = cleanup;
+  
   setTimeout(() => {
     document.addEventListener('click', hideContextMenu);
   }, 0);
@@ -803,6 +831,9 @@ function handleContextMenu(event) {
 
 function hideContextMenu() {
   if (currentMessageContextMenu) {
+    if (currentMessageContextMenu._cleanup) {
+      currentMessageContextMenu._cleanup();
+    }
     document.body.removeChild(currentMessageContextMenu);
     currentMessageContextMenu = null;
   }

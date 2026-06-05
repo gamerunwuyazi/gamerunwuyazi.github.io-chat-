@@ -102,7 +102,6 @@
             ⋯ <span class="button-text">更多</span>
           </button>
           <button class="toggle-btn" 
-            style="background: #f1f1f1; border: 1px solid #ddd; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: #666; transition: all 0.2s; margin-left: 5px;"
             @click="toggleMarkdownToolbar">
             <i v-if="!showMarkdownToolbar" class="fas fa-chevron-down"></i>
             <i v-else class="fas fa-chevron-up"></i>
@@ -135,45 +134,26 @@
         <div class="upload-progress-bar" id="groupUploadProgressBar" :style="{ width: inputStore.uploadProgress + '%' }"></div>
       </div>
 
-      <Teleport to="body" v-if="showSearchModal">
-        <div class="search-modal-overlay" @click.self="closeSearchModal">
-          <div class="search-modal">
-            <div class="search-modal-header">
-              <h3>查找消息</h3>
-              <button class="close-btn" @click="closeSearchModal">×</button>
-            </div>
-            <div class="search-modal-body">
-              <div class="search-input-container">
-                <input 
-                  v-model="searchKeyword" 
-                  type="text" 
-                  placeholder="输入搜索内容..." 
-                  @keyup.enter="executeSearch"
-                  ref="searchInputRef"
-                />
-                <button class="search-btn" @click="executeSearch" :disabled="isSearching || !searchKeyword.trim()">
-                  {{ isSearching ? '搜索中...' : '搜索' }}
-                </button>
-              </div>
-              <div v-if="searchResults.length > 0" class="search-results">
-                <div class="search-results-count">找到 {{ searchResults.length }} 条消息</div>
-                <div class="search-results-list">
-                  <GroupMessageItem 
-                    v-for="result in searchResults" 
-                    :key="result.id"
-                    :message="result"
-                    :is-search-result="true"
-                    @click="scrollToMessage(result)"
-                  />
-                </div>
-              </div>
-              <div v-else-if="searchKeyword && hasSearched && !isSearching" class="no-results">
-                未找到匹配的消息
-              </div>
-            </div>
-          </div>
-        </div>
-      </Teleport>
+      <SearchMessageModal
+        v-model="showSearchModal"
+        :search-results="searchResults"
+        :is-searching="isSearching"
+        :has-searched="hasSearched"
+        @search="executeSearch"
+        @navigate-prev="navigateToPrevSearchResult"
+        @navigate-next="navigateToNextSearchResult"
+        @scroll-to-message="scrollToMessage"
+      >
+        <template #results="{ results, onClick }">
+          <GroupMessageItem
+            v-for="result in results"
+            :key="result.id"
+            :message="result"
+            :is-search-result="true"
+            @click="onClick(result)"
+          />
+        </template>
+      </SearchMessageModal>
     </div>
   </div>
 </template>
@@ -327,6 +307,8 @@ import {
   switchingGroupWithExistingMessages
 } from "@/utils/chat";
 import toast from "@/utils/toast";
+import { useMessageHighlight } from "@/composables/useMessageHighlight";
+import SearchMessageModal from "@/components/SearchMessageModal.vue";
 
 const baseStore = useBaseStore();
 const userStore = useUserStore();
@@ -334,6 +316,7 @@ const groupStore = useGroupStore();
 const sessionStore = useSessionStore();
 const inputStore = useInputStore();
 const draftStore = useDraftStore();
+const { scrollAndHighlight } = useMessageHighlight();
 const friendStore = useFriendStore();
 const publicStore = usePublicStore();
 const modalStore = useModalStore();
@@ -1118,16 +1101,11 @@ const searchKeyword = ref('');
 const searchResults = ref([]);
 const isSearching = ref(false);
 const hasSearched = ref(false);
-const searchInputRef = ref(null);
+const currentSearchIndex = ref(0);
 
 function openSearchModal() {
   showSearchModal.value = true;
   showMoreFunctions.value = false;
-  nextTick(() => {
-    if (searchInputRef.value) {
-      searchInputRef.value.focus();
-    }
-  });
 }
 
 function closeSearchModal() {
@@ -1223,32 +1201,26 @@ function formatTime(timestamp) {
 
 function scrollToMessage(message) {
   closeSearchModal();
-  
   const groupId = sessionStore.currentGroupId;
   const messages = groupStore.groupMessages[groupId] || [];
   const messageIndex = messages.findIndex(m => m.id === message.id);
-  
   if (messageIndex !== -1 && groupMessageContainerRef.value) {
-    const container = groupMessageContainerRef.value;
-    const messageElements = container.querySelectorAll('.message');
+    const messageElements = groupMessageContainerRef.value.querySelectorAll('.message');
     const targetElement = messageElements[messageIndex];
-    
-    if (targetElement) {
-      targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setTimeout(() => {
-        const isOwn = targetElement.classList.contains('own-message');
-        const originalBg = isOwn ? '#E8F5E8' : '#FFFFFF';
-        targetElement.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
-        targetElement.classList.add('active');
-        setTimeout(() => {
-          targetElement.style.backgroundColor = originalBg;
-          setTimeout(() => {
-            targetElement.classList.remove('active');
-          }, 500);
-        }, 3000);
-      }, 500);
-    }
+    if (targetElement) scrollAndHighlight(targetElement);
   }
+}
+
+function navigateToNextSearchResult() {
+  if (searchResults.value.length <= 1) return;
+  currentSearchIndex.value = (currentSearchIndex.value + 1) % searchResults.value.length;
+  scrollToMessage(searchResults.value[currentSearchIndex.value]);
+}
+
+function navigateToPrevSearchResult() {
+  if (searchResults.value.length <= 1) return;
+  currentSearchIndex.value = (currentSearchIndex.value - 1 + searchResults.value.length) % searchResults.value.length;
+  scrollToMessage(searchResults.value[currentSearchIndex.value]);
 }
 
 function handleGroupSwitched() {

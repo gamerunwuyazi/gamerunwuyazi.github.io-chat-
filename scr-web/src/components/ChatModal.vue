@@ -115,8 +115,9 @@
               <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 12px;">群组成员</h3>
 
               <!-- 群组成员列表 -->
-              <div v-if="groupMembers.length > 0" style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 12px; padding: 12px; margin-bottom: 24px;">
+              <div v-if="groupMembers.length > 0" class="group-members-panel" style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 12px; padding: 12px; margin-bottom: 24px;">
                 <div v-for="member in membersWithMuteStatus" :key="member.id" 
+                   class="group-member-row"
                    style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: white; border-radius: 10px; margin-bottom: 6px;"
                    :style="{ cursor: (isCurrentUserGroupOwner || isCurrentUserGroupAdmin) ? 'context-menu' : 'default' }"
                    @contextmenu.prevent="(isCurrentUserGroupOwner || isCurrentUserGroupAdmin) ? showMemberContextMenu($event, member) : null">
@@ -550,7 +551,7 @@
 
   <!-- 图片预览模态框 -->
   <Teleport to="body" v-if="modalStore.showImagePreviewModal">
-    <div id="imagePreviewModal" class="modal" :style="imagePreviewModalStyle" @click="modalStore.closeModal('imagePreview')">
+    <div id="imagePreviewModal" class="modal" :style="imagePreviewModalStyle" @click="modalStore.closeModal('imagePreview')" @keydown="handleImagePreviewKeydown" tabindex="0" ref="imagePreviewRef">
       <div style="position: relative; max-width: 90%; max-height: 90%;" @click.stop>
         <img id="previewImgElement" :src="modalStore.modalData.imagePreviewUrl" alt="图片预览" style="width: 100%; height: auto; max-width: 90vw; max-height: 90vh; aspect-ratio: 16/9; object-fit: contain;" loading="lazy">
         <span class="close" id="closeImagePreviewModal" style="position: absolute; top: -30px; right: -30px; color: #f1f1f1; font-size: 40px; font-weight: bold; cursor: pointer;" @click="modalStore.closeModal('imagePreview')">&times;</span>
@@ -1031,6 +1032,50 @@ input:disabled + .slider {
   background: #bdc3c7;
   cursor: not-allowed;
 }
+
+:global(body.dark-mode) .group-members-panel,
+:global(body.dark-mode) .member-list {
+  background: #0d1117 !important;
+  border-color: #30363d !important;
+}
+
+:global(body.dark-mode) .group-member-row,
+:global(body.dark-mode) .member-item,
+:global(body.dark-mode) .user-search-result {
+  background: #161b22 !important;
+  border-color: #30363d !important;
+  color: #c9d1d9 !important;
+}
+
+:global(body.dark-mode) .user-search-result .user-avatar-small {
+  background: #21262d !important;
+}
+
+:global(body.dark-mode) .user-search-result .user-username,
+:global(body.dark-mode) .member-item span[style*="color: #666"] {
+  color: #8b949e !important;
+}
+
+:global(body.dark-mode) #userAvatarPopup,
+:global(body.dark-mode) #groupCardPopup {
+  background: #161b22;
+  border-color: #30363d;
+  color: #c9d1d9;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+:global(body.dark-mode) #userAvatarPopup .popup-info #popupUsername,
+:global(body.dark-mode) #userAvatarPopup .signature-content,
+:global(body.dark-mode) #groupCardPopup .popup-username,
+:global(body.dark-mode) #groupCardPopup .signature-content {
+  color: #8b949e;
+}
+
+:global(body.dark-mode) #userAvatarPopup .popup-signature-section,
+:global(body.dark-mode) #groupCardPopup .popup-signature-section,
+:global(body.dark-mode) #groupCardPopup .popup-actions {
+  border-color: #30363d;
+}
 </style>
 
 <script setup>
@@ -1162,6 +1207,24 @@ const imagePreviewModalStyle = computed(() => ({
   justifyContent: 'center',
   alignItems: 'center'
 }));
+
+const imagePreviewRef = ref(null);
+
+function handleImagePreviewKeydown(e) {
+  if (e.key === 'Escape') {
+    modalStore.closeModal('imagePreview');
+  }
+}
+
+watch(() => modalStore.showImagePreviewModal, (newVal) => {
+  if (newVal) {
+    nextTick(() => {
+      if (imagePreviewRef.value) {
+        imagePreviewRef.value.focus();
+      }
+    });
+  }
+});
 
 const avatarPreviewModalStyle = computed(() => ({
   display: 'flex',

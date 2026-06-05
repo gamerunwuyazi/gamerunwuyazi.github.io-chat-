@@ -127,6 +127,7 @@ export function sendMessage() {
           id: quotedMessage.id,
           userId: quotedMessage.userId,
           nickname: quotedMessage.nickname,
+          avatarUrl: quotedMessage.avatarUrl || '',
           content: quotedMessage.content,
           messageType: quotedMessage.messageType || 0
         },
@@ -419,6 +420,7 @@ export function sendPrivateMessage() {
         id: quotedMessage.id,
         userId: quotedMessage.userId,
         nickname: quotedMessage.nickname,
+        avatarUrl: quotedMessage.avatarUrl || '',
         content: quotedMessage.content,
         messageType: quotedMessage.messageType || 0
       },

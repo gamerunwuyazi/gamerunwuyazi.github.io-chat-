@@ -1,65 +1,66 @@
 <template>
   <div 
-    class="quoted-message-display" 
-    style="border-left: 3px solid #4CAF50; padding-left: 10px; margin-bottom: 8px; background: #f5f5f5; border-radius: 4px; padding: 8px; cursor: pointer;" 
+    class="quoted-message-display quoted-message-wrapper" 
     @click="handleQuotedMessageClick"
   >
-    <div style="font-size: 12px; color: #666;">引用: <strong>{{ quotedMessageData.nickname }}</strong></div>
+    <div class="quoted-message-header">
+    <img v-if="senderAvatarUrl && !senderAvatarError" :src="senderAvatarUrl" class="quoted-sender-avatar" @error="senderAvatarError = true">
+    <div v-else class="quoted-sender-avatar-fallback">{{ senderInitial }}</div>
+    引用: <strong>{{ resolvedUserInfo.nickname }}</strong>
+  </div>
     
     <!-- 引用图片 -->
-    <div v-if="imageUrl" style="margin-top: 5px;">
+    <div v-if="imageUrl" class="quoted-content-section">
       <img 
         :src="fullImageUrl" 
         alt="引用图片"
-        class="quoted-message-image"
-        style="max-width: 200px; max-height: 150px; border-radius: 8px; object-fit: cover; cursor: pointer;"
+        class="quoted-message-image quoted-image-thumb"
         loading="lazy"
         @click.stop="handleImageClick(fullImageUrl)"
       >
     </div>
     
     <!-- 引用文件 -->
-    <div v-else-if="fileUrl" style="margin-top: 5px;">
+    <div v-else-if="fileUrl" class="quoted-content-section">
       <a 
         :href="fullFileUrl" 
-        class="quoted-message-file-link" 
+        class="quoted-message-file-link quoted-file-link" 
         target="_blank"
-        style="color: #3498db; text-decoration: none; display: flex; align-items: center; gap: 8px;"
         @click.stop
       >
-        <span class="quoted-message-file-icon" style="font-size: 24px;">{{ fileIcon }}</span>
-        <span style="font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ displayFilename }}</span>
+        <span class="quoted-message-file-icon quoted-file-icon">{{ fileIcon }}</span>
+        <span class="quoted-file-name">{{ displayFilename }}</span>
       </a>
     </div>
     
     <!-- 引用群名片 -->
-    <div v-else-if="groupCardData" style="margin-top: 5px; background-color: #f0f8ff; border: 1px solid #3498db; border-radius: 8px; padding: 10px; cursor: pointer;" @click.stop="handleGroupCardClick">
-      <div style="font-weight: bold; color: #3498db; margin-bottom: 5px; display: flex; align-items: center; gap: 8px;">
+    <div v-else-if="groupCardData" class="quoted-content-section quoted-group-card" @click.stop="handleGroupCardClick">
+      <div class="quoted-group-card-header">
         <img 
           v-if="groupCardAvatarUrl && !isSvgAvatar(groupCardAvatarUrl) && !groupCardAvatarLoadFailed"
           :src="groupCardAvatarUrl"
           :alt="groupCardGroupName"
-          style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover;"
+          class="quoted-group-card-avatar"
           @error="groupCardAvatarLoadFailed = true"
         >
         <div 
           v-else
-          style="width: 20px; height: 20px; border-radius: 50%; background-color: #3498db; color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;"
+          class="quoted-group-card-avatar-fallback"
         >
           {{ groupCardInitials }}
         </div>
         {{ groupCardGroupName }}
       </div>
-      <div style="color: #666; font-size: 14px; margin-bottom: 5px;">
+      <div class="quoted-group-card-desc">
         {{ groupCardGroupDescription }}
       </div>
-      <div style="font-size: 12px; color: #999;">
+      <div class="quoted-group-card-hint">
         点击查看群组详情
       </div>
     </div>
     
     <!-- 普通文本 -->
-    <div v-else style="font-size: 13px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+    <div v-else class="quoted-text-preview">
       <span v-if="isMarkdownContent" v-html="displayContent"></span>
       <template v-else>{{ displayContent }}</template>
     </div>
@@ -76,9 +77,12 @@ import { useBaseStore } from '@/stores/baseStore';
 import { useGroupStore } from '@/stores/groupStore';
 import { useFriendStore } from '@/stores/friendStore';
 import { usePublicStore } from '@/stores/publicStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import { useModalStore } from '@/stores/modalStore';
 import { useStorageStore } from '@/stores/storageStore';
 import { showGroupCardPopup } from '@/utils/chat';
+import { useMessageHighlight } from '@/composables/useMessageHighlight';
+import { findUserInfo } from '@/utils/chat/userLookup';
 import toast from '@/utils/toast';
 
 const props = defineProps({
@@ -94,7 +98,27 @@ const friendStore = useFriendStore();
 const publicStore = usePublicStore();
 const modalStore = useModalStore();
 const storageStore = useStorageStore();
+const sessionStore = useSessionStore();
 const groupCardAvatarLoadFailed = ref(false);
+const senderAvatarError = ref(false);
+const { scrollAndHighlight } = useMessageHighlight();
+
+function getQuotedUserInfo() {
+  return findUserInfo(props.quotedMessageData, { sessionStore, groupStore, friendStore, publicStore, baseStore });
+}
+
+const resolvedUserInfo = computed(() => getQuotedUserInfo());
+
+const senderAvatarUrl = computed(() => {
+  const avatar = getQuotedUserInfo().avatarUrl;
+  if (!avatar) return '';
+  return avatar.startsWith('http') ? avatar : `${baseStore.SERVER_URL}${avatar}`;
+});
+
+const senderInitial = computed(() => {
+  const name = getQuotedUserInfo().nickname;
+  return name ? name.charAt(0).toUpperCase() : '?';
+});
 
 function escapeHtmlForMarkdown(str) {
   return String(str)
@@ -374,20 +398,7 @@ async function handleQuotedMessageClick() {
 }
 
 function scrollToMessageElement(messageElement) {
-  const targetContainer = messageElement.querySelector(':scope > .msg-body > .msg-bubble');
-  messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  setTimeout(() => {
-    if (targetContainer) {
-      targetContainer.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
-      targetContainer.classList.add('active');
-      setTimeout(() => {
-        targetContainer.style.backgroundColor = '';
-        setTimeout(() => {
-          targetContainer.classList.remove('active');
-        }, 500);
-      }, 3000);
-    }
-  }, 500);
+  scrollAndHighlight(messageElement);
 }
 
 function handleImageClick(url) {

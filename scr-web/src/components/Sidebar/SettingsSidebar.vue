@@ -1,8 +1,22 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useBaseStore } from '@/stores/baseStore';
 
 const baseStore = useBaseStore();
+
+const isDarkMode = ref(false);
+
+onMounted(() => {
+  isDarkMode.value = document.body.classList.contains('dark-mode');
+});
+
+function toggleDarkMode() {
+  isDarkMode.value = !isDarkMode.value;
+  document.body.classList.toggle('dark-mode', isDarkMode.value);
+  try {
+    localStorage.setItem('dark-mode', isDarkMode.value ? '1' : '0');
+  } catch {}
+}
 
 const friendRequestUnreadCount = computed(() => {
   return Array.isArray(baseStore.receivedFriendRequests) ? baseStore.receivedFriendRequests.length : 0;
@@ -38,6 +52,10 @@ function handleSettingItemClick(settingId) {
         <div class="sidebar-section">
             <h3>聊天设置</h3>
             <ul class="settings-list">
+                <li class="settings-item" data-setting-id="dark-mode" @click="toggleDarkMode">
+                    深色模式
+                    <span class="setting-value">{{ isDarkMode ? '开' : '关' }}</span>
+                </li>
                 <li class="settings-item" data-setting-id="friend-verification" @click="handleSettingItemClick('friend-verification')">
                     {{ friendVerificationLabel }}
                     <span v-if="friendRequestUnreadCount > 0" class="unread-count">{{ friendRequestUnreadCount > 99 ? '99+' : friendRequestUnreadCount }}</span>
