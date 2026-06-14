@@ -1,4 +1,4 @@
-import { register, login, refreshToken, getSelfInfo, getUserById, updateNickname, updateSignature, updateGender, changePassword, uploadAvatar } from '../services/userService.js';
+import { register, login, refreshToken, getSelfInfo, getUserById, updateNickname, updateSignature, updateGender, changePassword, uploadAvatar, updateEncryptionPublicKey, getPrivateChatEncryptionPublicKey } from '../services/userService.js';
 import { pool } from '../models/database.js';
 import { validateUsername } from '../utils/validators.js';
 import { avatarUpload } from '../middleware/upload.js';
@@ -73,6 +73,14 @@ export function setupRoutes(app, io) {
 
   app.post('/api/user/change-password', (req, res) => {
     changePassword(req, res);
+  });
+
+  app.post('/api/user/encryption-public-key', (req, res) => {
+    updateEncryptionPublicKey(req, res);
+  });
+
+  app.get('/api/user/:id/encryption-public-key', (req, res) => {
+    getPrivateChatEncryptionPublicKey(req, res);
   });
 
   // 用户头像上传接口 - 使用avatarUpload中间件处理文件

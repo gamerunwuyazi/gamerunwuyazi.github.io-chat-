@@ -3,6 +3,7 @@ import localForage from 'localforage';
 import modal from '../modal.js';
 
 import { SERVER_URL, toast } from './config.js';
+import { fetchPrivateChatPublicKeys } from './encryption.js';
 import { updateUnreadCountsDisplay, setActiveChatDirect } from './ui.js';
 import {
   useBaseStore,
@@ -24,6 +25,7 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
   const friendStore = useFriendStore();
   const unreadStore = useUnreadStore();
   const draftStore = useDraftStore();
+  const baseStore = useBaseStore();
   
   const currentPrivateUserId = sessionStore?.currentPrivateChatUserId;
   if (currentPrivateUserId) {
@@ -43,6 +45,8 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
   const currentPrivateChatUsername = username;
   const currentPrivateChatNickname = nickname;
   const currentActiveChat = `private_${userId}`;
+  const currentUser = baseStore.currentUser;
+  const currentSessionToken = baseStore.currentSessionToken;
   
   sessionStore.currentPrivateChatUserId = currentPrivateChatUserId;
   sessionStore.currentPrivateChatUsername = currentPrivateChatUsername;
@@ -63,6 +67,12 @@ function switchToPrivateChat(userId, nickname, username, avatarUrl) {
   }
 
   setActiveChatDirect('private', userId, true);
+
+  if (currentUser && currentSessionToken) {
+    fetchPrivateChatPublicKeys(String(currentUser.id), currentSessionToken, String(userId)).catch(error => {
+      console.error('获取私聊加密公钥失败:', error);
+    });
+  }
 
   navigateTo('/chat/private');
   

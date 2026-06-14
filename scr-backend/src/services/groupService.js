@@ -1842,3 +1842,46 @@ export async function getGroupNickname(req, res) {
     res.status(500).json({ status: 'error', message: '获取群昵称失败' });
   }
 }
+
+export async function getGroupEncryptionPublicKeys(req, res) {
+  try {
+    const userId = parseInt(req.userId);
+    const groupId = parseInt(req.params.groupId);
+
+    if (!userId) {
+      return res.status(401).json({ status: 'error', message: '未授权访问' });
+    }
+
+    if (!groupId || isNaN(groupId)) {
+      return res.status(400).json({ status: 'error', message: '群组ID无效' });
+    }
+
+    const [memberCheck] = await pool.execute(
+      'SELECT id FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+      [groupId, userId]
+    );
+
+    if (memberCheck.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群组成员，无法获取群成员公钥' });
+    }
+
+    const [members] = await pool.execute(`
+      SELECT u.id, u.encryption_public_key
+      FROM scr_group_members gm
+      JOIN scr_users u ON gm.user_id = u.id
+      WHERE gm.group_id = ? AND gm.deleted_at IS NULL
+    `, [groupId]);
+
+    res.json({
+      status: 'success',
+      groupId: groupId,
+      publicKeys: members.map(member => ({
+        userId: Number(member.id),
+        encryptionPublicKey: member.encryption_public_key
+      }))
+    });
+  } catch (err) {
+    console.error('获取群成员公钥失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取群成员公钥失败' });
+  }
+}

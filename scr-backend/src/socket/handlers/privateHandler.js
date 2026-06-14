@@ -2,12 +2,30 @@ import { SocketEvents } from '../events.js';
 import path from 'path';
 import fs from 'fs';
 
+function normalizeEncryptionFields({ isEncrypted, encryptedContent, encryptionMetadata, content }) {
+  const encrypted = isEncrypted === true || isEncrypted === 1 || isEncrypted === '1' || isEncrypted === 'true';
+  const cipherText = encrypted ? (encryptedContent || content) : null;
+  return {
+    isEncrypted: encrypted,
+    encryptedContent: cipherText,
+    encryptionMetadata: encrypted && encryptionMetadata !== undefined ? encryptionMetadata : null,
+    content: encrypted ? cipherText : content
+  };
+}
+
 export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, validateMessageContent, filterMessageFields, getAllOnlineUsers }) {
   
   // 发送私信
   socket.on(SocketEvents.SEND_PRIVATE_MESSAGE, async (messageData) => {
     try {
       const { userId, content, receiverId, sessionToken, at_userid } = messageData;
+      const encryptionFields = normalizeEncryptionFields({
+        isEncrypted: messageData.isEncrypted,
+        encryptedContent: messageData.encryptedContent,
+        encryptionMetadata: messageData.encryptionMetadata,
+        content
+      });
+      const contentForValidation = encryptionFields.content;
 
       // 速率限制检查
       const rateLimitResult = await checkRateLimit(userId);
@@ -111,7 +129,7 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
       }
 
       // 不进行严格转义，保持原始内容格式，让前端处理安全的解析和链接显示
-      const cleanContent = content;
+      const cleanContent = contentForValidation;
 
       // 获取当前精确时间戳（毫秒级和ISO格式）
       const now = new Date();
@@ -121,11 +139,11 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
       // 插入私信到数据库
       const messageType = messageData.message_type || messageData.messageType || 0;
       
-      const messageContent = cleanContent;
+      const messageContent = encryptionFields.content;
       
       const [result] = await pool.execute(
-          'INSERT INTO scr_private_messages (sender_id, receiver_id, content, at_userid, message_type, is_read, timestamp) VALUES (?, ?, ?, ?, ?, 0, NOW())',
-          [userId, receiverId, messageContent, at_userid ? JSON.stringify(at_userid) : null, messageType]
+          'INSERT INTO scr_private_messages (sender_id, receiver_id, content, is_encrypted, encrypted_content, encryption_metadata, at_userid, message_type, is_read, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())',
+          [userId, receiverId, messageContent, encryptionFields.isEncrypted ? 1 : 0, encryptionFields.encryptedContent, encryptionFields.encryptionMetadata ? JSON.stringify(encryptionFields.encryptionMetadata) : null, at_userid ? JSON.stringify(at_userid) : null, messageType]
       );
 
       // 构建私信消息对象
@@ -137,6 +155,9 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
         senderId: userId,
         receiverId: parseInt(receiverId),
         content: messageContent,
+        isEncrypted: encryptionFields.isEncrypted,
+        encryptedContent: encryptionFields.encryptedContent,
+        encryptionMetadata: encryptionFields.encryptionMetadata,
         messageType: messageType,
         isRead: 0,
         timestamp: timestampMs,

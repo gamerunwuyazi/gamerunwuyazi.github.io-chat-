@@ -1,4 +1,5 @@
 import { marked, io, toast, SERVER_URL, getModalId, getModalNameFromId, MODAL_MAP } from './config.js';
+import * as encryptionModule from './encryption.js';
 import * as groupModule from './group.js';
 import {
   escapeHtml,
@@ -71,6 +72,13 @@ async function login() {
       } catch (error) {
         console.error('获取用户信息失败:', error);
       }
+
+      const encryptionUserId = baseStore.currentUser?.id || currentUser.id;
+      try {
+        await encryptionModule.initializeEncryptionForUser(String(encryptionUserId), currentSessionToken);
+      } catch (error) {
+        console.error('初始化加密密钥失败:', error);
+      }
     }
   }
 
@@ -117,7 +125,8 @@ export {
   groupModule,
   uiModule,
   uploadModule,
-  websocketModule
+  websocketModule,
+  encryptionModule
 };
 
 export const {
@@ -209,3 +218,15 @@ export const {
   sendClearGlobalUnread,
   loadMessages
 } = websocketModule;
+
+export const {
+  ensureLocalIdentityKey,
+  publishLocalPublicKey,
+  initializeEncryptionForUser,
+  fetchPrivateChatPublicKeys,
+  fetchGroupChatPublicKeys,
+  getCachedSessionPublicKeys,
+  encryptMessageForRecipients,
+  decryptMessageForUser,
+  createUndecryptableMessageState
+} = encryptionModule;

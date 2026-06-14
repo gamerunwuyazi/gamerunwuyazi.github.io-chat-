@@ -3,6 +3,17 @@ import path from 'path';
 import fs from 'fs';
 import { pool as dbPool, redisClient } from '../../models/database.js';
 
+function normalizeEncryptionFields({ isEncrypted, encryptedContent, encryptionMetadata, content }) {
+  const encrypted = isEncrypted === true || isEncrypted === 1 || isEncrypted === '1' || isEncrypted === 'true';
+  const cipherText = encrypted ? (encryptedContent || content) : null;
+  return {
+    isEncrypted: encrypted,
+    encryptedContent: cipherText,
+    encryptionMetadata: encrypted && encryptionMetadata !== undefined ? encryptionMetadata : null,
+    content: encrypted ? cipherText : content
+  };
+}
+
 function checkIfUserMuted(isMutedValue) {
   const result = {
     muted: false,
@@ -82,6 +93,13 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
   socket.on(SocketEvents.SEND_MESSAGE, async (messageData) => {
     try {
       const { userId, content, groupId, sessionToken, at_userid } = messageData;
+      const encryptionFields = normalizeEncryptionFields({
+        isEncrypted: messageData.isEncrypted,
+        encryptedContent: messageData.encryptedContent,
+        encryptionMetadata: messageData.encryptionMetadata,
+        content
+      });
+      const contentForValidation = encryptionFields.content;
   
       // 速率限制检查
       const rateLimitResult = await checkRateLimit(userId);
@@ -295,7 +313,7 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       }
 
       // 不进行严格转义，保持原始内容格式，让前端处理安全的解析和链接显示
-      const cleanContent = content;
+      const cleanContent = contentForValidation;
 
       // 获取当前精确时间戳（毫秒级和ISO格式）
       const now = new Date();
@@ -306,11 +324,11 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       // 使用前端发送的消息类型，默认为文字消息类型
       const messageType = messageData.message_type || messageData.messageType || 0;
       
-      const messageContent = cleanContent;
+      const messageContent = encryptionFields.content;
       
       const [result] = await pool.execute(
-          'INSERT INTO scr_messages (user_id, content, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, NOW())',
-          [userId, messageContent, at_userid ? JSON.stringify(at_userid) : null, messageType, groupId || null]
+          'INSERT INTO scr_messages (user_id, content, is_encrypted, encrypted_content, encryption_metadata, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+          [userId, messageContent, encryptionFields.isEncrypted ? 1 : 0, encryptionFields.encryptedContent, encryptionFields.encryptionMetadata ? JSON.stringify(encryptionFields.encryptionMetadata) : null, at_userid ? JSON.stringify(at_userid) : null, messageType, groupId || null]
       );
       
       // 广播消息 - 使用已经过HTML转义的内容
@@ -320,6 +338,9 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
         nickname: user.nickname,  // 全局昵称（不覆盖）
         avatarUrl: user.avatar_url,
         content: messageContent,
+        isEncrypted: encryptionFields.isEncrypted,
+        encryptedContent: encryptionFields.encryptedContent,
+        encryptionMetadata: encryptionFields.encryptionMetadata,
         atUserid: at_userid,
         messageType: messageType,
         groupId: groupId || null,
@@ -747,7 +768,9 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
         
         let query = `
           SELECT p.id, p.sender_id as senderId, p.receiver_id as receiverId, 
-                 p.content, p.at_userid, p.message_type as messageType, p.is_read as isRead, p.timestamp,
+                 p.content, p.is_encrypted as isEncrypted, p.encrypted_content as encryptedContent, 
+                 p.encryption_metadata as encryptionMetadata,
+                 p.at_userid, p.message_type as messageType, p.is_read as isRead, p.timestamp,
                  u1.nickname as senderNickname, u1.avatar_url as senderAvatarUrl,
                  u2.nickname as receiverNickname, u2.avatar_url as receiverAvatarUrl
           FROM scr_private_messages p
@@ -794,6 +817,9 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
             receiverNickname: msg.receiverNickname,
             receiverAvatarUrl: msg.receiverAvatarUrl,
             content: msg.content,
+            isEncrypted: Boolean(msg.isEncrypted),
+            encryptedContent: msg.encryptedContent,
+            encryptionMetadata: msg.encryptionMetadata,
             at_userid: atUserIds,
             messageType: msg.messageType,
             isRead: msg.isRead || 0,

@@ -475,6 +475,80 @@ export async function changePassword(req, res) {
   }
 }
 
+export async function updateEncryptionPublicKey(req, res) {
+  try {
+    const userId = req.userId;
+    const { encryptionPublicKey, publicKey, encryptionPrivateKey, privateKey } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ status: 'error', message: '未授权访问' });
+    }
+
+    if (encryptionPrivateKey || privateKey) {
+      return res.status(400).json({ status: 'error', message: '不能上传私钥' });
+    }
+
+    const publicKeyValue = encryptionPublicKey || publicKey;
+    if (!publicKeyValue || typeof publicKeyValue !== 'string' || publicKeyValue.trim().length === 0) {
+      return res.status(400).json({ status: 'error', message: '公钥不能为空' });
+    }
+
+    if (publicKeyValue.length > 10000) {
+      return res.status(400).json({ status: 'error', message: '公钥长度超出限制' });
+    }
+
+    await pool.execute(
+      'UPDATE scr_users SET encryption_public_key = ? WHERE id = ?',
+      [publicKeyValue.trim(), userId]
+    );
+
+    res.json({ status: 'success', message: '公钥更新成功' });
+  } catch (err) {
+    console.error('更新加密公钥失败:', err.message);
+    res.status(500).json({ status: 'error', message: '更新加密公钥失败' });
+  }
+}
+
+export async function getPrivateChatEncryptionPublicKey(req, res) {
+  try {
+    const userId = parseInt(req.userId);
+    const targetUserId = parseInt(req.params.id);
+
+    if (!targetUserId || isNaN(targetUserId)) {
+      return res.status(400).json({ status: 'error', message: '用户ID无效' });
+    }
+
+    if (userId !== targetUserId) {
+      const [friends] = await pool.execute(
+        'SELECT id FROM scr_friends WHERE user_id = ? AND friend_id = ? AND status = 1',
+        [userId, targetUserId]
+      );
+
+      if (friends.length === 0) {
+        return res.status(403).json({ status: 'error', message: '只能获取好友的公钥' });
+      }
+    }
+
+    const [users] = await pool.execute(
+      'SELECT id, encryption_public_key FROM scr_users WHERE id = ?',
+      [targetUserId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ status: 'error', message: '用户不存在' });
+    }
+
+    res.json({
+      status: 'success',
+      userId: users[0].id,
+      encryptionPublicKey: users[0].encryption_public_key
+    });
+  } catch (err) {
+    console.error('获取私聊公钥失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取私聊公钥失败' });
+  }
+}
+
 export function checkAvatarStorage() {
   const MAX_AVATAR_SIZE_MB = 100;
   const MAX_AVATAR_FILES = 10000;

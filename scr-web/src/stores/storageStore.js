@@ -9,6 +9,7 @@ import { useSessionStore } from './sessionStore';
 import { useUnreadStore } from './unreadStore';
 import { useBaseStore } from './baseStore';
 import { getRouter } from '@/utils/chat/routerInstance.js';
+import { decryptChatMessage, decryptChatMessages } from '@/utils/chat/encryption.js';
 
 // 判断用户是否正在关注指定会话（页面级焦点：路由 + sessionStore + 浏览器级焦点：document.hidden / document.hasFocus）
 function isUserFocusedOnChat(chatType, chatId) {
@@ -223,7 +224,8 @@ export const useStorageStore = defineStore('storage', () => {
         }
       } else if (key.includes('-group-')) {
         const groupId = key.split('-group-')[1];
-        const checkedMessages = checkAndFixQuotedMessages(messages, 'group', groupId);
+        const decryptedMessages = await decryptChatMessages(messages, useBaseStore().currentUser?.id);
+        const checkedMessages = checkAndFixQuotedMessages(decryptedMessages, 'group', groupId);
         fullGroupMessages.value[groupId] = [...checkedMessages];
         if (loadToStore) {
           const filteredMessages = checkedMessages.filter(m => m.messageType !== 101 && m.messageType !== 102);
@@ -231,7 +233,8 @@ export const useStorageStore = defineStore('storage', () => {
         }
       } else if (key.includes('-private-')) {
         const userId = key.split('-private-')[1];
-        const checkedMessages = checkAndFixQuotedMessages(messages, 'private', userId);
+        const decryptedMessages = await decryptChatMessages(messages, useBaseStore().currentUser?.id);
+        const checkedMessages = checkAndFixQuotedMessages(decryptedMessages, 'private', userId);
         fullPrivateMessages.value[userId] = [...checkedMessages];
         if (loadToStore) {
           const filteredMessages = checkedMessages.filter(m => m.messageType !== 101 && m.messageType !== 102 && m.messageType !== 103);
@@ -359,6 +362,10 @@ export const useStorageStore = defineStore('storage', () => {
       processedMessage.receiverId = Number(message.receiverId);
       processedMessage.isRead = message.isRead;
       delete processedMessage.userId;
+    }
+
+    if (processedMessage.type === 'group' || processedMessage.type === 'private') {
+      Object.assign(processedMessage, await decryptChatMessage(processedMessage, baseStore.currentUser?.id));
     }
 
     const isUserInfoUpdateMessage = processedMessage.messageType === 102;

@@ -33,6 +33,47 @@ const router = createRouter({
             component: () => import('./views/Register.vue')
         },
         {
+            path: '/admin/login',
+            name: 'adminLogin',
+            component: () => import('./views/AdminLogin.vue')
+        },
+        {
+            path: '/admin',
+            component: () => import('./layouts/AdminLayout.vue'),
+            children: [
+                {
+                    path: '',
+                    name: 'adminDashboard',
+                    component: () => import('./views/AdminDashboard.vue')
+                },
+                {
+                    path: 'users',
+                    name: 'adminUsers',
+                    component: () => import('./views/AdminUsers.vue')
+                },
+                {
+                    path: 'groups',
+                    name: 'adminGroups',
+                    component: () => import('./views/AdminGroups.vue')
+                },
+                {
+                    path: 'messages',
+                    name: 'adminMessages',
+                    component: () => import('./views/AdminMessages.vue')
+                },
+                {
+                    path: 'files',
+                    name: 'adminFiles',
+                    component: () => import('./views/AdminFiles.vue')
+                },
+                {
+                    path: 'logs',
+                    name: 'adminLogs',
+                    component: () => import('./views/AdminLogs.vue')
+                }
+            ]
+        },
+        {
             path: '/',
             redirect: '/chat'
         },
@@ -94,6 +135,21 @@ router.beforeEach(to => {
       return '/login';
     }
   }
+  
+  if (to.path.startsWith('/admin') && to.path !== '/admin/login') {
+    const adminToken = localStorage.getItem('adminToken');
+    if (!adminToken) {
+      return '/admin/login';
+    }
+  }
+  
+  if (to.path === '/admin/login') {
+    const adminToken = localStorage.getItem('adminToken');
+    if (adminToken) {
+      return '/admin';
+    }
+  }
+  
   return true;
 });
 

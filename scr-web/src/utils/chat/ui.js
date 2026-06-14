@@ -11,7 +11,7 @@ import {
   toggleGroupMute 
 } from './group.js';
 import { loadFriendsList, showUserAvatarPopup } from './private.js';
-import { getRouter } from './routerInstance.js';
+import { getRouter, navigateTo } from './routerInstance.js';
 import {
   useBaseStore,
   useUserStore,
@@ -30,7 +30,6 @@ import {
   enableMessageSending, 
   disconnectWebSocket
 } from './websocket.js';
-import { navigateTo } from './routerInstance.js';
 import { resetAllStores } from '@/stores/plugins/clearStore.js';
 
 let currentGroupId = null;

@@ -32,6 +32,7 @@ import {
 } from './ui.js';
 import { navigateTo, getRouter } from './routerInstance.js';
 import { resetLoadingState } from './upload.js';
+import { decryptChatMessage, decryptChatMessages } from './encryption.js';
 
 // 判断用户当前页面是否在指定会话中（基于路由 + sessionStore，仅判断页面级焦点）
 // 浏览器级焦点（document.hidden / document.hasFocus）由调用方单独判断
@@ -596,6 +597,10 @@ function initializeWebSocket() {
             return;
         }
         
+        if (message.groupId) {
+            message = await decryptChatMessage(message, baseStore.currentUser?.id);
+        }
+
         // 更新对应的 minId（只对非撤回消息）
         if (message.id && storageStore && storageStore.publicAndGroupMinId !== undefined) {
             if (message.id > storageStore.publicAndGroupMinId) {
@@ -720,7 +725,7 @@ function initializeWebSocket() {
     });
 
     // 接收消息发送确认事件 - 根据确认事件渲染消息
-    socket.on('message-sent', (data) => {
+    socket.on('message-sent', async (data) => {
         const groupStore = useGroupStore();
         const publicStore = usePublicStore();
         const storageStore = useStorageStore();
@@ -734,7 +739,10 @@ function initializeWebSocket() {
 
         // 检查是否包含完整的消息数据
         if (data.message && data.messageId) {
-            const confirmedMessage = data.message;
+            let confirmedMessage = data.message;
+            if (confirmedMessage.groupId) {
+                confirmedMessage = await decryptChatMessage(confirmedMessage, useBaseStore().currentUser?.id);
+            }
             
             // 检查是否是类型101撤回消息
             if (confirmedMessage.messageType === 101) {
@@ -1664,10 +1672,11 @@ function initializeWebSocket() {
             // 群组消息 - 完全复刻 group-chat-history 事件
             const groupId = data.groupId || sessionStore.currentGroupId;
             if (groupStore && data.messages && groupId) {
+                const messages = await decryptChatMessages(data.messages, baseStore.currentUser?.id);
                 if (data.loadMore && groupStore.prependGroupMessages) {
-                    groupStore.prependGroupMessages(groupId, data.messages);
+                    groupStore.prependGroupMessages(groupId, messages);
                 } else if (groupStore.setGroupMessages) {
-                    groupStore.setGroupMessages(groupId, data.messages);
+                    groupStore.setGroupMessages(groupId, messages);
                 }
                 
                 // 检查是否加载更多时返回了空数组或消息数少于20条，标记为已全部加载
@@ -1714,10 +1723,11 @@ function initializeWebSocket() {
             }
 
             if (friendStore && data.messages && userId) {
+                const messages = await decryptChatMessages(data.messages, baseStore.currentUser?.id);
                 if (data.loadMore && friendStore.prependPrivateMessages) {
-                    friendStore.prependPrivateMessages(userId, data.messages);
+                    friendStore.prependPrivateMessages(userId, messages);
                 } else if (friendStore.setPrivateMessages) {
-                    friendStore.setPrivateMessages(userId, data.messages);
+                    friendStore.setPrivateMessages(userId, messages);
                 }
             }
 
@@ -2048,7 +2058,7 @@ function initializeWebSocket() {
     });
 
     // 私信消息发送确认事件 - 根据确认事件渲染消息
-    socket.on('private-message-sent', (data) => {
+    socket.on('private-message-sent', async (data) => {
         const storageStore = useStorageStore();
         const friendStore = useFriendStore();
         const sessionStore = useSessionStore();
@@ -2063,7 +2073,7 @@ function initializeWebSocket() {
 
         // 检查是否包含完整的消息数据
         if (data.message && data.messageId) {
-            const confirmedMessage = data.message;
+            let confirmedMessage = await decryptChatMessage(data.message, baseStore.currentUser?.id);
             
             // 检查是否是类型101撤回消息
             if (confirmedMessage.messageType === 101) {
@@ -2240,7 +2250,7 @@ function initializeWebSocket() {
     });
 
     // 私信消息接收事件
-    socket.on('private-message-received', (message) => {
+    socket.on('private-message-received', async (message) => {
         const sessionStore = useSessionStore();
         const baseStore = useBaseStore();
         const storageStore = useStorageStore();
@@ -2384,6 +2394,8 @@ function initializeWebSocket() {
             return;
         }
         
+        message = await decryptChatMessage(message, baseStore.currentUser?.id);
+
         // 检查消息是否是当前聊天对象的消息，使用字符串比较确保类型一致
         const msgSenderId = String(message.senderId);
         const msgReceiverId = String(message.receiverId);
