@@ -7,6 +7,9 @@
     <div class="decoration decoration-3"></div>
 
     <div class="login-form">
+      <button class="theme-toggle" type="button" @click="toggleDarkMode" :title="isDarkMode ? '切换为浅色模式' : '切换为深色模式'">
+        <span class="theme-icon">{{ isDarkMode ? '☀️' : '🌙' }}</span>
+      </button>
       <h1>登录聊天室</h1>
       <form @submit.prevent="handleLoginClick">
         <div class="input-group">
@@ -81,6 +84,21 @@ const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 const {
   captchaError
 } = useCaptcha();
+
+// 深色模式切换
+const isDarkMode = ref(false);
+onMounted(() => {
+  try {
+    isDarkMode.value = document.body.classList.contains('dark-mode');
+  } catch {}
+});
+function toggleDarkMode() {
+  isDarkMode.value = !isDarkMode.value;
+  document.body.classList.toggle('dark-mode', isDarkMode.value);
+  try {
+    localStorage.setItem('dark-mode', isDarkMode.value ? '1' : '0');
+  } catch {}
+}
 
 const formData = reactive({
   username: '',
@@ -444,6 +462,46 @@ h1 {
   font-weight: 600;
 }
 
+/* 深色模式切换按钮 */
+.theme-toggle {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid #e1e5e9;
+  background: #f9fafb;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  padding: 0;
+  margin: 0;
+  box-shadow: none;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.theme-toggle:hover {
+  background: #e8ecf1;
+  border-color: #c8d0d9;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+}
+
+.theme-toggle:active {
+  transform: translateY(0);
+}
+
+.theme-icon {
+  font-size: 16px;
+  line-height: 1;
+  display: inline-block;
+}
+
 form {
   display: flex;
   flex-direction: column;
@@ -633,5 +691,197 @@ button:disabled {
   input, button {
     font-size: 15px;
   }
+}
+
+/* === 深色模式 === */
+@media (prefers-color-scheme: dark) {
+  .login-container {
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+  }
+  .login-form {
+    background: #161b22;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  }
+  h1 {
+    color: #f0f6fc;
+  }
+  .theme-toggle {
+    background: #21262d;
+    border-color: #30363d;
+  }
+  .theme-toggle:hover {
+    background: #30363d;
+    border-color: #484f58;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+  }
+  label {
+    color: #8b949e;
+  }
+  input {
+    background-color: #0d1117;
+    border-color: #30363d;
+    color: #c9d1d9;
+  }
+  input:focus {
+    border-color: #388bfd;
+    background-color: #161b22;
+    box-shadow: 0 0 0 3px rgba(56, 139, 255, 0.3);
+  }
+  input::placeholder {
+    color: #6e7681;
+  }
+  button {
+    background: #238636;
+  }
+  button:hover:not(:disabled) {
+    background: #2ea043;
+    box-shadow: 0 5px 15px rgba(46, 160, 67, 0.4);
+  }
+  button:disabled {
+    background-color: #21262d;
+    color: #6e7681;
+  }
+  .register-link {
+    color: #8b949e;
+  }
+  .register-link a {
+    color: #388bfd;
+  }
+  .register-link a:hover {
+    color: #58a6ff;
+  }
+  .login-message.error {
+    background-color: rgba(248, 81, 73, 0.15);
+    color: #f85149;
+    border-color: rgba(248, 81, 73, 0.4);
+  }
+  .login-message.success {
+    background-color: rgba(46, 160, 67, 0.15);
+    color: #3fb950;
+    border-color: rgba(46, 160, 67, 0.4);
+  }
+  .decoration {
+    background: rgba(56, 139, 253, 0.15) !important;
+  }
+  .decoration-1 {
+    background: rgba(56, 139, 253, 0.15) !important;
+  }
+  .decoration-2 {
+    background: rgba(88, 166, 255, 0.12) !important;
+  }
+  .decoration-3 {
+    background: rgba(56, 139, 253, 0.1) !important;
+  }
+  .captcha-modal {
+    background: #161b22;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  }
+  .captcha-modal-header {
+    color: #f0f6fc;
+  }
+  .captcha-close-btn {
+    color: #8b949e;
+  }
+  .captcha-close-btn:hover {
+    color: #f0f6fc;
+  }
+  .captcha-error {
+    color: #f85149;
+  }
+}
+
+body.dark-mode .login-container {
+  background: linear-gradient(135deg, #0d1117 0%, #161b22 100%) !important;
+}
+body.dark-mode .login-form {
+  background: #161b22 !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+}
+body.dark-mode .login-form h1 {
+  color: #f0f6fc !important;
+}
+body.dark-mode .login-form .theme-toggle {
+  background: #21262d !important;
+  border-color: #30363d !important;
+  color: #f0f6fc !important;
+}
+body.dark-mode .login-form .theme-toggle:hover {
+  background: #30363d !important;
+  border-color: #484f58 !important;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3) !important;
+}
+body.dark-mode .login-form label {
+  color: #8b949e !important;
+}
+body.dark-mode .login-form input {
+  background-color: #0d1117 !important;
+  border-color: #30363d !important;
+  color: #c9d1d9 !important;
+}
+body.dark-mode .login-form input:focus {
+  border-color: #388bfd !important;
+  background-color: #161b22 !important;
+  box-shadow: 0 0 0 3px rgba(56, 139, 255, 0.3) !important;
+}
+body.dark-mode .login-form input::placeholder {
+  color: #6e7681 !important;
+}
+body.dark-mode .login-form button {
+  background: #238636 !important;
+  color: #ffffff !important;
+}
+body.dark-mode .login-form button:hover:not(:disabled) {
+  background: #2ea043 !important;
+  box-shadow: 0 5px 15px rgba(46, 160, 67, 0.4) !important;
+}
+body.dark-mode .login-form button:disabled {
+  background-color: #21262d !important;
+  color: #6e7681 !important;
+}
+body.dark-mode .login-form .register-link {
+  color: #8b949e !important;
+}
+body.dark-mode .login-form .register-link a {
+  color: #388bfd !important;
+}
+body.dark-mode .login-form .register-link a:hover {
+  color: #58a6ff !important;
+}
+body.dark-mode .login-form .login-message.error {
+  background-color: rgba(248, 81, 73, 0.15) !important;
+  color: #f85149 !important;
+  border-color: rgba(248, 81, 73, 0.4) !important;
+}
+body.dark-mode .login-form .login-message.success {
+  background-color: rgba(46, 160, 67, 0.15) !important;
+  color: #3fb950 !important;
+  border-color: rgba(46, 160, 67, 0.4) !important;
+}
+body.dark-mode .login-container .decoration,
+body.dark-mode .login-container .decoration-1 {
+  background: rgba(56, 139, 253, 0.15) !important;
+}
+body.dark-mode .login-container .decoration-2 {
+  background: rgba(88, 166, 255, 0.12) !important;
+}
+body.dark-mode .login-container .decoration-3 {
+  background: rgba(56, 139, 253, 0.1) !important;
+}
+body.dark-mode .login-container .captcha-modal {
+  background: #161b22 !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6) !important;
+  border: 1px solid #30363d !important;
+}
+body.dark-mode .login-container .captcha-modal-header {
+  color: #f0f6fc !important;
+}
+body.dark-mode .login-container .captcha-close-btn {
+  color: #8b949e !important;
+}
+body.dark-mode .login-container .captcha-close-btn:hover {
+  color: #f0f6fc !important;
+}
+body.dark-mode .login-container .captcha-error {
+  color: #f85149 !important;
 }
 </style>

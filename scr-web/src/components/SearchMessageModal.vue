@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body" v-if="modelValue">
     <div class="search-modal-overlay" @click.self="handleClose">
-      <div class="search-modal">
+      <div class="search-modal" :style="modalStyle">
         <div class="search-modal-header">
           <h3>查找消息</h3>
           <button class="close-btn" @click="handleClose">×</button>
@@ -12,10 +12,10 @@
               v-model="searchKeyword"
               type="text"
               placeholder="输入搜索内容..."
-              @keyup.enter="emit('search')"
+              @keyup.enter="handleSearch"
               ref="searchInputRef"
             />
-            <button class="search-btn" @click="emit('search')" :disabled="isSearching || !searchKeyword.trim()">
+            <button class="search-btn" @click="handleSearch" :disabled="isSearching || !searchKeyword.trim()">
               {{ isSearching ? '搜索中...' : '搜索' }}
             </button>
           </div>
@@ -27,7 +27,7 @@
                 <button class="search-nav-btn" @click="emit('navigateNext')" :disabled="searchResults.length <= 1">▼</button>
               </span>
             </div>
-            <div class="search-results-list">
+            <div class="search-results-list" ref="resultsListRef">
               <slot name="results" :results="searchResults" :onClick="handleScrollToMessage" />
             </div>
           </div>
@@ -41,7 +41,7 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -54,6 +54,37 @@ const emit = defineEmits(['update:modelValue', 'search', 'navigatePrev', 'naviga
 
 const searchKeyword = ref('');
 const searchInputRef = ref(null);
+const resultsListRef = ref(null);
+const modalWidth = ref(null);
+
+const modalStyle = computed(() => {
+  if (modalWidth.value) {
+    return { maxWidth: modalWidth.value + 'px' };
+  }
+  return {};
+});
+
+watch(() => props.searchResults, async () => {
+  if (props.searchResults.length === 0) {
+    modalWidth.value = null;
+    return;
+  }
+  await nextTick();
+  await nextTick();
+  if (resultsListRef.value) {
+    const children = resultsListRef.value.children;
+    let maxWidth = 500;
+    for (const child of children) {
+      const w = child.scrollWidth;
+      if (w > maxWidth) maxWidth = w;
+    }
+    modalWidth.value = maxWidth + 10;
+  }
+});
+
+function handleSearch() {
+  emit('search', searchKeyword.value);
+}
 
 function handleClose() {
   searchKeyword.value = '';

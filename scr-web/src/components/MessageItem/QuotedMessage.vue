@@ -73,17 +73,16 @@ import localForage from 'localforage';
 import { marked } from 'marked';
 import { computed, ref } from 'vue';
 
+import { useMessageHighlight } from '@/composables/useMessageHighlight';
 import { useBaseStore } from '@/stores/baseStore';
-import { useGroupStore } from '@/stores/groupStore';
 import { useFriendStore } from '@/stores/friendStore';
+import { useGroupStore } from '@/stores/groupStore';
+import { useModalStore } from '@/stores/modalStore';
 import { usePublicStore } from '@/stores/publicStore';
 import { useSessionStore } from '@/stores/sessionStore';
-import { useModalStore } from '@/stores/modalStore';
 import { useStorageStore } from '@/stores/storageStore';
 import { showGroupCardPopup } from '@/utils/chat';
-import { useMessageHighlight } from '@/composables/useMessageHighlight';
 import { findUserInfo } from '@/utils/chat/userLookup';
-import toast from '@/utils/toast';
 
 const props = defineProps({
   quotedMessageData: {
@@ -97,13 +96,49 @@ const groupStore = useGroupStore();
 const friendStore = useFriendStore();
 const publicStore = usePublicStore();
 const modalStore = useModalStore();
-const storageStore = useStorageStore();
 const sessionStore = useSessionStore();
+const storageStore = useStorageStore();
 const groupCardAvatarLoadFailed = ref(false);
 const senderAvatarError = ref(false);
 const { scrollAndHighlight } = useMessageHighlight();
 
 function getQuotedUserInfo() {
+  const msgId = props.quotedMessageData?.id;
+  if (msgId && msgId !== -1 && String(msgId) !== '-1') {
+    const pubMsg = publicStore.publicMessages?.find(m => String(m.id) === String(msgId));
+    if (pubMsg && pubMsg.nickname) return pubMsg;
+    
+    const gid = sessionStore.currentGroupId;
+    if (gid && groupStore.groupMessages[gid]) {
+      const gMsg = groupStore.groupMessages[gid].find(m => String(m.id) === String(msgId));
+      if (gMsg && gMsg.nickname) return gMsg;
+    }
+    
+    const pid = sessionStore.currentPrivateChatUserId;
+    if (pid && friendStore.privateMessages[pid]) {
+      const pMsg = friendStore.privateMessages[pid].find(m => String(m.id) === String(msgId));
+      if (pMsg && pMsg.nickname) return pMsg;
+    }
+    
+    const fullPubMsg = storageStore.fullPublicMessages?.find(m => String(m.id) === String(msgId));
+    if (fullPubMsg && fullPubMsg.nickname) return fullPubMsg;
+    
+    const fullGroups = storageStore.fullGroupMessages;
+    if (fullGroups) {
+      for (const [, msgs] of Object.entries(fullGroups)) {
+        const found = msgs?.find(m => String(m.id) === String(msgId));
+        if (found && found.nickname) return found;
+      }
+    }
+    
+    const fullPrivates = storageStore.fullPrivateMessages;
+    if (fullPrivates) {
+      for (const [, msgs] of Object.entries(fullPrivates)) {
+        const found = msgs?.find(m => String(m.id) === String(msgId));
+        if (found && found.nickname) return found;
+      }
+    }
+  }
   return findUserInfo(props.quotedMessageData, { sessionStore, groupStore, friendStore, publicStore, baseStore });
 }
 
@@ -192,6 +227,11 @@ const displayContent = computed(() => {
   const msg = props.quotedMessageData;
   if (!msg) return '';
   
+  if (msg.messageType === 101) {
+    const nickname = getQuotedUserInfo().nickname;
+    return nickname ? `${nickname}撤回了一条消息` : '撤回了一条消息';
+  }
+  
   if (msg.messageType === 1) {
     return '[图片]';
   } else if (msg.messageType === 2) {
@@ -199,12 +239,7 @@ const displayContent = computed(() => {
   } else if (msg.messageType === 3) {
     return '[群名片]';
   } else if (msg.messageType === 4) {
-    try {
-      const data = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
-      return data.text || data.content || '';
-    } catch {
-      return msg.content || '';
-    }
+    return msg.content || '';
   } else if (msg.messageType === 5 || msg.markdone) {
     let content = msg.content || '';
     try {
@@ -219,8 +254,6 @@ const displayContent = computed(() => {
     } catch {
       return content;
     }
-  } else if (msg.messageType === 101) {
-    return '撤回了一条消息';
   }
   
   return msg.content || '';
@@ -288,12 +321,7 @@ const groupCardInitials = computed(() => {
 async function handleQuotedMessageClick() {
   const quotedId = props.quotedMessageData?.id;
   
-  if (quotedId === -1) {
-    toast.warning('原引用消息已撤回', 3000);
-    return;
-  }
-  
-  if (!quotedId) {
+  if (!quotedId || quotedId === -1 || String(quotedId) === '-1') {
     return;
   }
   

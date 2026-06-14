@@ -2,6 +2,7 @@
   <div 
     v-if="systemMessage"
     class="system-message-wrapper"
+    :data-id="message.id"
   >
     <div class="system-message-container" :class="systemMessageType">
       <div class="system-message-text">{{ systemMessage }}</div>
@@ -834,15 +835,16 @@ function handleContextMenu(event) {
     let quotedMsgData = {};
     if (messageType === 4) {
       const parsedContent = JSON.parse(props.message.content);
-      // 只看当前消息自身的markdone，不看内部嵌套引用的消息类型
-      const isMarkdown = parsedContent.markdone === true;
+      // 从引用消息JSON中剥离出被引用的原始消息内容
+      const quotedInner = parsedContent.quoted || parsedContent.quotedMessage || parsedContent.quoted_message;
+      const innerContent = quotedInner?.content || quotedInner?.text || parsedContent.text || parsedContent.content || '';
       quotedMsgData = {
         id: messageId,
         userId: userId,
         nickname: senderNicknameValue,
         avatarUrl: senderAvatarUrl.value || '',
-        content: isMarkdown ? (parsedContent.content || '') : props.message.content,
-        messageType: isMarkdown ? 5 : 4
+        content: innerContent,
+        messageType: 0
       };
     } else {
       quotedMsgData = {

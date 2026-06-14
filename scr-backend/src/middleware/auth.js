@@ -151,12 +151,14 @@ async function validateUserSession(userId, token) {
 async function getUserSession(userId) {
   return safeRedisExecute(async (client) => {
     const tokenKey = `scr:token:${userId}`;
-    const refreshTokenKey = `scr:refreshToken:${userId}`;
 
-    const [tokenData, refreshTokenData] = await Promise.all([
-      client.get(tokenKey),
-      client.get(refreshTokenKey)
-    ]);
+    const tokenData = await client.get(tokenKey);
+
+    const [rows] = await pool.execute(
+      'SELECT refresh_token, refresh_expires FROM scr_sessions WHERE user_id = ?',
+      [userId]
+    );
+    const refreshTokenData = rows.length > 0 ? rows[0].refresh_token : null;
 
     if (!tokenData && !refreshTokenData) {
       return null;

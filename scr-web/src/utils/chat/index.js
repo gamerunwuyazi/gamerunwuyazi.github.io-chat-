@@ -171,10 +171,6 @@ export const {
   openModal,
   closeModal,
   initializeFocusListeners,
-  showError,
-  showSuccess,
-  handlePageVisibilityChange,
-  handleFocusChange,
   updateUnreadCountsDisplay,
   setActiveChat,
   initializeChat,
@@ -209,5 +205,7 @@ export const {
   initializeWebSocket,
   disconnectWebSocket,
   sendReadMessageEvent,
+  sendClearGroupUnread,
+  sendClearGlobalUnread,
   loadMessages
 } = websocketModule;

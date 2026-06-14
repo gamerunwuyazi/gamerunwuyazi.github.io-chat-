@@ -12,8 +12,6 @@ import { sessionConfig } from '../config/index.js';
 import {
   setSocketIO as setSessionSocketIO,
   createUserSession,
-  getUserSession,
-  setUserSession,
   updateOnlineUserByUserId,
   logIPAction
 } from '../utils/session.js';
@@ -60,22 +58,6 @@ export async function register(req, res) {
     const { username, password, nickname, gender, captchaId, encryptedTrajectory } = req.body;
     const clientIP = getClientIP(req);
 
-    const registerRateLimit = await checkRegisterRateLimit(clientIP);
-    if (!registerRateLimit.allowed) {
-      let message = '注册请求过于频繁';
-      if (registerRateLimit.limitType === 'hour') {
-        message = `1小时内最多注册2次，请${registerRateLimit.waitSeconds}秒后再试`;
-      } else if (registerRateLimit.limitType === 'day') {
-        message = `24小时内最多注册5次，请${registerRateLimit.waitSeconds}秒后再试`;
-      } else if (registerRateLimit.limitType === 'month') {
-        message = `1个月内最多注册20次，请${registerRateLimit.waitSeconds}秒后再试`;
-      }
-      return res.status(429).json({
-        status: 'error',
-        message: message
-      });
-    }
-
     const banInfo = await isIPBanned(clientIP);
     if (banInfo.isBanned) {
       return res.status(403).json({ status: 'error', message: '您的 IP 已被封禁', isBanned: true, remainingTime: banInfo.remainingTime });
@@ -93,6 +75,22 @@ export async function register(req, res) {
     const captchaResult = await verifyCaptchaToken(captchaId, encryptedTrajectory);
     if (!captchaResult.success) {
       return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
+    }
+
+    const registerRateLimit = await checkRegisterRateLimit(clientIP);
+    if (!registerRateLimit.allowed) {
+      let message = '注册请求过于频繁';
+      if (registerRateLimit.limitType === 'hour') {
+        message = `1小时内最多注册2次，请${registerRateLimit.waitSeconds}秒后再试`;
+      } else if (registerRateLimit.limitType === 'day') {
+        message = `24小时内最多注册5次，请${registerRateLimit.waitSeconds}秒后再试`;
+      } else if (registerRateLimit.limitType === 'month') {
+        message = `1个月内最多注册20次，请${registerRateLimit.waitSeconds}秒后再试`;
+      }
+      return res.status(429).json({
+        status: 'error',
+        message: message
+      });
     }
 
     if (!validateUsername(username) && !validatePassword(password) && !validateNickname(nickname)) {
@@ -140,20 +138,6 @@ export async function login(req, res) {
   try {
     const { username, password, captchaId, encryptedTrajectory, autoLoginToken } = req.body;
     const clientIP = getClientIP(req);
-
-    const loginRateLimit = await checkLoginRateLimit(clientIP);
-    if (!loginRateLimit.allowed) {
-      let message = '登录请求过于频繁';
-      if (loginRateLimit.limitType === 'minute') {
-        message = `登录请求过于频繁，请${loginRateLimit.waitSeconds}秒后再试`;
-      } else if (loginRateLimit.limitType === 'hour') {
-        message = `1小时内登录请求次数已达上限，请${loginRateLimit.waitSeconds}秒后再试`;
-      }
-      return res.status(429).json({
-        status: 'error',
-        message: message
-      });
-    }
 
     const banInfo = await isIPBanned(clientIP);
     if (banInfo.isBanned) {
@@ -208,14 +192,36 @@ export async function login(req, res) {
         }
       }
 
-      const [users] = await pool.execute(
+      const loginRateLimit = await checkLoginRateLimit(clientIP);
+      if (!loginRateLimit.allowed) {
+        let message = '登录请求过于频繁';
+        if (loginRateLimit.limitType === 'minute') {
+          message = `登录请求过于频繁，请${loginRateLimit.waitSeconds}秒后再试`;
+        } else if (loginRateLimit.limitType === 'hour') {
+          message = `1小时内登录请求次数已达上限，请${loginRateLimit.waitSeconds}秒后再试`;
+        }
+        return res.status(429).json({
+          status: 'error',
+          message: message
+        });
+      }
+
+      let users;
+      try {
+        const [rows] = await pool.execute(
           'SELECT id, username, password, nickname, gender, avatar_url FROM scr_users WHERE username = ?',
           [username]
-      );
+        );
+        users = rows;
 
-      if (users.length === 0) {
+        if (users.length === 0) {
+          await logIPAction(null, clientIP, 'login_failed');
+          return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
+        }
+      } catch (err) {
+        console.error('❌ 查询用户失败:', err.message);
         await logIPAction(null, clientIP, 'login_failed');
-        return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
+        return res.status(500).json({ status: 'error', message: '查询用户失败' });
       }
 
       const user = users[0];
@@ -265,13 +271,23 @@ export async function refreshToken(req, res) {
       return res.status(400).json({ status: 'error', message: '缺少必要参数' });
     }
 
-    const session = await getUserSession(parseInt(userId));
+    const [rows] = await pool.execute(
+      'SELECT refresh_token, refresh_expires FROM scr_sessions WHERE user_id = ?',
+      [parseInt(userId)]
+    );
 
-    if (!session || !session.refreshToken) {
+    if (rows.length === 0) {
       return res.status(401).json({ status: 'error', message: '会话已过期，请重新登录' });
     }
 
-    if (session.refreshToken !== refreshToken) {
+    const session = rows[0];
+
+    if (new Date(session.refresh_expires) <= new Date()) {
+      await pool.execute('DELETE FROM scr_sessions WHERE user_id = ?', [parseInt(userId)]);
+      return res.status(401).json({ status: 'error', message: '会话已过期，请重新登录' });
+    }
+
+    if (session.refresh_token !== refreshToken) {
       return res.status(401).json({ status: 'error', message: 'Refresh Token 无效' });
     }
 
@@ -279,17 +295,14 @@ export async function refreshToken(req, res) {
     const newRefreshToken = generateSessionToken();
     const newExpires = Date.now() + (sessionConfig.expireMinutes * 60 * 1000);
     const newRefreshExpires = Date.now() + (sessionConfig.refreshExpireDays * 24 * 60 * 60 * 1000);
-
-    const newSession = {
-      token: newToken,
-      refreshToken: newRefreshToken
-    };
-    await setUserSession(parseInt(userId), newSession, newExpires, newRefreshExpires);
-
+    const tokenKey = `scr:token:${parseInt(userId)}`;
+    
     await pool.execute(
-      'UPDATE scr_sessions SET refresh_token = ?, refresh_expires = ?, last_active = ? WHERE user_id = ?',
-      [newRefreshToken, new Date(newRefreshExpires), new Date(), parseInt(userId)]
+      'UPDATE scr_sessions SET refresh_token = ?, refresh_expires = ?, last_active = NOW() WHERE user_id = ?',
+      [newRefreshToken, new Date(newRefreshExpires), parseInt(userId)]
     );
+    await redisClient.set(tokenKey, newToken);
+    await redisClient.expire(tokenKey, Math.ceil((newExpires - Date.now()) / 1000));
 
     res.json({
       status: 'success',
@@ -362,7 +375,7 @@ export async function updateNickname(req, res) {
 
 export async function updateSignature(req, res) {
   try {
-    const userId = req.headers['user-id'];
+    const userId = req.userId;
     const { signature } = req.body;
 
     if (!userId) {
@@ -388,7 +401,7 @@ export async function updateSignature(req, res) {
 
 export async function updateGender(req, res) {
   try {
-    const userId = req.headers['user-id'];
+    const userId = req.userId;
     const { gender } = req.body;
 
     if (!userId) {

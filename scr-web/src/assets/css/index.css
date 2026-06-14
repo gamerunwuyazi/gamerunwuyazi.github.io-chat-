@@ -30,6 +30,8 @@ body {
     background: #f5f5f5;
     border-radius: 4px;
     cursor: pointer;
+    max-width: 400px;
+    overflow: hidden;
 }
 
 .quoted-message-header {
@@ -142,9 +144,9 @@ body {
 .quoted-text-preview {
     font-size: 13px;
     color: #333;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 /* === 引用预览 === */
@@ -431,7 +433,99 @@ body.dark-mode .more-functions {
 }
 
 body.dark-mode .more-functions button {
-    color: #c9d1d9;
+    color: #c9d1d9 !important;
+    background-color: #21262d !important;
+}
+
+/* 所有更多功能按钮的深色模式覆盖（覆盖带 ID 的更高优先级选择器） */
+body.dark-mode #imageUploadButton,
+body.dark-mode #fileUploadButton,
+body.dark-mode #videoUploadButton,
+body.dark-mode #sendGroupCardButton,
+body.dark-mode #searchMessageButton,
+body.dark-mode #groupImageUploadButton,
+body.dark-mode #groupFileUploadButton,
+body.dark-mode #groupVideoUploadButton,
+body.dark-mode #sendGroupCardButtonGroup,
+body.dark-mode #groupSearchMessageButton,
+body.dark-mode #privateImageUploadButton,
+body.dark-mode #privateFileUploadButton,
+body.dark-mode #privateVideoUploadButton,
+body.dark-mode #privateSendGroupCardButton,
+body.dark-mode #privateSearchMessageButton {
+    background-color: #374151 !important;
+    color: #ffffff !important;
+}
+
+/* 所有更多功能按钮 hover 深色模式覆盖 */
+body.dark-mode #imageUploadButton:hover:not(:disabled),
+body.dark-mode #fileUploadButton:hover:not(:disabled),
+body.dark-mode #videoUploadButton:hover:not(:disabled),
+body.dark-mode #sendGroupCardButton:hover:not(:disabled),
+body.dark-mode #searchMessageButton:hover:not(:disabled),
+body.dark-mode #groupImageUploadButton:hover:not(:disabled),
+body.dark-mode #groupFileUploadButton:hover:not(:disabled),
+body.dark-mode #groupVideoUploadButton:hover:not(:disabled),
+body.dark-mode #sendGroupCardButtonGroup:hover:not(:disabled),
+body.dark-mode #groupSearchMessageButton:hover:not(:disabled),
+body.dark-mode #privateImageUploadButton:hover:not(:disabled),
+body.dark-mode #privateFileUploadButton:hover:not(:disabled),
+body.dark-mode #privateVideoUploadButton:hover:not(:disabled),
+body.dark-mode #privateSendGroupCardButton:hover:not(:disabled),
+body.dark-mode #privateSearchMessageButton:hover:not(:disabled) {
+    background-color: #4b5563 !important;
+    color: #ffffff !important;
+}
+
+/* 确保更多功能容器内所有按钮都有深色背景 */
+body.dark-mode .more-functions button {
+    background-color: #374151 !important;
+    color: #ffffff !important;
+}
+
+/* 更多功能按钮 hover 状态深色模式 */
+body.dark-mode .more-functions button:hover:not(:disabled) {
+    background-color: #4b5563 !important;
+    color: #ffffff !important;
+}
+
+/* 发送群名片按钮深色模式 */
+body.dark-mode #sendGroupCardButton,
+body.dark-mode #sendGroupCardButtonGroup,
+body.dark-mode #privateSendGroupCardButton {
+    background-color: #374151 !important;
+    color: #ffffff !important;
+}
+
+/* 发送群名片按钮 hover 深色模式 */
+body.dark-mode #sendGroupCardButton:hover:not(:disabled),
+body.dark-mode #sendGroupCardButtonGroup:hover:not(:disabled),
+body.dark-mode #privateSendGroupCardButton:hover:not(:disabled) {
+    background-color: #4b5563 !important;
+    color: #ffffff !important;
+}
+
+/* 按钮文字深色模式 */
+body.dark-mode .button-text {
+    color: #ffffff !important;
+}
+
+/* 更多按钮深色模式 */
+body.dark-mode .more-button,
+body.dark-mode #moreButton,
+body.dark-mode #groupMoreButton,
+body.dark-mode #privateMoreButton {
+    background-color: #374151 !important;
+    color: #ffffff !important;
+}
+
+/* 更多按钮 hover 深色模式 */
+body.dark-mode .more-button:hover:not(:disabled),
+body.dark-mode #moreButton:hover:not(:disabled),
+body.dark-mode #groupMoreButton:hover:not(:disabled),
+body.dark-mode #privateMoreButton:hover:not(:disabled) {
+    background-color: #4b5563 !important;
+    color: #ffffff !important;
 }
 
 body.dark-mode .input-buttons {
@@ -715,6 +809,11 @@ body.dark-mode .markdown-btn:hover {
     border-color: #58a6ff;
 }
 
+body.dark-mode .markdown-toolbar {
+    background-color: #161b22;
+    border-bottom-color: #30363d;
+}
+
 body.dark-mode .toggle-btn {
     background-color: #21262d;
     color: #c9d1d9;
@@ -756,6 +855,12 @@ body.dark-mode .search-btn {
 
 body.dark-mode .search-btn:hover:not(:disabled) {
     background-color: #30363d;
+}
+
+body.dark-mode .search-btn:disabled {
+    background-color: #21262d;
+    color: #484f58;
+    border-color: #30363d;
 }
 
 body.dark-mode .close-btn {
@@ -830,8 +935,8 @@ body.dark-mode .quoted-file-name {
 }
 
 body.dark-mode .quoted-group-card {
-    background-color: rgba(56, 139, 253, 0.1);
-    border-color: rgba(56, 139, 253, 0.4);
+    background-color: #0d1117 !important;
+    border-color: #388bfd !important;
 }
 
 body.dark-mode .quoted-group-card-header {
@@ -839,11 +944,11 @@ body.dark-mode .quoted-group-card-header {
 }
 
 body.dark-mode .quoted-group-card-desc {
-    color: #8b949e;
+    color: #d0d7de;
 }
 
 body.dark-mode .quoted-group-card-hint {
-    color: #484f58;
+    color: #8b949e;
 }
 
 body.dark-mode .quoted-group-card-avatar-fallback {
@@ -891,8 +996,8 @@ body.dark-mode .quoted-preview-close-btn:hover {
 }
 
 body.dark-mode .quoted-preview-group-card {
-    background-color: rgba(56, 139, 253, 0.1);
-    border-color: rgba(56, 139, 253, 0.4);
+    background-color: #0d1117 !important;
+    border-color: #388bfd !important;
 }
 
 body.dark-mode .quoted-preview-group-card-header {
@@ -914,8 +1019,8 @@ body.dark-mode .quoted-preview-file-name {
 
 /* === 群名片 === */
 body.dark-mode .group-card-container {
-    background-color: rgba(56, 139, 253, 0.1);
-    border-color: rgba(56, 139, 253, 0.4);
+    background-color: #0d1117 !important;
+    border-color: #388bfd !important;
 }
 
 body.dark-mode .group-card-header {
@@ -923,11 +1028,11 @@ body.dark-mode .group-card-header {
 }
 
 body.dark-mode .group-card-description {
-    color: #8b949e;
+    color: #c9d1d9 !important;
 }
 
 body.dark-mode .group-card-footer {
-    color: #484f58;
+    color: #8b949e;
 }
 
 /* === 消息文件名 === */
@@ -1002,24 +1107,180 @@ body.dark-mode .loading-members {
 /* === 登录/注册页 === */
 body.dark-mode .login-container,
 body.dark-mode .register-container {
-    background-color: #0d1117;
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%) !important;
 }
 
 body.dark-mode .login-form,
 body.dark-mode .register-form {
-    background-color: #161b22;
-    border-color: #30363d;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    background-color: #161b22 !important;
+    border: 1px solid #30363d !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
 }
 
+body.dark-mode .login-form h1,
 body.dark-mode .login-form h2,
+body.dark-mode .register-form h1,
 body.dark-mode .register-form h2 {
-    color: #c9d1d9;
+    color: #f0f6fc !important;
+}
+
+body.dark-mode .login-form label,
+body.dark-mode .register-form label,
+body.dark-mode .input-group label,
+body.dark-mode .gender-option {
+    color: #8b949e !important;
+}
+
+body.dark-mode .login-form input,
+body.dark-mode .register-form input,
+body.dark-mode .input-group input {
+    background-color: #0d1117 !important;
+    border-color: #30363d !important;
+    color: #c9d1d9 !important;
+}
+
+body.dark-mode .login-form input:focus,
+body.dark-mode .register-form input:focus,
+body.dark-mode .input-group input:focus {
+    background-color: #161b22 !important;
+    border-color: #388bfd !important;
+    box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.3) !important;
+}
+
+body.dark-mode .login-form input::placeholder,
+body.dark-mode .register-form input::placeholder,
+body.dark-mode .input-group input::placeholder {
+    color: #6e7681 !important;
+}
+
+body.dark-mode .login-form button,
+body.dark-mode .register-form button {
+    background-color: #238636 !important;
+    color: #ffffff !important;
+    border: none !important;
+}
+
+body.dark-mode .login-form button:hover:not(:disabled),
+body.dark-mode .register-form button:hover:not(:disabled) {
+    background-color: #2ea043 !important;
+    box-shadow: 0 5px 15px rgba(46, 160, 67, 0.4) !important;
+}
+
+body.dark-mode .login-form button:disabled,
+body.dark-mode .register-form button:disabled {
+    background-color: #21262d !important;
+    color: #6e7681 !important;
+    cursor: not-allowed !important;
+    opacity: 0.8 !important;
+}
+
+body.dark-mode .register-link,
+body.dark-mode .login-link {
+    color: #8b949e !important;
+}
+
+body.dark-mode .register-link a,
+body.dark-mode .login-link a {
+    color: #388bfd !important;
+}
+
+body.dark-mode .register-link a:hover,
+body.dark-mode .login-link a:hover {
+    color: #58a6ff !important;
+}
+
+body.dark-mode .login-message,
+body.dark-mode .register-message {
+    border-color: #30363d !important;
+}
+
+body.dark-mode .login-message.error,
+body.dark-mode .register-message.error {
+    background-color: rgba(248, 81, 73, 0.15) !important;
+    color: #f85149 !important;
+    border-color: rgba(248, 81, 73, 0.4) !important;
+}
+
+body.dark-mode .login-message.success,
+body.dark-mode .register-message.success {
+    background-color: rgba(46, 160, 67, 0.15) !important;
+    color: #3fb950 !important;
+    border-color: rgba(46, 160, 67, 0.4) !important;
+}
+
+body.dark-mode .validation-message.error {
+    color: #f85149 !important;
+}
+
+body.dark-mode .validation-message.success {
+    color: #3fb950 !important;
+}
+
+body.dark-mode .password-strength.weak {
+    color: #f85149 !important;
+}
+
+body.dark-mode .password-strength.medium {
+    color: #d29922 !important;
+}
+
+body.dark-mode .password-strength.strong {
+    color: #3fb950 !important;
+}
+
+/* 登录/注册页装饰性元素深色模式 */
+body.dark-mode .login-container .decoration,
+body.dark-mode .register-container .decoration {
+    background: rgba(56, 139, 253, 0.15) !important;
+}
+
+body.dark-mode .login-container .decoration-1,
+body.dark-mode .register-container .decoration-1 {
+    background: rgba(56, 139, 253, 0.15) !important;
+}
+
+body.dark-mode .login-container .decoration-2,
+body.dark-mode .register-container .decoration-2 {
+    background: rgba(88, 166, 255, 0.12) !important;
+}
+
+body.dark-mode .login-container .decoration-3,
+body.dark-mode .register-container .decoration-3 {
+    background: rgba(56, 139, 253, 0.1) !important;
+}
+
+/* 验证码模态框深色模式 */
+body.dark-mode .login-container .captcha-modal,
+body.dark-mode .register-container .captcha-modal {
+    background-color: #161b22 !important;
+    border: 1px solid #30363d !important;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6) !important;
+}
+
+body.dark-mode .login-container .captcha-modal-header,
+body.dark-mode .register-container .captcha-modal-header {
+    color: #f0f6fc !important;
+}
+
+body.dark-mode .login-container .captcha-close-btn,
+body.dark-mode .register-container .captcha-close-btn {
+    background: none !important;
+    color: #8b949e !important;
+}
+
+body.dark-mode .login-container .captcha-close-btn:hover,
+body.dark-mode .register-container .captcha-close-btn:hover {
+    color: #f0f6fc !important;
+}
+
+body.dark-mode .login-container .captcha-error,
+body.dark-mode .register-container .captcha-error {
+    color: #f85149 !important;
 }
 
 body.dark-mode .login-form:hover,
 body.dark-mode .register-form:hover {
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6) !important;
 }
 
 body.dark-mode .error-message {
@@ -1225,7 +1486,8 @@ body.dark-mode .copy-button:hover {
 
 /* === 消息选中高亮 === */
 body.dark-mode .message.active,
-body.dark-mode .msg-bubble.active {
+body.dark-mode .msg-bubble.active,
+body.dark-mode .system-message-text.active {
     background-color: rgba(210, 153, 34, 0.2);
 }
 
@@ -1349,6 +1611,75 @@ body.dark-mode .modal-content .search-group input::placeholder {
 
 body.dark-mode .modal-content .member-item:hover {
     background-color: #30363d !important;
+}
+
+/* === ChatModal 内联标签与文字颜色覆盖 === */
+body.dark-mode .modal-content label[style*="color"] {
+    color: #8b949e !important;
+}
+
+body.dark-mode .modal-content span[style*="color"],
+body.dark-mode .modal-content div[style*="color"] {
+    color: #c9d1d9 !important;
+}
+
+body.dark-mode .modal-content div[style*="background: white"],
+body.dark-mode .modal-content div[style*="background-color: white"],
+body.dark-mode .modal-content .member-item[style*="background: white"] {
+    background: #21262d !important;
+    border-color: #30363d !important;
+}
+
+body.dark-mode .modal-content .group-members-panel[style] {
+    background: #161b22 !important;
+    border-color: #30363d !important;
+}
+
+body.dark-mode .modal-content .group-member-row[style] {
+    background: #21262d !important;
+}
+
+body.dark-mode .modal-content div[style*="border-top"],
+body.dark-mode .modal-content div[style*="border-bottom"] {
+    border-top-color: #30363d !important;
+    border-bottom-color: #30363d !important;
+}
+
+body.dark-mode .modal-content div[style*="background: #f9f9f9"] {
+    background: #161b22 !important;
+    border-color: #30363d !important;
+}
+
+body.dark-mode .modal-content .member-list[style] {
+    background: #161b22 !important;
+    border-color: #30363d !important;
+}
+
+body.dark-mode .modal-content input[style*="border"],
+body.dark-mode .modal-content textarea[style*="border"],
+body.dark-mode .modal-content select[style*="border"] {
+    border-color: #30363d !important;
+    background-color: #21262d !important;
+    color: #c9d1d9 !important;
+}
+
+body.dark-mode .modal-content .send-group-card-item[style] {
+    border-color: #30363d !important;
+    background-color: #21262d !important;
+}
+
+/* 发送群名片模态框深色模式 */
+body.dark-mode #sendGroupCardModal .modal-body p {
+    color: #c9d1d9 !important;
+}
+
+body.dark-mode #sendGroupCardModal .send-group-card-item:has(input:checked) {
+    background-color: #1a3a2a !important;
+    border-color: #388bfd !important;
+}
+
+body.dark-mode #sendGroupCardModal .send-group-card-item label {
+    color: #c9d1d9 !important;
 }
 
 /* === 侧边栏深色覆盖（scoped样式需!important） === */
@@ -1490,6 +1821,46 @@ body.dark-mode .settings-container {
     background-color: #0d1117;
 }
 
+body.dark-mode .settings-detail {
+    background-color: #161b22;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .settings-detail h2 {
+    color: #c9d1d9;
+    border-bottom-color: #30363d;
+}
+
+body.dark-mode .settings-detail .form-group label,
+body.dark-mode .settings-detail label {
+    color: #8b949e;
+}
+
+body.dark-mode .settings-detail .form-group input,
+body.dark-mode .settings-detail .form-group textarea,
+body.dark-mode .settings-detail .form-group select {
+    background-color: #21262d;
+    color: #c9d1d9;
+    border-color: #30363d;
+}
+
+body.dark-mode .settings-detail .form-group input::placeholder,
+body.dark-mode .settings-detail .form-group textarea::placeholder {
+    color: #484f58;
+}
+
+body.dark-mode .settings-detail .form-message {
+    color: #c9d1d9;
+}
+
+body.dark-mode .settings-detail .gender-option span {
+    color: #c9d1d9;
+}
+
+body.dark-mode .settings-detail .avatar-upload-section {
+    color: #c9d1d9;
+}
+
 body.dark-mode .settings-card {
     background-color: #161b22;
     border-color: #30363d;
@@ -1613,7 +1984,8 @@ noscript {
 
 .quoted-highlight,
 .message.active,
-.msg-bubble.active {
+.msg-bubble.active,
+.system-message-text.active {
   border-radius: 8px;
   transition: background-color 0.5s ease-out;
 }
@@ -2054,7 +2426,7 @@ noscript {
 }
 
 #main-chat {
-    width: 100vw;
+    width: 100%;
     height: 100vh;
     display: flex;
     overflow: hidden; /* 防止整个主容器滚动，只让子容器滚动 */
@@ -2581,16 +2953,22 @@ noscript {
     padding: 0;
 }
 
+.msg-sender-name .msg-time {
+    margin-left: 8px;
+    margin-top: 0;
+    font-size: 11px;
+    color: #bbb;
+}
+
 .msg-bubble {
     position: relative;
-    padding: 8px 10px;
+    padding: 6px 8px;
     border-radius: 10px;
     font-size: 14px;
     line-height: 1.5;
     word-break: break-word;
     min-height: auto;
-    max-height: 400px;
-    overflow-y: auto;
+    overflow: visible;
 }
 
 .message.other-message .msg-bubble {
@@ -2663,10 +3041,9 @@ noscript {
 
 .message-content .message-text {
     max-height: 300px;
-    overflow-y: auto;
+    overflow: visible;
     scrollbar-width: thin;
     scrollbar-color: #c1c1c1 transparent;
-    overflow-x: hidden;
 }
 
 .message-content .message-text::-webkit-scrollbar {
@@ -2695,6 +3072,8 @@ noscript {
     cursor: pointer;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
     vertical-align: middle;
+    transform-origin: center center;
+    display: inline-block;
 }
 
 .message-content .message-text img:hover {
@@ -2705,6 +3084,14 @@ noscript {
 .message-content p {
     margin: 3px 0;
     line-height: 1.4;
+}
+
+.message-image-container {
+    max-width: 100%;
+    overflow: visible;
+    position: relative;
+    padding: 0;
+    display: block;
 }
 
 .message-image {
@@ -2719,6 +3106,7 @@ noscript {
     transition: transform 0.2s ease, box-shadow 0.2s ease;
     border: 2px solid transparent;
     object-fit: contain;
+    transform-origin: center center;
 }
 
 .message .message-image {
@@ -4162,6 +4550,31 @@ noscript {
 .send-group-card-container *,
 .send-group-card-container p {
     color: #333 !important;
+}
+
+/* 群名片小弹窗深色模式 */
+body.dark-mode #groupCardPopup,
+body.dark-mode #groupCardPopup * {
+    color: #c9d1d9 !important;
+    background-color: #161b22 !important;
+    border-color: #30363d !important;
+}
+
+/* 群名片消息卡片深色模式（覆盖上面的 .group-card-container * 规则） */
+body.dark-mode .group-card-container,
+body.dark-mode .group-card-container * {
+    color: #c9d1d9 !important;
+}
+
+/* 发送群名片模态框深色模式 */
+body.dark-mode .send-group-card-item,
+body.dark-mode .send-group-card-item * {
+    color: #c9d1d9 !important;
+}
+body.dark-mode .send-group-card-container,
+body.dark-mode .send-group-card-container *,
+body.dark-mode .send-group-card-container p {
+    color: #c9d1d9 !important;
 }
 
 /* 滚动条样式 */

@@ -10,7 +10,7 @@ import { notFoundHandler, globalErrorHandler } from './middleware/errorHandler.j
 import { setupAllRoutes } from './routes/index.js';
 import { setupSocketIO } from './socket/index.js';
 import { setSocketDependencies as setGroupDeps } from './services/groupService.js';
-import { setSocketDependencies as setMessageDeps } from './services/messageService.js';
+import { setSocketDependencies as setMessageDeps, getGlobalMessages, getGroupMessages } from './services/messageService.js';
 import { initUserService } from './services/userService.js';
 import { initFileService } from './services/fileService.js';
 import { validateMessageContent, filterMessageFields } from './utils/validators.js';
@@ -90,20 +90,26 @@ app.use(validateIPAndSession);
 // API 请求日志中间件（记录到 scr_api_logs 表，异步非阻塞）
 app.use((req, res, next) => {
   const startTime = Date.now();
-  res.on('finish', () => {
+  res.on('finish', async () => {
     if (req.path.startsWith('/api/')) {
       const duration = Date.now() - startTime;
       const clientIP = getClientIP(req);
-      pool.execute(
-        'INSERT INTO scr_api_logs (user_id, ip_address, api_path, request_method, timestamp) VALUES (?, ?, ?, ?, NOW())',
-        [req.userId || null, clientIP, req.path, req.method]
-      ).then(() => {
-        trimApiLogs().catch(() => {});
-      }).catch(err => {
+      const userId = req.userId
+        || req.body?.userId
+        || req.query?.userId
+        || req.headers['user-id']
+        || null;
+      try {
+        await pool.execute(
+          'INSERT INTO scr_api_logs (user_id, ip_address, api_path, request_method, timestamp) VALUES (?, ?, ?, ?, NOW())',
+          [userId, clientIP, req.path, req.method]
+        );
+        await trimApiLogs();
+      } catch (err) {
         if (process.env.NODE_ENV !== 'production') {
           console.warn('记录API日志失败:', err.message);
         }
-      });
+      }
     }
   });
   next();
@@ -119,8 +125,8 @@ const io = setupSocketIO(server, {
   checkRateLimit,
   filterMessageFields,
   isGroupAdmin: async () => false,
-  getGlobalMessages: async () => [],
-  getGroupMessages: async () => []
+  getGlobalMessages,
+  getGroupMessages
 });
 
 const onlineUserManager = {
@@ -323,48 +329,6 @@ async function initializeDatabase() {
   }
 }
 
-async function loadSessionsFromDatabase() {
-  try {
-    if (!redisClient || redisClient.isReady === false) {
-      console.warn('⚠️  Redis 未连接，跳过加载会话');
-      return;
-    }
-
-    const [sessions] = await pool.execute(`
-      SELECT user_id, refresh_token, refresh_expires
-      FROM scr_sessions
-      WHERE refresh_expires > NOW()
-    `);
-
-    if (sessions.length === 0) {
-      console.log('✅ 数据库中没有有效会话');
-      return;
-    }
-
-    const pipeline = redisClient.multi();
-
-    for (const session of sessions) {
-      const userId = parseInt(session.user_id);
-      const refreshToken = session.refresh_token;
-      const refreshExpires = new Date(session.refresh_expires).getTime();
-
-      const ttlSeconds = Math.max(1, Math.floor((refreshExpires - Date.now()) / 1000));
-
-      const refreshTokenKey = `scr:refreshToken:${userId}`;
-      pipeline.set(refreshTokenKey, refreshToken);
-      pipeline.expire(refreshTokenKey, ttlSeconds);
-    }
-
-    await pipeline.exec();
-  } catch (err) {
-    if (err.message?.includes('closed') || err.message?.includes('connection')) {
-      console.warn('⚠️  Redis 连接断开，会话加载失败（将在下次重连后自动同步）');
-    } else {
-      console.error('❌ 从数据库加载会话失败:', err.message);
-    }
-  }
-}
-
 async function syncBannedIPsToRedis() {
   try {
     const [bannedRecords] = await pool.execute(
@@ -430,7 +394,7 @@ export async function trimApiLogs() {
     const currentCount = countResult[0].cnt;
     if (currentCount > API_LOG_KEEP) {
       const toDelete = currentCount - API_LOG_KEEP;
-      await pool.execute(
+      await pool.query(
         'DELETE FROM scr_api_logs ORDER BY timestamp ASC LIMIT ?',
         [toDelete]
       );
@@ -482,16 +446,6 @@ async function getOnlineUserCount() {
   }
 }
 
-async function getSessionCount() {
-  try {
-    const keys = await redisClient.keys('scr:refreshToken:*');
-    return keys.length;
-  } catch (err) {
-    console.error('获取会话数量失败:', err.message);
-    return 0;
-  }
-}
-
 const PORT = serverConfig.port;
 
 async function startServer() {
@@ -516,7 +470,6 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
     cleanupExpiredSessions();
 
     await initializeDatabase();
-    await loadSessionsFromDatabase();
     await syncBannedIPsToRedis();
 
     await redisClient.del('scr:online_users');

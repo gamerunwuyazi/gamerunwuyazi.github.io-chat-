@@ -311,9 +311,10 @@ export function setupRoutes(app, io) {
       const offset = (page - 1) * limit;
 
       const [logs] = await pool.query(`
-        SELECT *
-        FROM scr_api_logs
-        ORDER BY timestamp DESC
+        SELECT al.*, u.username, u.nickname
+        FROM scr_api_logs al
+        LEFT JOIN scr_users u ON al.user_id = u.id
+        ORDER BY al.timestamp DESC
         LIMIT ? OFFSET ?
       `, [limit, offset]);
 

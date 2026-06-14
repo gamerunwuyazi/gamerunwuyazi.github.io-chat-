@@ -8,6 +8,36 @@ import { usePublicStore } from './publicStore';
 import { useSessionStore } from './sessionStore';
 import { useUnreadStore } from './unreadStore';
 import { useBaseStore } from './baseStore';
+import { getRouter } from '@/utils/chat/routerInstance.js';
+
+// 判断用户是否正在关注指定会话（页面级焦点：路由 + sessionStore + 浏览器级焦点：document.hidden / document.hasFocus）
+function isUserFocusedOnChat(chatType, chatId) {
+  const sessionStore = useSessionStore();
+  const router = getRouter();
+  const currentPath = router?.currentRoute?.value?.path || window.location.pathname || '';
+
+  // 浏览器级焦点
+  const isPageVisible = !document.hidden && document.hasFocus();
+
+  if (chatType === 'public') {
+    const isOnMainRoute = currentPath === '/chat' || currentPath === '/chat/' ||
+      (currentPath.startsWith('/chat') && !currentPath.startsWith('/chat/group') && !currentPath.startsWith('/chat/private'));
+    return isOnMainRoute && isPageVisible;
+  } else if (chatType === 'group') {
+    const isOnGroupRoute = currentPath.startsWith('/chat/group') ||
+      currentPath === '/chat/group' ||
+      currentPath.startsWith('/chat/group/') ||
+      currentPath.startsWith('/chat/group?');
+    return isOnGroupRoute && sessionStore && String(sessionStore.currentGroupId) === String(chatId) && isPageVisible;
+  } else if (chatType === 'private') {
+    const isOnPrivateRoute = currentPath.startsWith('/chat/private') ||
+      currentPath === '/chat/private' ||
+      currentPath.startsWith('/chat/private/') ||
+      currentPath.startsWith('/chat/private?');
+    return isOnPrivateRoute && sessionStore && String(sessionStore.currentPrivateChatUserId) === String(chatId) && isPageVisible;
+  }
+  return false;
+}
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
@@ -301,7 +331,8 @@ export const useStorageStore = defineStore('storage', () => {
       content: message.content,
       messageType: Number(message.messageType),
       timestamp: message.timestamp,
-      type: message.type
+      type: message.type,
+      isRead: message.isRead || false
     };
 
     if (message.type === 'public') {
@@ -434,7 +465,7 @@ export const useStorageStore = defineStore('storage', () => {
             }
           }
           const targetIndex = fullPublicMessages.value?.findIndex(m => String(m.id) === String(messageIdToDelete));
-          if (targetIndex !== -1) {
+          if (fullPublicMessages.value && targetIndex !== -1) {
             fullPublicMessages.value[targetIndex] = toRaw({
               ...toRaw(fullPublicMessages.value[targetIndex]),
               content: recallJson,
@@ -546,7 +577,7 @@ export const useStorageStore = defineStore('storage', () => {
             }
           }
           const targetIndex = fullGroupMessages.value[groupId]?.findIndex(m => String(m.id) === String(messageIdToDelete));
-          if (targetIndex !== -1) {
+          if (fullGroupMessages.value[groupId] && targetIndex !== -1) {
             fullGroupMessages.value[groupId][targetIndex] = toRaw({
               ...toRaw(fullGroupMessages.value[groupId][targetIndex]),
               content: recallJson,
@@ -660,7 +691,7 @@ export const useStorageStore = defineStore('storage', () => {
             }
           }
           const targetIndex = fullPrivateMessages.value[otherUserId]?.findIndex(m => String(m.id) === String(messageIdToDelete));
-          if (targetIndex !== -1) {
+          if (fullPrivateMessages.value[otherUserId] && targetIndex !== -1) {
             fullPrivateMessages.value[otherUserId][targetIndex] = toRaw({
               ...toRaw(fullPrivateMessages.value[otherUserId][targetIndex]),
               content: recallJson,
@@ -670,7 +701,7 @@ export const useStorageStore = defineStore('storage', () => {
             friendStore.privateStored[otherUserId] = false;
           }
           const displayIndex = friendStore.privateMessages[otherUserId]?.findIndex(m => String(m.id) === String(messageIdToDelete));
-          if (displayIndex !== -1) {
+          if (friendStore.privateMessages[otherUserId] && displayIndex !== -1) {
             friendStore.privateMessages[otherUserId][displayIndex] = toRaw({
               ...toRaw(friendStore.privateMessages[otherUserId][displayIndex]),
               content: recallJson,
@@ -823,13 +854,11 @@ export const useStorageStore = defineStore('storage', () => {
           const newMessages = cachePublicMessages.filter(m => !existingPublicMessageIds.has(m.id));
 
           if (newMessages.length > 0) {
-            const sessionStore = useSessionStore();
-            const isMainChatActive = sessionStore.currentActiveChat === 'main';
-            const isPageVisible = !document.hidden && document.hasFocus();
+            const isUserActive = isUserFocusedOnChat('public', null);
 
-            const otherUserMessages = newMessages.filter(m => String(m.sender_id) !== String(currentUser?.id));
+            const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
 
-            if (!isMainChatActive || !isPageVisible) {
+            if (!isUserActive) {
               if (otherUserMessages.length > 0) {
                 const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
                 savedUnreadCounts.global += otherUserMessages.length;
@@ -858,16 +887,14 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cacheGroupMessages[groupId].filter(m => !existingIds.has(m.id));
 
             if (newMessages.length > 0) {
-              const sessionStore = useSessionStore();
-              const isGroupChatActive = sessionStore.currentActiveChat === `group_${groupId}`;
-              const isPageVisible = !document.hidden && document.hasFocus();
+              const isUserActive = isUserFocusedOnChat('group', groupId);
 
               const mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
               const isMuted = mutedGroups.includes(groupId.toString());
 
-              const otherUserMessages = newMessages.filter(m => String(m.sender_id) !== String(currentUser?.id));
+              const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
 
-              if (!isMuted && (!isGroupChatActive || !isPageVisible)) {
+              if (!isMuted && !isUserActive) {
                 if (otherUserMessages.length > 0) {
                   const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
                   if (!savedUnreadCounts.groups[groupId]) {
@@ -914,13 +941,11 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cachePrivateMessages[userId].filter(m => !existingIds.has(m.id));
 
             if (newMessages.length > 0) {
-              const sessionStore = useSessionStore();
-              const isPrivateChatActive = sessionStore.currentActiveChat === `private_${userId}`;
-              const isPageVisible = !document.hidden && document.hasFocus();
+              const isUserActive = isUserFocusedOnChat('private', userId);
 
-              const otherUserMessages = newMessages.filter(m => String(m.sender_id) !== String(currentUser?.id));
+              const otherUserMessages = newMessages.filter(m => String(m.senderId) !== String(currentUser?.id) && m.isRead !== 1);
 
-              if (!isPrivateChatActive || !isPageVisible) {
+              if (!isUserActive) {
                 if (otherUserMessages.length > 0) {
                   const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
                   if (!savedUnreadCounts.private[userId]) {
@@ -982,14 +1007,16 @@ export const useStorageStore = defineStore('storage', () => {
           const newMessages = cachePublicMessages.filter(m => !existingPublicMessageIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
 
           if (newMessages.length > 0) {
-            const sessionStore = useSessionStore();
-            const isMainChatActive = sessionStore.currentActiveChat === 'main';
-            const isPageVisible = !document.hidden && document.hasFocus();
+            const isUserActive = isUserFocusedOnChat('public', null);
 
-            if (!isMainChatActive || !isPageVisible) {
-              const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
-              savedUnreadCounts.global += newMessages.length;
-              if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
+            const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
+
+            if (!isUserActive) {
+              if (otherUserMessages.length > 0) {
+                const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
+                savedUnreadCounts.global += otherUserMessages.length;
+                if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
+              }
             }
           }
 
@@ -1009,16 +1036,14 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cacheGroupMessages[groupId].filter(m => !existingIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
 
             if (newMessages.length > 0) {
-              const sessionStore = useSessionStore();
-              const isGroupChatActive = sessionStore.currentActiveChat === `group_${groupId}`;
-              const isPageVisible = !document.hidden && document.hasFocus();
+              const isUserActive = isUserFocusedOnChat('group', groupId);
 
               const mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
               const isMuted = mutedGroups.includes(groupId.toString());
 
-              const otherUserMessages = newMessages.filter(m => String(m.sender_id) !== String(currentUser?.id));
+              const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
 
-              if (!isMuted && (!isGroupChatActive || !isPageVisible)) {
+              if (!isMuted && !isUserActive) {
                 if (otherUserMessages.length > 0) {
                   const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
                   if (!savedUnreadCounts.groups[groupId]) {
@@ -1047,17 +1072,19 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cachePrivateMessages[userId].filter(m => !existingIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
 
             if (newMessages.length > 0) {
-              const sessionStore = useSessionStore();
-              const isPrivateChatActive = sessionStore.currentActiveChat === `private_${userId}`;
-              const isPageVisible = !document.hidden && document.hasFocus();
+              const isUserActive = isUserFocusedOnChat('private', userId);
 
-              if (!isPrivateChatActive || !isPageVisible) {
-                const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
-                if (!savedUnreadCounts.private[userId]) {
-                  savedUnreadCounts.private[userId] = 0;
+              const otherUserMessages = newMessages.filter(m => String(m.senderId) !== String(currentUser?.id) && m.isRead !== 1);
+
+              if (!isUserActive) {
+                if (otherUserMessages.length > 0) {
+                  const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
+                  if (!savedUnreadCounts.private[userId]) {
+                    savedUnreadCounts.private[userId] = 0;
+                  }
+                  savedUnreadCounts.private[userId] += otherUserMessages.length;
+                  if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
                 }
-                savedUnreadCounts.private[userId] += newMessages.length;
-                if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
               }
             }
 
@@ -1505,7 +1532,9 @@ export const useStorageStore = defineStore('storage', () => {
             const quotedId = quoted?.id;
             if (quotedId === -1 || quotedId === '-1') return toRaw(msg);
             if (quotedId && !messageIds.has(String(quotedId))) {
-              const newContent = { ...content, quoted: { id: -1, messageType: 101, content: '原引用消息已撤回', nickname: quoted?.nickname || '' } };
+              const newQuoted = { ...quoted };
+              newQuoted.messageType = 101;
+              const newContent = { ...content, quoted: newQuoted };
               delete newContent.quotedMessage;
               delete newContent.quoted_message;
               return toRaw({ ...toRaw(msg), content: JSON.stringify(newContent) });
@@ -1523,6 +1552,10 @@ export const useStorageStore = defineStore('storage', () => {
     const withdrawnMessageIndex = messages.findIndex(m => String(m.id) === String(withdrawnMessageId));
     if (withdrawnMessageIndex === -1) return [];
 
+    const withdrawnMessage = messages[withdrawnMessageIndex];
+    const withdrawnNickname = withdrawnMessage?.nickname || '';
+    const recallContent = withdrawnNickname ? `${withdrawnNickname}撤回了一条消息` : '原引用消息已撤回';
+
     const updates = [];
 
     for (let i = withdrawnMessageIndex; i < messages.length; i++) {
@@ -1530,13 +1563,18 @@ export const useStorageStore = defineStore('storage', () => {
       if (msg.messageType === 4 && msg.content) {
         try {
           const content = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
-          if (content.quotedMessage || content.quoted_message || content.quoted) {
-            const quoted = content.quotedMessage || content.quoted_message || content.quoted;
+          const quotedKey = content.quotedMessage ? 'quotedMessage' : (content.quoted_message ? 'quoted_message' : (content.quoted ? 'quoted' : null));
+          if (quotedKey) {
+            const quoted = content[quotedKey];
             const quotedId = quoted?.id;
             if (quotedId && String(quotedId) === String(withdrawnMessageId)) {
-              const newContent = { ...content, quoted: { id: -1, messageType: 101, content: '原引用消息已撤回', nickname: quoted?.nickname || '' } };
-              delete newContent.quotedMessage;
-              delete newContent.quoted_message;
+              const newQuoted = { ...quoted, content: recallContent, messageType: 101 };
+              delete newQuoted.nickname;
+              delete newQuoted.avatarUrl;
+              const newContent = { ...content, [quotedKey]: newQuoted };
+              if (quotedKey !== 'quotedMessage') delete newContent.quotedMessage;
+              if (quotedKey !== 'quoted_message') delete newContent.quoted_message;
+              if (quotedKey !== 'quoted') delete newContent.quoted;
               updates.push({ messageId: msg.id, newContent: JSON.stringify(newContent) });
             }
           }
@@ -1556,7 +1594,7 @@ export const useStorageStore = defineStore('storage', () => {
     };
 
     const updateRecallContent = (msg) => {
-      if (msg.isRecalled && !msg.messageType) {
+      if (msg.isRecalled) {
         const recallTextMatch = msg.content ? msg.content.match(/^(.+)撤回了一条消息$/) : null;
         if (recallTextMatch && updates.nickname) {
           msg.content = `${updates.nickname}撤回了一条消息`;

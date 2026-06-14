@@ -1,4 +1,4 @@
-import { pool } from '../models/database.js';
+import { pool, redisClient } from '../models/database.js';
 import { filterMessageFields } from '../utils/messageFilters.js';
 import { checkRateLimit } from '../middleware/auth.js';
 import { validateMessageContent } from '../utils/validators.js';
@@ -37,7 +37,7 @@ async function isGroupAdmin(groupId, userId) {
   }
 }
 
-async function getGlobalMessages(limit = 50, olderThan = null) {
+export async function getGlobalMessages(limit = 50, olderThan = null, userId = null) {
   try {
     let query = `
       SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl,
@@ -79,6 +79,13 @@ async function getGlobalMessages(limit = 50, olderThan = null) {
 
     const [messages] = await pool.query(query, params);
 
+    let readMaxId = 0;
+    if (userId) {
+      const readKey = `scr:read:global:${parseInt(userId)}`;
+      const readValue = await redisClient.get(readKey);
+      readMaxId = readValue ? parseInt(readValue) : 0;
+    }
+
     const processedMessages = messages.map(msg => {
       let atUserIds = null;
       if (msg.at_userid) {
@@ -101,7 +108,8 @@ async function getGlobalMessages(limit = 50, olderThan = null) {
         at_userid: atUserIds,
         messageType: msg.messageType,
         groupId: msg.groupId !== null && msg.groupId !== undefined ? parseInt(msg.groupId) : null,
-        timestamp: msg.timestamp
+        timestamp: msg.timestamp,
+        isRead: userId ? (msg.id <= readMaxId || String(msg.userId) === String(userId)) : false
       };
 
       if (msg.groupNickname) {
@@ -136,7 +144,7 @@ async function getGlobalMessages(limit = 50, olderThan = null) {
   }
 }
 
-async function getGroupMessages(groupId, limit = 50, olderThan = null) {
+export async function getGroupMessages(groupId, limit = 50, olderThan = null, userId = null) {
   try {
     let safeGroupId = 0;
     try {
@@ -188,6 +196,13 @@ async function getGroupMessages(groupId, limit = 50, olderThan = null) {
 
     const [messages] = await pool.query(query, params);
 
+    let readMaxId = 0;
+    if (userId) {
+      const readKey = `scr:read:group:${safeGroupId}:${parseInt(userId)}`;
+      const readValue = await redisClient.get(readKey);
+      readMaxId = readValue ? parseInt(readValue) : 0;
+    }
+
     const processedMessages = messages.map(msg => {
       let atUserIds = null;
       if (msg.at_userid) {
@@ -210,7 +225,8 @@ async function getGroupMessages(groupId, limit = 50, olderThan = null) {
         at_userid: atUserIds,
         messageType: msg.messageType,
         groupId: msg.groupId !== null && msg.groupId !== undefined ? parseInt(msg.groupId) : null,
-        timestamp: msg.timestamp
+        timestamp: msg.timestamp,
+        isRead: userId ? (msg.id <= readMaxId || String(msg.userId) === String(userId)) : false
       };
 
       if (msg.groupNickname) {
@@ -361,8 +377,8 @@ export async function getOfflineMessages(req, res) {
         AND m.timestamp >= ?
         AND m.id > ?
       ORDER BY m.timestamp DESC, m.id DESC
-      LIMIT ?
-    `, [threeMonthsAgo, publicAndGroupMinId, publicLimit]);
+      LIMIT ${parseInt(publicLimit) || 100}
+    `, [threeMonthsAgo, publicAndGroupMinId]);
     
     const [allMemberRecords] = await pool.execute(`
       SELECT group_id, joined_at, deleted_at FROM scr_group_members WHERE user_id = ?
@@ -489,8 +505,43 @@ export async function getOfflineMessages(req, res) {
       return msg;
     };
 
-    const processedPublicMessages = publicMessages.map(processRecallMessage);
-    const processedGroupMessages = groupMessages.map(processRecallMessage);
+    let globalReadMaxId = 0;
+    if (userId) {
+      try {
+        const val = await redisClient.get(`scr:read:global:${userId}`);
+        globalReadMaxId = val ? parseInt(val) : 0;
+      } catch (e) {
+        globalReadMaxId = 0;
+      }
+    }
+
+    const processedPublicMessages = publicMessages.map(msg => {
+      const processed = processRecallMessage(msg);
+      processed.isRead = globalReadMaxId > 0 ? (msg.id <= globalReadMaxId) : false;
+      return processed;
+    });
+
+    const groupReadMaxIds = {};
+    if (userId) {
+      const uniqueGroupIds = [...new Set(groupMessages.map(m => m.groupId))];
+      for (const gid of uniqueGroupIds) {
+        try {
+          const val = await redisClient.get(`scr:read:group:${gid}:${userId}`);
+          groupReadMaxIds[gid] = val ? parseInt(val) : 0;
+        } catch (e) {
+          groupReadMaxIds[gid] = 0;
+        }
+      }
+    }
+
+    const processedGroupMessages = groupMessages.map(msg => {
+      const processed = processRecallMessage(msg);
+      const maxId = groupReadMaxIds[msg.groupId] || 0;
+      const isOwnMessage = String(msg.userId || msg.senderId) === String(userId);
+      processed.isRead = isOwnMessage || (maxId > 0 ? (msg.id <= maxId) : false);
+      return processed;
+    });
+
     const processedPrivateMessages = privateMessages.map(processRecallMessage);
 
     res.json({

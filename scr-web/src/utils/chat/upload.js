@@ -14,7 +14,11 @@ import { loadMessages } from './websocket.js';
 import { refreshTokenWithQueue } from './tokenManager.js';
 import { logout } from './ui.js';
 
-let isLoadingMoreMessages = false;
+let isLoadingMoreMessages = {
+  public: false,
+  group: {},
+  private: {}
+};
 let loadingIndicatorTimeout = null;
 let scrollingInitialized = {};
 let prevPrivateScrollHeight = 0;
@@ -543,8 +547,18 @@ function uploadUserAvatar(file) {
     });
 }
 
-function resetLoadingState() {
-  isLoadingMoreMessages = false;
+function resetLoadingState(containerId) {
+  if (containerId) {
+    if (containerId === 'public') {
+      isLoadingMoreMessages.public = false;
+    } else if (containerId.startsWith('group-')) {
+      const groupId = containerId.replace('group-', '');
+      isLoadingMoreMessages.group[groupId] = false;
+    } else if (containerId.startsWith('private-')) {
+      const userId = containerId.replace('private-', '');
+      isLoadingMoreMessages.private[userId] = false;
+    }
+  }
   if (loadingIndicatorTimeout) {
     clearTimeout(loadingIndicatorTimeout);
     loadingIndicatorTimeout = null;
@@ -593,8 +607,23 @@ function initializeScrollLoading(force = false) {
         return;
       }
       
-      if (!isLoadingMoreMessages && scrollingInitialized[containerId]) {
-        isLoadingMoreMessages = true;
+      let isCurrentLoading = false;
+      if (isPrivate) {
+        isCurrentLoading = isLoadingMoreMessages.private[sessionStore?.currentPrivateChatUserId] || false;
+      } else if (isGroup) {
+        isCurrentLoading = isLoadingMoreMessages.group[sessionStore?.currentGroupId] || false;
+      } else {
+        isCurrentLoading = isLoadingMoreMessages.public || false;
+      }
+      
+      if (!isCurrentLoading && scrollingInitialized[containerId]) {
+        if (isPrivate) {
+          isLoadingMoreMessages.private[sessionStore?.currentPrivateChatUserId] = true;
+        } else if (isGroup) {
+          isLoadingMoreMessages.group[sessionStore?.currentGroupId] = true;
+        } else {
+          isLoadingMoreMessages.public = true;
+        }
 
         const prevScrollHeight = container.scrollHeight;
         const prevScrollTop = container.scrollTop;
@@ -654,8 +683,7 @@ function initializeScrollLoading(force = false) {
               publicStore.prependPublicMessages(messagesToAdd);
             }
             
-            isLoadingMoreMessages = false;
-            resetLoadingState();
+            resetLoadingState(containerId);
             return;
           }
         }
@@ -697,8 +725,7 @@ function initializeScrollLoading(force = false) {
                 publicStore.prependPublicMessages(messagesToAdd);
               }
               
-              isLoadingMoreMessages = false;
-              resetLoadingState();
+              resetLoadingState(containerId);
               return;
             }
           }
@@ -735,7 +762,15 @@ function initializeScrollLoading(force = false) {
           }
 
           loadingIndicatorTimeout = setTimeout(() => {
-            if (isLoadingMoreMessages) {
+            let stillLoading = false;
+            if (isPrivate) {
+              stillLoading = isLoadingMoreMessages.private[sessionStore?.currentPrivateChatUserId] || false;
+            } else if (isGroup) {
+              stillLoading = isLoadingMoreMessages.group[sessionStore?.currentGroupId] || false;
+            } else {
+              stillLoading = isLoadingMoreMessages.public || false;
+            }
+            if (stillLoading) {
               const loadingIndicator = document.createElement('div');
               loadingIndicator.className = 'loading-indicator';
               loadingIndicator.textContent = '加载中...';
@@ -747,7 +782,7 @@ function initializeScrollLoading(force = false) {
             }
           }, 500);
         } else {
-          isLoadingMoreMessages = false;
+          resetLoadingState(containerId);
         }
       }
     }

@@ -7,7 +7,7 @@ export function useMessageHighlight() {
       clearTimeout(currentTimer);
       currentTimer = null;
     }
-    document.querySelectorAll('.msg-bubble.active').forEach(el => {
+    document.querySelectorAll('.msg-bubble.active, .system-message-text.active').forEach(el => {
       el.classList.remove('active');
       el.style.backgroundColor = '';
     });
@@ -19,7 +19,12 @@ export function useMessageHighlight() {
 
     clearHighlight();
 
-    const bubble = messageEl.querySelector(':scope > .msg-body > .msg-bubble') || messageEl;
+    let bubble;
+    if (messageEl.classList.contains('system-message-wrapper')) {
+      bubble = messageEl.querySelector('.system-message-text') || messageEl;
+    } else {
+      bubble = messageEl.querySelector(':scope > .msg-body > .msg-bubble') || messageEl;
+    }
     bubble.style.backgroundColor = 'rgba(76, 175, 80, 0.6)';
     bubble.classList.add('active');
     currentHighlightEl = bubble;

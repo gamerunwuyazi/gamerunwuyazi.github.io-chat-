@@ -1,6 +1,7 @@
 import { SocketEvents } from '../events.js';
 import path from 'path';
 import fs from 'fs';
+import { pool as dbPool, redisClient } from '../../models/database.js';
 
 function checkIfUserMuted(isMutedValue) {
   const result = {
@@ -378,6 +379,20 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
     try {
       const { messageId, userId, sessionToken } = data;
 
+      // 速率限制检查（与发送消息共用同一速率限制）
+      const rateLimitResult = await checkRateLimit(userId);
+      if (!rateLimitResult.allowed) {
+        socket.emit(SocketEvents.MESSAGE_SENT, { 
+          success: false,
+          error: {
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: `撤回消息过于频繁，请${rateLimitResult.retryAfter}秒后再试`,
+            retryAfter: rateLimitResult.retryAfter
+          }
+        });
+        return;
+      }
+
       // 先获取消息信息，检查是否有图片和权限
       const [messages] = await pool.execute(
           'SELECT content, message_type, user_id, group_id FROM scr_messages WHERE id = ?',
@@ -655,10 +670,10 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       if (type === 'global') {
         // 加载全局聊天室消息 - 完全复刻 chat-history 事件
         if (olderThan) {
-          messages = await getGlobalMessages(limit, olderThan);
+          messages = await getGlobalMessages(limit, olderThan, numericUserId);
         } else {
           // 直接从数据库获取最新消息
-          messages = await getGlobalMessages(limit);
+          messages = await getGlobalMessages(limit, null, numericUserId);
         }
         
         // 收集群组最后消息时间（从消息表中动态获取）
@@ -706,10 +721,10 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
         
         // 获取群组消息
         if (loadMore && olderThan) {
-          messages = await getGroupMessages(numericGroupId, limit, olderThan);
+          messages = await getGroupMessages(numericGroupId, limit, olderThan, numericUserId);
         } else {
           // 直接从数据库获取最新消息
-          messages = await getGroupMessages(numericGroupId, limit);
+          messages = await getGroupMessages(numericGroupId, limit, null, numericUserId);
         }
         
         responseData.messages = messages.reverse();
@@ -753,8 +768,7 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
         
         const safeLimit = parseInt(limit);
         const finalLimit = isNaN(safeLimit) ? 20 : safeLimit;
-        query += ' ORDER BY p.timestamp DESC, p.id DESC LIMIT ?';
-        params.push(finalLimit);
+        query += ` ORDER BY p.timestamp DESC, p.id DESC LIMIT ${finalLimit}`;
         
         const [results] = await pool.query(query, params);
         
@@ -810,6 +824,49 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
     } catch (err) {
       console.error('❌ 加载消息失败:', err.message);
       socket.emit(SocketEvents.ERROR, { message: '加载消息失败', error: err.message });
+    }
+  });
+
+  // 清除群组未读计数
+  socket.on(SocketEvents.CLEAR_GROUP_UNREAD, async (data) => {
+    try {
+      const { userId, groupId } = data || {};
+      if (!userId || !groupId) return;
+
+      const numericUserId = parseInt(userId);
+      const numericGroupId = parseInt(groupId);
+      if (isNaN(numericUserId) || isNaN(numericGroupId)) return;
+
+      const [rows] = await dbPool.execute(
+        'SELECT MAX(id) as maxId FROM scr_messages WHERE group_id = ?',
+        [numericGroupId]
+      );
+      const maxMessageId = rows[0]?.maxId || 0;
+
+      await redisClient.set(`scr:read:group:${numericGroupId}:${numericUserId}`, String(maxMessageId));
+    } catch (err) {
+      console.error('清除群组未读计数失败:', err.message);
+    }
+  });
+
+  // 清除主聊天室未读计数
+  socket.on(SocketEvents.CLEAR_GLOBAL_UNREAD, async (data) => {
+    try {
+      const { userId } = data || {};
+      if (!userId) return;
+
+      const numericUserId = parseInt(userId);
+      if (isNaN(numericUserId)) return;
+
+      const [rows] = await dbPool.execute(
+        'SELECT MAX(id) as maxId FROM scr_messages WHERE group_id IS NULL',
+        []
+      );
+      const maxMessageId = rows[0]?.maxId || 0;
+
+      await redisClient.set(`scr:read:global:${numericUserId}`, String(maxMessageId));
+    } catch (err) {
+      console.error('清除主聊天室未读计数失败:', err.message);
     }
   });
 }

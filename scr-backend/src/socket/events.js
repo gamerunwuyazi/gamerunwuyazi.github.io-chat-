@@ -31,7 +31,11 @@ export const SocketEvents = {
   SESSION_EXPIRED: 'session-expired',
   ACCOUNT_BANNED: 'account-banned',
   ACCOUNT_LOGGED_IN_ELSEWHERE: 'account-logged-in-elsewhere',
-  IP_BANNED: 'ip-banned'
+  IP_BANNED: 'ip-banned',
+  
+  // 清除未读计数
+  CLEAR_GROUP_UNREAD: 'clear-group-unread',
+  CLEAR_GLOBAL_UNREAD: 'clear-global-unread'
 };
 
 export default SocketEvents;

@@ -2,6 +2,7 @@
   <div 
     v-if="systemMessage"
     class="system-message-wrapper"
+    :data-id="message.id"
   >
     <div class="system-message-container" :class="systemMessageType">
       <div class="system-message-text">{{ systemMessage }}</div>
@@ -19,7 +20,7 @@
       <span v-else class="msg-avatar-initials">{{ senderInitials }}</span>
     </div>
     <div class="msg-body">
-      <div v-if="!isOwn" class="msg-sender-name">{{ senderNickname }}</div>
+      <div v-if="!isOwn" class="msg-sender-name">{{ senderNickname }} <span class="msg-time">{{ messageTime }}</span></div>
       <div class="msg-bubble">
         <div class="msg-bubble-content">
       <div v-if="systemMessage" class="system-message-container" :class="systemMessageType">
@@ -107,7 +108,6 @@
       </template>
         </div>
       </div>
-      <div class="msg-time">{{ messageTime }}</div>
     </div>
   </div>
 </template>
@@ -857,14 +857,16 @@ function handleContextMenu(event) {
     let quotedMsgData = {};
     if (messageType === 4) {
       const parsedContent = JSON.parse(props.message.content);
-      const isMarkdown = parsedContent.markdone === true;
+      // 从引用消息JSON中剥离出被引用的原始消息内容
+      const quotedInner = parsedContent.quoted || parsedContent.quotedMessage || parsedContent.quoted_message;
+      const innerContent = quotedInner?.content || quotedInner?.text || parsedContent.text || parsedContent.content || '';
       quotedMsgData = {
         id: messageId,
         userId: userId,
         nickname: senderNicknameValue,
         avatarUrl: senderAvatarUrl.value || '',
-        content: isMarkdown ? parsedContent.text : props.message.content,
-        messageType: isMarkdown ? 5 : 4
+        content: innerContent,
+        messageType: 0
       };
     } else {
       quotedMsgData = {

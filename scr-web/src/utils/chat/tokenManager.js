@@ -53,7 +53,15 @@ export async function refreshTokenWithQueue(originalFetchFn = null) {
 
   refreshPromise = (async () => {
     try {
-      await originalRefreshToken();
+      const refreshSuccess = await originalRefreshToken();
+      
+      if (!refreshSuccess) {
+        while (httpRequestQueue.length > 0) {
+          const { reject } = httpRequestQueue.shift();
+          reject(new Error('Token 刷新失败'));
+        }
+        return false;
+      }
       
       while (httpRequestQueue.length > 0) {
         const savedHttpQueue = [...httpRequestQueue];

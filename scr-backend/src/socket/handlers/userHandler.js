@@ -9,10 +9,25 @@ export function registerUserHandlers(socket, io, { pool, addOnlineUser, removeOn
       // 确保用户 ID 是数字类型，防止 SQL 注入
       const userId = parseInt(userData.userId);
       if (isNaN(userId)) {
-        console.error('❌ 无效的用户 ID:', userData.userId);
         await forceDisconnectUser(socket, 'session-expired');
         return;
       }
+      
+      // 从数据库中获取真实的用户信息（优先执行，确认用户存在）
+      const [users] = await pool.execute(
+          'SELECT nickname, avatar_url as avatarUrl, gender FROM scr_users WHERE id = ?',
+          [userId]
+      );
+      
+      if (users.length === 0) {
+        socket.emit(SocketEvents.ERROR, { message: '用户不存在' });
+        socket.emit(SocketEvents.SESSION_EXPIRED);
+        socket.disconnect(true);
+        return;
+      }
+      
+      const user = users[0];
+      const { nickname, avatarUrl, gender } = user;
       
       // 加入用户自己的房间，用于接收私人和群组通知
       socket.join(`user_${userId}`);
@@ -28,7 +43,7 @@ export function registerUserHandlers(socket, io, { pool, addOnlineUser, removeOn
           socket.join(`group_${group.group_id}`);
         }
       } catch (err) {
-        console.error('❌ 获取用户群组列表失败:', err.message);
+        console.error('❌ 加入用户群组列表房间失败:', err.message);
       }
       
       // 获取客户端IP并加入IP房间，用于接收IP封禁通知
@@ -54,23 +69,6 @@ export function registerUserHandlers(socket, io, { pool, addOnlineUser, removeOn
         socket.join(`ip_${processedIP}`);
       }
       
-      // 从数据库中获取真实的用户信息
-      const [users] = await pool.execute(
-          'SELECT nickname, avatar_url as avatarUrl, gender FROM scr_users WHERE id = ?',
-          [userId]
-      );
-      
-      if (users.length === 0) {
-        console.error('❌ 用户不存在:', userId);
-        socket.emit(SocketEvents.ERROR, { message: '用户不存在' });
-        socket.emit(SocketEvents.SESSION_EXPIRED);
-        socket.disconnect(true);
-        return;
-      }
-      
-      const user = users[0];
-      const { nickname, avatarUrl, gender } = user;
-  
       // 检查用户是否已经在线，如果在线则移除旧连接
       const allOnlineUsers = await getAllOnlineUsers();
       let isExistingUser = false;
@@ -95,11 +93,15 @@ export function registerUserHandlers(socket, io, { pool, addOnlineUser, removeOn
       // 将用户添加到已认证集合和房间，只有发送过 user-joined 的用户才能收到主聊天室消息
       await addAuthenticatedUser(userId, socket);
   
-      // 更新用户最后在线时间
-      await pool.execute(
-          'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
-          [userId]
-      );
+      try {
+        // 更新用户最后在线时间
+        await pool.execute(
+            'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
+            [userId]
+        );
+      } catch (err) {
+        console.error('❌ 更新用户最后在线时间失败:', err.message);
+      }
 
       // 记录用户加入事件到scr_ip_logs
       try {

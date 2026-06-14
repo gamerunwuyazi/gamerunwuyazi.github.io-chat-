@@ -1027,8 +1027,9 @@ function closeSearchModal() {
   hasSearched.value = false;
 }
 
-async function executeSearch() {
-  if (!searchKeyword.value.trim()) return;
+async function executeSearch(keyword) {
+  if (!keyword || !keyword.trim()) return;
+  searchKeyword.value = keyword;
   
   isSearching.value = true;
   hasSearched.value = false;
@@ -1044,7 +1045,7 @@ async function executeSearch() {
     
     const matchedMessages = allMessages
       .filter(msg => {
-        if (msg.messageType === 101) return false;
+        if (msg.messageType === 101 || msg.messageType === 102 || msg.messageType === 103) return false;
         const content = msg.content?.toLowerCase() || '';
         const nickname = msg.nickname?.toLowerCase() || '';
         return content.includes(keyword) || nickname.includes(keyword);
@@ -1064,7 +1065,7 @@ async function executeSearch() {
         
         if (startId <= endId) {
           const messagesToAdd = allMessages
-            .filter(msg => msg.id >= startId && msg.id <= endId && msg.messageType !== 101)
+            .filter(msg => msg.id >= startId && msg.id <= endId && msg.messageType !== 101 && msg.messageType !== 102 && msg.messageType !== 103)
             .sort((a, b) => a.id - b.id);
           
           publicStore.prependPublicMessages(messagesToAdd);

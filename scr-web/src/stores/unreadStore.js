@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { sendReadMessageEvent, updateUnreadCountsDisplay } from '@/utils/chat';
+import { sendReadMessageEvent, sendClearGroupUnread, sendClearGlobalUnread, updateUnreadCountsDisplay } from '@/utils/chat';
 import { useBaseStore } from './baseStore';
 
 export const useUnreadStore = defineStore('unread', () => {
@@ -13,10 +13,13 @@ export const useUnreadStore = defineStore('unread', () => {
   function clearGroupUnread(groupId) {
     loadUnreadCountsFromLocalStorage();
     const groupIdStr = String(groupId);
+    let hasUnreadToClear = false;
     if (unreadMessages.value.groups && unreadMessages.value.groups[groupIdStr]) {
       delete unreadMessages.value.groups[groupIdStr];
+      hasUnreadToClear = true;
     }
     saveUnreadCountsToLocalStorage();
+    if (hasUnreadToClear) sendClearGroupUnread(groupId);
   }
 
   function clearPrivateUnread(userId) {
@@ -33,8 +36,10 @@ export const useUnreadStore = defineStore('unread', () => {
 
   function clearGlobalUnread() {
     loadUnreadCountsFromLocalStorage();
+    let hasUnreadToClear = unreadMessages.value.global > 0;
     unreadMessages.value.global = 0;
     saveUnreadCountsToLocalStorage();
+    if (hasUnreadToClear) sendClearGlobalUnread();
   }
 
   function incrementGroupUnread(groupId) {

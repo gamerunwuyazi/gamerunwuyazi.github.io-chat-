@@ -390,7 +390,7 @@
                 >
                 <div
                   v-else
-                  style="width: 32px; height: 32px; border-radius: 50%; background-color: #3498db; color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; margin-left: 10px; flex-shrink: 0;"
+                  style="width: 32px; height: 32px; border-radius: 50%; background-color: #3498db; color: white !important; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; margin-left: 10px; flex-shrink: 0;"
                 >{{ (group.group_name || group.name || 'G').charAt(0).toUpperCase() }}</div>
                 <label 
                   :for="`group-${group.id}`"

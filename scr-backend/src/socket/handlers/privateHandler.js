@@ -178,8 +178,13 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
       // 速率限制检查
       const rateLimitResult = await checkRateLimit(userId);
       if (!rateLimitResult.allowed) {
-        socket.emit(SocketEvents.ERROR, { 
-          message: `操作过于频繁，请${rateLimitResult.retryAfter}秒后再试`
+        socket.emit(SocketEvents.PRIVATE_MESSAGE_SENT, { 
+          success: false,
+          error: {
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: `撤回消息过于频繁，请${rateLimitResult.retryAfter}秒后再试`,
+            retryAfter: rateLimitResult.retryAfter
+          }
         });
         return;
       }

@@ -31,6 +31,35 @@ import {
   logout
 } from './ui.js';
 import { navigateTo, getRouter } from './routerInstance.js';
+import { resetLoadingState } from './upload.js';
+
+// 判断用户当前页面是否在指定会话中（基于路由 + sessionStore，仅判断页面级焦点）
+// 浏览器级焦点（document.hidden / document.hasFocus）由调用方单独判断
+// 注意：路由 /chat/group 和 /chat/private 不带 ID 参数，会话 ID 存储在 sessionStore 中
+function isUserActiveOnChat(chatType, chatId) {
+  const sessionStore = useSessionStore();
+  const router = getRouter();
+  const currentPath = router?.currentRoute?.value?.path || window.location.pathname || '';
+
+  if (chatType === 'public') {
+    const isOnMainRoute = currentPath === '/chat' || currentPath === '/chat/' ||
+      (currentPath.startsWith('/chat') && !currentPath.startsWith('/chat/group') && !currentPath.startsWith('/chat/private'));
+    return isOnMainRoute;
+  } else if (chatType === 'group') {
+    const isOnGroupRoute = currentPath.startsWith('/chat/group') ||
+      currentPath === '/chat/group' ||
+      currentPath.startsWith('/chat/group/') ||
+      currentPath.startsWith('/chat/group?');
+    return isOnGroupRoute && sessionStore && String(sessionStore.currentGroupId) === String(chatId);
+  } else if (chatType === 'private') {
+    const isOnPrivateRoute = currentPath.startsWith('/chat/private') ||
+      currentPath === '/chat/private' ||
+      currentPath.startsWith('/chat/private/') ||
+      currentPath.startsWith('/chat/private?');
+    return isOnPrivateRoute && sessionStore && String(sessionStore.currentPrivateChatUserId) === String(chatId);
+  }
+  return false;
+}
 
 
 let avatarVersions = {};
@@ -160,9 +189,6 @@ function initializeWebSocket() {
         const publicStore = usePublicStore();
         const storageStore = useStorageStore();
         const unreadStore = useUnreadStore();
-        const isPageVisible = !document.hidden;
-        const isBrowserFocused = document.hasFocus();
-        const pageVisible = isPageVisible && isBrowserFocused;
         
         // 检查是否是类型101撤回消息
         if (message.messageType === 101) {
@@ -216,9 +242,17 @@ function initializeWebSocket() {
                         const messages = storageStore.fullGroupMessages[message.groupId];
                         const updates = storageStore.fixQuotedMessagesForWithdrawn(originalMessageId, messages);
                         updates.forEach(update => {
-                            if (groupStore.updateGroupQuotedMessage) {
-                                groupStore.updateGroupQuotedMessage(message.groupId, update.messageId, update.newContent);
+                            const fullIndex = messages.findIndex(m => String(m.id) === String(update.messageId));
+                            if (fullIndex !== -1) {
+                                messages[fullIndex] = toRaw({ ...toRaw(messages[fullIndex]), content: update.newContent });
                             }
+                            if (groupStore.groupMessages && groupStore.groupMessages[message.groupId]) {
+                                const displayIndex = groupStore.groupMessages[message.groupId].findIndex(m => String(m.id) === String(update.messageId));
+                                if (displayIndex !== -1) {
+                                    groupStore.groupMessages[message.groupId][displayIndex] = toRaw({ ...toRaw(groupStore.groupMessages[message.groupId][displayIndex]), content: update.newContent });
+                                }
+                            }
+                            groupStore.groupStored[message.groupId] = false;
                         });
                     }
                 } else if (message.senderId && message.receiverId) {
@@ -231,9 +265,17 @@ function initializeWebSocket() {
                         const messages = storageStore.fullPrivateMessages[chatPartnerId];
                         const updates = storageStore.fixQuotedMessagesForWithdrawn(originalMessageId, messages);
                         updates.forEach(update => {
-                            if (friendStore.updatePrivateQuotedMessage) {
-                                friendStore.updatePrivateQuotedMessage(chatPartnerId, update.messageId, update.newContent);
+                            const fullIndex = messages.findIndex(m => String(m.id) === String(update.messageId));
+                            if (fullIndex !== -1) {
+                                messages[fullIndex] = toRaw({ ...toRaw(messages[fullIndex]), content: update.newContent });
                             }
+                            if (friendStore.privateMessages && friendStore.privateMessages[chatPartnerId]) {
+                                const displayIndex = friendStore.privateMessages[chatPartnerId].findIndex(m => String(m.id) === String(update.messageId));
+                                if (displayIndex !== -1) {
+                                    friendStore.privateMessages[chatPartnerId][displayIndex] = toRaw({ ...toRaw(friendStore.privateMessages[chatPartnerId][displayIndex]), content: update.newContent });
+                                }
+                            }
+                            friendStore.privateStored[chatPartnerId] = false;
                         });
                     }
                 } else {
@@ -241,9 +283,17 @@ function initializeWebSocket() {
                         const messages = storageStore.fullPublicMessages;
                         const updates = storageStore.fixQuotedMessagesForWithdrawn(originalMessageId, messages);
                         updates.forEach(update => {
-                            if (publicStore.updatePublicQuotedMessage) {
-                                publicStore.updatePublicQuotedMessage(update.messageId, update.newContent);
+                            const fullIndex = messages.findIndex(m => String(m.id) === String(update.messageId));
+                            if (fullIndex !== -1) {
+                                messages[fullIndex] = toRaw({ ...toRaw(messages[fullIndex]), content: update.newContent });
                             }
+                            if (publicStore.publicMessages) {
+                                const displayIndex = publicStore.publicMessages.findIndex(m => String(m.id) === String(update.messageId));
+                                if (displayIndex !== -1) {
+                                    publicStore.publicMessages[displayIndex] = toRaw({ ...toRaw(publicStore.publicMessages[displayIndex]), content: update.newContent });
+                                }
+                            }
+                            publicStore.publicStored = false;
                         });
                     }
                 }
@@ -278,8 +328,13 @@ function initializeWebSocket() {
                             avatarUrl: message.avatarUrl || targetMsg.avatarUrl
                         });
 
-                        if (groupStore.updateGroupMessage) {
-                            groupStore.updateGroupMessage(message.groupId, originalMessageId, targetMsg);
+                        // 直接更新groupStore中的消息
+                        const groupMsgsRecv = groupStore.groupMessages?.[message.groupId];
+                        if (groupMsgsRecv) {
+                            const displayIdx = groupMsgsRecv.findIndex(m => String(m.id) === originalMessageId);
+                            if (displayIdx !== -1) {
+                                groupMsgsRecv[displayIdx] = toRaw({ ...toRaw(groupMsgsRecv[displayIdx]), ...targetMsg });
+                            }
                         }
 
                         if (storageStore.saveGroupMessageToIndexedDB) {
@@ -326,8 +381,13 @@ function initializeWebSocket() {
                             avatarUrl: message.avatarUrl || targetMsg.avatarUrl
                         });
 
-                        if (friendStore.updatePrivateMessage) {
-                            friendStore.updatePrivateMessage(chatPartnerId, originalMessageId, targetMsg);
+                        // 直接更新friendStore中的消息
+                        const friendMsgsRecv = friendStore.privateMessages?.[chatPartnerId];
+                        if (friendMsgsRecv) {
+                            const displayIdx = friendMsgsRecv.findIndex(m => String(m.id) === originalMessageId);
+                            if (displayIdx !== -1) {
+                                friendMsgsRecv[displayIdx] = toRaw({ ...toRaw(friendMsgsRecv[displayIdx]), ...targetMsg });
+                            }
                         }
 
                         if (storageStore.savePrivateMessageToIndexedDB) {
@@ -370,8 +430,12 @@ function initializeWebSocket() {
                             avatarUrl: message.avatarUrl || targetMsg.avatarUrl
                         });
 
-                        if (publicStore.updatePublicMessage) {
-                            publicStore.updatePublicMessage(originalMessageId, targetMsg);
+                        // 直接更新publicStore中的消息
+                        if (publicStore.publicMessages) {
+                            const displayIdx = publicStore.publicMessages.findIndex(m => String(m.id) === originalMessageId);
+                            if (displayIdx !== -1) {
+                                publicStore.publicMessages[displayIdx] = toRaw({ ...toRaw(publicStore.publicMessages[displayIdx]), ...targetMsg });
+                            }
                         }
 
                         if (storageStore.savePublicMessageToIndexedDB) {
@@ -588,26 +652,16 @@ function initializeWebSocket() {
             }
             
             // 更新群组未读计数
-            // 核心规则：只有在浏览器焦点在本网页 且 当前路由在群组页面 且 sessionStore打开了该群组 时，才不增加未读计数
+            // 核心规则：页面级焦点（路由 + sessionStore）+ 浏览器级焦点（document.hidden / document.hasFocus）
 
             const isOwnMessage = String(currentUser.id) === String(message.userId);
             const groupIdStr = String(message.groupId);
-
-            // 1. 检查sessionStore是否打开了该群组会话
-            const isCurrentGroupOpen = sessionStore && String(sessionStore.currentGroupId) === groupIdStr;
-
-            // 2. 检查当前路由是否在群组页面（使用Vue Router原生方法，匹配 /chat/group 前缀）
-            const routerInstanceForGroup = getRouter();
-            const currentPathForGroup = routerInstanceForGroup?.currentRoute?.value?.path || window.location.pathname || '';
-            const isOnGroupRoute = currentPathForGroup.startsWith('/chat/group') ||
-                currentPathForGroup === '/chat/group' ||
-                currentPathForGroup.startsWith('/chat/group/') ||
-                currentPathForGroup.startsWith('/chat/group?');
+            const isPageVisible = !document.hidden && document.hasFocus();
 
             const isGroupMutedLocal = typeof isGroupMuted === 'function' && isGroupMuted(message.groupId);
 
-            // 判断用户是否正在关注此群组会话（必须同时满足：路由正确 + 会话打开 + 焦点状态）
-            const isUserFocusedOnThisGroupChat = isCurrentGroupOpen && isOnGroupRoute && isPageVisible && isBrowserFocused;
+            // 页面级焦点（路由 + sessionStore）+ 浏览器级焦点
+            const isUserFocusedOnThisGroupChat = isUserActiveOnChat('group', groupIdStr) && isPageVisible;
             const shouldAddGroupUnread = !isOwnMessage && !isUserFocusedOnThisGroupChat && !isGroupMutedLocal;
 
             if (shouldAddGroupUnread) {
@@ -615,16 +669,14 @@ function initializeWebSocket() {
                     unreadStore.incrementGroupUnread(message.groupId);
                 }
                 updateUnreadCountsDisplay();
-            } else if (isUserFocusedOnThisGroupChat && !isOwnMessage) {
-                // 用户正在关注此会话，自动清除之前累积的未读计数
-                if (unreadStore && unreadStore.clearGroupUnread) {
-                    unreadStore.clearGroupUnread(message.groupId);
-                }
+            } else if (!isOwnMessage) {
+                // 跳过添加未读计数时，直接发送清除未读事件到服务器（不经过unreadStore的条件判断）
+                sendClearGroupUnread(message.groupId);
                 updateUnreadCountsDisplay();
             }
 
-            // 如果当前打开的是该群组且页面可见，将群组移到顶部
-            if (pageVisible && isCurrentGroupOpen) {
+            // 如果当前打开的是该群组，将群组移到顶部
+            if (isUserFocusedOnThisGroupChat) {
                 if (groupStore && groupStore.moveGroupToTop) {
                     groupStore.moveGroupToTop(message.groupId);
                 }
@@ -645,24 +697,13 @@ function initializeWebSocket() {
             }
             
             // 更新公共聊天未读计数
-            // 核心规则：只有在浏览器焦点在本网页 且 当前路由在主聊天室 且 没有打开群组/私信会话 时，才不增加未读计数
+            // 核心规则：页面级焦点（路由 + sessionStore）+ 浏览器级焦点（document.hidden / document.hasFocus）
 
             const isOwnMessage = String(currentUser.id) === String(message.userId);
+            const isPageVisible = !document.hidden && document.hasFocus();
 
-            // 使用 Vue Router 原生方法获取当前路由路径
-            const routerInstance = getRouter();
-            const currentPath = routerInstance?.currentRoute?.value?.path || window.location.pathname || '';
-            const isInMainChatRoute = currentPath === '/chat' || currentPath === '/chat/' ||
-                (currentPath.startsWith('/chat') && !currentPath.startsWith('/chat/group') && !currentPath.startsWith('/chat/private'));
-
-            // 使用 sessionStore 判断是否真的在主聊天（没有打开群组或私信）
-            const isReallyInMainChat = isInMainChatRoute &&
-                sessionStore &&
-                !sessionStore.currentGroupId &&
-                !sessionStore.currentPrivateChatUserId;
-
-            // 判断用户是否正在关注公共聊天
-            const isUserFocusedOnPublicChat = isReallyInMainChat && isPageVisible && isBrowserFocused;
+            // 页面级焦点（路由 + sessionStore）+ 浏览器级焦点
+            const isUserFocusedOnPublicChat = isUserActiveOnChat('public', null) && isPageVisible;
             const shouldAddUnread = !isOwnMessage && !isUserFocusedOnPublicChat;
 
             if (shouldAddUnread) {
@@ -670,11 +711,9 @@ function initializeWebSocket() {
                     unreadStore.incrementGlobalUnread();
                 }
                 updateUnreadCountsDisplay();
-            } else if (isUserFocusedOnPublicChat && !isOwnMessage) {
-                // 用户正在关注公共聊天，自动清除之前累积的未读计数
-                if (unreadStore && unreadStore.clearGlobalUnread) {
-                    unreadStore.clearGlobalUnread();
-                }
+            } else if (!isOwnMessage) {
+                // 跳过添加未读计数时，直接发送清除未读事件到服务器（不经过unreadStore的条件判断）
+                sendClearGlobalUnread();
                 updateUnreadCountsDisplay();
             }
         }
@@ -686,6 +725,12 @@ function initializeWebSocket() {
         const publicStore = usePublicStore();
         const storageStore = useStorageStore();
         const draftStore = useDraftStore();
+
+        // 检查是否包含错误（如速率限制）
+        if (data.success === false && data.error) {
+            toast && toast.error(data.error.message || '操作失败');
+            return;
+        }
 
         // 检查是否包含完整的消息数据
         if (data.message && data.messageId) {
@@ -746,9 +791,17 @@ function initializeWebSocket() {
                             const messages = storageStore.fullGroupMessages[confirmedMessage.groupId];
                             const updates = storageStore.fixQuotedMessagesForWithdrawn(originalMessageId, messages);
                             updates.forEach(update => {
-                                if (groupStore.updateGroupQuotedMessage) {
-                                    groupStore.updateGroupQuotedMessage(confirmedMessage.groupId, update.messageId, update.newContent);
+                                const fullIndex = messages.findIndex(m => String(m.id) === String(update.messageId));
+                                if (fullIndex !== -1) {
+                                    messages[fullIndex] = toRaw({ ...toRaw(messages[fullIndex]), content: update.newContent });
                                 }
+                                if (groupStore.groupMessages && groupStore.groupMessages[confirmedMessage.groupId]) {
+                                    const displayIndex = groupStore.groupMessages[confirmedMessage.groupId].findIndex(m => String(m.id) === String(update.messageId));
+                                    if (displayIndex !== -1) {
+                                        groupStore.groupMessages[confirmedMessage.groupId][displayIndex] = toRaw({ ...toRaw(groupStore.groupMessages[confirmedMessage.groupId][displayIndex]), content: update.newContent });
+                                    }
+                                }
+                                groupStore.groupStored[confirmedMessage.groupId] = false;
                             });
                         }
                     } else {
@@ -757,9 +810,17 @@ function initializeWebSocket() {
                             const messages = storageStore.fullPublicMessages;
                             const updates = storageStore.fixQuotedMessagesForWithdrawn(originalMessageId, messages);
                             updates.forEach(update => {
-                                if (publicStore.updatePublicQuotedMessage) {
-                                    publicStore.updatePublicQuotedMessage(update.messageId, update.newContent);
+                                const fullIndex = messages.findIndex(m => String(m.id) === String(update.messageId));
+                                if (fullIndex !== -1) {
+                                    messages[fullIndex] = toRaw({ ...toRaw(messages[fullIndex]), content: update.newContent });
                                 }
+                                if (publicStore.publicMessages) {
+                                    const displayIndex = publicStore.publicMessages.findIndex(m => String(m.id) === String(update.messageId));
+                                    if (displayIndex !== -1) {
+                                        publicStore.publicMessages[displayIndex] = toRaw({ ...toRaw(publicStore.publicMessages[displayIndex]), content: update.newContent });
+                                    }
+                                }
+                                publicStore.publicStored = false;
                             });
                         }
                     }
@@ -795,9 +856,13 @@ function initializeWebSocket() {
                                 avatarUrl: confirmedMessage.avatarUrl || targetMsg.avatarUrl
                             });
 
-                            // 触发UI更新
-                            if (groupStore.updateGroupMessage) {
-                                groupStore.updateGroupMessage(confirmedMessage.groupId, originalMessageId, targetMsg);
+                            // 触发UI更新 - 直接更新groupStore中的消息
+                            const groupMsgs = groupStore.groupMessages?.[confirmedMessage.groupId];
+                            if (groupMsgs) {
+                                const displayIndex = groupMsgs.findIndex(m => String(m.id) === originalMessageId);
+                                if (displayIndex !== -1) {
+                                    groupMsgs[displayIndex] = toRaw({ ...toRaw(groupMsgs[displayIndex]), ...targetMsg });
+                                }
                             }
 
                             // 持久化到IndexedDB（更新现有记录，保持JSON格式）
@@ -847,9 +912,12 @@ function initializeWebSocket() {
                                 avatarUrl: confirmedMessage.avatarUrl || targetMsg.avatarUrl
                             });
 
-                            // 触发UI更新
-                            if (publicStore.updatePublicMessage) {
-                                publicStore.updatePublicMessage(originalMessageId, targetMsg);
+                            // 触发UI更新 - 直接更新publicStore中的消息
+                            if (publicStore.publicMessages) {
+                                const displayIndex = publicStore.publicMessages.findIndex(m => String(m.id) === originalMessageId);
+                                if (displayIndex !== -1) {
+                                    publicStore.publicMessages[displayIndex] = toRaw({ ...toRaw(publicStore.publicMessages[displayIndex]), ...targetMsg });
+                                }
                             }
 
                             // 持久化到IndexedDB（更新现有记录，保持JSON格式）
@@ -1471,18 +1539,11 @@ function initializeWebSocket() {
             banMessage += '\n\n封禁类型：永久封禁';
         }
         
-        await modal.error(banMessage, 'IP 已被封禁');
-        
-        // 清除本地存储
-        localStorage.removeItem('currentSessionToken');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('chatUserId');
-        
-        // 断开连接
-        socket.disconnect();
-        
-        // 跳转到登录页面
-        navigateTo('/login');
+        try {
+            await modal.error(banMessage, 'IP 已被封禁');
+        } finally {
+            logout();
+        }
     });
 
     // 用户封禁事件
@@ -1496,18 +1557,11 @@ function initializeWebSocket() {
             banMessage += '\n\n封禁类型：永久封禁';
         }
         
-        await modal.error(banMessage, '账户已被封禁');
-        
-        // 清除本地存储
-        localStorage.removeItem('currentSessionToken');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('chatUserId');
-        
-        // 断开连接
-        socket.disconnect();
-        
-        // 跳转到登录页面
-        navigateTo('/login');
+        try {
+            await modal.error(banMessage, '账户已被封禁');
+        } finally {
+            logout();
+        }
     });
 
     // 统一加载消息事件（替代原来的三个事件）
@@ -1540,6 +1594,7 @@ function initializeWebSocket() {
                     if (isAllLoaded && publicStore.setPublicAllLoaded) {
                         publicStore.setPublicAllLoaded(true);
                     }
+                    resetLoadingState('public');
                 }
             }
 
@@ -1621,6 +1676,7 @@ function initializeWebSocket() {
                     if (isAllLoaded && groupStore.setGroupAllLoaded) {
                         groupStore.setGroupAllLoaded(groupId, true);
                     }
+                    resetLoadingState('group-' + groupId);
                 }
             }
 
@@ -1650,11 +1706,11 @@ function initializeWebSocket() {
                 const isAllLoaded = !data.messages || data.messages.length < 20 || data.messages.length === 0;
                 
                 if (isAllLoaded) {
-                    // 更新 chatStore 中的标记
                     if (friendStore && friendStore.setPrivateAllLoaded) {
                         friendStore.setPrivateAllLoaded(userId, true);
                     }
                 }
+                resetLoadingState('private-' + userId);
             }
 
             if (friendStore && data.messages && userId) {
@@ -1863,13 +1919,19 @@ function initializeWebSocket() {
                     socket.emit(eventData.originalEventName, newEventData);
                 } else {
                     // 刷新失败才退出登录
-                    await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
-                    logout();
+                    try {
+                        await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
+                    } finally {
+                        logout();
+                    }
                 }
             } catch (error) {
                 console.error('刷新 Token 失败:', error);
-                await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
-                logout();
+                try {
+                    await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
+                } finally {
+                    logout();
+                }
             }
         } else if (!isWithin5Seconds) {
             // 没有原始事件信息且超过 5 秒，正常刷新 Token
@@ -1878,28 +1940,40 @@ function initializeWebSocket() {
                 
                 if (!refreshSuccess) {
                     // 刷新失败才退出登录
-                    await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
-                    logout();
+                    try {
+                        await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
+                    } finally {
+                        logout();
+                    }
                 }
             } catch (error) {
                 console.error('刷新 Token 失败:', error);
-                await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
-                logout();
+                try {
+                    await modal.warning('您的会话已过期或在其他设备登录，请重新登录', '会话过期');
+                } finally {
+                    logout();
+                }
             }
         }
     }
 
     // 账户在其他设备登录事件（顶号）
     socket.on('account-logged-in-elsewhere', async (data) => {
-        await modal.warning(data.message || '您的账号在其他设备上登录，请重新登录', '账号异地登录');
-        logout();
+        try {
+            await modal.warning(data.message || '您的账号在其他设备上登录，请重新登录', '账号异地登录');
+        } finally {
+            logout();
+        }
     });
 
     // 账户被封禁事件
     socket.on('account-banned', async (data) => {
         const message = `您的账户已被封禁\n\n${data.message || '无法访问'}`;
-        await modal.error(message, '账户被封禁');
-        logout();
+        try {
+            await modal.error(message, '账户被封禁');
+        } finally {
+            logout();
+        }
     });
 
     // 监听群组名称更新事件
@@ -1981,6 +2055,12 @@ function initializeWebSocket() {
         const draftStore = useDraftStore();
         const baseStore = useBaseStore();
 
+        // 检查是否包含错误（如速率限制）
+        if (data.success === false && data.error) {
+            toast && toast.error(data.error.message || '操作失败');
+            return;
+        }
+
         // 检查是否包含完整的消息数据
         if (data.message && data.messageId) {
             const confirmedMessage = data.message;
@@ -2012,9 +2092,17 @@ function initializeWebSocket() {
                             const messages = storageStore.fullPrivateMessages[chatPartnerId];
                             const updates = storageStore.fixQuotedMessagesForWithdrawn(originalMessageId, messages);
                             updates.forEach(update => {
-                                if (friendStore.updatePrivateQuotedMessage) {
-                                    friendStore.updatePrivateQuotedMessage(chatPartnerId, update.messageId, update.newContent);
+                                const fullIndex = messages.findIndex(m => String(m.id) === String(update.messageId));
+                                if (fullIndex !== -1) {
+                                    messages[fullIndex] = toRaw({ ...toRaw(messages[fullIndex]), content: update.newContent });
                                 }
+                                if (friendStore.privateMessages && friendStore.privateMessages[chatPartnerId]) {
+                                    const displayIndex = friendStore.privateMessages[chatPartnerId].findIndex(m => String(m.id) === String(update.messageId));
+                                    if (displayIndex !== -1) {
+                                        friendStore.privateMessages[chatPartnerId][displayIndex] = toRaw({ ...toRaw(friendStore.privateMessages[chatPartnerId][displayIndex]), content: update.newContent });
+                                    }
+                                }
+                                friendStore.privateStored[chatPartnerId] = false;
                             });
                         }
                     }
@@ -2046,9 +2134,13 @@ function initializeWebSocket() {
                                 avatarUrl: confirmedMessage.avatarUrl || targetMsg.avatarUrl
                             });
 
-                            // 触发UI更新
-                            if (friendStore.updatePrivateMessage) {
-                                friendStore.updatePrivateMessage(chatPartnerId, originalMessageId, targetMsg);
+                            // 触发UI更新 - 直接更新friendStore中的消息
+                            const friendMsgs = friendStore.privateMessages?.[chatPartnerId];
+                            if (friendMsgs) {
+                                const displayIndex = friendMsgs.findIndex(m => String(m.id) === originalMessageId);
+                                if (displayIndex !== -1) {
+                                    friendMsgs[displayIndex] = toRaw({ ...toRaw(friendMsgs[displayIndex]), ...targetMsg });
+                                }
                             }
 
                             // 持久化到IndexedDB（更新现有记录，保持JSON格式）
@@ -2155,10 +2247,6 @@ function initializeWebSocket() {
         const friendStore = useFriendStore();
         const unreadStore = useUnreadStore();
 
-        // 获取浏览器焦点状态
-        const isPageVisible = !document.hidden;
-        const isBrowserFocused = document.hasFocus();
-
         // 检查消息中是否包含新的会话令牌
         if (message.sessionToken) {
             // 更新会话令牌
@@ -2194,9 +2282,17 @@ function initializeWebSocket() {
                         const messages = storageStore.fullPrivateMessages[chatPartnerId];
                         const updates = storageStore.fixQuotedMessagesForWithdrawn(originalMessageId, messages);
                         updates.forEach(update => {
-                            if (friendStore.updatePrivateQuotedMessage) {
-                                friendStore.updatePrivateQuotedMessage(chatPartnerId, update.messageId, update.newContent);
+                            const fullIndex = messages.findIndex(m => String(m.id) === String(update.messageId));
+                            if (fullIndex !== -1) {
+                                messages[fullIndex] = toRaw({ ...toRaw(messages[fullIndex]), content: update.newContent });
                             }
+                            if (friendStore.privateMessages && friendStore.privateMessages[chatPartnerId]) {
+                                const displayIndex = friendStore.privateMessages[chatPartnerId].findIndex(m => String(m.id) === String(update.messageId));
+                                if (displayIndex !== -1) {
+                                    friendStore.privateMessages[chatPartnerId][displayIndex] = toRaw({ ...toRaw(friendStore.privateMessages[chatPartnerId][displayIndex]), content: update.newContent });
+                                }
+                            }
+                            friendStore.privateStored[chatPartnerId] = false;
                         });
                     }
                 }
@@ -2301,9 +2397,12 @@ function initializeWebSocket() {
         const isWithdrawMessage = message.messageType === 101;
         const isReadReceiptMessage = message.messageType === 103;
 
-        // 如果当前正在该私信聊天中，自动将好友移到列表顶部
-        // 条件：页面可见 + 当前聊天是私聊页面 + 消息是当前私聊对象发来的
-        const pageVisible = !document.hidden && document.hasFocus();
+        // 页面级焦点（路由 + sessionStore）
+        const isUserOnThisPrivateChat = isUserActiveOnChat('private', chatPartnerId);
+        // 浏览器级焦点
+        const isPageVisible = !document.hidden && document.hasFocus();
+        // 页面级 + 浏览器级焦点
+        const isUserFocusedOnThisPrivateChat = isUserOnThisPrivateChat && isPageVisible;
         
         if (message.id && storageStore && storageStore.privateMinId !== undefined) {
             if (message.id > storageStore.privateMinId) {
@@ -2314,8 +2413,8 @@ function initializeWebSocket() {
             }
         }
         
-        // 如果当前打开的是该私信会话且页面可见，将好友移到顶部
-        if (pageVisible && sessionStore && String(sessionStore.currentPrivateChatUserId) === String(chatPartnerId)) {
+        // 如果当前页面在该私信会话，将好友移到顶部（仅需页面级焦点）
+        if (isUserOnThisPrivateChat) {
             if (friendStore && friendStore.moveFriendToTop) {
                 friendStore.moveFriendToTop(chatPartnerId);
             }
@@ -2342,22 +2441,8 @@ function initializeWebSocket() {
         }
 
         // 更新未读计数
-        // 核心规则：只有在浏览器焦点在本网页 且 当前路由在该私信页面 且 打开了该私信会话 时，才不增加未读计数
+        // 核心规则：基于路由 + sessionStore 判断用户是否正在关注该私信会话
         // 排除自己发送的消息，排除101撤回消息和103已读回执消息
-
-        // 1. 检查sessionStore是否打开了该私信会话
-        const isCurrentPrivateChatOpen = sessionStore && String(sessionStore.currentPrivateChatUserId) === String(chatPartnerId);
-
-        // 2. 检查当前路由是否在私信页面（使用Vue Router原生方法，匹配 /chat/private 前缀）
-        const routerInstanceForPrivate = getRouter();
-        const currentPathForPrivate = routerInstanceForPrivate?.currentRoute?.value?.path || window.location.pathname || '';
-        const isOnPrivateRoute = currentPathForPrivate.startsWith('/chat/private') ||
-            currentPathForPrivate === '/chat/private' ||
-            currentPathForPrivate.startsWith('/chat/private/') ||
-            currentPathForPrivate.startsWith('/chat/private?');
-
-        // 判断用户是否正在关注此私信会话（必须同时满足：路由正确 + 会话打开 + 焦点状态）
-        const isUserFocusedOnThisPrivateChat = isCurrentPrivateChatOpen && isOnPrivateRoute && isPageVisible && isBrowserFocused;
 
         // 判断是否应该添加未读计数
         const shouldAddPrivateUnread = !isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && !isUserFocusedOnThisPrivateChat;
@@ -2385,39 +2470,52 @@ function initializeWebSocket() {
     socket.on('private-message-read', async (data) => {
         const friendStore = useFriendStore();
         const sessionStore = useSessionStore();
+        const storageStore = useStorageStore();
 
         if (!data || !data.fromUserId || !data.friendId) return;
-        
+
         // fromUserId: 读消息的人（对方）
         // friendId: 收到已读事件的人（自己）
         const readerId = data.fromUserId;
         const myId = data.friendId;
-        
-        // 更新自己发给对方的消息为已读
-        // 私信消息存储在 privateMessages[对方ID] 中
-        let hasUpdates = false;
+
+        // 更新自己发给对方的消息为已读（display store）
+        let hasDisplayUpdates = false;
         if (friendStore && friendStore.privateMessages && friendStore.privateMessages[readerId]) {
             const messages = friendStore.privateMessages[readerId];
             for (let i = 0; i < messages.length; i++) {
                 const msg = messages[i];
-                // 自己发送的消息（senderId === myId）且接收者是对方（receiverId === readerId）
                 if (String(msg.senderId) === String(myId) && String(msg.receiverId) === String(readerId)) {
                     if (msg.isRead !== 1) {
                         messages[i] = { ...msg, isRead: 1 };
-                        hasUpdates = true;
+                        hasDisplayUpdates = true;
                     }
                 }
             }
-            // 触发响应式更新
-            if (hasUpdates) {
+            if (hasDisplayUpdates) {
                 friendStore.privateMessages[readerId] = [...messages];
             }
         }
-        
-        // 更新 IndexedDB 中的消息
-        if (hasUpdates && sessionStore && sessionStore.getStorageKeyPrefix) {
+
+        // 同步更新 fullPrivateMessages[readerId]（独立于 display store 更新）
+        let hasFullUpdates = false;
+        if (storageStore && storageStore.fullPrivateMessages && storageStore.fullPrivateMessages[readerId]) {
+            const fullMessages = storageStore.fullPrivateMessages[readerId];
+            for (let i = 0; i < fullMessages.length; i++) {
+                const msg = fullMessages[i];
+                if (String(msg.senderId) === String(myId) && String(msg.receiverId) === String(readerId)) {
+                    if (msg.isRead !== 1) {
+                        fullMessages[i] = { ...msg, isRead: 1 };
+                        hasFullUpdates = true;
+                    }
+                }
+            }
+        }
+
+        // 更新 IndexedDB 中的消息（独立于内存 store 更新）
+        if (hasFullUpdates && storageStore && storageStore.getStorageKeyPrefix) {
             try {
-                const prefix = sessionStore.getStorageKeyPrefix();
+                const prefix = storageStore.getStorageKeyPrefix();
                 const key = `${prefix}-private-${readerId}`;
                 const existingData = await localForage.getItem(key);
                 if (existingData && existingData.messages) {
@@ -2700,6 +2798,47 @@ function sendReadMessageEvent(type, options = {}) {
     socket.emit('message-read', data);
 }
 
+function sendClearGroupUnread(groupId) {
+    if (!socket) {
+        console.warn('WebSocket 未连接，无法发送清除群组未读事件');
+        return;
+    }
+
+    const baseStore = useBaseStore();
+    const currentUser = baseStore.currentUser;
+    const currentSessionToken = baseStore.currentSessionToken;
+
+    if (!currentUser || !currentUser.id || !currentSessionToken) {
+        return;
+    }
+
+    socket.emit('clear-group-unread', {
+        userId: currentUser.id,
+        sessionToken: currentSessionToken,
+        groupId: groupId
+    });
+}
+
+function sendClearGlobalUnread() {
+    if (!socket) {
+        console.warn('WebSocket 未连接，无法发送清除主聊天室未读事件');
+        return;
+    }
+
+    const baseStore = useBaseStore();
+    const currentUser = baseStore.currentUser;
+    const currentSessionToken = baseStore.currentSessionToken;
+
+    if (!currentUser || !currentUser.id || !currentSessionToken) {
+        return;
+    }
+
+    socket.emit('clear-global-unread', {
+        userId: currentUser.id,
+        sessionToken: currentSessionToken
+    });
+}
+
 export {
   initializeWebSocket,
   enableMessageSending,
@@ -2708,5 +2847,7 @@ export {
   disconnectWebSocket,
   avatarVersions,
   sendReadMessageEvent,
+  sendClearGroupUnread,
+  sendClearGlobalUnread,
   loadMessages
 };

@@ -10,21 +10,21 @@ export function setSocketIO(socketIo) {
 
 export async function setUserSession(userId, session, expires, refreshExpires) {
   const tokenKey = `scr:token:${userId}`;
-  const refreshTokenKey = `scr:refreshToken:${userId}`;
 
   await redisClient.set(tokenKey, session.token);
   await redisClient.expire(tokenKey, Math.ceil((expires - Date.now()) / 1000));
-
-  await redisClient.set(refreshTokenKey, session.refreshToken);
-  await redisClient.expire(refreshTokenKey, Math.ceil((refreshExpires - Date.now()) / 1000));
 }
 
 export async function getUserSession(userId) {
   const tokenKey = `scr:token:${userId}`;
-  const refreshTokenKey = `scr:refreshToken:${userId}`;
 
   const token = await redisClient.get(tokenKey);
-  const refreshToken = await redisClient.get(refreshTokenKey);
+
+  const [rows] = await pool.execute(
+    'SELECT refresh_token, refresh_expires FROM scr_sessions WHERE user_id = ?',
+    [userId]
+  );
+  const refreshToken = rows.length > 0 ? rows[0].refresh_token : null;
 
   if (!token && !refreshToken) {
     return null;
@@ -151,7 +151,7 @@ export async function trimIPLogs() {
     const currentCount = countResult[0].cnt;
     if (currentCount > IP_LOG_KEEP) {
       const toDelete = currentCount - IP_LOG_KEEP;
-      await pool.execute(
+      await pool.query(
         'DELETE FROM scr_ip_logs ORDER BY timestamp ASC LIMIT ?',
         [toDelete]
       );

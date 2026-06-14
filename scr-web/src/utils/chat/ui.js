@@ -31,32 +31,9 @@ import {
   disconnectWebSocket
 } from './websocket.js';
 import { navigateTo } from './routerInstance.js';
+import { resetAllStores } from '@/stores/plugins/clearStore.js';
 
 let currentGroupId = null;
-
-// 辅助函数：从sessionStore获取当前活跃会话（统一使用store数据）
-function getCurrentActiveChat() {
-  const sessionStore = useSessionStore();
-  if (!sessionStore) return 'main';
-
-  if (sessionStore.currentPrivateChatUserId) {
-    return `private_${sessionStore.currentPrivateChatUserId}`;
-  } else if (sessionStore.currentGroupId) {
-    return `group_${sessionStore.currentGroupId}`;
-  } else {
-    return 'main';
-  }
-}
-
-// 辅助函数：使用Vue Router获取当前路由路径（统一方法）
-function getCurrentPath() {
-  try {
-    const routerInstance = getRouter();
-    return routerInstance?.currentRoute?.value?.path || window.location.pathname || '';
-  } catch (e) {
-    return window.location.pathname || '';
-  }
-}
 
 function logout() {
   if (disconnectWebSocket) {
@@ -66,29 +43,12 @@ function logout() {
   const baseStore = useBaseStore();
   const storageStore = useStorageStore();
   
-  if (baseStore && baseStore.resetAllStores) {
-    baseStore.resetAllStores();
+  if (baseStore && baseStore.$pinia) {
+    resetAllStores(baseStore.$pinia);
   }
   
   if (storageStore && storageStore.clearAllCache) {
     storageStore.clearAllCache();
-  }
-  
-  const currentUserStr = localStorage.getItem('currentUser');
-  let userId = null;
-  if (currentUserStr) {
-    try {
-      const currentUser = JSON.parse(currentUserStr);
-      userId = currentUser.id;
-    } catch (e) {}
-  }
-  if (!userId) {
-    userId = localStorage.getItem('chatUserId') || localStorage.getItem('userId');
-  }
-  
-  if (userId) {
-    localStorage.removeItem(`groups_with_at_me_${userId}`);
-    localStorage.removeItem(`unread_counts_${userId}`);
   }
   
   localStorage.removeItem('currentSessionToken');
@@ -119,8 +79,6 @@ async function refreshToken() {
     const userId = baseStore && baseStore.currentUser ? baseStore.currentUser.id : localStorage.getItem('chatUserId');
     
     if (!userId || !refreshTokenValue) {
-        await modal.error('会话已过期，请重新登录', '登录过期');
-        logout();
         return false;
     }
     
@@ -146,19 +104,14 @@ async function refreshToken() {
             if (baseStore && baseStore.setCurrentSessionToken) {
               baseStore.setCurrentSessionToken(data.token);
             }
-            
 
             return true;
         } else {
             console.error('Token 刷新失败:', data.message);
-            await modal.error('会话已过期，请重新登录', '登录过期');
-            logout();
             return false;
         }
     } catch (err) {
         console.error('刷新 Token 请求失败:', err);
-        await modal.error('会话已过期，请重新登录', '登录过期');
-        logout();
         return false;
     }
 }
@@ -194,90 +147,6 @@ function closeModal(modalName) {
       modals.forEach(modalEl => {
         modalEl.style.display = 'none';
       });
-    }
-  }
-}
-
-function initializeFocusListeners() {
-  document.addEventListener('visibilitychange', handlePageVisibilityChange);
-  window.addEventListener('focus', handleFocusChange);
-  window.addEventListener('blur', handleFocusChange);
-  window.addEventListener('pageshow', handlePageShow);
-}
-
-function showError(message) {
-  toast.error(message);
-}
-
-function showSuccess(message) {
-  toast.success(message);
-}
-
-function handlePageShow() {
-  setTimeout(() => {
-    tryClearUnreadForCurrentRoute();
-  }, 300);
-}
-
-function tryClearUnreadForCurrentRoute() {
-  const unreadStore = useUnreadStore();
-  const baseStore = useBaseStore();
-
-  if (!baseStore.currentUser?.id) return false;
-
-  const currentPath = getCurrentPath();
-  const isGroupRoute = currentPath.startsWith('/chat/group');
-  const isPrivateRoute = currentPath.startsWith('/chat/private');
-  const isMainChatRoute = currentPath === '/chat' || currentPath === '/chat/' ||
-    (currentPath.startsWith('/chat') && !currentPath.startsWith('/chat/group') && !currentPath.startsWith('/chat/private'));
-
-  if (isMainChatRoute) {
-    if (unreadStore && unreadStore.clearGlobalUnread) {
-      unreadStore.clearGlobalUnread();
-      updateUnreadCountsDisplay();
-      return true;
-    }
-  } else if (isGroupRoute) {
-    const match = currentPath.match(/\/chat\/group\/(\d+)/);
-    if (match) {
-      const groupId = match[1];
-      if (unreadStore && unreadStore.clearGroupUnread) {
-        unreadStore.clearGroupUnread(groupId);
-        updateUnreadCountsDisplay();
-        return true;
-      }
-    }
-  } else if (isPrivateRoute) {
-    const match = currentPath.match(/\/chat\/private\/(\d+)/);
-    if (match) {
-      const userId = match[1];
-      if (unreadStore && unreadStore.clearPrivateUnread) {
-        unreadStore.clearPrivateUnread(userId);
-        updateUnreadCountsDisplay();
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-function handlePageVisibilityChange() {
-  if (!document.hidden) {
-    const cleared = tryClearUnreadForCurrentRoute();
-    if (!cleared) {
-      setTimeout(() => tryClearUnreadForCurrentRoute(), 200);
-      setTimeout(() => tryClearUnreadForCurrentRoute(), 500);
-    }
-  }
-}
-
-function handleFocusChange() {
-  if (document.hasFocus()) {
-    const cleared = tryClearUnreadForCurrentRoute();
-    if (!cleared) {
-      setTimeout(() => tryClearUnreadForCurrentRoute(), 200);
-      setTimeout(() => tryClearUnreadForCurrentRoute(), 500);
     }
   }
 }
@@ -325,6 +194,70 @@ function updateUnreadCountsDisplay() {
 
   if (unreadStore) {
     unreadStore.unreadMessages = { ...unreadMessages };
+  }
+}
+
+function initializeFocusListeners() {
+  document.addEventListener('visibilitychange', handlePageVisibilityChange);
+  window.addEventListener('focus', handleFocusChange);
+  window.addEventListener('blur', handleFocusChange);
+  window.addEventListener('pageshow', handlePageShow);
+}
+
+function handlePageShow() {
+  setTimeout(() => {
+    tryClearUnreadForCurrentRoute();
+  }, 300);
+}
+
+// 根据当前路由和 sessionStore 清除对应会话的未读计数（不使用内存中的 activePage 变量）
+// 注意：路由 /chat/group 和 /chat/private 不带 ID 参数，会话 ID 存储在 sessionStore 中
+function tryClearUnreadForCurrentRoute() {
+  const unreadStore = useUnreadStore();
+  const baseStore = useBaseStore();
+  const sessionStore = useSessionStore();
+
+  if (!baseStore.currentUser?.id) return false;
+
+  const router = getRouter();
+  const currentPath = router?.currentRoute?.value?.path || window.location.pathname || '';
+  const isGroupRoute = currentPath.startsWith('/chat/group');
+  const isPrivateRoute = currentPath.startsWith('/chat/private');
+  const isMainChatRoute = currentPath === '/chat' || currentPath === '/chat/' ||
+    (currentPath.startsWith('/chat') && !currentPath.startsWith('/chat/group') && !currentPath.startsWith('/chat/private'));
+
+  if (isMainChatRoute) {
+    if (unreadStore && unreadStore.clearGlobalUnread) {
+      unreadStore.clearGlobalUnread();
+      updateUnreadCountsDisplay();
+      return true;
+    }
+  } else if (isGroupRoute && sessionStore && sessionStore.currentGroupId) {
+    if (unreadStore && unreadStore.clearGroupUnread) {
+      unreadStore.clearGroupUnread(sessionStore.currentGroupId);
+      updateUnreadCountsDisplay();
+      return true;
+    }
+  } else if (isPrivateRoute && sessionStore && sessionStore.currentPrivateChatUserId) {
+    if (unreadStore && unreadStore.clearPrivateUnread) {
+      unreadStore.clearPrivateUnread(sessionStore.currentPrivateChatUserId);
+      updateUnreadCountsDisplay();
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function handlePageVisibilityChange() {
+  if (!document.hidden) {
+    tryClearUnreadForCurrentRoute();
+  }
+}
+
+function handleFocusChange() {
+  if (document.hasFocus()) {
+    tryClearUnreadForCurrentRoute();
   }
 }
 
@@ -592,10 +525,6 @@ export {
   getModalId,
   logout,
   initializeFocusListeners,
-  showError,
-  showSuccess,
-  handlePageVisibilityChange,
-  handleFocusChange,
   updateUnreadCountsDisplay,
   setActiveChat,
   setActiveChatDirect,

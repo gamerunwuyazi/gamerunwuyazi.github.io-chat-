@@ -638,8 +638,9 @@ function closeSearchModal() {
   hasSearched.value = false;
 }
 
-async function executeSearch() {
-  if (!searchKeyword.value.trim()) return;
+async function executeSearch(keyword) {
+  if (!keyword || !keyword.trim()) return;
+  searchKeyword.value = keyword;
   
   isSearching.value = true;
   hasSearched.value = false;
@@ -663,6 +664,20 @@ async function executeSearch() {
     
     if (matchedMessages.length > 0) {
       searchResults.value = [...matchedMessages].reverse();
+
+      // 为搜索结果补充头像信息
+      const currentUserId_ = baseStore.currentUser?.id;
+      const friendId_ = sessionStore.currentPrivateChatUserId;
+      const myAvatar = baseStore.currentUser?.avatarUrl || baseStore.currentUser?.avatar_url || '';
+      const friendAvatar = sessionStore.currentPrivateChatAvatarUrl || '';
+      searchResults.value.forEach(msg => {
+        const msgUserId = String(msg.userId || msg.senderId || '');
+        if (msgUserId === String(currentUserId_)) {
+          msg.avatarUrl = msg.avatarUrl || myAvatar;
+        } else {
+          msg.avatarUrl = msg.avatarUrl || friendAvatar;
+        }
+      });
       
       const minMatchedId = Math.min(...matchedMessages.map(m => m.id));
       

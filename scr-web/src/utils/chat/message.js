@@ -120,15 +120,20 @@ export function sendMessage() {
     
     let messageContent = content;
     if (quotedMessage) {
+      let quotedContent = quotedMessage.content;
+      if (quotedMessage.messageType === 4) {
+        try {
+          const parsed = typeof quotedMessage.content === 'string' ? JSON.parse(quotedMessage.content) : quotedMessage.content;
+          quotedContent = parsed.text || parsed.content || quotedMessage.content;
+        } catch {}
+      }
       messageContent = JSON.stringify({
         type: 'quoted',
         text: content,
         quoted: {
           id: quotedMessage.id,
           userId: quotedMessage.userId,
-          nickname: quotedMessage.nickname,
-          avatarUrl: quotedMessage.avatarUrl || '',
-          content: quotedMessage.content,
+          content: quotedContent,
           messageType: quotedMessage.messageType || 0
         },
         markdone: showMarkdownToolbar
@@ -266,14 +271,20 @@ export function sendGroupMessage() {
     
     let messageContent = content;
     if (quotedMessage) {
+      let quotedContent = quotedMessage.content;
+      if (quotedMessage.messageType === 4) {
+        try {
+          const parsed = typeof quotedMessage.content === 'string' ? JSON.parse(quotedMessage.content) : quotedMessage.content;
+          quotedContent = parsed.text || parsed.content || quotedMessage.content;
+        } catch {}
+      }
       messageContent = JSON.stringify({
         type: 'quoted',
         text: content,
         quoted: {
           id: quotedMessage.id,
           userId: quotedMessage.userId,
-          nickname: quotedMessage.nickname,
-          content: quotedMessage.content,
+          content: quotedContent,
           messageType: quotedMessage.messageType || 0
         },
         markdone: showMarkdownToolbar
@@ -414,14 +425,19 @@ export function sendPrivateMessage() {
 
   let messageContent = content;
   if (quotedMessage) {
+    let quotedContent = quotedMessage.content;
+    if (quotedMessage.messageType === 4) {
+      try {
+        const parsed = typeof quotedMessage.content === 'string' ? JSON.parse(quotedMessage.content) : quotedMessage.content;
+        quotedContent = parsed.text || parsed.content || quotedMessage.content;
+      } catch {}
+    }
     messageContent = JSON.stringify({
       content: content,
       quotedMessage: {
         id: quotedMessage.id,
         userId: quotedMessage.userId,
-        nickname: quotedMessage.nickname,
-        avatarUrl: quotedMessage.avatarUrl || '',
-        content: quotedMessage.content,
+        content: quotedContent,
         messageType: quotedMessage.messageType || 0
       },
       markdone: showMarkdownToolbar
