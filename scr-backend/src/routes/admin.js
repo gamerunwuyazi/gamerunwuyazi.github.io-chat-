@@ -822,12 +822,25 @@ export function setupRoutes(app, io) {
 
       const [publicMessages] = await pool.query(query, params);
 
-      const countQuery = 'SELECT COUNT(*) as total FROM scr_messages m WHERE 1=1' +
-        (messageType === 'public' ? ' AND m.group_id IS NULL' : '') +
-        (messageType === 'group' ? ' AND m.group_id IS NOT NULL' : '') +
-        (groupId ? ' AND m.group_id = ' + parseInt(groupId) : '') +
-        (userId ? ' AND m.user_id = ' + parseInt(userId) : '');
-      const [countResult] = await pool.query(countQuery);
+      let countQuery = 'SELECT COUNT(*) as total FROM scr_messages m WHERE 1=1';
+      const countParams = [];
+      
+      if (messageType === 'public') {
+        countQuery += ' AND m.group_id IS NULL';
+      } else if (messageType === 'group') {
+        countQuery += ' AND m.group_id IS NOT NULL';
+      }
+      
+      if (groupId) {
+        countQuery += ' AND m.group_id = ?';
+        countParams.push(parseInt(groupId));
+      }
+      
+      if (userId) {
+        countQuery += ' AND m.user_id = ?';
+        countParams.push(parseInt(userId));
+      }
+      const [countResult] = await pool.query(countQuery, countParams);
 
       const processedMessages = publicMessages.map(msg => ({
         id: msg.id,
@@ -906,9 +919,14 @@ export function setupRoutes(app, io) {
 
       const [privateMessages] = await pool.query(query, params);
 
-      const countQuery = 'SELECT COUNT(*) as total FROM scr_private_messages p WHERE 1=1' +
-        (userId ? ' AND (p.sender_id = ' + parseInt(userId) + ' OR p.receiver_id = ' + parseInt(userId) + ')' : '');
-      const [countResult] = await pool.query(countQuery);
+      let countQuery = 'SELECT COUNT(*) as total FROM scr_private_messages p WHERE 1=1';
+      const countParams = [];
+      
+      if (userId) {
+        countQuery += ' AND (p.sender_id = ? OR p.receiver_id = ?)';
+        countParams.push(parseInt(userId), parseInt(userId));
+      }
+      const [countResult] = await pool.query(countQuery, countParams);
 
       const processedMessages = privateMessages.map(msg => ({
         id: msg.id,
@@ -1027,9 +1045,14 @@ export function setupRoutes(app, io) {
 
       const [groups] = await pool.query(query, params);
 
-      const countQuery = 'SELECT COUNT(*) as total FROM scr_groups WHERE deleted_at IS NULL' +
-        (searchKeyword ? " AND (name LIKE '%" + searchKeyword + "%' OR description LIKE '%" + searchKeyword + "%')" : '');
-      const [countResult] = await pool.query(countQuery);
+      let countQuery = 'SELECT COUNT(*) as total FROM scr_groups WHERE deleted_at IS NULL';
+      const countParams = [];
+      
+      if (searchKeyword) {
+        countQuery += ' AND (name LIKE ? OR description LIKE ?)';
+        countParams.push(`%${searchKeyword}%`, `%${searchKeyword}%`);
+      }
+      const [countResult] = await pool.query(countQuery, countParams);
 
       const processedGroups = groups.map(group => ({
         id: group.id,
