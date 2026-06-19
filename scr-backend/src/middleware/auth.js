@@ -216,7 +216,6 @@ async function validateIP(req, res, next) {
 const excludedPaths = {
   '*': [
     '/api/health',
-    '/api/check-status',
     '/api/session-check',
     '/api/sessions',
     '/api/admin/',

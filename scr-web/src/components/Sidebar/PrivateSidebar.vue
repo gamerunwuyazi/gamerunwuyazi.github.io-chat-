@@ -33,33 +33,41 @@ const showContextMenu = ref(false);
 const contextMenuPosition = ref({ x: 0, y: 0 });
 const currentContextMenuFriend = ref(null);
 
-// 获取免打扰私信列表
-function getMutedPrivateChats() {
-  try {
-    return JSON.parse(localStorage.getItem('mutedPrivateChats') || '[]');
-  } catch {
-    return [];
-  }
-}
-
-// 检查私信是否被免打扰
+// 检查私信是否被免打扰（使用store中的is_disturb）
 function isPrivateMuted(userId) {
-  const mutedPrivateChats = getMutedPrivateChats();
-  return mutedPrivateChats.includes(String(userId));
+  const friend = friendStore.friendsList.find(f => String(f.id) === String(userId));
+  return friend ? friend.is_disturb == 1 : false;
 }
 
-function togglePrivateMute(userId) {
-  const mutedPrivateChats = getMutedPrivateChats();
-  const index = mutedPrivateChats.indexOf(String(userId));
-  
-  if (index === -1) {
-    mutedPrivateChats.push(String(userId));
-    unreadStore.clearPrivateUnread(userId);
-  } else {
-    mutedPrivateChats.splice(index, 1);
+async function togglePrivateMute(userId) {
+  const friend = friendStore.friendsList.find(f => String(f.id) === String(userId));
+  if (!friend) return;
+
+  const newIsDisturb = !(friend.is_disturb == 1);
+
+  try {
+    const response = await fetch(`${baseStore.SERVER_URL}/api/user/set-friend-disturb`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'user-id': baseStore.currentUser?.id,
+        'session-token': baseStore.currentSessionToken
+      },
+      body: JSON.stringify({ friendId: userId, isDisturb: newIsDisturb })
+    });
+
+    const data = await response.json();
+    if (data.status === 'success') {
+      friend.is_disturb = data.is_disturb;
+      if (newIsDisturb) {
+        unreadStore.clearPrivateUnread(userId);
+      }
+    } else {
+      console.error('设置好友免打扰失败:', data.message);
+    }
+  } catch (err) {
+    console.error('设置好友免打扰请求失败:', err);
   }
-  
-  localStorage.setItem('mutedPrivateChats', JSON.stringify(mutedPrivateChats));
   
   hideContextMenu();
 }

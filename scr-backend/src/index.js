@@ -23,6 +23,7 @@ import {
 } from './config/index.js';
 
 const app = express();
+app.set('trust proxy', '127.0.0.1');
 const server = http.createServer(app);
 
 const uploadDir = path.join(process.cwd(), uploadConfig.uploadDir);
@@ -92,7 +93,6 @@ app.use((req, res, next) => {
   const startTime = Date.now();
   res.on('finish', async () => {
     if (req.path.startsWith('/api/')) {
-      const duration = Date.now() - startTime;
       const clientIP = getClientIP(req);
       const userId = req.userId
         || req.body?.userId
@@ -289,6 +289,7 @@ async function initializeDatabase() {
         is_admin TINYINT(1) DEFAULT 0,
         is_muted DATETIME NULL DEFAULT NULL COMMENT '禁言状态: NULL=未禁言, 1=永久禁言, 时间戳=临时禁言截止时间',
         remark VARCHAR(100) DEFAULT NULL COMMENT '用户给群组设置的备注名',
+        is_disturb TINYINT(1) DEFAULT 0 COMMENT '是否免打扰: 0=否, 1=是',
         group_nickname VARCHAR(50) DEFAULT NULL COMMENT '用户在该群的昵称',
         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         deleted_at TIMESTAMP NULL DEFAULT NULL,

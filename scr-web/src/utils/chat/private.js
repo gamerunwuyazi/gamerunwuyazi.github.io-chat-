@@ -285,6 +285,10 @@ async function updateFriendsList(friends) {
     }
 
     const allFriends = [];
+    // 构建服务端好友映射，用于合并 is_disturb 等字段
+    const serverFriendMap = new Map();
+    friends.forEach(f => serverFriendMap.set(String(f.id), f));
+
     for (const friendId of localFriendIdsFromKeys) {
       try {
         const key = `${prefix}-private-${friendId}`;
@@ -322,14 +326,16 @@ async function updateFriendsList(friends) {
               console.error('获取用户信息失败:', e);
             }
           }
-          
+
+          const serverFriend = serverFriendMap.get(friendId);
           const friend = {
             id: friendId,
             nickname: friendNickname,
             username: data.username || 'user',
-            avatarUrl: data.avatarUrl,
-            deleted_at: data.deleted_at,
-            remark: data.remark || null
+            avatarUrl: data.avatarUrl ?? null,
+            deleted_at: data.deleted_at ?? null,
+            remark: data.remark || null,
+            is_disturb: serverFriend ? serverFriend.is_disturb : null
           };
           
           if (data.last_message_time) {
@@ -365,7 +371,7 @@ async function updateFriendsList(friends) {
   }
 }
 
-export function addFriend(userId) {
+export function addFriend(userId, message = '') {
   const baseStore = useBaseStore();
   const currentUser = baseStore.currentUser;
   const currentSessionToken = baseStore.currentSessionToken;
@@ -379,7 +385,7 @@ export function addFriend(userId) {
       'session-token': currentSessionToken,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ friendId: userId })
+    body: JSON.stringify({ friendId: userId, message })
   })
   .then(response => response.json())
   .then(data => {
@@ -538,6 +544,9 @@ function displaySearchResults(users) {
   const searchResults = document.getElementById('searchResults');
   if (!searchResults) return;
 
+  const baseStore = useBaseStore();
+  const currentUser = baseStore.currentUser;
+
   searchResults.innerHTML = '';
 
   if (users.length === 0) {
@@ -594,7 +603,11 @@ function displaySearchResults(users) {
 
     const addFriendBtn = resultItem.querySelector('.add-friend-btn');
     addFriendBtn.addEventListener('click', () => {
-      addFriend(user.id);
+      const defaultMsg = `我是${currentUser?.nickname || '用户'}`;
+      const message = prompt('给对方留言：', defaultMsg);
+      if (message !== null) {
+        addFriend(user.id, message);
+      }
     });
 
     const resultAvatar = resultItem.querySelector('.user-avatar');
@@ -619,8 +632,13 @@ function getMutedPrivateChats() {
 }
 
 function isPrivateMuted(userId) {
-    const mutedPrivateChats = getMutedPrivateChats();
-    return mutedPrivateChats.includes(userId.toString());
+    try {
+      const friendStore = useFriendStore();
+      const friend = friendStore.friendsList.find(f => String(f.id) === String(userId));
+      return friend ? friend.is_disturb == 1 : false;
+    } catch {
+      return false;
+    }
 }
 
 function togglePrivateMute(userId) {

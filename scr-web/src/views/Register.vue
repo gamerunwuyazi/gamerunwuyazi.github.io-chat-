@@ -104,6 +104,7 @@
             </label>
           </div>
         </div>
+        <div v-if="loginNotice" class="login-notice">{{ loginNotice }}</div>
         <button type="submit" ref="registerButton" :disabled="!isFormValid || isSubmitting || captchaModalVisible">
           {{ isSubmitting ? '注册中...' : '注册' }}
         </button>
@@ -153,6 +154,17 @@ import { originalFetch } from "@/utils/chat/config.js";
 
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
+const loginNotice = import.meta.env.VITE_LOGIN_NOTICE || '';
+const noticeColor = import.meta.env.VITE_LOGIN_NOTICE_COLOR || '';
+const noticeBg = import.meta.env.VITE_LOGIN_NOTICE_BG || '';
+const noticeBorder = import.meta.env.VITE_LOGIN_NOTICE_BORDER || '';
+const noticeStyle = computed(() => {
+  const style = {};
+  if (noticeColor) style.color = noticeColor;
+  if (noticeBg) style.backgroundColor = noticeBg;
+  if (noticeBorder) style.borderColor = noticeBorder;
+  return style;
+});
 
 const {
   captchaError
@@ -719,6 +731,18 @@ input:focus {
   box-shadow: 0 0 0 3px rgba(0, 114, 255, 0.1);
 }
 
+/* 通知文本样式 */
+.login-notice {
+  text-align: center;
+  font-size: 13px;
+  color: #e67e22;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #f0c27a;
+  background-color: #fef9e7;
+  margin-top: 10px;
+}
+
 /* 按钮样式 */
 button {
   background: #0072ff;
@@ -1005,6 +1029,11 @@ button:disabled {
     color: #3fb950;
     border-color: rgba(46, 160, 67, 0.4);
   }
+  .login-notice {
+    background-color: rgba(210, 153, 34, 0.15);
+    color: #d29922;
+    border-color: rgba(210, 153, 34, 0.4);
+  }
   .validation-message.error {
     color: #f85149;
   }
@@ -1119,6 +1148,11 @@ body.dark-mode .register-form .register-message.success {
   background-color: rgba(46, 160, 67, 0.15) !important;
   color: #3fb950 !important;
   border-color: rgba(46, 160, 67, 0.4) !important;
+}
+body.dark-mode .register-form .login-notice {
+  background-color: rgba(210, 153, 34, 0.15) !important;
+  color: #d29922 !important;
+  border-color: rgba(210, 153, 34, 0.4) !important;
 }
 body.dark-mode .register-form .validation-message.error {
   color: #f85149 !important;

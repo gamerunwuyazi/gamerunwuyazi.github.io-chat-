@@ -753,22 +753,22 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
           FROM scr_private_messages p
           JOIN scr_users u1 ON p.sender_id = u1.id
           JOIN scr_users u2 ON p.receiver_id = u2.id
-          WHERE ((p.sender_id = ? AND p.receiver_id = ?) OR (p.sender_id = ? AND p.receiver_id = ?))
-        `;
+          WHERE ((p.sender_id = ? AND p.receiver_id = ?) OR (p.sender_id = ? AND p.receiver_id = ?))`;
         
         const params = [numericUserId, numericFriendId, numericFriendId, numericUserId];
         
         if (loadMore) {
           const olderThanNum = parseInt(olderThan);
           if (!isNaN(olderThanNum)) {
-            query += ` AND p.id < ? `;
+            query += ' AND p.id < ?';
             params.push(olderThanNum);
           }
         }
         
         const safeLimit = parseInt(limit);
         const finalLimit = isNaN(safeLimit) ? 20 : safeLimit;
-        query += ` ORDER BY p.timestamp DESC, p.id DESC LIMIT ${finalLimit}`;
+        query += ' ORDER BY p.timestamp DESC, p.id DESC LIMIT ?';
+        params.push(finalLimit);
         
         const [results] = await pool.query(query, params);
         

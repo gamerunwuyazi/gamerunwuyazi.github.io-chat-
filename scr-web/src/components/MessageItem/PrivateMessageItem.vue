@@ -108,7 +108,7 @@
       </template>
         </div>
       </div>
-      <div class="msg-time">
+      <div v-if="!isOwn" class="msg-time">
         {{ messageTime }}
         <span v-if="isOwn" class="msg-read-status" :class="isRead ? 'read' : 'unread'">{{ isRead ? '已读' : '未读' }}</span>
       </div>
@@ -863,24 +863,71 @@ function handleContextMenu(event) {
   
   contextMenu.appendChild(quoteMenuItem);
   
-  const copyMenuItem = document.createElement('div');
-  copyMenuItem.className = 'context-menu-item';
-  copyMenuItem.textContent = '复制';
-  copyMenuItem.style.padding = '8px 15px';
-  copyMenuItem.style.cursor = 'pointer';
-  copyMenuItem.style.fontSize = '14px';
-  copyMenuItem.style.whiteSpace = 'nowrap';
-  copyMenuItem.addEventListener('mouseenter', () => copyMenuItem.style.backgroundColor = '#f0f0f0');
-  copyMenuItem.addEventListener('mouseleave', () => copyMenuItem.style.backgroundColor = 'transparent');
-  copyMenuItem.addEventListener('click', () => {
-    const textContent = (messageType === 4)
-      ? (() => { try { return JSON.parse(props.message.content).text || ''; } catch { return props.message.content || ''; } })()
-      : (props.message.content || '');
-    navigator.clipboard.writeText(textContent).catch(() => {});
-    toast.info('已复制到剪贴板', 1500);
-    hideContextMenu();
-  });
-  contextMenu.appendChild(copyMenuItem);
+  const showCopyMenuItem = [0, 1, 2, 5].includes(messageType);
+  if (showCopyMenuItem) {
+    const copyMenuItem = document.createElement('div');
+    copyMenuItem.className = 'context-menu-item';
+    copyMenuItem.textContent = '复制';
+    copyMenuItem.style.padding = '8px 15px';
+    copyMenuItem.style.cursor = 'pointer';
+    copyMenuItem.style.fontSize = '14px';
+    copyMenuItem.style.whiteSpace = 'nowrap';
+    copyMenuItem.addEventListener('mouseenter', () => copyMenuItem.style.backgroundColor = '#f0f0f0');
+    copyMenuItem.addEventListener('mouseleave', () => copyMenuItem.style.backgroundColor = 'transparent');
+    copyMenuItem.addEventListener('click', async () => {
+      let label = '已复制到剪贴板';
+      
+      if (messageType === 0) {
+        const text = props.message.content || '';
+        navigator.clipboard.writeText(text).catch(() => {});
+      } else if (messageType === 1) {
+        try {
+          const imgData = JSON.parse(props.message.content);
+          const imgUrl = imgData.url || '';
+          if (imgUrl) {
+            try {
+              const fullImgUrl = imgUrl.startsWith('http') ? imgUrl : `${baseStore.SERVER_URL}${imgUrl}`;
+              const response = await fetch(fullImgUrl);
+              const blob = await response.blob();
+              await navigator.clipboard.write([
+                new ClipboardItem({ [blob.type]: blob })
+              ]);
+              label = '已复制图片';
+            } catch {
+              navigator.clipboard.writeText(imgUrl).catch(() => {});
+              label = '已复制图片链接';
+            }
+          }
+        } catch { /* ignore */ }
+      } else if (messageType === 2) {
+        try {
+          const fileData = JSON.parse(props.message.content);
+          const fileUrl = fileData.url || '';
+          if (fileUrl) {
+            try {
+              const fullFileUrl = fileUrl.startsWith('http') ? fileUrl : `${baseStore.SERVER_URL}${fileUrl}`;
+              const response = await fetch(fullFileUrl);
+              const blob = await response.blob();
+              await navigator.clipboard.write([
+                new ClipboardItem({ [blob.type]: blob })
+              ]);
+              label = '已复制文件';
+            } catch {
+              navigator.clipboard.writeText(fileUrl).catch(() => {});
+              label = '已复制文件链接';
+            }
+          }
+        } catch { /* ignore */ }
+      } else if (messageType === 5) {
+        const text = props.message.content || '';
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+      
+      toast.info(label, 1500);
+      hideContextMenu();
+    });
+    contextMenu.appendChild(copyMenuItem);
+  }
   
   // 删除消息菜单项
   const deleteMenuItem = document.createElement('div');

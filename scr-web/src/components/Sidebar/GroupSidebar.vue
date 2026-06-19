@@ -120,15 +120,6 @@ function hasDraft(group) {
   return draftStore.drafts && draftStore.drafts.groups && draftStore.drafts.groups[group.id];
 }
 
-// 获取免打扰群组列表
-function getMutedGroups() {
-  try {
-    return JSON.parse(localStorage.getItem('mutedGroups') || '[]');
-  } catch {
-    return [];
-  }
-}
-
 // 工具函数：获取群组显示名称（优先备注，其次群组名）
 function getGroupDisplayName(group) {
   if (group.user_remark && group.user_remark.trim()) {
@@ -137,24 +128,41 @@ function getGroupDisplayName(group) {
   return group.name || '未知群组';
 }
 
-// 检查群组是否被免打扰
+// 检查群组是否被免打扰（使用store中的is_disturb）
 function isGroupMuted(groupId) {
-  const mutedGroups = getMutedGroups();
-  return mutedGroups.includes(String(groupId));
+  const group = groupStore.groupsList.find(g => String(g.id) === String(groupId));
+  return group ? group.is_disturb == 1 : false;
 }
 
-function toggleGroupMute(groupId) {
-  const mutedGroups = getMutedGroups();
-  const index = mutedGroups.indexOf(String(groupId));
-  
-  if (index === -1) {
-    mutedGroups.push(String(groupId));
-    unreadStore.clearGroupUnread(groupId);
-  } else {
-    mutedGroups.splice(index, 1);
+async function toggleGroupMute(groupId) {
+  const group = groupStore.groupsList.find(g => String(g.id) === String(groupId));
+  if (!group) return;
+
+  const newIsDisturb = !(group.is_disturb == 1);
+
+  try {
+    const response = await fetch(`${baseStore.SERVER_URL}/api/set-group-disturb`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'user-id': baseStore.currentUser?.id,
+        'session-token': baseStore.currentSessionToken
+      },
+      body: JSON.stringify({ groupId, isDisturb: newIsDisturb })
+    });
+
+    const data = await response.json();
+    if (data.status === 'success') {
+      group.is_disturb = data.is_disturb;
+      if (newIsDisturb) {
+        unreadStore.clearGroupUnread(groupId);
+      }
+    } else {
+      console.error('设置群组免打扰失败:', data.message);
+    }
+  } catch (err) {
+    console.error('设置群组免打扰请求失败:', err);
   }
-  
-  localStorage.setItem('mutedGroups', JSON.stringify(mutedGroups));
   
   hideContextMenu();
 }

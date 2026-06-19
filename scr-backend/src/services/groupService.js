@@ -342,7 +342,7 @@ export async function getUserGroups(req, res) {
     }
 
     const [groups] = await pool.execute(`
-      SELECT g.*, gm.remark as user_remark
+      SELECT g.*, gm.remark as user_remark, gm.is_disturb
       FROM scr_groups g
       JOIN scr_group_members gm ON g.id = gm.group_id
       WHERE gm.user_id = ? AND g.deleted_at IS NULL AND gm.deleted_at IS NULL
@@ -1840,5 +1840,54 @@ export async function getGroupNickname(req, res) {
   } catch (err) {
     console.error('获取群昵称失败:', err.message);
     res.status(500).json({ status: 'error', message: '获取群昵称失败' });
+  }
+}
+
+export async function handleSetGroupDisturb(req, res) {
+  try {
+    const userId = parseInt(req.userId);
+    const { groupId, isDisturb } = req.body;
+
+    if (!groupId) {
+      return res.status(400).json({ status: 'error', message: '群组ID不能为空' });
+    }
+
+    if (typeof isDisturb !== 'boolean') {
+      return res.status(400).json({ status: 'error', message: 'isDisturb必须是布尔值' });
+    }
+
+    const [result] = await pool.execute(
+      'UPDATE scr_group_members SET is_disturb = ? WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+      [isDisturb ? 1 : 0, groupId, userId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ status: 'error', message: '未找到该群组成员记录' });
+    }
+
+    // 取消免打扰时，设置用户的该群组最后已读消息id为当前群组最大消息id
+    if (!isDisturb) {
+      try {
+        const [maxRows] = await pool.execute(
+          'SELECT MAX(id) as maxId FROM scr_messages WHERE group_id = ?',
+          [groupId]
+        );
+        const maxMessageId = maxRows[0]?.maxId || 0;
+        if (maxMessageId > 0) {
+          await redisClient.set(`scr:read:group:${groupId}:${userId}`, String(maxMessageId));
+        }
+      } catch (e) {
+        console.error('设置群组最后已读消息id失败:', e.message);
+      }
+    }
+
+    res.json({
+      status: 'success',
+      message: isDisturb ? '已开启免打扰' : '已关闭免打扰',
+      is_disturb: isDisturb ? 1 : 0
+    });
+  } catch (err) {
+    console.error('设置群组免打扰失败:', err.message);
+    res.status(500).json({ status: 'error', message: '设置群组免打扰失败' });
   }
 }

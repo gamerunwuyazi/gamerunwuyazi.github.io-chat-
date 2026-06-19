@@ -28,7 +28,10 @@ import {
 import { 
   initializeWebSocket, 
   enableMessageSending, 
-  disconnectWebSocket
+  disconnectWebSocket,
+  setPullingMessages,
+  waitForSocketConnection,
+  processAndClearBuffers
 } from './websocket.js';
 import { navigateTo } from './routerInstance.js';
 import { resetAllStores } from '@/stores/plugins/clearStore.js';
@@ -445,20 +448,34 @@ async function initializeChat() {
             }
         }
         try {
+          // 1. 先连接 WebSocket
+          if (typeof initializeWebSocket === 'function') initializeWebSocket(); else console.warn('初始化 WebSocket 失败');
+          
+          // 2. 等待 WebSocket 连接完成（此时已发送 user-joined）
+          if (typeof waitForSocketConnection === 'function') await waitForSocketConnection(); else console.warn('等待 WebSocket 连接失败');
+          
+          if (typeof enableMessageSending === 'function') enableMessageSending(); else console.warn('启用消息发送失败');
+          if (typeof initializeFocusListeners === 'function') initializeFocusListeners(); else console.warn('初始化焦点监听失败');
+          
+          // 3. 设置拉取消息标志，期间 WS 收到的消息进入缓冲队列
+          if (typeof setPullingMessages === 'function') setPullingMessages(true);
+          
+          // 4. 拉取好友列表、群组列表和消息
+          if (typeof loadFriendsList === 'function') loadFriendsList(); else console.warn('加载好友列表失败');
+          if (typeof loadGroupList === 'function') loadGroupList(); else console.warn('加载群组列表失败');
+          
           if (storageStore && typeof storageStore.initializeMessages === 'function') {
             await storageStore.initializeMessages(); 
           } else {
             console.warn('拉取消息失败');
           }
           
-          if (typeof initializeWebSocket === 'function') initializeWebSocket(); else console.warn('初始化 WebSocket 失败');
-          if (typeof enableMessageSending === 'function') enableMessageSending(); else console.warn('启用消息发送失败');
-          if (typeof initializeFocusListeners === 'function') initializeFocusListeners(); else console.warn('初始化焦点监听失败');
-          
-          if (typeof loadFriendsList === 'function') loadFriendsList(); else console.warn('加载好友列表失败');
-          if (typeof loadGroupList === 'function') loadGroupList(); else console.warn('加载群组列表失败');
+          // 5. 处理拉取期间缓冲的 WS 消息（内部会关闭拉取标志）
+          if (typeof processAndClearBuffers === 'function') await processAndClearBuffers();
         } catch (error) {
           console.error('初始化聊天失败:', error);
+          // 出错时确保关闭拉取标志
+          if (typeof setPullingMessages === 'function') setPullingMessages(false);
         }
 }
 

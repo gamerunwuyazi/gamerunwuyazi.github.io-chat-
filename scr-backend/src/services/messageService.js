@@ -39,13 +39,11 @@ async function isGroupAdmin(groupId, userId) {
 
 export async function getGlobalMessages(limit = 50, olderThan = null, userId = null) {
   try {
-    let query = `
-      SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl,
-             m.content, m.at_userid, m.message_type as messageType, m.group_id as groupId, m.timestamp
-      FROM scr_messages m
-      JOIN scr_users u ON m.user_id = u.id
-      WHERE m.group_id IS NULL
-    `;
+    let query = 'SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl,'
+      + 'm.content, m.at_userid, m.message_type as messageType, m.group_id as groupId, m.timestamp'
+      + ' FROM scr_messages m'
+      + ' JOIN scr_users u ON m.user_id = u.id'
+      + ' WHERE m.group_id IS NULL';
 
     const params = [];
 
@@ -66,7 +64,7 @@ export async function getGlobalMessages(limit = 50, olderThan = null, userId = n
       try {
         safeOlderThan = parseInt(olderThan);
         if (!isNaN(safeOlderThan)) {
-          query += ` AND m.id < ? `;
+          query += ' AND m.id < ?';
           params.push(safeOlderThan);
         }
       } catch (e) {
@@ -74,7 +72,7 @@ export async function getGlobalMessages(limit = 50, olderThan = null, userId = n
       }
     }
 
-    query += ` ORDER BY m.timestamp DESC, m.id DESC LIMIT ?`;
+    query += ' ORDER BY m.timestamp DESC, m.id DESC LIMIT ?';
     params.push(safeLimit);
 
     const [messages] = await pool.query(query, params);
@@ -166,15 +164,13 @@ export async function getGroupMessages(groupId, limit = 50, olderThan = null, us
       safeLimit = 20;
     }
 
-    let query = `
-      SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl,
-             m.content, m.at_userid, m.message_type as messageType, m.group_id as groupId, m.timestamp,
-             gm.group_nickname as groupNickname
-      FROM scr_messages m
-      JOIN scr_users u ON m.user_id = u.id
-      LEFT JOIN scr_group_members gm ON m.user_id = gm.user_id AND m.group_id = gm.group_id AND gm.deleted_at IS NULL
-      WHERE m.group_id = ?
-    `;
+    let query = 'SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl,'
+      + 'm.content, m.at_userid, m.message_type as messageType, m.group_id as groupId, m.timestamp,'
+      + 'gm.group_nickname as groupNickname'
+      + ' FROM scr_messages m'
+      + ' JOIN scr_users u ON m.user_id = u.id'
+      + ' LEFT JOIN scr_group_members gm ON m.user_id = gm.user_id AND m.group_id = gm.group_id AND gm.deleted_at IS NULL'
+      + ' WHERE m.group_id = ?';
     const params = [safeGroupId];
 
     const isOlderThanValid = olderThan !== null && olderThan !== undefined && olderThan !== '' && olderThan !== 0 && String(olderThan).trim() !== '';
@@ -183,7 +179,7 @@ export async function getGroupMessages(groupId, limit = 50, olderThan = null, us
       try {
         safeOlderThan = parseInt(olderThan);
         if (!isNaN(safeOlderThan)) {
-          query += ` AND m.id < ?`;
+          query += ' AND m.id < ?';
           params.push(safeOlderThan);
         }
       } catch (e) {
@@ -191,16 +187,32 @@ export async function getGroupMessages(groupId, limit = 50, olderThan = null, us
       }
     }
 
-    query += ` ORDER BY m.timestamp DESC, m.id DESC LIMIT ?`;
+    query += ' ORDER BY m.timestamp DESC, m.id DESC LIMIT ?';
     params.push(safeLimit);
 
     const [messages] = await pool.query(query, params);
 
     let readMaxId = 0;
+    let isGroupDisturb = false;
     if (userId) {
-      const readKey = `scr:read:group:${safeGroupId}:${parseInt(userId)}`;
-      const readValue = await redisClient.get(readKey);
-      readMaxId = readValue ? parseInt(readValue) : 0;
+      // 检查用户是否对该群组设置了免打扰
+      try {
+        const [memberRows] = await pool.execute(
+          'SELECT is_disturb FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+          [safeGroupId, parseInt(userId)]
+        );
+        if (memberRows.length > 0 && memberRows[0].is_disturb === 1) {
+          isGroupDisturb = true;
+        }
+      } catch (e) {
+        console.error('检查群组免打扰状态失败:', e.message);
+      }
+
+      if (!isGroupDisturb) {
+        const readKey = `scr:read:group:${safeGroupId}:${parseInt(userId)}`;
+        const readValue = await redisClient.get(readKey);
+        readMaxId = readValue ? parseInt(readValue) : 0;
+      }
     }
 
     const processedMessages = messages.map(msg => {
@@ -259,6 +271,11 @@ export async function getGroupMessages(groupId, limit = 50, olderThan = null, us
         } catch (error) {
           console.error(`解析图片消息失败: 消息ID=${msg.id}, 错误=${error.message}`);
         }
+      }
+
+      // 免打扰群组：强制所有消息已读
+      if (isGroupDisturb) {
+        baseMessage.isRead = true;
       }
 
       return baseMessage;
@@ -359,7 +376,7 @@ export async function getOfflineMessages(req, res) {
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
     
-    const publicLimit = parseInt(messageConfig.offlineLimits.public) || 2500;
+    const publicLimit = messageConfig.offlineLimits.public;
     const [publicMessages] = await pool.query(`
       SELECT 
         m.id, 
@@ -377,8 +394,8 @@ export async function getOfflineMessages(req, res) {
         AND m.timestamp >= ?
         AND m.id > ?
       ORDER BY m.timestamp DESC, m.id DESC
-      LIMIT ${parseInt(publicLimit) || 100}
-    `, [threeMonthsAgo, publicAndGroupMinId]);
+      LIMIT ?
+    `, [threeMonthsAgo, publicAndGroupMinId, publicLimit]);
     
     const [allMemberRecords] = await pool.execute(`
       SELECT group_id, joined_at, deleted_at FROM scr_group_members WHERE user_id = ?
@@ -411,7 +428,7 @@ export async function getOfflineMessages(req, res) {
         
         const timeCondition = timeConditions.join(' OR ');
         
-        const groupLimit = parseInt(messageConfig.offlineLimits.group) || 8000;
+        const groupLimit = messageConfig.offlineLimits.group;
         params.push(groupLimit);
         
         const [groupMsgs] = await pool.query(`
@@ -456,7 +473,7 @@ export async function getOfflineMessages(req, res) {
       }
     }
     
-    const privateLimit = parseInt(messageConfig.offlineLimits.private) || 5000;
+    const privateLimit = messageConfig.offlineLimits.private;
     const [privateMessages] = await pool.query(`
       SELECT
         p.id,

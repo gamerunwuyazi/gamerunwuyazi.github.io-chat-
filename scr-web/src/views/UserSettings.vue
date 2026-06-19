@@ -828,8 +828,8 @@ onUnmounted(() => {
                     <img v-if="request.avatar_url" :src="SERVER_URL + request.avatar_url" alt="头像" class="request-avatar">
                     <div v-else class="request-avatar-placeholder">{{ request.nickname?.charAt(0)?.toUpperCase() || 'U' }}</div>
                     <div class="request-details">
-                      <div class="request-nickname">{{ request.nickname || request.username }}</div>
-                      <div class="request-time">{{ formatTime(request.created_at) }}</div>
+                      <div class="request-nickname">{{ request.nickname || request.username }}<span class="request-time"> · {{ formatTime(request.created_at) }}</span></div>
+                      <div class="request-message" :title="request.request_message">{{ request.request_message || '未设置留言' }}</div>
                     </div>
                   </div>
                   <div class="request-actions">
@@ -1175,6 +1175,20 @@ input:checked + .slider:before {
 
 :global(body.dark-mode) .request-nickname {
   color: #c9d1d9;
+}
+
+.request-message {
+  font-size: 13px;
+  color: #999;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+:global(body.dark-mode) .request-message {
+  color: #8b949e;
 }
 
 .request-time {

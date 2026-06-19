@@ -9,7 +9,7 @@ import {
   updateGroupList,
   isGroupMuted
 } from './group.js';
-import { loadFriendsList } from './private.js';
+import { loadFriendsList, isPrivateMuted } from './private.js';
 import {
   useBaseStore,
   useUserStore,
@@ -93,6 +93,53 @@ function updateUserList(users) {
 // 保存 socket 实例以便断开连接
 let socket = null;
 
+// ============================================
+// 拉取消息时 WS 消息缓冲机制
+// 拉取离线消息期间收到的 WS 消息先入队列，拉取完成后再处理
+// ============================================
+let isPullingMessages = false;
+let privateMessagesBuffer = [];
+let groupMessagesBuffer = [];
+
+function setPullingMessages(v) {
+  isPullingMessages = v;
+}
+
+function waitForSocketConnection() {
+  return new Promise((resolve) => {
+    if (socket && socket.connected) {
+      resolve();
+    } else {
+      socket.once('connect', () => resolve());
+    }
+  });
+}
+
+async function processAndClearBuffers() {
+  // 关闭缓冲标志，否则 handler 中再次检查 isPullingMessages 会把消息重新入队
+  isPullingMessages = false;
+
+  const groupBuf = [...groupMessagesBuffer];
+  groupMessagesBuffer = [];
+  const privateBuf = [...privateMessagesBuffer];
+  privateMessagesBuffer = [];
+
+  // 通过 socket listeners 直接调用已注册的 handler 处理缓冲消息
+  const groupListeners = socket.listeners('message-received');
+  for (const msg of groupBuf) {
+    for (const listener of groupListeners) {
+      await listener(msg);
+    }
+  }
+
+  const privateListeners = socket.listeners('private-message-received');
+  for (const msg of privateBuf) {
+    for (const listener of privateListeners) {
+      await listener(msg);
+    }
+  }
+}
+
 function initializeWebSocket() {
     // 使用 Socket.io 连接到服务器
     socket = io(SERVER_URL, {
@@ -115,35 +162,30 @@ function initializeWebSocket() {
     socket.on('connect', async () => {
         baseStore.isConnected = true;
         const sessionStore = useSessionStore();
-
-        // 登录后先检查IP和用户状态，然后再加入聊天室
         const currentUser = baseStore.currentUser;
         const currentSessionToken = baseStore.currentSessionToken;
+
         if (currentUser && currentSessionToken) {
-            checkUserAndIPStatus((canProceed) => {
-                if (canProceed) {
-                    // 检查通过，发送user-joined事件进行认证和加入聊天
-                    // 后端会从数据库获取用户的真实信息（昵称、头像等）
-                    const joinedData = {
-                        userId: currentUser.id ? String(currentUser.id) : null,
-                        sessionToken: currentSessionToken
-                    };
-                    socket.emit('user-joined', joinedData);
+            // 发送user-joined事件进行认证和加入聊天
+            // 后端会从数据库获取用户的真实信息（昵称、头像等）
+            const joinedData = {
+                userId: currentUser.id ? String(currentUser.id) : null,
+                sessionToken: currentSessionToken
+            };
+            socket.emit('user-joined', joinedData);
 
-                    // 如果正在群组聊天，加入群组
-                    if (sessionStore.currentGroupId) {
-                        socket.emit('join-group', {
-                            groupId: sessionStore.currentGroupId,
-                            sessionToken: currentSessionToken,
-                            userId: currentUser.id,
-                            loadTime: Date.now()
-                        });
-                    }
+            // 如果正在群组聊天，加入群组
+            if (sessionStore.currentGroupId) {
+                socket.emit('join-group', {
+                    groupId: sessionStore.currentGroupId,
+                    sessionToken: currentSessionToken,
+                    userId: currentUser.id,
+                    loadTime: Date.now()
+                });
+            }
 
-                    // 启用消息发送功能
-                    enableMessageSending();
-                }
-            });
+            // 启用消息发送功能
+            enableMessageSending();
         }
     });
 
@@ -189,6 +231,12 @@ function initializeWebSocket() {
         const publicStore = usePublicStore();
         const storageStore = useStorageStore();
         const unreadStore = useUnreadStore();
+        
+        // 如果在拉取消息中，将消息放入缓冲队列，等拉取完成后再处理
+        if (isPullingMessages) {
+            groupMessagesBuffer.push(message);
+            return;
+        }
         
         // 检查是否是类型101撤回消息
         if (message.messageType === 101) {
@@ -669,8 +717,8 @@ function initializeWebSocket() {
                     unreadStore.incrementGroupUnread(message.groupId);
                 }
                 updateUnreadCountsDisplay();
-            } else if (!isOwnMessage) {
-                // 跳过添加未读计数时，直接发送清除未读事件到服务器（不经过unreadStore的条件判断）
+            } else if (!isOwnMessage && !isGroupMutedLocal) {
+                // 跳过添加未读计数时（且非免打扰群组），发送清除未读事件到服务器
                 sendClearGroupUnread(message.groupId);
                 updateUnreadCountsDisplay();
             }
@@ -1680,9 +1728,12 @@ function initializeWebSocket() {
                 }
             }
 
-            // 清除该群组的未读计数，因为用户正在加载群组消息
+            // 清除该群组的未读计数（免打扰群组除外）
             if (unreadStore && unreadStore.clearGroupUnread && groupId) {
-                unreadStore.clearGroupUnread(groupId);
+                const group = groupStore.groupsList?.find(g => String(g.id) === String(groupId));
+                if (!group || group.is_disturb != 1) {
+                    unreadStore.clearGroupUnread(groupId);
+                }
             }
             updateUnreadCountsDisplay();
         } else if (data.type === 'private') {
@@ -1721,9 +1772,12 @@ function initializeWebSocket() {
                 }
             }
 
-            // 清除该私信的未读计数，因为用户正在加载私信消息
+            // 清除该私信的未读计数（免打扰私信除外）
             if (unreadStore && unreadStore.clearPrivateUnread && userId) {
-                unreadStore.clearPrivateUnread(userId);
+                const friend = friendStore.friendsList?.find(f => String(f.id) === String(userId));
+                if (!friend || friend.is_disturb != 1) {
+                    unreadStore.clearPrivateUnread(userId);
+                }
             }
             updateUnreadCountsDisplay();
         }
@@ -2247,6 +2301,12 @@ function initializeWebSocket() {
         const friendStore = useFriendStore();
         const unreadStore = useUnreadStore();
 
+        // 如果在拉取消息中，将消息放入缓冲队列，等拉取完成后再处理
+        if (isPullingMessages) {
+            privateMessagesBuffer.push(message);
+            return;
+        }
+
         // 检查消息中是否包含新的会话令牌
         if (message.sessionToken) {
             // 更新会话令牌
@@ -2443,9 +2503,13 @@ function initializeWebSocket() {
         // 更新未读计数
         // 核心规则：基于路由 + sessionStore 判断用户是否正在关注该私信会话
         // 排除自己发送的消息，排除101撤回消息和103已读回执消息
+        // 排除已设置免打扰的私信
+
+        // 检查对方是否已被设置为免打扰
+        const isPrivateMutedLocal = typeof isPrivateMuted === 'function' && isPrivateMuted(chatPartnerId);
 
         // 判断是否应该添加未读计数
-        const shouldAddPrivateUnread = !isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && !isUserFocusedOnThisPrivateChat;
+        const shouldAddPrivateUnread = !isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && !isUserFocusedOnThisPrivateChat && !isPrivateMutedLocal;
 
         if (shouldAddPrivateUnread) {
             // 更新未读消息计数 - 使用 chatPartnerId 作为键
@@ -2453,8 +2517,8 @@ function initializeWebSocket() {
                 unreadStore.incrementPrivateUnread(chatPartnerId);
             }
             updateUnreadCountsDisplay();
-        } else if (!isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && isUserFocusedOnThisPrivateChat) {
-            // 用户正在关注此私信会话
+        } else if (!isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && isUserFocusedOnThisPrivateChat && !isPrivateMutedLocal) {
+            // 用户正在关注此私信会话（非免打扰）
             // 1. 自动发送已读事件（通知对方已读）
             sendReadMessageEvent('private', { friendId: chatPartnerId });
 
@@ -2697,64 +2761,6 @@ function disableMessageSending() {
     }
 }
 
-/**
- * 检查用户和IP状态（是否封禁、用户是否存在）
- * @param {Function} callback - 回调函数，参数为是否允许继续
- * @returns {Promise<boolean>} - 返回 Promise，表示是否允许继续
- */
-async function checkUserAndIPStatus(callback) {
-    const baseStore = useBaseStore();
-    const currentUser = baseStore.currentUser;
-    const currentSessionToken = baseStore.currentSessionToken;
-    // 构建请求头，包含会话令牌
-    const headers = {
-        'Content-Type': 'application/json'
-    };
-    
-    // 如果有会话令牌，添加到请求头中
-    if (currentSessionToken) {
-        headers['session-token'] = currentSessionToken;
-    }
-    
-    try {
-        const response = await fetch(`${SERVER_URL}/api/check-status`, {
-            method: 'GET',
-            headers: headers
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP错误! 状态码: ${response.status}`);
-        }
-        
-        const data = await response.json();
-
-        // 检查IP是否被封禁，根据后端返回的isBanned字段判断
-        if (data.isBanned) {
-            const message = `您的IP已被封禁，${data.message || '无法访问'}`;
-            toast.error(message);
-            logout();
-            if (callback) callback(false);
-            return false;
-        }
-
-        // 如果有用户登录，检查用户是否仍然存在
-        if (currentUser && !data.userExists) {
-            toast.error('您的账户可能已被删除或禁用，请联系管理员。');
-            logout();
-            if (callback) callback(false);
-            return false;
-        }
-
-        // 检查通过
-        if (callback) callback(true);
-        return true;
-    } catch (err) {
-        // 检查失败时，允许继续连接（容错处理）
-        if (callback) callback(true);
-        return true;
-    }
-}
-
 // 断开 WebSocket 连接
 function disconnectWebSocket() {
     const baseStore = useBaseStore();
@@ -2843,11 +2849,13 @@ export {
   initializeWebSocket,
   enableMessageSending,
   disableMessageSending,
-  checkUserAndIPStatus,
   disconnectWebSocket,
   avatarVersions,
   sendReadMessageEvent,
   sendClearGroupUnread,
   sendClearGlobalUnread,
-  loadMessages
+  loadMessages,
+  setPullingMessages,
+  waitForSocketConnection,
+  processAndClearBuffers
 };

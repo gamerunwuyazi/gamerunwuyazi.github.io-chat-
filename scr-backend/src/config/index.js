@@ -111,7 +111,7 @@ export const sessionConfig = {
 export const messageConfig = {
   maxLength: parseInt(process.env.MAX_MESSAGE_LENGTH) || 10000,
   offlineLimits: {
-    public: parseInt(process.env.OFFLINE_MESSAGES_LIMIT_PUBLIC) || 2500,
+    public: parseInt(process.env.OFFLINE_MESSAGES_LIMIT_PUBLIC) || 3000,
     group: parseInt(process.env.OFFLINE_MESSAGES_LIMIT_GROUP) || 8000,
     private: parseInt(process.env.OFFLINE_MESSAGES_LIMIT_PRIVATE) || 5000
   }

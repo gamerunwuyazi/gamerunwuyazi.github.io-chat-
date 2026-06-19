@@ -54,8 +54,13 @@ function getMutedGroups() {
 }
 
 function isGroupMuted(groupId) {
-    const mutedGroups = getMutedGroups();
-    return mutedGroups.includes(groupId.toString());
+    try {
+      const groupStore = useGroupStore();
+      const group = groupStore.groupsList.find(g => String(g.id) === String(groupId));
+      return group ? group.is_disturb == 1 : false;
+    } catch {
+      return false;
+    }
 }
 
 function toggleGroupMute(groupId) {
@@ -835,6 +840,10 @@ async function updateGroupList(groups) {
         }
 
         const allGroups = [];
+        // 构建服务端群组映射，用于合并 is_disturb 等字段
+        const serverGroupMap = new Map();
+        groups.forEach(g => serverGroupMap.set(String(g.id), g));
+
         for (const groupId of localGroupIdsFromKeys) {
             try {
                 const key = `${prefix}-group-${groupId}`;
@@ -871,11 +880,13 @@ async function updateGroupList(groups) {
                         }
                     }
                     
+                    const serverGroup = serverGroupMap.get(groupId);
                     const group = {
                         id: groupId,
                         name: groupName,
-                        avatarUrl: data.avatarUrl,
-                        deleted_at: data.deleted_at
+                        avatarUrl: data.avatarUrl ?? null,
+                        deleted_at: data.deleted_at ?? null,
+                        is_disturb: serverGroup ? serverGroup.is_disturb : null
                     };
                     
                     if (data.last_message_time) {

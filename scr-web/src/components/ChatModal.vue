@@ -725,6 +725,32 @@
       </div>
     </div>
   </Teleport>
+
+  <!-- 好友申请留言对话框 -->
+  <Teleport to="body" v-if="friendRequestDialogVisible">
+    <div class="modal" :style="modalStyle" @click="cancelFriendRequestDialog">
+      <div class="modal-content" style="width: 360px;" @click.stop>
+        <div class="modal-header">
+          <span>发送好友申请</span>
+        </div>
+        <div class="modal-body">
+          <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">
+            给 <strong>{{ friendRequestDialogTargetNickname }}</strong> 留言
+          </p>
+          <textarea
+            v-model="friendRequestDialogMessage"
+            rows="3"
+            style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; resize: none; box-sizing: border-box; outline: none;"
+            placeholder="请输入留言..."
+          ></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="cancel-btn" @click="cancelFriendRequestDialog">取消</button>
+          <button class="save-btn" @click="confirmFriendRequest">发送</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style>
@@ -1130,6 +1156,38 @@ const loadingSendGroupCardList = ref(false);
 const groupMembers = ref([]);
 const loadingMembers = ref(false);
 const currentTime = ref(Date.now()); // 用于触发 computed 重新计算的时间戳
+
+// 好友申请留言对话框
+const friendRequestDialogVisible = ref(false);
+const friendRequestDialogMessage = ref('');
+const friendRequestDialogTargetUserId = ref(null);
+const friendRequestDialogTargetNickname = ref('');
+
+function showFriendRequestDialog(targetUserId, targetNickname) {
+  const myNickname = baseStore.currentUser?.nickname || '用户';
+  friendRequestDialogMessage.value = `我是${myNickname}`;
+  friendRequestDialogTargetUserId.value = targetUserId;
+  friendRequestDialogTargetNickname.value = targetNickname;
+  friendRequestDialogVisible.value = true;
+}
+
+function confirmFriendRequest() {
+  if (friendRequestDialogTargetUserId.value) {
+    addFriend(friendRequestDialogTargetUserId.value, friendRequestDialogMessage.value);
+  }
+  friendRequestDialogVisible.value = false;
+  friendRequestDialogMessage.value = '';
+  friendRequestDialogTargetUserId.value = null;
+  friendRequestDialogTargetNickname.value = '';
+}
+
+function cancelFriendRequestDialog() {
+  friendRequestDialogVisible.value = false;
+  friendRequestDialogMessage.value = '';
+  friendRequestDialogTargetUserId.value = null;
+  friendRequestDialogTargetNickname.value = '';
+}
+
 const availableMembers = ref([]);
 const selectedMembers = ref([]);
 const activeTab = ref('info');
@@ -1654,7 +1712,7 @@ async function handleUserSearch() {
 }
 
 function handleAddFriend(user) {
-  addFriend(user.id);
+  showFriendRequestDialog(user.id, user.nickname || user.username);
 }
 
 function isSearchResultUserFriend(userId) {
@@ -3676,7 +3734,13 @@ function handleUserAvatarPopupAddFriend() {
     return;
   }
 
-  addFriend(userAvatarPopupUserId.value);
+  const user = modalStore.modalData.userAvatarPopup;
+  if (user) {
+    showFriendRequestDialog(
+      userAvatarPopupUserId.value,
+      user.nickname || user.username
+    );
+  }
   hideUserAvatarPopupVue();
 }
 
