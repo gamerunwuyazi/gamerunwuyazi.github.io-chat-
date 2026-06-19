@@ -110,7 +110,9 @@
       </div>
       <div v-if="!isOwn" class="msg-time">
         {{ messageTime }}
-        <span v-if="isOwn" class="msg-read-status" :class="isRead ? 'read' : 'unread'">{{ isRead ? '已读' : '未读' }}</span>
+      </div>
+      <div v-else class="msg-time own-msg-time">
+        <span class="msg-read-status" :class="isRead ? 'read' : 'unread'">{{ isRead ? '已读' : '未读' }}</span>
       </div>
     </div>
   </div>

@@ -116,7 +116,7 @@ export async function uploadGroupAvatar(req, res, next) {
     const avatarPath = `/avatars/${req.file.filename}`;
     
     // 清理该群组的旧头像文件
-    const avatarDir = path.join(__dirname, '..', '..', 'public', 'avatars');
+    const avatarDir = path.join(process.cwd(), 'public', 'avatars');
     const groupAvatarFiles = fs.readdirSync(avatarDir).filter(file => {
       return file.startsWith(`group_avatar_${groupId}.`);
     });
@@ -1190,7 +1190,7 @@ export async function dissolveGroup(req, res) {
         try {
           // 去掉 URL 中的 ?v= 参数，并构建正确的文件路径
           const avatarPathWithoutVersion = groupAvatarUrl.split('?')[0];
-          const fullAvatarPath = path.join(__dirname, '..', '..', 'public', avatarPathWithoutVersion);
+          const fullAvatarPath = path.join(process.cwd(), 'public', avatarPathWithoutVersion);
           if (fs.existsSync(fullAvatarPath)) {
             fs.unlinkSync(fullAvatarPath);
           }
