@@ -529,6 +529,10 @@ function toggleMoreFunctions() {
   showMoreFunctions.value = !showMoreFunctions.value;
 }
 
+function isMobileDevice() {
+  return window.innerWidth <= 768;
+}
+
 function handleGroupMessageInputKeydown(e) {
   if (showAtPicker.value) {
     if (e.key === 'ArrowDown') {
@@ -562,10 +566,15 @@ function handleGroupMessageInputKeydown(e) {
     }, 0);
   }
   
+  const isMobile = isMobileDevice();
+  
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+    if (isMobile) {
+      return;
+    }
     e.preventDefault();
     handleSendGroupMessage();
-  } else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
+  } else if (e.key === 'Enter' && (e.ctrlKey || (isMobile && !e.shiftKey))) {
     e.preventDefault();
     insertGroupNewLine();
   } else if (e.key === 'm' && e.ctrlKey) {
