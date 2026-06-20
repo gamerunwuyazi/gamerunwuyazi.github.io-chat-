@@ -270,13 +270,12 @@ function handleSearchUserClick() {
                         <span v-if="isUserOnline(friend.id) && !friend.deleted_at" class="online-indicator"></span>
                     </span>
                     <div class="friend-info">
-                        <span class="friend-name" :style="{ color: friend.deleted_at ? '#000' : '' }">{{ getFriendDisplayName(friend) }} <span v-if="friend.deleted_at" style="font-size: 12px;">(已删除)</span></span>
+                        <span class="friend-name" :style="{ color: friend.deleted_at ? '#000' : '#333' }">{{ getFriendDisplayName(friend) }} <span v-if="friend.deleted_at" style="font-size: 12px;">(已删除)</span></span>
                         <span v-if="hasDraft(friend) && !friend.deleted_at" class="friend-last-message draft-text">{{ getPrivateLastMessage(friend) }}</span>
                         <span v-else-if="friend.deleted_at" class="friend-last-message" style="color: #000;">该会话已被删除</span>
                         <span v-else class="friend-last-message">{{ getPrivateLastMessage(friend) }}</span>
                     </div>
                     <span v-if="isPrivateMuted(friend.id) && !friend.deleted_at" class="mute-icon" style="margin-left: 5px; font-size: 12px;" title="已免打扰">🔕</span>
-                    <span v-else-if="!friend.deleted_at" class="friend-status" :class="isUserOnline(friend.id) ? 'online' : 'offline'"></span>
                     <div class="unread-count private-unread-count" v-if="unreadStore.unreadMessages.private && unreadStore.unreadMessages.private[friend.id] && !isPrivateMuted(friend.id)">
                         {{ unreadStore.unreadMessages.private[friend.id] }}
                     </div>

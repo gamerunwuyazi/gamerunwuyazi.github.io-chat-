@@ -693,9 +693,6 @@ onUnmounted(() => {
             <div class="shortcut-keys">Ctrl + M</div>
           </div>
         </div>
-        <div class="form-actions" style="margin-top: 20px;">
-          <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
-        </div>
       </div>
 
       <div v-if="currentSetting === 'clear-unread-counts'" class="settings-detail">
@@ -725,9 +722,6 @@ onUnmounted(() => {
             <div class="version-value">无崖子——gamerunwuyazi</div>
           </div>
         </div>
-        <div class="form-actions" style="margin-top: 20px;">
-          <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
-        </div>
       </div>
 
       <div v-if="currentSetting === 'help-center'" class="settings-detail">
@@ -741,9 +735,6 @@ onUnmounted(() => {
 
           <h3>如何创建群组？</h3>
           <p>在群组聊天界面，点击左侧群组列表上方的"+"按钮即可创建新群组。</p>
-        </div>
-        <div class="form-actions" style="margin-top: 20px;">
-          <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
         </div>
       </div>
 
@@ -835,10 +826,6 @@ onUnmounted(() => {
 
           <div v-if="friendRequestMessage" :class="'form-message ' + friendRequestMessageClass" style="margin-top: 15px;">
             {{ friendRequestMessage }}
-          </div>
-
-          <div class="form-actions" style="margin-top: 20px;">
-            <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
           </div>
         </div>
       </div>
