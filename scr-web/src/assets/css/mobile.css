@@ -42,6 +42,7 @@
     width: 100%;
     height: 100%;
     overflow-y: auto;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
 }
 
@@ -119,6 +120,7 @@
     height: 100%;
     background: #f5f6fa;
     z-index: 20;
+    overflow-x: hidden;
 }
 
 #mobile-chat.visible {
@@ -183,6 +185,8 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    overflow-x: hidden;
+    max-width: 100vw;
 }
 
 /* 聊天视图内的组件调整 */
@@ -230,6 +234,8 @@
     position: sticky;
     bottom: 0;
     padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+    overflow-x: hidden;
+    max-width: 100%;
 }
 
 .mobile-chat-view .message {
