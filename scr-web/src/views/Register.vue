@@ -124,16 +124,7 @@
             <button class="captcha-close-btn" @click="closeCaptchaModal">&times;</button>
           </div>
           <div class="captcha-modal-body">
-            <SliderCaptcha
-              :bg-base64="modalBgBase64"
-              :puzzle-base64="modalPuzzleBase64"
-              :target-y="modalTargetY"
-              :puzzle-size="modalPuzzleSize"
-              :width="300"
-              :height="150"
-              :public-key="modalPublicKey"
-              @verify="onCaptchaVerify"
-            />
+            <POWCaptcha ref="powCaptchaRef" @verify="onCaptchaVerify" />
             <div v-if="captchaError" class="captcha-error">{{ captchaError }}</div>
           </div>
         </div>
@@ -144,13 +135,12 @@
 
 <script setup>
 import { debounce } from 'lodash';
-import { SliderCaptcha } from 'scr-slider-captcha/frontend';
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { useCaptcha } from '@/composables/useCaptcha';
 import { login } from '@/utils/chat';
 import { originalFetch } from "@/utils/chat/config.js";
+import POWCaptcha from '@/components/POWCaptcha.vue';
 
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
@@ -165,10 +155,6 @@ const noticeStyle = computed(() => {
   if (noticeBorder) style.borderColor = noticeBorder;
   return style;
 });
-
-const {
-  captchaError
-} = useCaptcha();
 
 // 深色模式切换
 const isDarkMode = ref(false);
@@ -199,15 +185,11 @@ const message = ref('');
 const messageType = ref('error');
 const isSubmitting = ref(false);
 const registerButton = ref(null);
+const powCaptchaRef = ref(null);
 
 // 模态框状态
 const captchaModalVisible = ref(false);
-const modalBgBase64 = ref('');
-const modalPuzzleBase64 = ref('');
-const modalTargetY = ref(0);
-const modalPuzzleSize = ref(50);
-const modalPublicKey = ref('');
-let pendingCaptchaId = '';
+const captchaError = ref('');
 
 const validation = reactive({
   username: '',
@@ -368,43 +350,21 @@ function validateConfirmPassword() {
   return true;
 }
 
-async function openCaptchaModal() {
+function openCaptchaModal() {
   captchaError.value = '';
   captchaModalVisible.value = true;
-  try {
-    const res = await originalFetch(`${SERVER_URL}/api/captcha/create`, {
-      method: 'POST'
-    });
-    const data = await res.json();
-    if (data.captchaId) {
-      pendingCaptchaId = data.captchaId;
-      modalBgBase64.value = data.bgBase64;
-      modalPuzzleBase64.value = data.puzzleBase64;
-      modalTargetY.value = data.targetY;
-      modalPuzzleSize.value = data.puzzleSize;
-      modalPublicKey.value = data.publicKey || '';
-    } else {
-      captchaError.value = data.message || '获取验证码失败';
-    }
-  } catch (err) {
-    const msg = err?.message || '';
-    if (msg && !msg.includes('Failed to fetch')) {
-      captchaError.value = msg;
-    } else {
-      captchaError.value = '网络错误，请稍后重试';
-    }
+  if (powCaptchaRef.value) {
+    powCaptchaRef.value.reset();
   }
 }
 
 function closeCaptchaModal() {
   captchaModalVisible.value = false;
-  modalBgBase64.value = '';
-  modalPuzzleBase64.value = '';
   isSubmitting.value = false;
 }
 
-async function onCaptchaVerify(encryptedData) {
-  await doRegisterRequest(pendingCaptchaId, encryptedData);
+async function onCaptchaVerify(powToken) {
+  await doRegisterRequest(powToken);
 }
 
 async function handleRegisterClick() {
@@ -420,7 +380,7 @@ async function handleRegisterClick() {
   openCaptchaModal();
 }
 
-async function doRegisterRequest(captchaIdVal, encryptedTrajectoryVal) {
+async function doRegisterRequest(powToken) {
   isSubmitting.value = true;
 
   try {
@@ -434,8 +394,7 @@ async function doRegisterRequest(captchaIdVal, encryptedTrajectoryVal) {
         nickname: formData.nickname,
         password: formData.password,
         gender: parseInt(formData.gender),
-        captchaId: captchaIdVal,
-        encryptedTrajectory: encryptedTrajectoryVal
+        powToken: powToken
       })
     });
 
@@ -462,9 +421,9 @@ async function doRegisterRequest(captchaIdVal, encryptedTrajectoryVal) {
 
       if (errorMessage.includes('人机验证') || errorMessage.includes('验证码')) {
         captchaError.value = '人机验证失败，请重试';
-        modalBgBase64.value = '';
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        await openCaptchaModal();
+        if (powCaptchaRef.value) {
+          powCaptchaRef.value.reset();
+        }
         isSubmitting.value = false;
         return;
       }

@@ -54,16 +54,7 @@
             <button class="captcha-close-btn" @click="closeCaptchaModal">&times;</button>
           </div>
           <div class="captcha-modal-body">
-            <SliderCaptcha
-              :bg-base64="modalBgBase64"
-              :puzzle-base64="modalPuzzleBase64"
-              :target-y="modalTargetY"
-              :puzzle-size="modalPuzzleSize"
-              :width="300"
-              :height="150"
-              :public-key="modalPublicKey"
-              @verify="onCaptchaVerify"
-            />
+            <POWCaptcha ref="powCaptchaRef" @verify="onCaptchaVerify" />
             <div v-if="captchaError" class="captcha-error">{{ captchaError }}</div>
           </div>
         </div>
@@ -73,12 +64,11 @@
 </template>
 
 <script setup>
-import { SliderCaptcha } from 'scr-slider-captcha/frontend';
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 
-import { useCaptcha } from '@/composables/useCaptcha';
 import { login } from "@/utils/chat";
 import { originalFetch } from "@/utils/chat/config.js";
+import POWCaptcha from '@/components/POWCaptcha.vue';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 const loginNotice = import.meta.env.VITE_LOGIN_NOTICE || '';
@@ -92,10 +82,6 @@ const noticeStyle = computed(() => {
   if (noticeBorder) style.borderColor = noticeBorder;
   return style;
 });
-
-const {
-  captchaError
-} = useCaptcha();
 
 // 深色模式切换
 const isDarkMode = ref(false);
@@ -120,15 +106,11 @@ const formData = reactive({
 const message = ref('');
 const messageType = ref('error');
 const isSubmitting = ref(false);
+const powCaptchaRef = ref(null);
 
 // 模态框状态
 const captchaModalVisible = ref(false);
-const modalBgBase64 = ref('');
-const modalPuzzleBase64 = ref('');
-const modalTargetY = ref(0);
-const modalPuzzleSize = ref(50);
-const modalPublicKey = ref('');
-let pendingCaptchaId = '';
+const captchaError = ref('');
 
 // 调试函数：使用自动登录Token登录
 async function autoLoginWithTokenFunc(autoLoginToken, username, password) {
@@ -169,7 +151,7 @@ async function autoLoginWithTokenFunc(autoLoginToken, username, password) {
     const userId = loginData.userId || (loginData.user && loginData.user.id) || (loginData.data && loginData.data.id) || '';
     const nickname = loginData.nickname || (loginData.user && loginData.user.nickname) || (loginData.data && loginData.data.nickname) || '';
     const signature = loginData.signature || (loginData.user && loginData.user.signature) || (loginData.data && loginData.data.signature) || '';
-    const avatarUrl = loginData.avatarUrl || (loginData.user && loginData.user.avatarUrl) || (loginData.data && loginData.data.avatarUrl) || (loginData.user && loginData.user.avatar) || (loginData.data && loginData.data.avatar) || null;
+    const avatarUrl = data.avatarUrl || (data.user && data.user.avatarUrl) || (data.data && data.data.avatarUrl) || (data.user && data.user.avatar) || (data.data && data.data.avatar) || null;
     const gender = loginData.gender || (loginData.user && loginData.user.gender) || (loginData.data && loginData.data.gender) || 0;
     const sessionToken = loginData.sessionToken || loginData.token || loginData.session_token;
     const refreshToken = loginData.refreshToken || loginData.refresh_token;
@@ -226,43 +208,21 @@ function showMessage(msg, type) {
   }, 5000);
 }
 
-async function openCaptchaModal() {
+function openCaptchaModal() {
   captchaError.value = '';
   captchaModalVisible.value = true;
-  try {
-    const res = await originalFetch(`${SERVER_URL}/api/captcha/create`, {
-      method: 'POST'
-    });
-    const data = await res.json();
-    if (data.captchaId) {
-      pendingCaptchaId = data.captchaId;
-      modalBgBase64.value = data.bgBase64;
-      modalPuzzleBase64.value = data.puzzleBase64;
-      modalTargetY.value = data.targetY;
-      modalPuzzleSize.value = data.puzzleSize;
-      modalPublicKey.value = data.publicKey || '';
-    } else {
-      captchaError.value = data.message || '获取验证码失败';
-    }
-  } catch (err) {
-    const msg = err?.message || '';
-    if (msg && !msg.includes('Failed to fetch')) {
-      captchaError.value = msg;
-    } else {
-      captchaError.value = '网络错误，请稍后重试';
-    }
+  if (powCaptchaRef.value) {
+    powCaptchaRef.value.reset();
   }
 }
 
 function closeCaptchaModal() {
   captchaModalVisible.value = false;
-  modalBgBase64.value = '';
-  modalPuzzleBase64.value = '';
   isSubmitting.value = false;
 }
 
-async function onCaptchaVerify(encryptedData) {
-  await doLoginRequest(pendingCaptchaId, encryptedData);
+async function onCaptchaVerify(powToken) {
+  await doLoginRequest(powToken);
 }
 
 function handleLoginClick() {
@@ -273,7 +233,7 @@ function handleLoginClick() {
   openCaptchaModal();
 }
 
-async function doLoginRequest(captchaIdVal, encryptedTrajectoryVal) {
+async function doLoginRequest(powToken) {
   isSubmitting.value = true;
 
   try {
@@ -285,8 +245,7 @@ async function doLoginRequest(captchaIdVal, encryptedTrajectoryVal) {
       body: JSON.stringify({
         username: formData.username,
         password: formData.password,
-        captchaId: captchaIdVal,
-        encryptedTrajectory: encryptedTrajectoryVal
+        powToken: powToken
       })
     });
 
@@ -349,9 +308,9 @@ async function doLoginRequest(captchaIdVal, encryptedTrajectoryVal) {
       if (response.status === 400) {
         if (errorMessage.includes('人机验证') || errorMessage.includes('验证码')) {
           captchaError.value = '人机验证失败，请重试';
-          modalBgBase64.value = '';
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          await openCaptchaModal();
+          if (powCaptchaRef.value) {
+            powCaptchaRef.value.reset();
+          }
           isSubmitting.value = false;
           return;
         } else if (errorMessage.includes('频繁') || errorMessage.includes('频率')) {
