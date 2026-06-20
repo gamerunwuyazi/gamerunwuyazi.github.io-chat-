@@ -1,87 +1,85 @@
 <template>
   <div class="pow-captcha-container">
-    <div ref="captchaContainer" id="pow-captcha-wrapper"></div>
-    <div v-if="error" class="pow-captcha-error">{{ error }}</div>
-    <div v-if="loading" class="pow-captcha-loading">加载中...</div>
+    <div v-if="!scriptLoaded && !loadError" class="pow-captcha-loading">加载验证码组件中...</div>
+    <div v-if="loadError" class="pow-captcha-error">验证码加载失败，请刷新页面重试</div>
+    <div ref="captchaContainer"></div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
 
 const emit = defineEmits(['verify']);
 
 const captchaContainer = ref(null);
-const error = ref('');
-const loading = ref(true);
+const scriptLoaded = ref(false);
+const loadError = ref(false);
 
-let captchaWidget = null;
-
-const API_ENDPOINT = 'https://pow.airoe.cn/api/';
-
-onMounted(() => {
-  loadCaptchaScript();
-});
-
-onUnmounted(() => {
-  if (captchaWidget) {
-    try {
-      captchaWidget.destroy();
-    } catch {}
+function onSuccess(e) {
+  const token = e.detail?.token;
+  if (token) {
+    emit('verify', token);
   }
-});
+}
 
-function loadCaptchaScript() {
+function onError(e) {
+  console.error('POW验证错误:', e.detail);
+}
+
+function initCaptcha() {
+  if (!captchaContainer.value) return;
+
+  // 清除旧内容
+  captchaContainer.value.innerHTML = '';
+
+  const widget = document.createElement('cap-widget');
+  widget.id = 'pow-cap-widget';
+  widget.setAttribute('data-cap-api-endpoint', 'https://pow.airoe.cn/api/');
+
+  widget.addEventListener('success', onSuccess);
+  widget.addEventListener('error', onError);
+
+  captchaContainer.value.appendChild(widget);
+}
+
+function loadScript() {
+  // 检查是否已加载
+  if (document.querySelector('script[src="https://pow.airoe.cn/cap.min.js"]')) {
+    scriptLoaded.value = true;
+    nextTick(() => initCaptcha());
+    return;
+  }
+
   const script = document.createElement('script');
   script.src = 'https://pow.airoe.cn/cap.min.js';
-  script.onload = initCaptcha;
+  script.onload = () => {
+    scriptLoaded.value = true;
+    nextTick(() => initCaptcha());
+  };
   script.onerror = () => {
-    error.value = '验证码加载失败，请刷新重试';
-    loading.value = false;
+    loadError.value = true;
   };
   document.head.appendChild(script);
 }
 
-function initCaptcha() {
-  if (!captchaContainer.value) {
-    error.value = '容器不存在';
-    loading.value = false;
-    return;
-  }
-
-  try {
-    captchaWidget = new window.CapWidget({
-      container: captchaContainer.value,
-      apiEndpoint: API_ENDPOINT,
-      onSuccess: (token) => {
-        error.value = '';
-        emit('verify', token);
-      },
-      onError: (err) => {
-        error.value = err.message || '验证失败，请重试';
-      },
-      onExpired: () => {
-        error.value = '验证已过期，请重新验证';
-      }
-    });
-    loading.value = false;
-  } catch (err) {
-    error.value = '验证码初始化失败: ' + (err.message || '未知错误');
-    loading.value = false;
-  }
-}
+onMounted(() => {
+  loadScript();
+});
 
 function reset() {
-  error.value = '';
-  loading.value = true;
-  if (captchaWidget) {
-    try {
-      captchaWidget.destroy();
-    } catch {}
+  loadError.value = false;
+  scriptLoaded.value = false;
+
+  // 移除旧脚本
+  const existingScript = document.querySelector('script[src="https://pow.airoe.cn/cap.min.js"]');
+  if (existingScript) {
+    existingScript.remove();
   }
-  setTimeout(() => {
-    initCaptcha();
-  }, 100);
+
+  // 重新加载
+  nextTick(() => {
+    loadScript();
+  });
 }
 
 defineExpose({ reset });
@@ -109,7 +107,8 @@ defineExpose({ reset });
   padding: 20px;
 }
 
-#pow-captcha-wrapper {
+:deep(cap-widget) {
   width: 100%;
+  max-width: 320px;
 }
 </style>
