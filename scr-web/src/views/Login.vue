@@ -222,6 +222,7 @@ function closeCaptchaModal() {
 }
 
 async function onCaptchaVerify(powToken) {
+  console.log('登录页面收到验证码token:', powToken);
   await doLoginRequest(powToken);
 }
 
