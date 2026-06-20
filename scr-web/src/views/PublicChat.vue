@@ -347,12 +347,7 @@ function refreshScrollPos() {
 watch(
   () => publicStore.publicMessages,
   (newMessages) => {
-    if (isLoadingMoreMessages) {
-      refreshScrollPos();
-      setTimeout(() => {
-        resetLoadingState();
-      }, 100);
-    } else if (newMessages.length > previousPublicMessageLength && !isLoadingMoreMessages) {
+    if (newMessages.length > previousPublicMessageLength && !isLoadingMoreMessages) {
       if (isNearBottom()) {
         scrollToBottom();
       }

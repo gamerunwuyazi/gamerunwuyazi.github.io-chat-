@@ -888,12 +888,7 @@ watch(
 watch(
   () => privateMessages.value,
   (newMessages) => {
-    if (isLoadingMoreMessages) {
-      refreshScrollPos();
-      setTimeout(() => {
-        resetLoadingState();
-      }, 100);
-    } else if (newMessages.length > previousPrivateMessageLength && !isLoadingMoreMessages) {
+    if (newMessages.length > previousPrivateMessageLength && !isLoadingMoreMessages) {
       if (isNearBottom()) {
         scrollToBottom();
       }

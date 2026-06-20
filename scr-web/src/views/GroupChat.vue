@@ -1302,12 +1302,7 @@ watch(
 watch(
   () => groupMessages.value,
   (newMessages) => {
-    if (isLoadingMoreMessages) {
-      refreshScrollPos();
-      setTimeout(() => {
-        resetLoadingState();
-      }, 100);
-    } else if (newMessages.length > previousGroupMessageLength && !isLoadingMoreMessages) {
+    if (newMessages.length > previousGroupMessageLength && !isLoadingMoreMessages) {
       if (isNearBottom()) {
         scrollToBottom();
       }
