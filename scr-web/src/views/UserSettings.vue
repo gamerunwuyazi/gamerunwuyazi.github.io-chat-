@@ -593,12 +593,18 @@ async function handleCancelFriendRequest(friendId) {
   }
 }
 
+function handleSettingsBack() {
+  currentSetting.value = ''
+}
+
 onMounted(() => {
   window.addEventListener('settings-item-click', handleSettingsItemClick)
+  window.addEventListener('settings-back', handleSettingsBack)
 })
 
 onUnmounted(() => {
   window.removeEventListener('settings-item-click', handleSettingsItemClick)
+  window.removeEventListener('settings-back', handleSettingsBack)
 })
 </script>
 

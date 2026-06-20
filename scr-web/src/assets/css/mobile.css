@@ -494,6 +494,22 @@
 .mobile-tab-icon {
     font-size: 20px;
     line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tab-icon-img {
+    width: 22px;
+    height: 22px;
+    opacity: 0.55;
+    filter: grayscale(100%);
+    transition: opacity 0.15s, filter 0.15s;
+}
+
+.mobile-tab.active .tab-icon-img {
+    opacity: 1;
+    filter: grayscale(0%);
 }
 
 .mobile-tab-label {
@@ -572,6 +588,14 @@ body.dark-mode .mobile-chat-view .input-area {
 body.dark-mode #mobile-tab-bar {
     background: #161b22;
     border-top-color: #30363d;
+}
+
+body.dark-mode .tab-icon-img {
+    opacity: 0.45;
+}
+
+body.dark-mode .mobile-tab.active .tab-icon-img {
+    opacity: 0.9;
 }
 
 body.dark-mode .mobile-drawer-panel {

@@ -64,22 +64,22 @@
     <!-- 底部导航栏 -->
     <div id="mobile-tab-bar">
       <div class="mobile-tab" :class="{ active: currentTab === 'public' }" @click="switchTab('public')">
-        <span class="mobile-tab-icon">💬</span>
+        <span class="mobile-tab-icon"><img src="/icon/Message-256.ico" alt="公共" class="tab-icon-img"></span>
         <span class="mobile-tab-label">公共</span>
         <span v-if="publicUnread" class="mobile-tab-badge">{{ publicUnread > 99 ? '99+' : publicUnread }}</span>
       </div>
       <div class="mobile-tab" :class="{ active: currentTab === 'group' }" @click="switchTab('group')">
-        <span class="mobile-tab-icon">👥</span>
+        <span class="mobile-tab-icon"><img src="/icon/User-Group-256.ico" alt="群组" class="tab-icon-img"></span>
         <span class="mobile-tab-label">群组</span>
         <span v-if="groupUnread" class="mobile-tab-badge">{{ groupUnread > 99 ? '99+' : groupUnread }}</span>
       </div>
       <div class="mobile-tab" :class="{ active: currentTab === 'private' }" @click="switchTab('private')">
-        <span class="mobile-tab-icon">💬</span>
+        <span class="mobile-tab-icon"><img src="/icon/User-Profile-256.ico" alt="私信" class="tab-icon-img"></span>
         <span class="mobile-tab-label">私信</span>
         <span v-if="privateUnread" class="mobile-tab-badge">{{ privateUnread > 99 ? '99+' : privateUnread }}</span>
       </div>
       <div class="mobile-tab" :class="{ active: currentTab === 'settings' }" @click="switchTab('settings')">
-        <span class="mobile-tab-icon">⚙</span>
+        <span class="mobile-tab-icon"><img src="/icon/Settings-01-256.ico" alt="设置" class="tab-icon-img"></span>
         <span class="mobile-tab-label">设置</span>
         <span v-if="friendRequestUnread" class="mobile-tab-badge">{{ friendRequestUnread > 99 ? '99+' : friendRequestUnread }}</span>
       </div>
@@ -91,7 +91,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 
 import ChatModal from '@/components/ChatModal.vue';
@@ -109,6 +109,20 @@ const router = useRouter();
 const route = useRoute();
 
 const showUserDrawer = ref(false);
+const showSettingsDetail = ref(false);
+
+// 监听设置项点击事件
+function handleSettingsItemClick() {
+  showSettingsDetail.value = true;
+}
+
+onMounted(() => {
+  window.addEventListener('settings-item-click', handleSettingsItemClick);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('settings-item-click', handleSettingsItemClick);
+});
 
 // 当前激活的底部标签
 const currentTab = computed(() => {
@@ -120,11 +134,12 @@ const currentTab = computed(() => {
   return 'public';
 });
 
-// 是否在聊天中（公共聊天始终显示，群聊/私聊需选中具体会话）
+// 是否在聊天中（公共聊天始终显示，群聊/私聊/设置需选中具体会话）
 const isInChat = computed(() => {
   if (currentTab.value === 'public') return true;
   if (currentTab.value === 'group') return !!sessionStore.currentGroupId;
   if (currentTab.value === 'private') return !!sessionStore.currentPrivateChatUserId;
+  if (currentTab.value === 'settings') return showSettingsDetail.value;
   return false;
 });
 
@@ -138,6 +153,9 @@ const chatTitle = computed(() => {
   }
   if (currentTab.value === 'private' && sessionStore.currentPrivateChatUserId) {
     return sessionStore.currentPrivateChatNickname || sessionStore.currentPrivateChatUsername || '私聊';
+  }
+  if (currentTab.value === 'settings') {
+    return '设置';
   }
   return '聊天';
 });
@@ -200,6 +218,7 @@ function handleUserClick(user) {
 // 切换标签
 function switchTab(tab) {
   showUserDrawer.value = false;
+  showSettingsDetail.value = false;
   const paths = {
     public: '/chat',
     group: '/chat/group',
@@ -217,6 +236,9 @@ function goBack() {
     sessionStore.setCurrentGroupId(null);
   } else if (currentTab.value === 'private') {
     sessionStore.setCurrentPrivateChatUserId(null);
+  } else if (currentTab.value === 'settings') {
+    showSettingsDetail.value = false;
+    window.dispatchEvent(new CustomEvent('settings-back'));
   }
 }
 </script>
