@@ -18,31 +18,29 @@ import {
 import { isIPBanned } from '../middleware/auth.js';
 
 let io;
-let cachedPrivateKey = null;
 
-function getPrivateKey() {
-  if (!cachedPrivateKey) {
-    const keysDir = path.join(process.cwd(), 'keys');
-    cachedPrivateKey = fs.readFileSync(path.join(keysDir, 'private.pem'), 'utf8');
-  }
-  return cachedPrivateKey;
-}
+const POW_API_URL = 'https://pow.airoe.cn/api';
 
-async function verifyCaptchaToken(captchaId, encryptedTrajectory) {
-  if (!captchaId || !encryptedTrajectory) {
-    return { success: false, message: '缺少验证码参数' };
+async function verifyPOWToken(powToken) {
+  if (!powToken) {
+    return { success: false, message: '缺少POW验证令牌' };
   }
   try {
-    const { verifyCaptcha } = await import('scr-slider-captcha/backend');
-    const privateKey = getPrivateKey();
-    const result = verifyCaptcha(captchaId, encryptedTrajectory, privateKey, 70);
-    if (result.success) {
+    const response = await fetch(`${POW_API_URL}/validate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ token: powToken, keepToken: false })
+    });
+    const data = await response.json();
+    if (data.success) {
       return { success: true };
     }
-    return { success: false, message: '人机验证失败' };
+    return { success: false, message: data.message || 'POW验证失败' };
   } catch (err) {
-    console.error('验证码验证失败:', err.message);
-    return { success: false, message: '验证码验证失败' };
+    console.error('POW验证失败:', err.message);
+    return { success: false, message: 'POW验证失败' };
   }
 }
 
@@ -55,7 +53,7 @@ const avatarDir = path.join(process.cwd(), 'public', 'avatars');
 
 export async function register(req, res) {
   try {
-    const { username, password, nickname, gender, captchaId, encryptedTrajectory } = req.body;
+    const { username, password, nickname, gender, powToken } = req.body;
     const clientIP = getClientIP(req);
 
     const banInfo = await isIPBanned(clientIP);
@@ -63,7 +61,7 @@ export async function register(req, res) {
       return res.status(403).json({ status: 'error', message: '您的 IP 已被封禁', isBanned: true, remainingTime: banInfo.remainingTime });
     }
 
-    if (!username || !password || !nickname || !captchaId || !encryptedTrajectory) {
+    if (!username || !password || !nickname || !powToken) {
       return res.status(400).json({ status: 'error', message: '请填写所有字段' });
     }
 
@@ -72,7 +70,7 @@ export async function register(req, res) {
       return res.status(400).json({ status: 'error', message: '性别参数非法' });
     }
 
-    const captchaResult = await verifyCaptchaToken(captchaId, encryptedTrajectory);
+    const captchaResult = await verifyPOWToken(powToken);
     if (!captchaResult.success) {
       return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
     }
@@ -136,7 +134,7 @@ export async function register(req, res) {
 
 export async function login(req, res) {
   try {
-    const { username, password, captchaId, encryptedTrajectory, autoLoginToken } = req.body;
+    const { username, password, powToken, autoLoginToken } = req.body;
     const clientIP = getClientIP(req);
 
     const banInfo = await isIPBanned(clientIP);
@@ -166,11 +164,11 @@ export async function login(req, res) {
       const isAutoLogin = !!autoLoginToken;
 
       if (!isAutoLogin) {
-        if (!captchaId || !encryptedTrajectory) {
+        if (!powToken) {
           return res.status(400).json({ status: 'error', message: '请完成人机验证' });
         }
 
-        const captchaResult = await verifyCaptchaToken(captchaId, encryptedTrajectory);
+        const captchaResult = await verifyPOWToken(powToken);
         if (!captchaResult.success) {
           return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
         }
@@ -432,9 +430,9 @@ export async function changePassword(req, res) {
   try {
     const userId = req.userId;
     const clientIP = getClientIP(req);
-    const { oldPassword, newPassword, captchaId, encryptedTrajectory } = req.body;
+    const { oldPassword, newPassword, powToken } = req.body;
 
-    if (!oldPassword || !newPassword || !captchaId || !encryptedTrajectory) {
+    if (!oldPassword || !newPassword || !powToken) {
       return res.status(400).json({ status: 'error', message: '缺少必要参数' });
     }
 
@@ -442,7 +440,7 @@ export async function changePassword(req, res) {
       return res.status(400).json({ status: 'error', message: '新密码格式错误' });
     }
 
-    const captchaResult = await verifyCaptchaToken(captchaId, encryptedTrajectory);
+    const captchaResult = await verifyPOWToken(powToken);
     if (!captchaResult.success) {
       return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
     }
