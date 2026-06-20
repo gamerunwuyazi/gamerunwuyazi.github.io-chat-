@@ -1,10 +1,18 @@
 <template>
-  <div id="main-chat">
+  <div id="main-chat" :class="{ 'sidebar-collapsed': !showSecondarySidebar }">
     <ChatSidebar/>
     
     <router-view name="sidebar"></router-view>
     
     <div id="chat-main">
+      <button
+        class="mobile-sidebar-toggle"
+        @click="toggleSecondarySidebar"
+        :title="showSecondarySidebar ? '隐藏侧边栏' : '显示侧边栏'"
+        aria-label="切换侧边栏"
+      >
+        &#9776;
+      </button>
       <router-view></router-view>
     </div>
     <div id="modal">
@@ -14,7 +22,7 @@
 </template>
 
 <script setup>
-import { onMounted, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import ChatModal from "@/components/ChatModal.vue";
@@ -24,6 +32,12 @@ import { setActiveChat } from "@/utils/chat";
 
 const sessionStore = useSessionStore();
 const route = useRoute();
+
+const showSecondarySidebar = ref(true);
+
+function toggleSecondarySidebar() {
+  showSecondarySidebar.value = !showSecondarySidebar.value;
+}
 
 function updateCurrentActiveChat(clearUnread = false) {
   const path = route.path;

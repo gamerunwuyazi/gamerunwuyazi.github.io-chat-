@@ -1,5 +1,10 @@
 /* 手机适配样式 - 独立的手机布局，不使用响应式设计 */
 
+/* 移动端侧边栏切换按钮 - 桌面端默认隐藏 */
+.mobile-sidebar-toggle {
+    display: none;
+}
+
 /* 手机布局容器 */
 #mobile-chat {
     display: none;
@@ -284,4 +289,423 @@
     margin: 0;
     font-size: 14px;
     line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+    html,
+    body,
+    #app {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    #main-chat {
+        width: 100vw;
+        min-width: 0;
+        height: 100dvh;
+        display: grid;
+        grid-template-columns: 56px minmax(96px, 32vw) minmax(0, 1fr);
+        overflow: hidden;
+    }
+
+    #sidebar {
+        width: 56px;
+        min-width: 56px;
+        max-width: 56px;
+        height: 100dvh;
+        overflow-y: auto;
+    }
+
+    .sidebar-header {
+        padding: 6px 0;
+    }
+
+    .user-profile {
+        margin-top: 6px;
+    }
+
+    #userAvatar {
+        width: 38px;
+        height: 38px;
+        min-width: 38px;
+        min-height: 38px;
+    }
+
+    .user-initials {
+        font-size: 16px;
+    }
+
+    .menu-section {
+        margin-top: 10px;
+    }
+
+    .menu-section[style] {
+        margin-bottom: 8px !important;
+    }
+
+    .menu-item {
+        height: 48px;
+        margin: 3px 0;
+        border-radius: 0;
+    }
+
+    .menu-item:hover,
+    .menu-item.active:hover,
+    .menu-item:hover .chat-avatar,
+    .menu-item.active .chat-avatar {
+        transform: none;
+    }
+
+    .chat-avatar {
+        width: 34px;
+        height: 34px;
+    }
+
+    #secondary-sidebar {
+        width: auto;
+        min-width: 0;
+        max-width: none;
+        height: 100dvh;
+        padding: 8px;
+        overflow-y: auto;
+    }
+
+    .sidebar-section {
+        margin-bottom: 14px;
+        padding-bottom: 10px;
+    }
+
+    .sidebar-section h3 {
+        font-size: 13px;
+        margin-bottom: 8px;
+    }
+
+    .user-list li,
+    .settings-list li {
+        padding: 7px 2px;
+        font-size: 12px;
+    }
+
+    .user-list li:hover,
+    .settings-list li:hover {
+        transform: none;
+    }
+
+    .user-list .user-name,
+    .group-name,
+    .friend-name,
+    .setting-value {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .group-last-message,
+    .friend-last-message,
+    .user-status,
+    .mute-icon {
+        display: none !important;
+    }
+
+    .search-container {
+        gap: 4px;
+    }
+
+    .search-input {
+        min-width: 0;
+        font-size: 12px;
+        padding: 6px 22px 6px 6px;
+    }
+
+    .create-group-btn,
+    .add-friend-btn,
+    .clear-search-btn {
+        flex: 0 0 auto;
+    }
+
+    #chat-main {
+        min-width: 0;
+        height: 100dvh;
+        overflow: hidden;
+    }
+
+    .chat-content,
+    .group-chat-interface,
+    .private-chat-interface {
+        min-width: 0;
+        min-height: 0;
+        height: 100%;
+    }
+
+    .group-header,
+    .private-header {
+        flex: 0 0 auto;
+        min-height: 52px;
+        padding: 8px 10px;
+        box-sizing: border-box;
+    }
+
+    .group-header h2,
+    .private-user-details h2 {
+        max-width: 38vw;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 16px;
+    }
+
+    .private-user-avatar {
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
+    }
+
+    #messageContainer,
+    #groupMessageContainer,
+    #privateMessageContainer {
+        padding: 8px;
+        min-height: 0;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .message {
+        max-width: 92%;
+        margin-bottom: 10px;
+    }
+
+    .msg-avatar {
+        width: 30px;
+        height: 30px;
+        min-width: 30px;
+        min-height: 30px;
+    }
+
+    .msg-bubble {
+        font-size: 13px;
+        line-height: 1.45;
+        padding: 6px 8px;
+    }
+
+    .message-content .message-text img,
+    .message-image {
+        max-height: 220px;
+    }
+
+    .markdown-toolbar {
+        flex: 0 0 auto;
+        padding: 6px 8px;
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+
+    .markdown-btn {
+        flex: 0 0 auto;
+        padding: 5px 8px;
+        font-size: 12px;
+    }
+
+    .input-area {
+        flex: 0 0 auto;
+        padding: 8px;
+        gap: 6px;
+        box-sizing: border-box;
+        position: sticky;
+        bottom: 0;
+        padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+    }
+
+    .input-container {
+        padding: 8px;
+        max-height: 132px;
+        box-sizing: border-box;
+    }
+
+    #messageInput,
+    #groupMessageInput,
+    #privateMessageInput,
+    .editable-div {
+        min-height: 44px;
+        max-height: 96px;
+        font-size: 14px;
+        line-height: 1.45;
+        overflow-y: auto;
+    }
+
+    #messageInput[placeholder]::before,
+    #groupMessageInput[placeholder]::before,
+    #privateMessageInput[placeholder]::before,
+    .editable-div[placeholder]::before {
+        font-size: 12px;
+    }
+
+    .input-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-end;
+        align-items: center;
+    }
+
+    .input-buttons button,
+    .more-functions button,
+    .toggle-btn {
+        min-height: 44px;
+        padding: 7px 10px;
+        font-size: 13px;
+        border-radius: 6px;
+        white-space: nowrap;
+    }
+
+    .input-buttons .button-text,
+    .more-functions .button-text {
+        display: none;
+    }
+
+    .more-functions {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(36px, 1fr));
+        gap: 6px;
+        padding: 6px 0 0;
+    }
+
+    .more-functions button {
+        justify-content: center;
+        width: 100%;
+    }
+
+    .quoted-preview-wrapper {
+        padding: 6px 8px;
+        margin-bottom: 6px;
+    }
+
+    .empty-chat-state,
+    .empty-state {
+        padding: 16px 10px;
+    }
+
+    .empty-chat-state h3,
+    .empty-state h3 {
+        font-size: 17px;
+    }
+
+    .empty-chat-state p,
+    .empty-state p {
+        font-size: 13px;
+    }
+
+    /* 移动端侧边栏切换按钮 */
+    .mobile-sidebar-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 50;
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
+        min-height: 44px;
+        border: none;
+        border-radius: 8px;
+        background: rgba(44, 62, 80, 0.85);
+        color: #fff;
+        font-size: 20px;
+        cursor: pointer;
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+    }
+
+    .mobile-sidebar-toggle:active {
+        background: rgba(52, 73, 94, 0.9);
+    }
+
+    /* 侧边栏折叠状态 */
+    #main-chat.sidebar-collapsed {
+        grid-template-columns: 56px minmax(0, 1fr);
+    }
+
+    #main-chat.sidebar-collapsed #secondary-sidebar {
+        display: none;
+    }
+
+    /* 深色模式 - 切换按钮 */
+    body.dark-mode .mobile-sidebar-toggle {
+        background: rgba(22, 27, 34, 0.9);
+        color: #c9d1d9;
+    }
+
+    body.dark-mode .mobile-sidebar-toggle:active {
+        background: rgba(48, 54, 61, 0.95);
+    }
+}
+
+@media (max-width: 480px) {
+    #main-chat {
+        grid-template-columns: 48px minmax(76px, 28vw) minmax(0, 1fr);
+    }
+
+    #sidebar {
+        width: 48px;
+        min-width: 48px;
+        max-width: 48px;
+    }
+
+    #secondary-sidebar {
+        padding: 6px 4px;
+    }
+
+    .sidebar-section h3,
+    .user-list .user-name,
+    .group-info,
+    .friend-info,
+    .settings-item {
+        font-size: 11px;
+    }
+
+    .group-header h2,
+    .private-user-details h2 {
+        max-width: 34vw;
+        font-size: 15px;
+    }
+
+    .group-actions button,
+    .private-actions button {
+        padding: 6px 8px;
+        font-size: 12px;
+    }
+
+    .message {
+        max-width: 96%;
+    }
+
+    .msg-avatar {
+        width: 26px;
+        height: 26px;
+        min-width: 26px;
+        min-height: 26px;
+    }
+
+    .other-message .msg-body {
+        margin-left: 6px;
+    }
+
+    .own-message .msg-body {
+        margin-right: 6px;
+    }
+
+    .input-buttons button,
+    .more-functions button,
+    .toggle-btn {
+        min-height: 44px;
+        padding: 6px 8px;
+        font-size: 12px;
+    }
+
+    #main-chat.sidebar-collapsed {
+        grid-template-columns: 48px minmax(0, 1fr);
+    }
 }
