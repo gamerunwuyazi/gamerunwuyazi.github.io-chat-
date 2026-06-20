@@ -385,11 +385,20 @@ function handlePrivateMessageInput() {
   }
 }
 
+function isMobileDevice() {
+  return window.innerWidth <= 768;
+}
+
 function handlePrivateMessageInputKeydown(e) {
+  const isMobile = isMobileDevice();
+  
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+    if (isMobile) {
+      return;
+    }
     e.preventDefault();
     handleSendPrivateMessage();
-  } else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
+  } else if (e.key === 'Enter' && (e.ctrlKey || (isMobile && !e.shiftKey))) {
     e.preventDefault();
     insertPrivateNewLine();
   } else if (e.key === 'm' && e.ctrlKey) {
@@ -888,7 +897,12 @@ watch(
 watch(
   () => privateMessages.value,
   (newMessages) => {
-    if (newMessages.length > previousPrivateMessageLength && !isLoadingMoreMessages) {
+    if (isLoadingMoreMessages) {
+      refreshScrollPos();
+      setTimeout(() => {
+        resetLoadingState();
+      }, 100);
+    } else if (newMessages.length > previousPrivateMessageLength && !isLoadingMoreMessages) {
       if (isNearBottom()) {
         scrollToBottom();
       }

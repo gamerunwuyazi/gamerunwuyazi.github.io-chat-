@@ -347,7 +347,12 @@ function refreshScrollPos() {
 watch(
   () => publicStore.publicMessages,
   (newMessages) => {
-    if (newMessages.length > previousPublicMessageLength && !isLoadingMoreMessages) {
+    if (isLoadingMoreMessages) {
+      refreshScrollPos();
+      setTimeout(() => {
+        resetLoadingState();
+      }, 100);
+    } else if (newMessages.length > previousPublicMessageLength && !isLoadingMoreMessages) {
       if (isNearBottom()) {
         scrollToBottom();
       }
@@ -640,6 +645,10 @@ function handleCompositionEnd() {
   handleMessageInput();
 }
 
+function isMobileDevice() {
+  return window.innerWidth <= 768;
+}
+
 function handleMessageInputKeydown(e) {
   if (showAtPicker.value) {
     if (e.key === 'ArrowDown') {
@@ -673,10 +682,15 @@ function handleMessageInputKeydown(e) {
     }, 0);
   }
   
+  const isMobile = isMobileDevice();
+  
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+    if (isMobile) {
+      return;
+    }
     e.preventDefault();
     handleSendMessage();
-  } else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
+  } else if (e.key === 'Enter' && (e.ctrlKey || (isMobile && !e.shiftKey))) {
     e.preventDefault();
     insertNewLine();
   } else if (e.key === 'm' && e.ctrlKey) {

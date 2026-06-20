@@ -292,7 +292,7 @@ function handleGroupAvatarError(event, group) {
                         <span v-if="group.deleted_at" class="deleted-icon">🗑️</span>
                     </span>
                     <div class="group-info">
-                        <span class="group-name" :style="{ color: group.deleted_at ? '#000' : '' }">{{ getGroupDisplayName(group) }} <span v-if="group.deleted_at" style="font-size: 12px;">(已删除)</span></span>
+                        <span class="group-name" :style="{ color: group.deleted_at ? '#000' : '#333' }">{{ getGroupDisplayName(group) }} <span v-if="group.deleted_at" style="font-size: 12px;">(已删除)</span></span>
                         <span v-if="groupStore.hasGroupAtMe && groupStore.hasGroupAtMe(group.id) && !group.deleted_at" class="group-last-message at-me-text">[有人@我]</span>
                         <span v-else-if="hasDraft(group) && !group.deleted_at" class="group-last-message draft-text">{{ getGroupLastMessage(group) }}</span>
                         <span v-else-if="group.deleted_at" class="group-last-message" style="color: #000;">该会话已被删除</span>

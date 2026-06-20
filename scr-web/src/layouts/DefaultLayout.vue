@@ -1,5 +1,9 @@
 <template>
-  <div id="main-chat">
+  <!-- 手机端布局 -->
+  <MobileLayout v-if="isMobile" />
+
+  <!-- 桌面端布局 -->
+  <div v-else id="main-chat">
     <ChatSidebar/>
     
     <router-view name="sidebar"></router-view>
@@ -14,16 +18,23 @@
 </template>
 
 <script setup>
-import { onMounted, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import ChatModal from "@/components/ChatModal.vue";
 import ChatSidebar from "@/components/ChatSidebar.vue"
+import MobileLayout from "@/layouts/MobileLayout.vue"
 import { useSessionStore } from "@/stores/sessionStore";
 import { setActiveChat } from "@/utils/chat";
 
 const sessionStore = useSessionStore();
 const route = useRoute();
+
+const isMobile = ref(false);
+
+function checkMobile() {
+  isMobile.value = window.innerWidth <= 768;
+}
 
 function updateCurrentActiveChat(clearUnread = false) {
   const path = route.path;
@@ -42,6 +53,8 @@ function updateCurrentActiveChat(clearUnread = false) {
 }
 
 onMounted(() => {
+  checkMobile();
+  window.addEventListener('resize', checkMobile);
   updateCurrentActiveChat(false);
 });
 

@@ -1,15 +1,13 @@
 <script setup>
-import { SliderCaptcha } from 'scr-slider-captcha/frontend';
 import {ref, computed, onMounted, onUnmounted} from "vue";
 
-import 'scr-slider-captcha/frontend/style.css';
-import { useCaptcha } from '@/composables/useCaptcha';
 import {useBaseStore} from "@/stores/baseStore";
 import {useStorageStore} from "@/stores/storageStore";
 import {useUnreadStore} from "@/stores/unreadStore";
 import {currentSessionToken} from "@/utils/chat";
 import modal from "@/utils/modal";
 import { originalFetch } from "@/utils/chat/config.js";
+import POWCaptcha from '@/components/POWCaptcha.vue';
 
 const baseStore = useBaseStore();
 const storageStore = useStorageStore();
@@ -18,10 +16,8 @@ const SERVER_URL = import.meta.env.VITE_SERVER_URL || ''
 
 const currentUser = computed(() => baseStore.currentUser);
 
-const {
-  resetCaptcha,
-  captchaError
-} = useCaptcha();
+const powCaptchaRef = ref(null);
+const captchaError = ref('');
 
 const currentSetting = ref('')
 
@@ -35,12 +31,6 @@ const passwordMessageClass = ref('')
 
 // 模态框状态
 const captchaModalVisible = ref(false);
-const modalBgBase64 = ref('');
-const modalPuzzleBase64 = ref('');
-const modalTargetY = ref(0);
-const modalPuzzleSize = ref(50);
-const modalPublicKey = ref('');
-let pendingCaptchaId = '';
 
 const isPasswordFormValid = computed(() => {
   const oldPasswordValid = !!passwordForm.value.oldPassword && String(passwordForm.value.oldPassword).trim().length > 0;
@@ -102,42 +92,17 @@ function getCurrentSessionToken() {
   return localStorage.getItem('currentSessionToken') || ''
 }
 
-async function openCaptchaModal() {
+function openCaptchaModal() {
   captchaError.value = '';
   captchaModalVisible.value = true;
-  try {
-    const res = await originalFetch(`${SERVER_URL}/api/captcha/create`, {
-      method: 'POST'
-    });
-    const data = await res.json();
-    if (data.captchaId) {
-      pendingCaptchaId = data.captchaId;
-      modalBgBase64.value = data.bgBase64;
-      modalPuzzleBase64.value = data.puzzleBase64;
-      modalTargetY.value = data.targetY;
-      modalPuzzleSize.value = data.puzzleSize;
-      modalPublicKey.value = data.publicKey || '';
-    } else {
-      captchaError.value = data.message || '获取验证码失败';
-    }
-  } catch (err) {
-    const msg = err?.message || '';
-    if (msg && !msg.includes('Failed to fetch')) {
-      captchaError.value = msg;
-    } else {
-      captchaError.value = '网络错误，请稍后重试';
-    }
-  }
 }
 
 function closeCaptchaModal() {
   captchaModalVisible.value = false;
-  modalBgBase64.value = '';
-  modalPuzzleBase64.value = '';
 }
 
-async function onCaptchaVerify(encryptedData) {
-  await doChangePassword(pendingCaptchaId, encryptedData);
+async function onCaptchaVerify(powToken) {
+  await doChangePassword(powToken);
 }
 
 function handleSettingClick(setting) {
@@ -178,7 +143,7 @@ function handlePasswordClick() {
   openCaptchaModal();
 }
 
-async function doChangePassword(captchaIdVal, encryptedTrajectoryVal) {
+async function doChangePassword(powToken) {
   const userId = getCurrentUserId()
   const sessionToken = getCurrentSessionToken()
 
@@ -193,8 +158,7 @@ async function doChangePassword(captchaIdVal, encryptedTrajectoryVal) {
       body: JSON.stringify({
         oldPassword: passwordForm.value.oldPassword,
         newPassword: passwordForm.value.newPassword,
-        captchaId: captchaIdVal,
-        encryptedTrajectory: encryptedTrajectoryVal
+        powToken: powToken
       })
     })
 
@@ -205,7 +169,6 @@ async function doChangePassword(captchaIdVal, encryptedTrajectoryVal) {
       passwordMessage.value = '密码修改成功'
       passwordMessageClass.value = 'success'
       passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
-      resetCaptcha();
     } else {
       const errorMessage = data.message || '密码修改失败';
 
@@ -215,13 +178,14 @@ async function doChangePassword(captchaIdVal, encryptedTrajectoryVal) {
         passwordMessageClass.value = 'error';
       } else if (errorMessage.includes('人机验证') || errorMessage.includes('验证码')) {
         captchaError.value = errorMessage;
-        modalBgBase64.value = '';
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        await openCaptchaModal();
+        if (powCaptchaRef.value) {
+          powCaptchaRef.value.reset();
+        }
       } else {
         captchaError.value = errorMessage;
-        resetCaptcha();
-        await openCaptchaModal();
+        if (powCaptchaRef.value) {
+          powCaptchaRef.value.reset();
+        }
       }
     }
   } catch (error) {
@@ -593,12 +557,18 @@ async function handleCancelFriendRequest(friendId) {
   }
 }
 
+function handleSettingsBack() {
+  currentSetting.value = ''
+}
+
 onMounted(() => {
   window.addEventListener('settings-item-click', handleSettingsItemClick)
+  window.addEventListener('settings-back', handleSettingsBack)
 })
 
 onUnmounted(() => {
   window.removeEventListener('settings-item-click', handleSettingsItemClick)
+  window.removeEventListener('settings-back', handleSettingsBack)
 })
 </script>
 
@@ -723,9 +693,6 @@ onUnmounted(() => {
             <div class="shortcut-keys">Ctrl + M</div>
           </div>
         </div>
-        <div class="form-actions" style="margin-top: 20px;">
-          <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
-        </div>
       </div>
 
       <div v-if="currentSetting === 'clear-unread-counts'" class="settings-detail">
@@ -755,9 +722,6 @@ onUnmounted(() => {
             <div class="version-value">无崖子——gamerunwuyazi</div>
           </div>
         </div>
-        <div class="form-actions" style="margin-top: 20px;">
-          <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
-        </div>
       </div>
 
       <div v-if="currentSetting === 'help-center'" class="settings-detail">
@@ -771,9 +735,6 @@ onUnmounted(() => {
 
           <h3>如何创建群组？</h3>
           <p>在群组聊天界面，点击左侧群组列表上方的"+"按钮即可创建新群组。</p>
-        </div>
-        <div class="form-actions" style="margin-top: 20px;">
-          <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
         </div>
       </div>
 
@@ -866,10 +827,6 @@ onUnmounted(() => {
           <div v-if="friendRequestMessage" :class="'form-message ' + friendRequestMessageClass" style="margin-top: 15px;">
             {{ friendRequestMessage }}
           </div>
-
-          <div class="form-actions" style="margin-top: 20px;">
-            <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
-          </div>
         </div>
       </div>
     </div>
@@ -883,16 +840,7 @@ onUnmounted(() => {
             <button class="captcha-close-btn" @click="closeCaptchaModal">&times;</button>
           </div>
           <div class="captcha-modal-body">
-            <SliderCaptcha
-              :bg-base64="modalBgBase64"
-              :puzzle-base64="modalPuzzleBase64"
-              :target-y="modalTargetY"
-              :puzzle-size="modalPuzzleSize"
-              :width="300"
-              :height="150"
-              :public-key="modalPublicKey"
-              @verify="onCaptchaVerify"
-            />
+            <POWCaptcha ref="powCaptchaRef" @verify="onCaptchaVerify" />
             <div v-if="captchaError" class="captcha-error">{{ captchaError }}</div>
           </div>
         </div>
