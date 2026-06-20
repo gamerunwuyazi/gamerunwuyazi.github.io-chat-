@@ -1,18 +1,14 @@
 <template>
-  <div id="main-chat" :class="{ 'sidebar-collapsed': !showSecondarySidebar }">
+  <!-- 手机端布局 -->
+  <MobileLayout v-if="isMobile" />
+
+  <!-- 桌面端布局 -->
+  <div v-else id="main-chat">
     <ChatSidebar/>
     
     <router-view name="sidebar"></router-view>
     
     <div id="chat-main">
-      <button
-        class="mobile-sidebar-toggle"
-        @click="toggleSecondarySidebar"
-        :title="showSecondarySidebar ? '隐藏侧边栏' : '显示侧边栏'"
-        aria-label="切换侧边栏"
-      >
-        &#9776;
-      </button>
       <router-view></router-view>
     </div>
     <div id="modal">
@@ -27,16 +23,17 @@ import { useRoute } from "vue-router";
 
 import ChatModal from "@/components/ChatModal.vue";
 import ChatSidebar from "@/components/ChatSidebar.vue"
+import MobileLayout from "@/layouts/MobileLayout.vue"
 import { useSessionStore } from "@/stores/sessionStore";
 import { setActiveChat } from "@/utils/chat";
 
 const sessionStore = useSessionStore();
 const route = useRoute();
 
-const showSecondarySidebar = ref(true);
+const isMobile = ref(false);
 
-function toggleSecondarySidebar() {
-  showSecondarySidebar.value = !showSecondarySidebar.value;
+function checkMobile() {
+  isMobile.value = window.innerWidth <= 768;
 }
 
 function updateCurrentActiveChat(clearUnread = false) {
@@ -56,6 +53,8 @@ function updateCurrentActiveChat(clearUnread = false) {
 }
 
 onMounted(() => {
+  checkMobile();
+  window.addEventListener('resize', checkMobile);
   updateCurrentActiveChat(false);
 });
 

@@ -1,711 +1,614 @@
-/* 手机适配样式 - 独立的手机布局，不使用响应式设计 */
+/* ============================================
+   手机端 IM 专用样式
+   底部导航栏 + 会话列表 + 聊天覆盖层 + 用户抽屉
+   ============================================ */
 
-/* 移动端侧边栏切换按钮 - 桌面端默认隐藏 */
-.mobile-sidebar-toggle {
-    display: none;
+/* ---- 全局重置 ---- */
+@media (max-width: 768px) {
+    html, body, #app {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    /* 隐藏桌面端布局 */
+    #main-chat {
+        display: none !important;
+    }
 }
 
-/* 手机布局容器 */
-#mobile-chat {
-    display: none;
+/* ---- 手机App容器 ---- */
+#mobile-app {
+    display: flex;
     flex-direction: column;
     width: 100vw;
+    height: 100dvh;
     height: 100vh;
-    background-color: white;
+    background: #f0f2f5;
+    overflow: hidden;
+    position: relative;
+}
+
+/* ---- 主内容区 ---- */
+#mobile-content {
+    flex: 1;
+    min-height: 0;
     position: relative;
     overflow: hidden;
 }
 
-/* 手机顶部导航栏 */
-.mobile-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 15px;
-    background-color: #2c3e50;
-    color: white;
-    height: 60px;
-    box-sizing: border-box;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-    z-index: 100;
-}
-
-.mobile-header .menu-btn {
-    background: none;
-    border: none;
-    color: white;
-    font-size: 20px;
-    cursor: pointer;
-    padding: 5px;
-}
-
-.mobile-header h1 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-}
-
-/* 手机侧边菜单 */
-.mobile-sidebar {
-    position: fixed;
-    top: 0;
-    left: -300px;
-    width: 250px;
-    height: 100vh;
-    background-color: #34495e;
-    color: white;
-    transition: left 0.3s ease;
-    z-index: 200;
-    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+/* ---- 会话列表 ---- */
+#mobile-conversations {
+    width: 100%;
+    height: 100%;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
-.mobile-sidebar.active {
-    left: 0;
-}
-
-.mobile-sidebar-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background-color: rgba(0, 0, 0, 0.5);
-    z-index: 150;
+#mobile-conversations.hidden {
     display: none;
 }
 
-.mobile-sidebar-overlay.active {
-    display: block;
+/* 覆盖 sidebar 组件在移动端的样式 */
+#mobile-app #secondary-sidebar {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: 100% !important;
+    padding: 12px;
+    background: #f0f2f5;
+    overflow-y: auto;
 }
 
-/* 手机侧边菜单头部 */
-.mobile-sidebar-header {
-    padding: 20px;
-    border-bottom: 1px solid #2c3e50;
+#mobile-app .sidebar-section {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+}
+
+#mobile-app .sidebar-section h3 {
+    font-size: 15px;
+    margin-bottom: 10px;
+    padding: 0 4px;
+    color: #333;
+}
+
+#mobile-app .user-list li,
+#mobile-app .settings-list li {
+    padding: 12px 8px;
+    font-size: 14px;
+    border-radius: 8px;
+    margin-bottom: 2px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+#mobile-app .user-list li:active,
+#mobile-app .settings-list li:active {
+    background: #e8e8e8;
+}
+
+#mobile-app .group-last-message,
+#mobile-app .friend-last-message {
+    display: block !important;
+    font-size: 12px;
+    color: #999;
+    margin-top: 3px;
+}
+
+#mobile-app .search-container {
+    gap: 6px;
+}
+
+#mobile-app .search-input {
+    min-width: 0;
+    font-size: 14px;
+    padding: 10px 28px 10px 10px;
+    border-radius: 8px;
+}
+
+/* ---- 聊天覆盖层 ---- */
+#mobile-chat {
+    display: none;
+    flex-direction: column;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #f5f6fa;
+    z-index: 20;
+}
+
+#mobile-chat.visible {
+    display: flex;
+}
+
+/* 聊天头 */
+.mobile-chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+    min-height: 52px;
+    padding: 0 12px;
+    background: #2c3e50;
+    color: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    z-index: 10;
+    flex-shrink: 0;
+}
+
+.mobile-back-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 16px;
+    padding: 8px 4px;
+    cursor: pointer;
+    min-width: 44px;
+    text-align: left;
+}
+
+.mobile-chat-title {
+    flex: 1;
     text-align: center;
-}
-
-.mobile-sidebar-header .user-avatar {
-    width: 80px;
-    height: 80px;
-    border-radius: 50%;
-    margin: 0 auto 10px;
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
     overflow: hidden;
-    border: 2px solid #3498db;
+    text-overflow: ellipsis;
+    padding: 0 8px;
 }
 
-.mobile-sidebar-header .user-avatar-img {
+.mobile-user-list-btn {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: #fff;
+    font-size: 13px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    min-width: 44px;
+    min-height: 32px;
+}
+
+.mobile-chat-spacer {
+    width: 44px;
+}
+
+/* 聊天视图 */
+.mobile-chat-view {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* 聊天视图内的组件调整 */
+.mobile-chat-view .chat-content,
+.mobile-chat-view .group-chat-interface,
+.mobile-chat-view .private-chat-interface {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.mobile-chat-view .group-header,
+.mobile-chat-view .private-header {
+    flex-shrink: 0;
+    padding: 10px 12px;
+    background: #fff;
+    border-bottom: 1px solid #eee;
+}
+
+.mobile-chat-view .group-header h2,
+.mobile-chat-view .private-user-details h2 {
+    font-size: 15px;
+    max-width: 60vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mobile-chat-view #messageContainer,
+.mobile-chat-view #groupMessageContainer,
+.mobile-chat-view #privateMessageContainer {
+    flex: 1;
+    min-height: 0;
+    padding: 10px;
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto;
+}
+
+.mobile-chat-view .input-area {
+    flex-shrink: 0;
+    padding: 10px;
+    background: #fff;
+    border-top: 1px solid #eee;
+    position: sticky;
+    bottom: 0;
+    padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+}
+
+.mobile-chat-view .message {
+    max-width: 85%;
+    margin-bottom: 12px;
+}
+
+.mobile-chat-view .msg-avatar {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+}
+
+.mobile-chat-view .msg-bubble {
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 8px 10px;
+}
+
+.mobile-chat-view .input-container {
+    padding: 8px 10px;
+}
+
+.mobile-chat-view .editable-div {
+    min-height: 38px;
+    max-height: 100px;
+    font-size: 14px;
+}
+
+.mobile-chat-view .input-buttons button {
+    min-height: 40px;
+    padding: 8px 14px;
+    font-size: 13px;
+    border-radius: 6px;
+}
+
+.mobile-chat-view .more-functions button {
+    min-height: 40px;
+    padding: 6px;
+}
+
+.mobile-chat-view .markdown-toolbar {
+    flex-shrink: 0;
+    padding: 6px 8px;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+}
+
+.mobile-chat-view .markdown-btn {
+    flex: 0 0 auto;
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+/* 隐藏聊天视图中的空状态提示（会话列表已显示在外面） */
+.mobile-chat-view .empty-chat-state {
+    display: none;
+}
+
+/* ---- 用户左抽屉 ---- */
+#mobile-user-drawer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 200;
+    pointer-events: none;
+}
+
+#mobile-user-drawer.open {
+    pointer-events: auto;
+}
+
+.mobile-drawer-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.4);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+
+#mobile-user-drawer.open .mobile-drawer-overlay {
+    opacity: 1;
+}
+
+.mobile-drawer-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 80vw;
+    max-width: 320px;
+    height: 100%;
+    background: #fff;
+    box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+#mobile-user-drawer.open .mobile-drawer-panel {
+    transform: translateX(0);
+}
+
+.mobile-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid #eee;
+    background: #2c3e50;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.mobile-drawer-header h3 {
+    margin: 0;
+    font-size: 16px;
+}
+
+.mobile-drawer-close {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 4px 8px;
+    min-width: 36px;
+}
+
+.mobile-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px;
+}
+
+.mobile-drawer-section {
+    margin-bottom: 20px;
+}
+
+.mobile-drawer-section h4 {
+    font-size: 13px;
+    color: #888;
+    margin: 0 0 10px 0;
+    padding: 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.mobile-user-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.mobile-user-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.mobile-user-item:active {
+    background: #f0f0f0;
+}
+
+.mobile-user-avatar {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #e0e0e0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.mobile-user-avatar img {
     width: 100%;
     height: 100%;
     object-fit: cover;
 }
 
-.mobile-sidebar-header .user-info {
-    text-align: center;
+.mobile-user-avatar-text {
+    font-size: 16px;
+    font-weight: 600;
+    color: #555;
 }
 
-/* 手机侧边菜单项 */
-.mobile-menu-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-
-.mobile-menu-item {
-    padding: 15px 20px;
-    cursor: pointer;
-    border-bottom: 1px solid #2c3e50;
-    transition: background-color 0.2s ease;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.mobile-menu-item:hover {
-    background-color: #2c3e50;
-}
-
-.mobile-menu-item.active {
-    background-color: #3498db;
-}
-
-/* 手机聊天区域 */
-.mobile-message-container {
+.mobile-user-name {
     flex: 1;
-    overflow-y: auto;
-    padding: 10px;
-    background-color: #fafafa;
-    min-height: 0;
-}
-
-/* 手机输入区域 */
-.mobile-input-area {
-    padding: 15px;
-    background-color: white;
-    border-top: 1px solid #e9ecef;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.mobile-input-container {
-    position: relative;
-    background-color: #f8f9fa;
-    border: 1px solid #dee2e6;
-    border-radius: 25px;
-    padding: 10px 15px;
-    transition: all 0.3s ease;
-}
-
-.mobile-input-container:focus-within {
-    border-color: #3498db;
-    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
-}
-
-#mobileMessageInput {
-    width: 100%;
-    min-height: 40px;
-    max-height: 150px;
-    border: none;
-    background: transparent;
-    resize: none;
     font-size: 14px;
-    font-weight: 500;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    line-height: 1.5;
-    color: #495057;
-    outline: none;
-    box-sizing: border-box;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-#mobileMessageInput:empty:before {
-    content: attr(placeholder);
-    color: #95a5a6;
-    pointer-events: none;
-    display: inline-block;
+.mobile-user-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
 }
 
-.mobile-input-buttons {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-    align-items: center;
+.mobile-user-dot.online {
+    background: #2ecc71;
 }
 
-.mobile-input-buttons button {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
-    border: none;
-    border-radius: 20px;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    font-weight: 500;
-}
-
-#mobileSendButton {
-    background-color: #3498db;
-    color: white;
-}
-
-#mobileSendButton:hover:not(:disabled) {
-    background-color: #2980b9;
-    transform: scale(1.05);
-}
-
-/* 手机消息样式 */
-.mobile-message {
-    background: #ffffff;
-    border-radius: 10px;
-    padding: 12px 15px;
-    margin-bottom: 12px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    max-width: 80%;
-    position: relative;
-    word-wrap: break-word;
-}
-
-.mobile-message.own-message {
-    background: #dcf8c6;
-    margin-left: 20%;
-}
-
-.mobile-message-sender {
-    font-weight: bold;
-    font-size: 12px;
-    color: #666;
-    margin-bottom: 5px;
-}
-
-.mobile-message-content {
-    color: #343a40;
-    line-height: 1.4;
-    margin-bottom: 5px;
-}
-
-.mobile-message-time {
+.mobile-empty-hint {
+    padding: 12px 8px;
     color: #999;
-    font-size: 10px;
-    position: absolute;
-    right: 15px;
-    bottom: 5px;
+    font-size: 13px;
+    text-align: center;
 }
 
-/* 手机群组聊天 */
-#mobile-group-chat {
-    display: none;
+/* ---- 底部导航栏 ---- */
+#mobile-tab-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    height: 56px;
+    min-height: 56px;
+    background: #fff;
+    border-top: 1px solid #e0e0e0;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    flex-shrink: 0;
+    z-index: 30;
+}
+
+.mobile-tab {
+    display: flex;
     flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    flex: 1;
     height: 100%;
-    width: 100%;
+    cursor: pointer;
+    position: relative;
+    color: #999;
+    transition: color 0.15s;
+    -webkit-tap-highlight-color: transparent;
 }
 
-/* 手机加载状态 */
-.mobile-loading {
+.mobile-tab.active {
+    color: #3498db;
+}
+
+.mobile-tab-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+
+.mobile-tab-label {
+    font-size: 10px;
+    line-height: 1;
+}
+
+.mobile-tab-badge {
+    position: absolute;
+    top: 4px;
+    right: 50%;
+    transform: translateX(150%);
+    background: #e74c3c;
+    color: #fff;
+    font-size: 10px;
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
     text-align: center;
-    padding: 20px;
-    color: #6c757d;
+    border-radius: 8px;
+    padding: 0 5px;
+    pointer-events: none;
 }
 
-/* 手机空状态 */
-.mobile-empty-state {
-    text-align: center;
-    padding: 40px 20px;
-    color: #6c757d;
+/* ---- 深色模式 ---- */
+body.dark-mode #mobile-app {
+    background: #0d1117;
 }
 
-.mobile-empty-state h3 {
-    margin: 0 0 10px 0;
-    font-size: 18px;
-    color: #495057;
+body.dark-mode #mobile-app #secondary-sidebar {
+    background: #0d1117;
 }
 
-.mobile-empty-state p {
-    margin: 0;
-    font-size: 14px;
-    line-height: 1.5;
+body.dark-mode #mobile-app .sidebar-section h3 {
+    color: #c9d1d9;
 }
 
+body.dark-mode #mobile-app .user-list li,
+body.dark-mode #mobile-app .settings-list li {
+    background: #161b22;
+    color: #c9d1d9;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+body.dark-mode #mobile-app .user-list li:active,
+body.dark-mode #mobile-app .settings-list li:active {
+    background: #21262d;
+}
+
+body.dark-mode #mobile-app .search-input {
+    background: #21262d;
+    color: #c9d1d9;
+    border-color: #30363d;
+}
+
+body.dark-mode .mobile-chat-header {
+    background: #161b22;
+}
+
+body.dark-mode .mobile-chat-view {
+    background: #0d1117;
+}
+
+body.dark-mode .mobile-chat-view .group-header,
+body.dark-mode .mobile-chat-view .private-header {
+    background: #161b22;
+    border-bottom-color: #30363d;
+}
+
+body.dark-mode .mobile-chat-view .input-area {
+    background: #161b22;
+    border-top-color: #30363d;
+}
+
+body.dark-mode #mobile-tab-bar {
+    background: #161b22;
+    border-top-color: #30363d;
+}
+
+body.dark-mode .mobile-drawer-panel {
+    background: #161b22;
+}
+
+body.dark-mode .mobile-drawer-header {
+    background: #0d1117;
+    border-bottom-color: #30363d;
+}
+
+body.dark-mode .mobile-drawer-section h4 {
+    color: #8b949e;
+}
+
+body.dark-mode .mobile-user-item:active {
+    background: #1c2128;
+}
+
+body.dark-mode .mobile-user-name {
+    color: #c9d1d9;
+}
+
+body.dark-mode .mobile-user-avatar {
+    background: #30363d;
+}
+
+body.dark-mode .mobile-user-avatar-text {
+    color: #c9d1d9;
+}
+
+body.dark-mode .mobile-drawer-overlay {
+    background: rgba(0,0,0,0.7);
+}
+
+/* ---- 消息图片适配 ---- */
 @media (max-width: 768px) {
-    html,
-    body,
-    #app {
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-    }
-
-    #main-chat {
-        width: 100vw;
-        min-width: 0;
-        height: 100dvh;
-        display: grid;
-        grid-template-columns: 56px minmax(96px, 32vw) minmax(0, 1fr);
-        overflow: hidden;
-    }
-
-    #sidebar {
-        width: 56px;
-        min-width: 56px;
-        max-width: 56px;
-        height: 100dvh;
-        overflow-y: auto;
-    }
-
-    .sidebar-header {
-        padding: 6px 0;
-    }
-
-    .user-profile {
-        margin-top: 6px;
-    }
-
-    #userAvatar {
-        width: 38px;
-        height: 38px;
-        min-width: 38px;
-        min-height: 38px;
-    }
-
-    .user-initials {
-        font-size: 16px;
-    }
-
-    .menu-section {
-        margin-top: 10px;
-    }
-
-    .menu-section[style] {
-        margin-bottom: 8px !important;
-    }
-
-    .menu-item {
-        height: 48px;
-        margin: 3px 0;
-        border-radius: 0;
-    }
-
-    .menu-item:hover,
-    .menu-item.active:hover,
-    .menu-item:hover .chat-avatar,
-    .menu-item.active .chat-avatar {
-        transform: none;
-    }
-
-    .chat-avatar {
-        width: 34px;
-        height: 34px;
-    }
-
-    #secondary-sidebar {
-        width: auto;
-        min-width: 0;
-        max-width: none;
-        height: 100dvh;
-        padding: 8px;
-        overflow-y: auto;
-    }
-
-    .sidebar-section {
-        margin-bottom: 14px;
-        padding-bottom: 10px;
-    }
-
-    .sidebar-section h3 {
-        font-size: 13px;
-        margin-bottom: 8px;
-    }
-
-    .user-list li,
-    .settings-list li {
-        padding: 7px 2px;
-        font-size: 12px;
-    }
-
-    .user-list li:hover,
-    .settings-list li:hover {
-        transform: none;
-    }
-
-    .user-list .user-name,
-    .group-name,
-    .friend-name,
-    .setting-value {
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .group-last-message,
-    .friend-last-message,
-    .user-status,
-    .mute-icon {
-        display: none !important;
-    }
-
-    .search-container {
-        gap: 4px;
-    }
-
-    .search-input {
-        min-width: 0;
-        font-size: 12px;
-        padding: 6px 22px 6px 6px;
-    }
-
-    .create-group-btn,
-    .add-friend-btn,
-    .clear-search-btn {
-        flex: 0 0 auto;
-    }
-
-    #chat-main {
-        min-width: 0;
-        height: 100dvh;
-        overflow: hidden;
-    }
-
-    .chat-content,
-    .group-chat-interface,
-    .private-chat-interface {
-        min-width: 0;
-        min-height: 0;
-        height: 100%;
-    }
-
-    .group-header,
-    .private-header {
-        flex: 0 0 auto;
-        min-height: 52px;
-        padding: 8px 10px;
-        box-sizing: border-box;
-    }
-
-    .group-header h2,
-    .private-user-details h2 {
-        max-width: 38vw;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 16px;
-    }
-
-    .private-user-avatar {
-        width: 36px;
-        height: 36px;
-        min-width: 36px;
-        min-height: 36px;
-    }
-
-    #messageContainer,
-    #groupMessageContainer,
-    #privateMessageContainer {
-        padding: 8px;
-        min-height: 0;
-        -webkit-overflow-scrolling: touch;
-    }
-
-    .message {
-        max-width: 92%;
-        margin-bottom: 10px;
-    }
-
-    .msg-avatar {
-        width: 30px;
-        height: 30px;
-        min-width: 30px;
-        min-height: 30px;
-    }
-
-    .msg-bubble {
-        font-size: 13px;
-        line-height: 1.45;
-        padding: 6px 8px;
-    }
-
     .message-content .message-text img,
     .message-image {
-        max-height: 220px;
-    }
-
-    .markdown-toolbar {
-        flex: 0 0 auto;
-        padding: 6px 8px;
-        overflow-x: auto;
-        white-space: nowrap;
-    }
-
-    .markdown-btn {
-        flex: 0 0 auto;
-        padding: 5px 8px;
-        font-size: 12px;
-    }
-
-    .input-area {
-        flex: 0 0 auto;
-        padding: 8px;
-        gap: 6px;
-        box-sizing: border-box;
-        position: sticky;
-        bottom: 0;
-        padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
-    }
-
-    .input-container {
-        padding: 8px;
-        max-height: 132px;
-        box-sizing: border-box;
-    }
-
-    #messageInput,
-    #groupMessageInput,
-    #privateMessageInput,
-    .editable-div {
-        min-height: 44px;
-        max-height: 96px;
-        font-size: 14px;
-        line-height: 1.45;
-        overflow-y: auto;
-    }
-
-    #messageInput[placeholder]::before,
-    #groupMessageInput[placeholder]::before,
-    #privateMessageInput[placeholder]::before,
-    .editable-div[placeholder]::before {
-        font-size: 12px;
-    }
-
-    .input-buttons {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        justify-content: flex-end;
-        align-items: center;
-    }
-
-    .input-buttons button,
-    .more-functions button,
-    .toggle-btn {
-        min-height: 44px;
-        padding: 7px 10px;
-        font-size: 13px;
-        border-radius: 6px;
-        white-space: nowrap;
-    }
-
-    .input-buttons .button-text,
-    .more-functions .button-text {
-        display: none;
-    }
-
-    .more-functions {
-        display: grid;
-        grid-template-columns: repeat(5, minmax(36px, 1fr));
-        gap: 6px;
-        padding: 6px 0 0;
-    }
-
-    .more-functions button {
-        justify-content: center;
-        width: 100%;
-    }
-
-    .quoted-preview-wrapper {
-        padding: 6px 8px;
-        margin-bottom: 6px;
-    }
-
-    .empty-chat-state,
-    .empty-state {
-        padding: 16px 10px;
-    }
-
-    .empty-chat-state h3,
-    .empty-state h3 {
-        font-size: 17px;
-    }
-
-    .empty-chat-state p,
-    .empty-state p {
-        font-size: 13px;
-    }
-
-    /* 移动端侧边栏切换按钮 */
-    .mobile-sidebar-toggle {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        position: absolute;
-        top: 8px;
-        left: 8px;
-        z-index: 50;
-        width: 44px;
-        height: 44px;
-        min-width: 44px;
-        min-height: 44px;
-        border: none;
-        border-radius: 8px;
-        background: rgba(44, 62, 80, 0.85);
-        color: #fff;
-        font-size: 20px;
-        cursor: pointer;
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
-    }
-
-    .mobile-sidebar-toggle:active {
-        background: rgba(52, 73, 94, 0.9);
-    }
-
-    /* 侧边栏折叠状态 */
-    #main-chat.sidebar-collapsed {
-        grid-template-columns: 56px minmax(0, 1fr);
-    }
-
-    #main-chat.sidebar-collapsed #secondary-sidebar {
-        display: none;
-    }
-
-    /* 深色模式 - 切换按钮 */
-    body.dark-mode .mobile-sidebar-toggle {
-        background: rgba(22, 27, 34, 0.9);
-        color: #c9d1d9;
-    }
-
-    body.dark-mode .mobile-sidebar-toggle:active {
-        background: rgba(48, 54, 61, 0.95);
-    }
-}
-
-@media (max-width: 480px) {
-    #main-chat {
-        grid-template-columns: 48px minmax(76px, 28vw) minmax(0, 1fr);
-    }
-
-    #sidebar {
-        width: 48px;
-        min-width: 48px;
-        max-width: 48px;
-    }
-
-    #secondary-sidebar {
-        padding: 6px 4px;
-    }
-
-    .sidebar-section h3,
-    .user-list .user-name,
-    .group-info,
-    .friend-info,
-    .settings-item {
-        font-size: 11px;
-    }
-
-    .group-header h2,
-    .private-user-details h2 {
-        max-width: 34vw;
-        font-size: 15px;
-    }
-
-    .group-actions button,
-    .private-actions button {
-        padding: 6px 8px;
-        font-size: 12px;
-    }
-
-    .message {
-        max-width: 96%;
-    }
-
-    .msg-avatar {
-        width: 26px;
-        height: 26px;
-        min-width: 26px;
-        min-height: 26px;
-    }
-
-    .other-message .msg-body {
-        margin-left: 6px;
-    }
-
-    .own-message .msg-body {
-        margin-right: 6px;
-    }
-
-    .input-buttons button,
-    .more-functions button,
-    .toggle-btn {
-        min-height: 44px;
-        padding: 6px 8px;
-        font-size: 12px;
-    }
-
-    #main-chat.sidebar-collapsed {
-        grid-template-columns: 48px minmax(0, 1fr);
+        max-height: 200px;
+        max-width: 100%;
     }
 }
