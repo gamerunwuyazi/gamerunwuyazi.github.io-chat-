@@ -514,14 +514,14 @@
 .tab-icon-img {
     width: 22px;
     height: 22px;
-    opacity: 0.55;
-    filter: grayscale(100%);
-    transition: opacity 0.15s, filter 0.15s;
+    opacity: 0.45;
+    filter: brightness(0);
+    transition: opacity 0.15s;
 }
 
 .mobile-tab.active .tab-icon-img {
-    opacity: 1;
-    filter: grayscale(0%);
+    opacity: 0.9;
+    filter: brightness(0.3);
 }
 
 .mobile-tab-label {
@@ -593,11 +593,13 @@ body.dark-mode #mobile-tab-bar {
 }
 
 body.dark-mode .tab-icon-img {
-    opacity: 0.45;
+    opacity: 0.5;
+    filter: brightness(0) invert(1);
 }
 
 body.dark-mode .mobile-tab.active .tab-icon-img {
-    opacity: 0.9;
+    opacity: 1;
+    filter: brightness(0.4) invert(1);
 }
 
 body.dark-mode .mobile-drawer-panel {
