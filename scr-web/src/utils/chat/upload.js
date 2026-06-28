@@ -13,6 +13,7 @@ import {
 import { loadMessages } from './websocket.js';
 import { refreshTokenWithQueue } from './tokenManager.js';
 import { logout } from './ui.js';
+import { uploadAvatar } from '@/api/upload.js';
 
 let isLoadingMoreMessages = {
   public: false,
@@ -505,16 +506,8 @@ function uploadUserAvatar(file) {
   formData.append('avatar', file);
   formData.append('userId', user.id);
 
-  fetch(`${SERVER_URL}/api/upload-avatar`, {
-    method: 'POST',
-    headers: {
-      'session-token': token,
-      'user-id': user.id
-    },
-    body: formData
-  })
-    .then(response => response.json())
-    .then(data => {
+  uploadAvatar(formData)
+    .then(res => { const data = res.data;
       if (data.status === 'success') {
         showSuccess('头像上传成功');
 

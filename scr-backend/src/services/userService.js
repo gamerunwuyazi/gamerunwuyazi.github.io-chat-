@@ -16,31 +16,33 @@ import {
   logIPAction
 } from '../utils/session.js';
 import { isIPBanned } from '../middleware/auth.js';
+import { verifyPOWSolution } from 'human-verify/backend';
 
 let io;
 
-const POW_API_URL = 'https://pow.airoe.cn/api';
-
-async function verifyPOWToken(powToken) {
-  if (!powToken) {
-    return { success: false, message: '缺少POW验证令牌' };
-  }
+// POW 验证函数 - 只验证 POW，行为验证已在 /api/verify/pow-challenge 完成
+async function verifyHuman(req, res) {
   try {
-    const response = await fetch(`${POW_API_URL}/validate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ token: powToken, keepToken: false })
-    });
-    const data = await response.json();
-    if (data.success) {
-      return { success: true };
+    const { sessionId, nonce } = req.body;
+    
+    if (!sessionId || !nonce) {
+      return { success: false, message: '缺少 POW 验证数据' };
     }
-    return { success: false, message: data.message || 'POW验证失败' };
+
+    // POW 验证
+    const powResult = verifyPOWSolution(sessionId, nonce);
+    if (!powResult.success) {
+      return { success: false, message: powResult.error || 'POW 验证失败' };
+    }
+    
+    if (!powResult.passed) {
+      return { success: false, message: 'POW 验证未通过' };
+    }
+
+    return { success: true, token: powResult.token };
   } catch (err) {
-    console.error('POW验证失败:', err.message);
-    return { success: false, message: 'POW验证失败' };
+    console.error('POW 验证失败:', err.message);
+    return { success: false, message: 'POW 验证失败' };
   }
 }
 
@@ -53,7 +55,7 @@ const avatarDir = path.join(process.cwd(), 'public', 'avatars');
 
 export async function register(req, res) {
   try {
-    const { username, password, nickname, gender, powToken } = req.body;
+    const { username, password, nickname, gender, sessionId, nonce } = req.body;
     const clientIP = getClientIP(req);
 
     const banInfo = await isIPBanned(clientIP);
@@ -61,7 +63,7 @@ export async function register(req, res) {
       return res.status(403).json({ status: 'error', message: '您的 IP 已被封禁', isBanned: true, remainingTime: banInfo.remainingTime });
     }
 
-    if (!username || !password || !nickname || !powToken) {
+    if (!username || !password || !nickname || !sessionId || !nonce) {
       return res.status(400).json({ status: 'error', message: '请填写所有字段' });
     }
 
@@ -70,7 +72,8 @@ export async function register(req, res) {
       return res.status(400).json({ status: 'error', message: '性别参数非法' });
     }
 
-    const captchaResult = await verifyPOWToken(powToken);
+    // 人机验证
+    const captchaResult = await verifyHuman(req, res);
     if (!captchaResult.success) {
       return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
     }
@@ -134,7 +137,7 @@ export async function register(req, res) {
 
 export async function login(req, res) {
   try {
-    const { username, password, powToken, autoLoginToken } = req.body;
+    const { username, password, sessionId, nonce, autoLoginToken } = req.body;
     const clientIP = getClientIP(req);
 
     const banInfo = await isIPBanned(clientIP);
@@ -164,11 +167,12 @@ export async function login(req, res) {
       const isAutoLogin = !!autoLoginToken;
 
       if (!isAutoLogin) {
-        if (!powToken) {
+        if (!sessionId || !nonce) {
           return res.status(400).json({ status: 'error', message: '请完成人机验证' });
         }
 
-        const captchaResult = await verifyPOWToken(powToken);
+        // POW 验证
+        const captchaResult = await verifyHuman(req, res);
         if (!captchaResult.success) {
           return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
         }
@@ -430,9 +434,9 @@ export async function changePassword(req, res) {
   try {
     const userId = req.userId;
     const clientIP = getClientIP(req);
-    const { oldPassword, newPassword, powToken } = req.body;
+    const { oldPassword, newPassword, sessionId, nonce } = req.body;
 
-    if (!oldPassword || !newPassword || !powToken) {
+    if (!oldPassword || !newPassword || !sessionId || !nonce) {
       return res.status(400).json({ status: 'error', message: '缺少必要参数' });
     }
 
@@ -440,7 +444,8 @@ export async function changePassword(req, res) {
       return res.status(400).json({ status: 'error', message: '新密码格式错误' });
     }
 
-    const captchaResult = await verifyPOWToken(powToken);
+    // POW 验证
+    const captchaResult = await verifyHuman(req, res);
     if (!captchaResult.success) {
       return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
     }
@@ -662,5 +667,39 @@ export async function getUserById(req, res) {
   } catch (err) {
     console.error('获取用户信息失败:', err.message);
     res.status(500).json({ status: 'error', message: '获取用户信息失败' });
+  }
+}
+
+export async function checkUsername(req, res) {
+  try {
+    const { username } = req.query;
+
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ status: 'error', message: '用户名不能为空' });
+    }
+
+    if (!validateUsername(username)) {
+      return res.status(400).json({ status: 'error', message: '用户名非法' });
+    }
+
+    const trimmedUsername = username.trim();
+
+    if (!trimmedUsername) {
+      return res.status(400).json({ status: 'error', message: '用户名不能为空' });
+    }
+
+    const [existingUsers] = await pool.execute(
+      'SELECT id FROM scr_users WHERE username = ?',
+      [trimmedUsername]
+    );
+
+    res.json({
+      status: 'success',
+      isAvailable: existingUsers.length === 0,
+      username: trimmedUsername
+    });
+  } catch (err) {
+    console.error('❌ 检查用户名失败:', err.message);
+    res.status(500).json({ status: 'error', message: '检查用户名失败' });
   }
 }

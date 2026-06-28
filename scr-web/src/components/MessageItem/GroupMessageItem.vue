@@ -857,9 +857,8 @@ function handleContextMenu(event) {
     let quotedMsgData = {};
     if (messageType === 4) {
       const parsedContent = JSON.parse(props.message.content);
-      // 从引用消息JSON中剥离出被引用的原始消息内容
-      const quotedInner = parsedContent.quoted || parsedContent.quotedMessage || parsedContent.quoted_message;
-      const innerContent = quotedInner?.content || quotedInner?.text || parsedContent.text || parsedContent.content || '';
+      // 直接读取引用消息JSON的content
+      const innerContent = parsedContent.text || parsedContent.content || '';
       quotedMsgData = {
         id: messageId,
         userId: userId,

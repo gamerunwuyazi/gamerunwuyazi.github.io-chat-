@@ -223,7 +223,8 @@ const excludedPaths = {
     '/api/login',
     '/api/refresh-token',
     '/api/check-username',
-    '/api/captcha'
+    '/api/verify/challenge',
+    '/api/verify/pow-challenge'
   ],
   'GET': [
     '/avatars',

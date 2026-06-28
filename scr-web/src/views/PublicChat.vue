@@ -249,6 +249,7 @@ import { useInputStore } from "@/stores/inputStore";
 import { useDraftStore } from "@/stores/draftStore";
 import { useGroupStore } from "@/stores/groupStore";
 import { useFriendStore } from "@/stores/friendStore";
+import { useUnreadStore } from "@/stores/unreadStore";
 import { 
   uploadImage,
   uploadFile,
@@ -256,7 +257,9 @@ import {
   initializeScrollLoading,
   sendMessage,
   showSendGroupCardModal,
-  resetLoadingState
+  resetLoadingState,
+  sendClearGlobalUnread,
+  updateUnreadCountsDisplay
 } from "@/utils/chat";
 import { clearContentEditable } from "@/utils/chat/message.js";
 import { useMessageHighlight } from "@/composables/useMessageHighlight";
@@ -280,6 +283,7 @@ function navigateToPrevSearchResult() {
 }
 const groupStore = useGroupStore();
 const friendStore = useFriendStore();
+const unreadStore = useUnreadStore();
 const route = useRoute();
 
 let prevPublicScrollHeight = undefined;
@@ -409,6 +413,11 @@ watch(
           scrollingInitialized.public = true;
         }
       }, 600);
+
+      // 切换到主聊天室时绑定一次性点击事件清除未读
+      setTimeout(() => {
+        bindOneTimePublicUnreadClear();
+      }, 100);
     }
   }
 );
@@ -487,7 +496,30 @@ onMounted(() => {
   document.addEventListener('contextmenu', function(e) {
     hideAtPickerOnClick(e);
   });
+
+  // 初始化时绑定一次性点击事件清除主聊天室未读
+  setTimeout(() => {
+    bindOneTimePublicUnreadClear();
+  }, 300);
 });
+
+function bindOneTimePublicUnreadClear() {
+  const isMainChat = route.path === '/chat' || route.path === '/chat/';
+  if (!isMainChat) return;
+
+  const publicChatEl = document.querySelector('.chat-content[data-content="public-chat"]');
+  if (!publicChatEl) return;
+
+  function onFirstClick() {
+    if (unreadStore) {
+      unreadStore.clearGlobalUnread();
+      sendClearGlobalUnread();
+      updateUnreadCountsDisplay();
+    }
+    publicChatEl.removeEventListener('click', onFirstClick);
+  }
+  publicChatEl.addEventListener('click', onFirstClick, { once: true });
+}
 
 const showMarkdownToolbar = ref(false);
 const showMoreFunctions = ref(false);

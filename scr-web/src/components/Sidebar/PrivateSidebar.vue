@@ -10,6 +10,7 @@ import { useDraftStore } from '@/stores/draftStore';
 import { useModalStore } from '@/stores/modalStore';
 import { useStorageStore } from '@/stores/storageStore';
 import { switchToPrivateChat } from '@/utils/chat/private';
+import { setFriendDisturb } from '@/api/friend.js';
 
 const baseStore = useBaseStore();
 const userStore = useUserStore();
@@ -46,17 +47,8 @@ async function togglePrivateMute(userId) {
   const newIsDisturb = !(friend.is_disturb == 1);
 
   try {
-    const response = await fetch(`${baseStore.SERVER_URL}/api/user/set-friend-disturb`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id,
-        'session-token': baseStore.currentSessionToken
-      },
-      body: JSON.stringify({ friendId: userId, isDisturb: newIsDisturb })
-    });
-
-    const data = await response.json();
+    const res = await setFriendDisturb(userId, newIsDisturb);
+    const data = res.data;
     if (data.status === 'success') {
       friend.is_disturb = data.is_disturb;
       if (newIsDisturb) {
@@ -270,7 +262,7 @@ function handleSearchUserClick() {
                         <span v-if="isUserOnline(friend.id) && !friend.deleted_at" class="online-indicator"></span>
                     </span>
                     <div class="friend-info">
-                        <span class="friend-name" :style="{ color: friend.deleted_at ? '#000' : '#333' }">{{ getFriendDisplayName(friend) }} <span v-if="friend.deleted_at" style="font-size: 12px;">(已删除)</span></span>
+                        <span class="friend-name" :style="friend.deleted_at ? { color: '#000' } : {}">{{ getFriendDisplayName(friend) }} <span v-if="friend.deleted_at" style="font-size: 12px;">(已删除)</span></span>
                         <span v-if="hasDraft(friend) && !friend.deleted_at" class="friend-last-message draft-text">{{ getPrivateLastMessage(friend) }}</span>
                         <span v-else-if="friend.deleted_at" class="friend-last-message" style="color: #000;">该会话已被删除</span>
                         <span v-else class="friend-last-message">{{ getPrivateLastMessage(friend) }}</span>

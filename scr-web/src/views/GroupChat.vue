@@ -309,6 +309,7 @@ import {
 import toast from "@/utils/toast";
 import { useMessageHighlight } from "@/composables/useMessageHighlight";
 import SearchMessageModal from "@/components/SearchMessageModal.vue";
+import { getGroupInfo, getGroupMembers } from '@/api/group.js';
 
 const baseStore = useBaseStore();
 const userStore = useUserStore();
@@ -466,55 +467,39 @@ function applySavedGroupState() {
 
 function loadCurrentGroupInfo() {
   if (!sessionStore.currentGroupId) return;
-  const user = baseStore.currentUser;
-  const sessionToken = baseStore.currentSessionToken;
   
-  if (!user || !sessionToken) return;
-  
-  fetch(`${baseStore.SERVER_URL}/api/group-info/${sessionStore.currentGroupId}`, {
-    headers: {
-      'user-id': user.id,
-      'session-token': sessionToken
+  getGroupInfo(sessionStore.currentGroupId).then(res => {
+    const data = res.data;
+    if (data.status === 'success') {
+      currentGroupInfo.value = data.group;
     }
-  })
-    .then(response => response.json())
-    .then(data => {
-      if (data.status === 'success') {
-        currentGroupInfo.value = data.group;
-      }
-    });
+  });
     
-  fetch(`${baseStore.SERVER_URL}/api/group-members/${sessionStore.currentGroupId}`, {
-    headers: {
-      'user-id': user.id,
-      'session-token': sessionToken
+  getGroupMembers(sessionStore.currentGroupId).then(res => {
+    const data = res.data;
+    if (data.status === 'success') {
+      groupMembers.value = data.members || [];
+
+      // 同步到 groupStore，供 GroupMessageItem 计算属性使用
+      if (data.members && data.members.length > 0) {
+        const storeMembers = data.members.map(m => ({
+          id: Number(m.id),
+          nickname: m.nickname || '',
+          avatarUrl: m.avatarUrl || '',
+          is_admin: Number(m.is_admin) || 0,
+          is_muted: m.is_muted || null,
+          group_nickname: m.group_nickname || null
+        }));
+        groupStore.currentGroupMembers = storeMembers;
+        // 检测群昵称变更并更新消息列表中的 stored groupNickname
+        groupStore.updateGroupNicknameInMessages(sessionStore.currentGroupId, storeMembers);
+        // 检测最后消息的 stored groupNickname 是否与成员信息一致
+        groupStore.detectAndUpdateGroupNicknames(sessionStore.currentGroupId);
+      } else {
+        groupStore.currentGroupMembers = [];
+      }
     }
   })
-    .then(response => response.json())
-    .then(data => {
-      if (data.status === 'success') {
-        groupMembers.value = data.members || [];
-
-        // 同步到 groupStore，供 GroupMessageItem 计算属性使用
-        if (data.members && data.members.length > 0) {
-          const storeMembers = data.members.map(m => ({
-            id: Number(m.id),
-            nickname: m.nickname || '',
-            avatarUrl: m.avatarUrl || '',
-            is_admin: Number(m.is_admin) || 0,
-            is_muted: m.is_muted || null,
-            group_nickname: m.group_nickname || null
-          }));
-          groupStore.currentGroupMembers = storeMembers;
-          // 检测群昵称变更并更新消息列表中的 stored groupNickname
-          groupStore.updateGroupNicknameInMessages(sessionStore.currentGroupId, storeMembers);
-          // 检测最后消息的 stored groupNickname 是否与成员信息一致
-          groupStore.detectAndUpdateGroupNicknames(sessionStore.currentGroupId);
-        } else {
-          groupStore.currentGroupMembers = [];
-        }
-      }
-    })
     .catch(err => {
       console.error('加载群组成员失败:', err);
       groupMembers.value = [];
@@ -897,19 +882,13 @@ function handleGroupInfoClick() {
     return;
   }
   
-  fetch(`${baseStore.SERVER_URL}/api/group-info/${sessionStore.currentGroupId}`, {
-    headers: {
-      'user-id': user.id,
-      'session-token': sessionToken
+  getGroupInfo(sessionStore.currentGroupId).then(res => {
+    const data = res.data;
+    if (data.status === 'success') {
+      currentGroupInfo.value = data.group;
+      modalStore.openModal('groupInfo', data.group);
     }
-  })
-    .then(response => response.json())
-    .then(data => {
-      if (data.status === 'success') {
-        currentGroupInfo.value = data.group;
-        modalStore.openModal('groupInfo', data.group);
-      }
-    });
+  });
 }
 
 let atTriggerInfo = null;
@@ -1211,14 +1190,8 @@ function formatTime(timestamp) {
 
 function scrollToMessage(message) {
   closeSearchModal();
-  const groupId = sessionStore.currentGroupId;
-  const messages = groupStore.groupMessages[groupId] || [];
-  const messageIndex = messages.findIndex(m => m.id === message.id);
-  if (messageIndex !== -1 && groupMessageContainerRef.value) {
-    const messageElements = groupMessageContainerRef.value.querySelectorAll('.message');
-    const targetElement = messageElements[messageIndex];
-    if (targetElement) scrollAndHighlight(targetElement);
-  }
+  const targetElement = groupMessageContainerRef.value?.querySelector(`[data-id="${message.id}"]`);
+  if (targetElement) scrollAndHighlight(targetElement);
 }
 
 function navigateToNextSearchResult() {

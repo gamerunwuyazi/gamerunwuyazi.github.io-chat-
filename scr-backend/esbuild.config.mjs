@@ -36,7 +36,8 @@ const buildOptions = {
     'node-schedule',
     'redis',
     'scr-slider-captcha',
-    'socket.io'
+    'socket.io',
+    'human-verify'
   ],
   loader: {
     '.js': 'js'

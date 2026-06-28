@@ -3,49 +3,15 @@ import { refreshToken as originalRefreshToken } from './ui.js';
 // Token 刷新状态
 let isRefreshing = false;
 let refreshPromise = null;
-
-// HTTP 请求队列
-let httpRequestQueue = [];
+let refreshResetTimer = null;
 
 /**
- * 添加 HTTP 请求到队列
- * @param {string} url - 请求 URL
- * @param {object} options - 请求选项
- * @param {Function} resolve - 成功回调
- * @param {Function} reject - 失败回调
- */
-export function addHttpRequestToQueue(url, options, resolve, reject) {
-  httpRequestQueue.push({ url, options, resolve, reject });
-}
-
-/**
- * 更新请求头中的 token
- * @param {object} options - 请求选项
- * @returns {object} 更新后的请求选项
- */
-function updateRequestToken(options) {
-  const newOptions = { ...options };
-  const newToken = localStorage.getItem('currentSessionToken');
-  
-  if (newToken && newOptions.headers) {
-    if (typeof newOptions.headers === 'object' && !Array.isArray(newOptions.headers)) {
-      newOptions.headers = {
-        ...newOptions.headers,
-        'session-token': newToken
-      };
-    }
-  }
-  
-  return newOptions;
-}
-
-/**
- * 刷新 Token（带队列管理）
- * @param {Function} [originalFetchFn] - 原始 fetch 函数
+ * 刷新 Token（防并发：多个调用共享同一个刷新 Promise）
+ * 刷新完成后延迟重置，确保并发 401 能复用同一个结果而非再次刷新
  * @returns {Promise<boolean>} 是否刷新成功
  */
-export async function refreshTokenWithQueue(originalFetchFn = null) {
-  if (isRefreshing && refreshPromise) {
+export async function refreshTokenWithQueue() {
+  if (refreshPromise) {
     return refreshPromise;
   }
 
@@ -54,40 +20,17 @@ export async function refreshTokenWithQueue(originalFetchFn = null) {
   refreshPromise = (async () => {
     try {
       const refreshSuccess = await originalRefreshToken();
-      
-      if (!refreshSuccess) {
-        while (httpRequestQueue.length > 0) {
-          const { reject } = httpRequestQueue.shift();
-          reject(new Error('Token 刷新失败'));
-        }
-        return false;
-      }
-      
-      while (httpRequestQueue.length > 0) {
-        const savedHttpQueue = [...httpRequestQueue];
-        httpRequestQueue = [];
-
-        for (const { url, options, resolve, reject } of savedHttpQueue) {
-          try {
-            const newOptions = updateRequestToken(options);
-            const result = await originalFetchFn(url, newOptions);
-            resolve(result);
-          } catch (error) {
-            reject(error);
-          }
-        }
-      }
-      
-      return true;
-    } catch (error) {
-      while (httpRequestQueue.length > 0) {
-        const { reject } = httpRequestQueue.shift();
-        reject(new Error('Token 刷新失败'));
-      }
+      return refreshSuccess;
+    } catch {
       return false;
     } finally {
       isRefreshing = false;
-      refreshPromise = null;
+      // 延迟重置 refreshPromise，让并发 401 有机会复用结果
+      if (refreshResetTimer) clearTimeout(refreshResetTimer);
+      refreshResetTimer = setTimeout(() => {
+        refreshPromise = null;
+        refreshResetTimer = null;
+      }, 500);
     }
   })();
 

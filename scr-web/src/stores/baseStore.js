@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { setFriendVerification as apiSetFriendVerification, getFriendRequestsReceived, getFriendRequestsSent } from '@/api/user.js';
 
 export const useBaseStore = defineStore('base', () => {
   const currentUser = ref(null);
@@ -44,17 +45,8 @@ export const useBaseStore = defineStore('base', () => {
 
   async function setFriendVerification(requireVerification) {
     try {
-      const response = await fetch(`${SERVER_URL}/api/user/set-friend-verification`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'user-id': currentUser.value?.id || '',
-          'session-token': currentSessionToken.value || ''
-        },
-        body: JSON.stringify({ requireVerification })
-      });
-      
-      const data = await response.json();
+      const response = await apiSetFriendVerification(requireVerification);
+      const data = response.data;
       if (data.status === 'success') {
         friendVerification.value = requireVerification;
         return { success: true, message: data.message };
@@ -80,22 +72,12 @@ export const useBaseStore = defineStore('base', () => {
       if (!userId || !sessionToken) return;
 
       const [receivedRes, sentRes] = await Promise.all([
-        fetch(`${SERVER_URL}/api/user/friend-requests/received`, {
-          headers: {
-            'user-id': userId,
-            'session-token': sessionToken
-          }
-        }),
-        fetch(`${SERVER_URL}/api/user/friend-requests/sent`, {
-          headers: {
-            'user-id': userId,
-            'session-token': sessionToken
-          }
-        })
+        getFriendRequestsReceived(),
+        getFriendRequestsSent()
       ]);
 
-      const receivedData = await receivedRes.json();
-      const sentData = await sentRes.json();
+      const receivedData = receivedRes.data;
+      const sentData = sentRes.data;
 
       if (receivedData.status === 'success') {
         receivedFriendRequests.value = receivedData.requests || [];

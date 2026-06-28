@@ -3,7 +3,7 @@ import { toRaw } from 'vue';
 
 import modal from '../modal.js';
 
-import { SERVER_URL, io, toast, originalFetch } from './config.js';
+import { SERVER_URL, io, toast } from './config.js';
 import { 
   loadGroupList, 
   updateGroupList,
@@ -741,6 +741,9 @@ function initializeWebSocket() {
                 const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.id));
                 if (isCurrentUserAt) {
                     toast.info('主聊天室有@你的消息');
+                    if (unreadStore && unreadStore.setPublicHasAtMe) {
+                        unreadStore.setPublicHasAtMe();
+                    }
                 }
             }
             
@@ -1957,7 +1960,7 @@ function initializeWebSocket() {
         if (eventData && eventData.originalEventName && eventData.originalEventData) {
             // 有原始事件信息，刷新 Token 后重新发送
             try {
-                const refreshSuccess = await refreshTokenWithQueue(originalFetch);
+                const refreshSuccess = await refreshTokenWithQueue();
                 
                 if (refreshSuccess) {
                     // 刷新成功，更新原始事件数据中的 token 并重新发送
@@ -1990,7 +1993,7 @@ function initializeWebSocket() {
         } else if (!isWithin5Seconds) {
             // 没有原始事件信息且超过 5 秒，正常刷新 Token
             try {
-                const refreshSuccess = await refreshTokenWithQueue(originalFetch);
+                const refreshSuccess = await refreshTokenWithQueue();
                 
                 if (!refreshSuccess) {
                     // 刷新失败才退出登录

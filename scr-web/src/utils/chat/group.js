@@ -4,6 +4,20 @@ import modal from '../modal.js';
 
 import { SERVER_URL, toast } from './config.js';
 import {
+  getGroupList,
+  leaveGroup,
+  dissolveGroup as apiDissolveGroup,
+  getGroupMembers,
+  removeGroupMember,
+  addGroupMembers,
+  updateGroupName as apiUpdateGroupName,
+  updateGroupDescription,
+  uploadGroupAvatar as apiUploadGroupAvatar,
+  joinGroupWithToken as apiJoinGroupWithToken,
+  getGroupInfo,
+  generateGroupToken
+} from '@/api/group.js';
+import {
   useBaseStore,
   useSessionStore,
   useGroupStore,
@@ -33,13 +47,8 @@ async function loadGroupList() {
     if (!currentUser || !currentSessionToken) return;
 
     try {
-        const response = await fetch(`${SERVER_URL}/api/user-groups/${currentUser.id}`, {
-            headers: {
-                'user-id': currentUser.id,
-                'session-token': currentSessionToken
-            }
-        });
-        const data = await response.json();
+        const res = await getGroupList(currentUser.id);
+        const data = res.data;
         if (data.status === 'success') {
             await updateGroupList(data.groups);
         }
@@ -100,19 +109,8 @@ async function handleLeaveGroup(groupId) {
     }
     
     try {
-        const response = await fetch(`${SERVER_URL}/api/leave-group`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'user-id': currentUser.id,
-                'session-token': currentSessionToken
-            },
-            body: JSON.stringify({
-                groupId: groupId
-            })
-        });
-        
-        const data = await response.json();
+        const res = await leaveGroup(groupId);
+        const data = res.data;
         if (data.success || data.status === 'success') {
             toast.success('已成功退出群组');
             loadGroupList();
@@ -166,20 +164,8 @@ async function dissolveGroup(groupId) {
         return;
     }
 
-    fetch(`${SERVER_URL}/api/dissolve-group`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({
-            userId: currentUser.id,
-            groupId: groupId
-        })
-    })
-        .then(response => response.json())
-        .then(data => {
+    apiDissolveGroup(currentUser.id, groupId)
+        .then(res => { const data = res.data;
             if (data.success || data.status === 'success') {
                 toast.success('群组已成功解散，所有群消息已删除');
 
@@ -218,14 +204,8 @@ function loadGroupMembers(groupId, isOwner) {
     groupMembersContainer.innerHTML = '<div class="loading-members">正在加载成员列表...</div>';
 
 
-    fetch(`${SERVER_URL}/api/group-members/${groupId}`, {
-        headers: {
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        }
-    })
-        .then(response => response.json())
-        .then(data => {
+    getGroupMembers(groupId)
+        .then(res => { const data = res.data;
 
 
             if (data.status === 'success') {
@@ -312,20 +292,8 @@ async function removeMemberFromGroup(groupId, memberId, memberName) {
         return;
     }
 
-    fetch(`${SERVER_URL}/api/remove-group-member`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({
-            groupId: groupId,
-            memberId: memberId
-        })
-    })
-        .then(response => response.json())
-        .then(data => {
+    removeGroupMember(groupId, memberId)
+        .then(res => { const data = res.data;
 
             if (data.status === 'success' || (data.message && data.message.includes('成功'))) {
                 toast.success(`已成功踢出成员 ${memberName}`);
@@ -400,20 +368,8 @@ let currentAddingGroupId = null;
 
 
 
-    fetch(`${SERVER_URL}/api/add-group-members`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({
-            groupId: groupId,
-            memberIds: selectedMemberIds
-        })
-    })
-        .then(response => response.json())
-        .then(data => {
+    addGroupMembers(groupId, selectedMemberIds)
+        .then(res => { const data = res.data;
 
 
             if (data.status === 'success' || (data.message && data.message.includes('成功'))) {
@@ -449,20 +405,8 @@ function updateGroupName(groupId, newGroupName) {
         return;
     }
 
-    fetch(`${SERVER_URL}/api/update-group-name`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({
-            groupId: groupId,
-            newGroupName: newGroupName
-        })
-    })
-        .then(response => response.json())
-        .then(async data => {
+    apiUpdateGroupName(groupId, newGroupName)
+        .then(async res => { const data = res.data;
             if (data.status === 'success') {
                 const groupName = data.newGroupName;
                 const currentGroupNameElement = document.getElementById('currentGroupName');
@@ -526,25 +470,8 @@ function updateGroupNotice(groupId, newNotice) {
         return;
     }
 
-    fetch(`${SERVER_URL}/api/update-group-description`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({
-            groupId: groupId,
-            newDescription: newNotice
-        })
-    })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP错误! 状态码: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
+    updateGroupDescription(groupId, newNotice)
+        .then(res => { const data = res.data;
             if (data.status === 'success') {
                 toast.success('群组公告已成功更新');
             } else {
@@ -572,16 +499,8 @@ function uploadGroupAvatar(groupId, file) {
 
     toast.info('正在上传群头像，请稍候...');
 
-    fetch(`${SERVER_URL}/api/upload-group-avatar/${groupId}`, {
-        method: 'POST',
-        headers: {
-            'session-token': currentSessionToken,
-            'user-id': currentUser.id
-        },
-        body: formData
-    })
-        .then(response => response.json())
-        .then(data => {
+    apiUploadGroupAvatar(groupId, formData)
+        .then(res => { const data = res.data;
             if (data.status === 'success') {
                 toast.success('群头像上传成功');
                 const modal = document.getElementById('groupInfoModal');
@@ -602,17 +521,8 @@ function joinGroupWithToken(token, groupId, groupName, popup, isFromGroupCard = 
     const baseStore = useBaseStore();
     const currentUser = baseStore.currentUser;
     const currentSessionToken = baseStore.currentSessionToken;
-    fetch(`${SERVER_URL}/api/join-group-with-token`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({ token: token, isFromGroupCard: isFromGroupCard })
-    })
-        .then(response => response.json())
-        .then(data => {
+    apiJoinGroupWithToken(token, isFromGroupCard)
+        .then(res => { const data = res.data;
             if (data.status === 'success') {
                 toast.success(`成功加入群组: ${groupName}`);
                 if (popup) {
@@ -807,22 +717,14 @@ async function updateGroupList(groups) {
                         
                         if (!updatedSessionData.name) {
                             try {
-                                const response = await fetch(`${SERVER_URL}/api/group-info/${groupId}`, {
-                                    method: 'GET',
-                                    headers: {
-                                        'user-id': userId,
-                                        'session-token': localStorage.getItem('currentSessionToken')
+                                const res = await getGroupInfo(groupId);
+                                const responseData = res.data;
+                                if (responseData.status === 'success' && responseData.group) {
+                                    if (!updatedSessionData.name && responseData.group.name) {
+                                        updatedSessionData.name = responseData.group.name;
                                     }
-                                });
-                                if (response.ok) {
-                                    const responseData = await response.json();
-                                    if (responseData.status === 'success' && responseData.group) {
-                                        if (!updatedSessionData.name && responseData.group.name) {
-                                            updatedSessionData.name = responseData.group.name;
-                                        }
-                                        if (!updatedSessionData.avatarUrl && responseData.group.avatar_url) {
-                                            updatedSessionData.avatarUrl = responseData.group.avatar_url;
-                                        }
+                                    if (!updatedSessionData.avatarUrl && responseData.group.avatar_url) {
+                                        updatedSessionData.avatarUrl = responseData.group.avatar_url;
                                     }
                                 }
                             } catch (e) {
@@ -853,28 +755,19 @@ async function updateGroupList(groups) {
                     
                     if (!data.name) {
                         try {
-                            const response = await fetch(`${SERVER_URL}/api/group-info/${groupId}`, {
-                                method: 'GET',
-                                headers: {
-                                    'user-id': userId,
-                                    'session-token': localStorage.getItem('currentSessionToken')
-                                }
-                            });
-                            if (response.ok) {
-                                const responseData = await response.json();
-                                if (responseData.status === 'success' && responseData.group) {
-                                    if (!data.name && responseData.group.name) {
-                                        groupName = responseData.group.name;
-                                        data.name = responseData.group.name;
+                            const res = await getGroupInfo(groupId);
+                            if (res.data.status === 'success' && res.data.group) {
+                                    if (!data.name && res.data.group.name) {
+                                        groupName = res.data.group.name;
+                                        data.name = res.data.group.name;
                                     }
-                                    if (!data.avatarUrl && responseData.group.avatar_url) {
-                                        data.avatarUrl = responseData.group.avatar_url;
+                                    if (!data.avatarUrl && res.data.group.avatar_url) {
+                                        data.avatarUrl = res.data.group.avatar_url;
                                     }
                                     const key = `${prefix}-group-${groupId}`;
                                     const updatedData = { ...data };
                                     await localForage.setItem(key, updatedData);
                                 }
-                            }
                         } catch (e) {
                             console.error('获取群组信息失败:', e);
                         }
@@ -951,28 +844,13 @@ function sendGroupCard() {
     const currentSessionToken = baseStore.currentSessionToken;
     const chatSocket = getChatSocket();
 
-    fetch(`${SERVER_URL}/api/generate-group-token`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({ groupId: selectedGroupIdForCard })
-    })
-        .then(response => response.json())
-        .then(data => {
+    generateGroupToken(selectedGroupIdForCard)
+        .then(res => { const data = res.data;
             if (data.status === 'success') {
                 const token = data.token;
 
-                fetch(`${SERVER_URL}/api/group-info/${selectedGroupIdForCard}`, {
-                    headers: {
-                        'user-id': currentUser.id,
-                        'session-token': currentSessionToken
-                    }
-                })
-                    .then(response => response.json())
-                    .then(groupData => {
+                getGroupInfo(selectedGroupIdForCard)
+                    .then(res => { const groupData = res.data;
                         if (groupData.status === 'success') {
                             const group = groupData.group;
                             

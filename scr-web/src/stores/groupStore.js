@@ -4,6 +4,7 @@ import localForage from 'localforage';
 import { useStorageStore } from './storageStore';
 import { useBaseStore } from './baseStore';
 import { useSessionStore } from './sessionStore';
+import { getGroupInfo } from '@/api/group.js';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
@@ -301,12 +302,9 @@ export const useGroupStore = defineStore('group', () => {
 
         if (!sessionData.name) {
           try {
-            const response = await fetch(`${SERVER_URL}/api/group-info/${groupId}`, {
-              method: 'GET',
-              headers: { 'user-id': baseStore.currentUser?.id, 'session-token': localStorage.getItem('currentSessionToken') }
-            });
-            if (response.ok) {
-              const data = await response.json();
+            const res = await getGroupInfo(groupId);
+            if (res.status === 200) {
+              const data = res.data;
               if (data.status === 'success' && data.group) {
                 if (!sessionData.name && data.group.name) sessionData.name = data.group.name;
                 if (!sessionData.avatarUrl && data.group.avatar_url) sessionData.avatarUrl = data.group.avatar_url;

@@ -224,16 +224,15 @@ const isSenderSvgAvatar = computed(() => {
 
 const fullSenderAvatarUrl = computed(() => {
   const url = senderAvatarUrl.value;
-  if (url && !isSenderSvgAvatar.value && url !== '/') {
-    return `${baseStore.SERVER_URL}${url}`;
-  }
-  return '';
+  if (!url || url === '/') return '';
+  if (isSenderSvgAvatar.value) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${baseStore.SERVER_URL}${url}`;
 });
 
 const senderAvatarIsImage = computed(() => {
   if (!fullSenderAvatarUrl.value) return false;
   if (senderAvatarLoadFailed.value) return false;
-  if (senderAvatarUrl.value === ownAvatarUrl.value) return false;
   return true;
 });
 
@@ -257,10 +256,11 @@ const isOwnSvgAvatar = computed(() => {
 });
 
 const fullOwnAvatarUrl = computed(() => {
-  if (ownAvatarUrl.value && !isOwnSvgAvatar.value) {
-    return `${baseStore.SERVER_URL}${ownAvatarUrl.value}`;
-  }
-  return '';
+  const url = ownAvatarUrl.value;
+  if (!url) return '';
+  if (isOwnSvgAvatar.value) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${baseStore.SERVER_URL}${url}`;
 });
 
 const ownAvatarIsImage = computed(() => fullOwnAvatarUrl.value !== '' && !ownAvatarLoadFailed.value);
@@ -837,9 +837,8 @@ function handleContextMenu(event) {
     let quotedMsgData = {};
     if (messageType === 4) {
       const parsedContent = JSON.parse(props.message.content);
-      // 从引用消息JSON中剥离出被引用的原始消息内容
-      const quotedInner = parsedContent.quoted || parsedContent.quotedMessage || parsedContent.quoted_message;
-      const innerContent = quotedInner?.content || quotedInner?.text || parsedContent.text || parsedContent.content || '';
+      // 直接读取引用消息JSON的content
+      const innerContent = parsedContent.text || parsedContent.content || '';
       quotedMsgData = {
         id: messageId,
         userId: userId,

@@ -10,6 +10,7 @@ import { useModalStore } from '@/stores/modalStore';
 import { useStorageStore } from '@/stores/storageStore';
 import { openGroupCardPopup } from '@/stores/index.js';
 import { switchToGroupChat } from '@/utils/chat/group';
+import { setGroupDisturb } from '@/api/group.js';
 
 const baseStore = useBaseStore();
 const groupStore = useGroupStore();
@@ -141,17 +142,8 @@ async function toggleGroupMute(groupId) {
   const newIsDisturb = !(group.is_disturb == 1);
 
   try {
-    const response = await fetch(`${baseStore.SERVER_URL}/api/set-group-disturb`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id,
-        'session-token': baseStore.currentSessionToken
-      },
-      body: JSON.stringify({ groupId, isDisturb: newIsDisturb })
-    });
-
-    const data = await response.json();
+    const res = await setGroupDisturb(groupId, newIsDisturb);
+    const data = res.data;
     if (data.status === 'success') {
       group.is_disturb = data.is_disturb;
       if (newIsDisturb) {
@@ -292,7 +284,7 @@ function handleGroupAvatarError(event, group) {
                         <span v-if="group.deleted_at" class="deleted-icon">🗑️</span>
                     </span>
                     <div class="group-info">
-                        <span class="group-name" :style="{ color: group.deleted_at ? '#000' : '#333' }">{{ getGroupDisplayName(group) }} <span v-if="group.deleted_at" style="font-size: 12px;">(已删除)</span></span>
+                        <span class="group-name" :style="group.deleted_at ? { color: '#000' } : {}">{{ getGroupDisplayName(group) }} <span v-if="group.deleted_at" style="font-size: 12px;">(已删除)</span></span>
                         <span v-if="groupStore.hasGroupAtMe && groupStore.hasGroupAtMe(group.id) && !group.deleted_at" class="group-last-message at-me-text">[有人@我]</span>
                         <span v-else-if="hasDraft(group) && !group.deleted_at" class="group-last-message draft-text">{{ getGroupLastMessage(group) }}</span>
                         <span v-else-if="group.deleted_at" class="group-last-message" style="color: #000;">该会话已被删除</span>

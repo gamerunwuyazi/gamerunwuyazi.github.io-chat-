@@ -27,6 +27,7 @@ import * as uiModule from './ui.js';
 import * as uploadModule from './upload.js';
 import * as websocketModule from './websocket.js';
 import { getRouter, setRouter, navigateTo } from './routerInstance.js';
+import { getSelfInfo } from '@/api/user.js';
 
 async function login() {
   const currentSessionToken = localStorage.getItem('currentSessionToken');
@@ -50,13 +51,8 @@ async function login() {
       baseStore.setCurrentSessionToken(currentSessionToken);
 
       try {
-        const response = await fetch(`${SERVER_URL}/api/self`, {
-          headers: {
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-          }
-        });
-        const data = await response.json();
+        const response = await getSelfInfo();
+        const data = response.data;
         if (data.status === 'success' && data.user) {
           baseStore.setCurrentUser({
             id: data.user.id,

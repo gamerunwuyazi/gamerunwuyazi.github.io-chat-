@@ -9,6 +9,7 @@ import { useSessionStore } from './sessionStore';
 import { useUnreadStore } from './unreadStore';
 import { useBaseStore } from './baseStore';
 import { getRouter } from '@/utils/chat/routerInstance.js';
+import { getOfflineMessages, deleteDeletedSession } from '@/api/message.js';
 
 // 判断用户是否正在关注指定会话（页面级焦点：路由 + sessionStore + 浏览器级焦点：document.hidden / document.hasFocus）
 function isUserFocusedOnChat(chatType, chatId) {
@@ -38,8 +39,6 @@ function isUserFocusedOnChat(chatType, chatId) {
   }
   return false;
 }
-
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
 let cachePublicMessages = [];
 let cacheGroupMessages = {};
@@ -801,14 +800,8 @@ export const useStorageStore = defineStore('storage', () => {
       const publicAndGroupMinIdParam = publicAndGroupMinId.value;
       const privateMinIdParam = privateMinId.value;
 
-      const response = await fetch(`${SERVER_URL}/api/offline-messages?publicAndGroupMinId=${publicAndGroupMinIdParam}&privateMinId=${privateMinIdParam}`, {
-        headers: {
-          'user-id': currentUser.id,
-          'session-token': currentSessionToken
-        }
-      });
-
-      const data = await response.json();
+      const res = await getOfflineMessages(publicAndGroupMinIdParam, privateMinIdParam);
+      const data = res.data;
 
       if (data.status === 'success') {
         if (data.publicMessages && data.publicMessages.length > 0) {
@@ -854,16 +847,12 @@ export const useStorageStore = defineStore('storage', () => {
           const newMessages = cachePublicMessages.filter(m => !existingPublicMessageIds.has(m.id));
 
           if (newMessages.length > 0) {
-            const isUserActive = isUserFocusedOnChat('public', null);
-
             const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
 
-            if (!isUserActive) {
-              if (otherUserMessages.length > 0) {
-                const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
-                savedUnreadCounts.global += otherUserMessages.length;
-                if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
-              }
+            if (otherUserMessages.length > 0) {
+              const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
+              savedUnreadCounts.global += otherUserMessages.length;
+              if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
             }
           }
 
@@ -887,14 +876,12 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cacheGroupMessages[groupId].filter(m => !existingIds.has(m.id));
 
             if (newMessages.length > 0) {
-              const isUserActive = isUserFocusedOnChat('group', groupId);
-
               const mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
               const isMuted = mutedGroups.includes(groupId.toString());
 
               const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
 
-              if (!isMuted && !isUserActive) {
+              if (!isMuted) {
                 if (otherUserMessages.length > 0) {
                   const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
                   if (!savedUnreadCounts.groups[groupId]) {
@@ -941,19 +928,15 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cachePrivateMessages[userId].filter(m => !existingIds.has(m.id));
 
             if (newMessages.length > 0) {
-              const isUserActive = isUserFocusedOnChat('private', userId);
-
               const otherUserMessages = newMessages.filter(m => String(m.senderId) !== String(currentUser?.id) && m.isRead !== 1);
 
-              if (!isUserActive) {
-                if (otherUserMessages.length > 0) {
-                  const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
-                  if (!savedUnreadCounts.private[userId]) {
-                    savedUnreadCounts.private[userId] = 0;
-                  }
-                  savedUnreadCounts.private[userId] += otherUserMessages.length;
-                  if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
+              if (otherUserMessages.length > 0) {
+                const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
+                if (!savedUnreadCounts.private[userId]) {
+                  savedUnreadCounts.private[userId] = 0;
                 }
+                savedUnreadCounts.private[userId] += otherUserMessages.length;
+                if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
               }
             }
 
@@ -1007,16 +990,12 @@ export const useStorageStore = defineStore('storage', () => {
           const newMessages = cachePublicMessages.filter(m => !existingPublicMessageIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
 
           if (newMessages.length > 0) {
-            const isUserActive = isUserFocusedOnChat('public', null);
-
             const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
 
-            if (!isUserActive) {
-              if (otherUserMessages.length > 0) {
-                const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
-                savedUnreadCounts.global += otherUserMessages.length;
-                if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
-              }
+            if (otherUserMessages.length > 0) {
+              const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
+              savedUnreadCounts.global += otherUserMessages.length;
+              if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
             }
           }
 
@@ -1036,14 +1015,12 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cacheGroupMessages[groupId].filter(m => !existingIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
 
             if (newMessages.length > 0) {
-              const isUserActive = isUserFocusedOnChat('group', groupId);
-
               const mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
               const isMuted = mutedGroups.includes(groupId.toString());
 
               const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
 
-              if (!isMuted && !isUserActive) {
+              if (!isMuted) {
                 if (otherUserMessages.length > 0) {
                   const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
                   if (!savedUnreadCounts.groups[groupId]) {
@@ -1072,19 +1049,15 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cachePrivateMessages[userId].filter(m => !existingIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
 
             if (newMessages.length > 0) {
-              const isUserActive = isUserFocusedOnChat('private', userId);
-
               const otherUserMessages = newMessages.filter(m => String(m.senderId) !== String(currentUser?.id) && m.isRead !== 1);
 
-              if (!isUserActive) {
-                if (otherUserMessages.length > 0) {
-                  const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
-                  if (!savedUnreadCounts.private[userId]) {
-                    savedUnreadCounts.private[userId] = 0;
-                  }
-                  savedUnreadCounts.private[userId] += otherUserMessages.length;
-                  if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
+              if (otherUserMessages.length > 0) {
+                const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
+                if (!savedUnreadCounts.private[userId]) {
+                  savedUnreadCounts.private[userId] = 0;
                 }
+                savedUnreadCounts.private[userId] += otherUserMessages.length;
+                if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
               }
             }
 
@@ -1402,17 +1375,8 @@ export const useStorageStore = defineStore('storage', () => {
       if (!currentUser) return false;
 
       // 调用后端接口删除服务器记录
-      const response = await fetch(`${SERVER_URL}/api/delete-deleted-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'user-id': String(currentUser.id),
-          'session-token': baseStore.currentSessionToken || ''
-        },
-        body: JSON.stringify({ type, id })
-      });
-
-      const data = await response.json();
+      const response = await deleteDeletedSession(type, id);
+      const data = response.data;
 
       // 如果服务器返回404（记录已不存在），继续处理本地删除
       if (response.status === 404) {

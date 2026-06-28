@@ -16,6 +16,8 @@ import {
 } from '@/stores/index.js';
 import { unescapeHtml } from './message.js';
 import { navigateTo } from './routerInstance.js';
+import { getFriendsList, addFriend as apiAddFriend, removeFriend, getUserInfo } from '@/api/friend.js';
+import { searchUsers as apiSearchUsers } from '@/api/user.js';
 
 let friendsList = [];
 
@@ -128,13 +130,8 @@ async function loadFriendsList() {
   if (!currentUser || !currentSessionToken) return;
 
   try {
-    const response = await fetch(`${SERVER_URL}/api/user/friends`, {
-      headers: {
-        'user-id': currentUser.id,
-        'session-token': currentSessionToken
-      }
-    });
-    const data = await response.json();
+    const res = await getFriendsList();
+    const data = res.data;
     if (data.status === 'success') {
       await updateFriendsList(data.friends);
     }
@@ -249,15 +246,9 @@ async function updateFriendsList(friends) {
             
             if (!updatedSessionData.nickname) {
               try {
-                const response = await fetch(`${SERVER_URL}/api/user/${friendId}`, {
-                  method: 'GET',
-                  headers: {
-                    'user-id': userId,
-                    'session-token': localStorage.getItem('currentSessionToken')
-                  }
-                });
-                if (response.ok) {
-                  const responseData = await response.json();
+                const res = await getUserInfo(friendId);
+                if (res.status === 200) {
+                  const responseData = res.data;
                   if (responseData.status === 'success' && responseData.user) {
                     if (!updatedSessionData.nickname && responseData.user.nickname) {
                       updatedSessionData.nickname = responseData.user.nickname;
@@ -298,14 +289,9 @@ async function updateFriendsList(friends) {
           
           if (!data.nickname) {
             try {
-              const response = await fetch(`/api/user/${friendId}`, {
-                method: 'GET',
-                headers: {
-                  'session-token': localStorage.getItem('currentSessionToken')
-                }
-              });
-              if (response.ok) {
-                const responseData = await response.json();
+              const res = await getUserInfo(friendId);
+              if (res.status === 200) {
+                const responseData = res.data;
                 if (responseData.status === 'success' && responseData.user) {
                   if (!data.nickname && responseData.user.nickname) {
                     friendNickname = responseData.user.nickname;
@@ -378,17 +364,8 @@ export function addFriend(userId, message = '') {
 
   if (!currentUser || !currentSessionToken) return;
 
-  fetch(`${SERVER_URL}/api/user/add-friend`, {
-    method: 'POST',
-    headers: {
-      'user-id': currentUser.id,
-      'session-token': currentSessionToken,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ friendId: userId, message })
-  })
-  .then(response => response.json())
-  .then(data => {
+  apiAddFriend(userId, message).then(res => {
+    const data = res.data;
     if (data.status === 'success') {
       loadFriendsList();
       toast.success(data.message);
@@ -412,17 +389,8 @@ async function deleteFriend(userId) {
 
   const confirmed = await modal.confirm('确定要删除这个好友吗？', '删除好友');
   if (confirmed) {
-    fetch(`${SERVER_URL}/api/user/remove-friend`, {
-      method: 'POST',
-      headers: {
-        'user-id': currentUser.id,
-        'session-token': currentSessionToken,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ friendId: userId })
-    })
-      .then(response => response.json())
-      .then(data => {
+    removeFriend(userId).then(res => {
+      const data = res.data;
         if (data.status === 'success') {
           if (friendStore && friendStore.markFriendAsDeleted) {
             friendStore.markFriendAsDeleted(userId, true);
@@ -468,14 +436,8 @@ function showUserProfile(user) {
   const currentUserInfo = baseStore.currentUser;
   const sessionToken = baseStore.currentSessionToken;
 
-  fetch(`${SERVER_URL}/api/user/${user.id}`, {
-    headers: {
-      'user-id': currentUserInfo?.id || '',
-      'session-token': sessionToken || ''
-    }
-  })
-    .then(response => response.json())
-    .then(data => {
+  getUserInfo(user.id).then(res => {
+    const data = res.data;
       let fullUser = user;
       if (data.status === 'success' && data.user) {
         fullUser = {
@@ -515,14 +477,8 @@ function searchUsers(keyword) {
   
   if (!currentUser || !currentSessionToken) return;
 
-  fetch(`${SERVER_URL}/api/user/search?keyword=${encodeURIComponent(keyword)}`, {
-    headers: {
-      'user-id': currentUser.id,
-      'session-token': currentSessionToken
-    }
-  })
-    .then(response => response.json())
-    .then(data => {
+  apiSearchUsers(keyword).then(res => {
+    const data = res.data;
       if (data.status === 'success') {
         displaySearchResults(data.users);
       } else {

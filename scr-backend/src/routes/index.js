@@ -5,9 +5,11 @@ import { setupRoutes as setupFriendRoutes } from './friend.js';
 import { setupRoutes as setupGroupRoutes } from './group.js';
 import { setupRoutes as setupMessageRoutes } from './message.js';
 import { setupRoutes as setupFileRoutes } from './file.js';
+import { setupVerifyRoutes } from './verify.js';
 
 export function setupAllRoutes(app, io) {
   setupHealthRoutes(app, io);
+  setupVerifyRoutes(app);
   setupAdminRoutes(app, io);
   setupFriendRoutes(app, io);
   setupUserRoutes(app, io);

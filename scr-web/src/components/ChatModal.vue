@@ -1131,6 +1131,10 @@ import {
 } from "@/utils/chat";
 import modal from "@/utils/modal";
 import toast from "@/utils/toast";
+import request from '@/utils/request.js';
+import { searchUsers, checkUserBlockStatus, cancelFriendRequest } from '@/api/user.js';
+import { getUserInfo, removeFriend, setFriendRemark } from '@/api/friend.js';
+import { getGroupMembers, getGroupInfo, createGroup, setGroupRemark, updateGroupName, setGroupNickname, getGroupNickname, updateGroupDescription, removeGroupMember, setGroupAdmin, muteGroupMember, unmuteGroupMember, setAllMute, getGroupMuteStatus, dissolveGroup, leaveGroup, addGroupMembers, uploadGroupAvatar, setGroupDisturb } from '@/api/group.js';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
@@ -1684,14 +1688,8 @@ async function handleUserSearch() {
     const user = baseStore.currentUser;
     const sessionToken = baseStore.currentSessionToken;
     
-    const response = await fetch(`${baseStore.SERVER_URL}/api/user/search?keyword=${encodeURIComponent(searchKeyword.value.trim())}`, {
-      headers: {
-        'user-id': user?.id || '',
-        'session-token': sessionToken || ''
-      }
-    });
-    
-    const data = await response.json();
+    const response = await searchUsers(searchKeyword.value.trim());
+    const data = response.data;
     
     if (data.status === 'success') {
       const users = data.users || [];
@@ -1776,14 +1774,9 @@ watch(() => modalStore.showUserProfileModal, (newVal) => {
     }
 
     if (userId && userProfileIsFriend.value) {
-      fetch(`${SERVER_URL}/api/user/check-block-status/${userId}`, {
-        headers: {
-          'user-id': baseStore.currentUser?.id,
-          'session-token': baseStore.currentSessionToken
-        }
-      })
-      .then(response => response.json())
-      .then(data => {
+      checkUserBlockStatus(userId)
+      .then(res => {
+        const data = res.data;
         if (data.status === 'success') {
           userProfileIsBlocked.value = data.isBlocked;
         }
@@ -1810,14 +1803,8 @@ async function loadGroupMembers(groupId) {
   if (!groupId) return;
   
   try {
-    const response = await fetch(`${baseStore.SERVER_URL}/api/group-members/${groupId}`, {
-      headers: {
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      }
-    });
-    
-    const data = await response.json();
+    const response = await getGroupMembers(groupId);
+    const data = response.data;
     if (data.status === 'success' && data.members) {
       // 1. 更新本地状态（用于模态框显示）
       groupMembers.value = data.members.map(member => ({
@@ -2044,22 +2031,13 @@ async function handleCreateGroup() {
       return;
     }
 
-    const response = await fetch(`${baseStore.SERVER_URL}/api/create-group`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': user.id,
-        'session-token': sessionToken
-      },
-      body: JSON.stringify({
+    const response = await createGroup({
         userId: user.id,
         groupName: groupName,
         description: groupDescription,
         memberIds: selectedMemberIds
-      })
-    });
-
-    const data = await response.json();
+      });
+      const data = response.data;
 
     if (data.status === 'success') {
       createGroupMessage.value = '群组创建成功';
@@ -2133,14 +2111,9 @@ watch(() => modalStore.showGroupInfoModal, (newVal) => {
         groupUserRemark.value = currentGroup.user_remark;
       } else {
         // 如果本地没有，从服务器获取
-        fetch(`${baseStore.SERVER_URL}/api/group-remark/${groupId}`, {
-          headers: {
-            'user-id': baseStore.currentUser?.id || '',
-            'session-token': baseStore.currentSessionToken || ''
-          }
-        })
-        .then(response => response.json())
-        .then(data => {
+        request.get(`/api/group-remark/${groupId}`)
+        .then(res => {
+          const data = res.data;
           if (data.status === 'success') {
             groupUserRemark.value = data.remark || '';
           }
@@ -2198,20 +2171,8 @@ async function saveGroupName() {
   
   try {
     const groupId = modalStore.modalData.groupInfo.id;
-    const response = await fetch(`${baseStore.SERVER_URL}/api/update-group-name`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({ 
-        groupId: Number(groupId),
-        newGroupName: tempGroupName.value.trim()
-      })
-    });
-    
-    const data = await response.json();
+    const response = await updateGroupName(Number(groupId), tempGroupName.value.trim());
+    const data = response.data;
     if (data.status === 'success') {
       toast.success('群组名称已更新');
       modalStore.modalData.groupInfo.name = tempGroupName.value.trim();
@@ -2273,20 +2234,8 @@ async function saveGroupRemark() {
   const newRemark = tempGroupRemark.value.trim();
   
   try {
-    const response = await fetch(`${baseStore.SERVER_URL}/api/set-group-remark`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({
-        groupId: Number(groupId),
-        remark: newRemark || null
-      })
-    });
-
-    const data = await response.json();
+    const response = await setGroupRemark(Number(groupId), newRemark || null);
+    const data = response.data;
 
     if (data.status === 'success') {
       groupUserRemark.value = newRemark;
@@ -2357,20 +2306,8 @@ async function saveGroupNickname() {
   const newNickname = tempGroupNickname.value.trim();
 
   try {
-    const response = await fetch(`${baseStore.SERVER_URL}/api/set-group-nickname`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({
-        groupId: Number(groupId),
-        groupNickname: newNickname || null
-      })
-    });
-
-    const data = await response.json();
+    const response = await setGroupNickname(Number(groupId), newNickname || null);
+    const data = response.data;
 
     if (data.status === 'success') {
       groupNickname.value = newNickname;
@@ -2407,15 +2344,8 @@ async function loadGroupNickname() {
   if (!groupId) return;
 
   try {
-    const response = await fetch(`${baseStore.SERVER_URL}/api/get-group-nickname/${groupId}`, {
-      method: 'GET',
-      headers: {
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      }
-    });
-
-    const data = await response.json();
+    const response = await getGroupNickname(groupId);
+    const data = response.data;
     if (data.status === 'success') {
       const newNickname = data.group_nickname || '';
       
@@ -2470,20 +2400,8 @@ function getMemberDisplayName(member) {
 async function saveGroupNotice() {
   try {
     const groupId = modalStore.modalData.groupInfo.id;
-    const response = await fetch(`${baseStore.SERVER_URL}/api/update-group-description`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({ 
-        groupId: Number(groupId),
-        newDescription: tempGroupNotice.value
-      })
-    });
-    
-    const data = await response.json();
+    const response = await updateGroupDescription(Number(groupId), tempGroupNotice.value);
+    const data = response.data;
     if (data.status === 'success') {
       toast.success('群组公告已更新');
       modalStore.modalData.groupInfo.description = tempGroupNotice.value;
@@ -2505,20 +2423,8 @@ async function handleRemoveGroupMember(member) {
   
   try {
     const groupId = modalStore.modalData.groupInfo.id;
-    const response = await fetch(`${baseStore.SERVER_URL}/api/remove-group-member`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({ 
-        groupId: Number(groupId),
-        memberId: Number(member.id)
-      })
-    });
-    
-    const data = await response.json();
+    const response = await removeGroupMember(Number(groupId), Number(member.id));
+    const data = response.data;
     if (data.status === 'success' || (data.message && data.message.includes('成功'))) {
       toast.success(`已成功踢出成员 ${member.nickname || member.username}`);
       loadGroupMembers(groupId);
@@ -2540,21 +2446,8 @@ async function handleSetGroupAdmin(member) {
   
   try {
     const groupId = modalStore.modalData.groupInfo.id;
-    const response = await fetch(`${baseStore.SERVER_URL}/api/set-group-admin`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({ 
-        groupId: Number(groupId),
-        memberId: Number(member.id),
-        isAdmin: !member.is_admin
-      })
-    });
-    
-    const data = await response.json();
+    const response = await setGroupAdmin(Number(groupId), Number(member.id), !member.is_admin);
+    const data = response.data;
     if (data.status === 'success') {
       toast.success(data.message || `已${action}管理员权限`);
       loadGroupMembers(groupId);
@@ -2631,21 +2524,8 @@ async function handleMuteGroupMember(member) {
   
   try {
     const groupId = modalStore.modalData.groupInfo.id;
-    const response = await fetch(`${baseStore.SERVER_URL}/api/mute-group-member`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({ 
-        groupId: Number(groupId),
-        memberId: Number(member.id),
-        duration: duration
-      })
-    });
-    
-    const data = await response.json();
+    const response = await muteGroupMember(Number(groupId), Number(member.id), duration);
+    const data = response.data;
     if (data.status === 'success') {
       if (duration > 0) {
         const mutedUntil = new Date(data.mutedUntil);
@@ -2672,20 +2552,8 @@ async function handleUnmuteGroupMember(member) {
   
   try {
     const groupId = modalStore.modalData.groupInfo.id;
-    const response = await fetch(`${baseStore.SERVER_URL}/api/unmute-group-member`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({ 
-        groupId: Number(groupId),
-        memberId: Number(member.id)
-      })
-    });
-    
-    const data = await response.json();
+    const response = await unmuteGroupMember(Number(groupId), Number(member.id));
+    const data = response.data;
     if (data.status === 'success') {
       toast.success(`已解除 ${member.nickname || member.username} 的禁言`);
       loadGroupMembers(groupId);
@@ -3053,20 +2921,8 @@ async function handleToggleMuteAll() {
   
   try {
     const groupId = modalStore.modalData.groupInfo.id;
-    const response = await fetch(`${baseStore.SERVER_URL}/api/set-mute-all`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({ 
-        groupId: Number(groupId),
-        isMuteAll: !isMuteAllEnabled.value
-      })
-    });
-    
-    const data = await response.json();
+    const response = await setAllMute(Number(groupId), !isMuteAllEnabled.value);
+    const data = response.data;
     if (data.status === 'success') {
       isMuteAllEnabled.value = !isMuteAllEnabled.value;
       toast.success(data.message || `已${action}全员禁言`);
@@ -3081,14 +2937,8 @@ async function handleToggleMuteAll() {
 
 async function loadGroupMuteStatus(groupId) {
   try {
-    const response = await fetch(`${baseStore.SERVER_URL}/api/mute-status/${groupId}`, {
-      headers: {
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      }
-    });
-    
-    const data = await response.json();
+    const response = await getGroupMuteStatus(groupId);
+    const data = response.data;
     if (data.status === 'success') {
       isMuteAllEnabled.value = data.isMuteAll;
       
@@ -3153,17 +3003,8 @@ async function handleDissolveGroup() {
   }
   
   try {
-    const response = await fetch(`${baseStore.SERVER_URL}/api/dissolve-group`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({ groupId })
-    });
-    
-    const data = await response.json();
+    const response = await dissolveGroup(baseStore.currentUser?.id, groupId);
+    const data = response.data;
     if (data.status === 'success') {
       toast.success('群组已解散');
       modalStore.closeModal('groupInfo');
@@ -3194,17 +3035,8 @@ async function handleLeaveGroup() {
   }
   
   try {
-    const response = await fetch(`${baseStore.SERVER_URL}/api/leave-group`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({ groupId })
-    });
-    
-    const data = await response.json();
+    const response = await leaveGroup(groupId);
+    const data = response.data;
     if (data.success || data.status === 'success') {
       toast.success('已退出群组');
       modalStore.closeModal('groupInfo');
@@ -3235,17 +3067,8 @@ async function handleDeleteFriend() {
   }
   
   try {
-    const response = await fetch(`${baseStore.SERVER_URL}/api/user/remove-friend`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({ friendId })
-    });
-    
-    const data = await response.json();
+    const response = await removeFriend(friendId);
+    const data = response.data;
     if (data.status === 'success') {
       toast.success('删除好友成功');
       modalStore.closeModal('userProfile');
@@ -3275,14 +3098,8 @@ async function loadAvailableFriendsForAdd() {
     const sessionToken = baseStore.currentSessionToken;
     const groupId = modalStore.modalData.groupInfo.id;
     
-    const membersResponse = await fetch(`${baseStore.SERVER_URL}/api/group-members/${groupId}`, {
-      headers: {
-        'user-id': user?.id || '',
-        'session-token': sessionToken || ''
-      }
-    });
-    
-    const membersData = await membersResponse.json();
+    const membersResponse = await getGroupMembers(groupId);
+    const membersData = membersResponse.data;
     const groupMemberIds = new Set((membersData.members || []).map(m => String(m.id)));
     
     if (friendStore.friendsList && Array.isArray(friendStore.friendsList)) {
@@ -3316,20 +3133,8 @@ async function confirmAddGroupMembers() {
   
   try {
     const groupId = modalStore.modalData.groupInfo.id;
-    const response = await fetch(`${baseStore.SERVER_URL}/api/add-group-members`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({ 
-        groupId: groupId,
-        memberIds: selectedFriendIdsForAdd.value
-      })
-    });
-    
-    const data = await response.json();
+    const response = await addGroupMembers(groupId, selectedFriendIdsForAdd.value);
+    const data = response.data;
     if (data.status === 'success' || (data.message && data.message.includes('成功'))) {
       toast.success('成员添加成功');
       showAddGroupMembersModal.value = false;
@@ -3400,25 +3205,13 @@ async function handleGroupAvatarChange(event) {
     formData.append('userId', baseStore.currentUser?.id || '');
     
     const groupId = modalStore.modalData.groupInfo.id;
-    const response = await fetch(`${baseStore.SERVER_URL}/api/upload-group-avatar/${groupId}`, {
-      method: 'POST',
-      headers: {
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: formData
-    });
+    const response = await uploadGroupAvatar(groupId, formData);
+    const data = response.data;
     
-    const data = await response.json();
     if (data.status === 'success') {
       toast.success('群头像上传成功');
-      const infoResponse = await fetch(`${baseStore.SERVER_URL}/api/group-info/${groupId}`, {
-        headers: {
-          'user-id': baseStore.currentUser?.id || '',
-          'session-token': baseStore.currentSessionToken || ''
-        }
-      });
-      const infoData = await infoResponse.json();
+      const infoResponse = await getGroupInfo(groupId);
+      const infoData = infoResponse.data;
       if (infoData.status === 'success' && infoData.group) {
         modalStore.modalData.groupInfo = infoData.group;
       }
@@ -3444,13 +3237,8 @@ function unescapeHtml(html) {
 
 async function fetchUserInfo(userId) {
   try {
-    const response = await fetch(`${SERVER_URL}/api/user/${userId}`, {
-      headers: {
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      }
-    });
-    const data = await response.json();
+    const response = await getUserInfo(userId);
+    const data = response.data;
     if (data.status === 'success' && data.user) {
       return {
         id: data.user.id,
@@ -3586,17 +3374,8 @@ async function handleUserProfileToggleBlockUser() {
     // 如果操作前已拉黑(isCurrentlyBlocked=true)，现在要取消拉黑
     // 如果操作前未拉黑(isCurrentlyBlocked=false)，现在要拉黑
     const apiUrl = isCurrentlyBlocked ? '/api/user/unblock-user' : '/api/user/block-user';
-    const response = await fetch(`${SERVER_URL}${apiUrl}`, {
-      method: 'POST',
-      headers: {
-        'user-id': baseStore.currentUser?.id,
-        'session-token': baseStore.currentSessionToken,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ targetUserId })
-    });
-    
-    const data = await response.json();
+    const response = await request.post(apiUrl, { targetUserId });
+    const data = response.data;
     
     if (data.status === 'success') {
       // userProfileIsBlocked.value 已经被 v-model 更新了，无需再次修改
@@ -3647,20 +3426,8 @@ async function saveRemark() {
   userProfileRemarkLoading.value = true;
 
   try {
-    const response = await fetch(`${SERVER_URL}/api/user/set-friend-remark`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': baseStore.currentUser?.id || '',
-        'session-token': baseStore.currentSessionToken || ''
-      },
-      body: JSON.stringify({
-        friendId: Number(targetUserId),
-        remark: newRemark || null
-      })
-    });
-
-    const data = await response.json();
+    const response = await setFriendRemark(Number(targetUserId), newRemark || null);
+    const data = response.data;
 
     if (data.status === 'success') {
       userProfileRemark.value = newRemark;
@@ -3750,17 +3517,8 @@ async function handleCancelFriendRequest(friendId) {
   if (!userId || !sessionToken) return;
 
   try {
-    const response = await fetch(`${SERVER_URL}/api/user/cancel-friend-request`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': userId,
-        'session-token': sessionToken
-      },
-      body: JSON.stringify({ friendId })
-    });
-
-    const data = await response.json();
+    const response = await cancelFriendRequest(friendId);
+    const data = response.data;
 
     if (data.status === 'success') {
       await baseStore.loadFriendRequests();

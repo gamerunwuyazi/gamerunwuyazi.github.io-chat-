@@ -10,6 +10,8 @@ export const useUnreadStore = defineStore('unread', () => {
     private: {}
   });
 
+  const hasPublicAtMe = ref(false);
+
   function clearGroupUnread(groupId) {
     loadUnreadCountsFromLocalStorage();
     const groupIdStr = String(groupId);
@@ -38,6 +40,7 @@ export const useUnreadStore = defineStore('unread', () => {
     loadUnreadCountsFromLocalStorage();
     let hasUnreadToClear = unreadMessages.value.global > 0;
     unreadMessages.value.global = 0;
+    hasPublicAtMe.value = false;
     saveUnreadCountsToLocalStorage();
     if (hasUnreadToClear) sendClearGlobalUnread();
   }
@@ -133,13 +136,23 @@ export const useUnreadStore = defineStore('unread', () => {
     unreadMessages.value.global = 0;
     unreadMessages.value.groups = {};
     unreadMessages.value.private = {};
+    hasPublicAtMe.value = false;
     saveUnreadCountsToLocalStorage();
     if (typeof updateUnreadCountsDisplay === 'function') updateUnreadCountsDisplay();
     return true;
   }
 
+  function setPublicHasAtMe() {
+    hasPublicAtMe.value = true;
+  }
+
+  function clearPublicHasAtMe() {
+    hasPublicAtMe.value = false;
+  }
+
   return {
     unreadMessages,
+    hasPublicAtMe,
     clearGroupUnread,
     clearPrivateUnread,
     clearGlobalUnread,
@@ -150,6 +163,8 @@ export const useUnreadStore = defineStore('unread', () => {
     loadUnreadCountsFromStorage,
     saveUnreadCountsToLocalStorage,
     saveUnreadCountsToLocalStorageDirect,
-    clearAllUnreadCounts
+    clearAllUnreadCounts,
+    setPublicHasAtMe,
+    clearPublicHasAtMe
   };
 });

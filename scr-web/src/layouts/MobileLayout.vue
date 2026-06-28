@@ -53,6 +53,8 @@
           <button class="mobile-back-btn" @click="goBack">← 返回</button>
           <span class="mobile-chat-title">{{ chatTitle }}</span>
           <button v-if="isPublicChat" class="mobile-user-list-btn" @click="showUserDrawer = true">用户</button>
+          <button v-else-if="currentTab === 'group'" class="mobile-header-action" @click="triggerGroupInfo">信息</button>
+          <button v-else-if="currentTab === 'private'" class="mobile-header-action" @click="triggerPrivateUserInfo">资料</button>
           <span v-else class="mobile-chat-spacer"></span>
         </div>
         <div class="mobile-chat-view">
@@ -240,5 +242,15 @@ function goBack() {
     showSettingsDetail.value = false;
     window.dispatchEvent(new CustomEvent('settings-back'));
   }
+}
+
+// 触发群组信息弹窗
+function triggerGroupInfo() {
+  document.getElementById('groupInfoButton')?.click();
+}
+
+// 触发私信用户资料弹窗
+function triggerPrivateUserInfo() {
+  document.getElementById('privateUserInfoButton')?.click();
 }
 </script>

@@ -385,6 +385,22 @@ body.dark-mode .group-header {
     border-color: #30363d;
 }
 
+body.dark-mode .group-header h2 {
+    color: #c9d1d9;
+}
+
+body.dark-mode .group-actions button {
+    background-color: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+}
+
+body.dark-mode .group-actions button:hover {
+    background-color: #30363d;
+    border-color: #484f58;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
 body.dark-mode .private-user-details h2,
 body.dark-mode .private-user-details h3,
 body.dark-mode .public-header h2 {
@@ -556,8 +572,19 @@ body.dark-mode .msg-avatar {
     background-color: #30363d;
 }
 
+body.dark-mode .quoted-sender-avatar-fallback,
+body.dark-mode .quoted-group-card-avatar-fallback,
+body.dark-mode .quoted-preview-avatar-fallback,
+body.dark-mode .quoted-preview-group-card-avatar-fallback {
+    background-color: #30363d;
+}
+
+body.dark-mode .user-avatar-small {
+    background: #30363d !important;
+}
+
 body.dark-mode .msg-avatar .msg-avatar-initials {
-    color: #8b949e;
+    color: #c9d1d9 !important;
 }
 
 body.dark-mode .msg-sender-name,
@@ -1819,6 +1846,17 @@ body.dark-mode .search-result-item:hover {
 /* === 设置页面 === */
 body.dark-mode .settings-container {
     background-color: #0d1117;
+}
+
+body.dark-mode .settings-detail .empty-requests {
+    background-color: #0d1117 !important;
+    color: #8b949e !important;
+    border: 1px solid #30363d !important;
+}
+
+body.dark-mode .settings-detail .verification-toggle {
+    background-color: #0d1117 !important;
+    border: 1px solid #30363d !important;
 }
 
 body.dark-mode .settings-detail {
@@ -3189,7 +3227,7 @@ noscript {
 /* 群组列表项样式 */
 .group-name {
     font-size: 14px;
-    color: #ecf0f1;
+    color: #fff;
     font-weight: 500;
     flex: 1;
 }
@@ -3289,13 +3327,13 @@ noscript {
 
 .group-actions button {
     padding: 8px 16px;
-    border: none;
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 6px;
     font-size: 14px;
     cursor: pointer;
     transition: all 0.3s ease;
     font-weight: 500;
-    background-color: #3498db;
+    background-color: rgba(255, 255, 255, 0.15);
     color: white;
 }
 

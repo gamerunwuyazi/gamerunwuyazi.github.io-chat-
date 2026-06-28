@@ -20,7 +20,7 @@
           </div>
         </div>
         <div class="private-actions">
-          <button id="privateUserInfoButton" title="查看用户资料" @click="handlePrivateUserInfoClick"><img src="/icon/User-Profile-256-2.ico" alt="查看用户资料" style="width: 15px; height: 15px;"></button>
+          <button id="privateUserInfoButton" title="查看用户资料" @click="handlePrivateUserInfoClick"><img :src="userInfoIconSrc" alt="查看用户资料" style="width: 15px; height: 15px;"></button>
         </div>
       </div>
 
@@ -243,6 +243,22 @@ let dragCounter = 0;
 let previousPrivateMessageLength = 0;
 
 const currentUserId = computed(() => baseStore.currentUser?.id);
+
+const isDarkMode = ref(document.body.classList.contains('dark-mode'));
+const userInfoIconSrc = computed(() => {
+  return isDarkMode.value
+    ? '/icon/User-Profile-256.ico'
+    : '/icon/User-Profile-256-2.ico';
+});
+
+let darkModeObserver = null;
+
+if (typeof MutationObserver !== 'undefined') {
+  darkModeObserver = new MutationObserver(() => {
+    isDarkMode.value = document.body.classList.contains('dark-mode');
+  });
+  darkModeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+}
 
 const privateMessages = computed(() => {
   return friendStore.privateMessages[sessionStore.currentPrivateChatUserId] || [];
@@ -674,17 +690,19 @@ async function executeSearch(keyword) {
     if (matchedMessages.length > 0) {
       searchResults.value = [...matchedMessages].reverse();
 
-      // 为搜索结果补充头像信息
+      // 为搜索结果补充头像信息（同时设置 avatarUrl 和 avatar_url）
       const currentUserId_ = baseStore.currentUser?.id;
       const friendId_ = sessionStore.currentPrivateChatUserId;
       const myAvatar = baseStore.currentUser?.avatarUrl || baseStore.currentUser?.avatar_url || '';
-      const friendAvatar = sessionStore.currentPrivateChatAvatarUrl || '';
+      let friendAvatar = sessionStore.currentPrivateChatAvatarUrl || '';
       searchResults.value.forEach(msg => {
         const msgUserId = String(msg.userId || msg.senderId || '');
         if (msgUserId === String(currentUserId_)) {
-          msg.avatarUrl = msg.avatarUrl || myAvatar;
+          msg.avatarUrl = myAvatar;
+          msg.avatar_url = myAvatar;
         } else {
-          msg.avatarUrl = msg.avatarUrl || friendAvatar;
+          msg.avatarUrl = friendAvatar;
+          msg.avatar_url = friendAvatar;
         }
       });
       
@@ -747,14 +765,8 @@ function formatTime(timestamp) {
 
 function scrollToMessage(message) {
   closeSearchModal();
-  const friendId = sessionStore.currentPrivateChatUserId;
-  const messages = friendStore.privateMessages[friendId] || [];
-  const messageIndex = messages.findIndex(m => m.id === message.id);
-  if (messageIndex !== -1 && privateMessageContainerRef.value) {
-    const messageElements = privateMessageContainerRef.value.querySelectorAll('.message');
-    const targetElement = messageElements[messageIndex];
-    if (targetElement) scrollAndHighlight(targetElement);
-  }
+  const targetElement = privateMessageContainerRef.value?.querySelector(`[data-id="${message.id}"]`);
+  if (targetElement) scrollAndHighlight(targetElement);
 }
 
 function isUserOnline(userId) {

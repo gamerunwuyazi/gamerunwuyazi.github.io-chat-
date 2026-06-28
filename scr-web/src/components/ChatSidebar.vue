@@ -206,8 +206,8 @@ async function handleMenuClick(section) {
             <li :class="['menu-item', { active: activeMenuItem === 'user-settings' }]" data-section="user-settings" @click="handleMenuClick('user-settings')">
                 <div class="chat-avatar">
                     <img src="/icon/Settings-01-256.ico" alt="用户设置" style="width: 24px; height: 24px;">
-                    <span v-if="friendRequestUnreadCount > 0" class="unread-count">{{ friendRequestUnreadCount > 99 ? '99+' : friendRequestUnreadCount }}</span>
                 </div>
+                <span v-if="friendRequestUnreadCount > 0" class="unread-count">{{ friendRequestUnreadCount > 99 ? '99+' : friendRequestUnreadCount }}</span>
             </li>
         </ul>
     </div>

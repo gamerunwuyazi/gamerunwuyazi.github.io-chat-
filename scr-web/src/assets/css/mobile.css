@@ -179,6 +179,19 @@
     min-height: 32px;
 }
 
+.mobile-header-action {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: #fff;
+    font-size: 13px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    min-width: 44px;
+    min-height: 32px;
+    white-space: nowrap;
+}
+
 .mobile-chat-spacer {
     width: 44px;
 }
@@ -202,22 +215,10 @@
     flex-direction: column;
 }
 
+/* 手机版隐藏 group-header 和 private-header（功能已嵌入 mobile-chat-header） */
 .mobile-chat-view .group-header,
 .mobile-chat-view .private-header {
-    flex-shrink: 0;
-    padding: 10px 12px;
-    background: #fff;
-    border-bottom: 1px solid #eee;
-}
-
-.mobile-chat-view .group-header h2,
-.mobile-chat-view .private-user-details h2 {
-    font-size: 15px;
-    max-width: 60vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #333;
+    display: none !important;
 }
 
 .mobile-chat-view #messageContainer,
@@ -544,6 +545,22 @@
     pointer-events: none;
 }
 
+/* ---- 手机端侧边栏名称颜色 ---- */
+#mobile-app .friend-name,
+#mobile-app .group-name {
+    color: #333 !important;
+}
+
+#mobile-app .friend-last-message,
+#mobile-app .group-last-message {
+    color: #999;
+}
+
+body.dark-mode #mobile-app .friend-name,
+body.dark-mode #mobile-app .group-name {
+    color: #c9d1d9 !important;
+}
+
 /* ---- 深色模式微调 ---- */
 body.dark-mode #mobile-app {
     background: #0d1117;
@@ -574,10 +591,10 @@ body.dark-mode .mobile-chat-header {
     background: #161b22;
 }
 
-body.dark-mode .mobile-chat-view .group-header,
-body.dark-mode .mobile-chat-view .private-header {
-    background: #161b22;
-    border-bottom-color: #30363d;
+body.dark-mode .mobile-header-action {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.2);
+    color: #c9d1d9;
 }
 
 body.dark-mode .mobile-chat-view .input-area {
@@ -639,5 +656,16 @@ body.dark-mode .mobile-drawer-overlay {
     .message-image {
         max-height: 200px;
         max-width: 100%;
+    }
+
+    /* 好友申请按钮换行 */
+    .request-item {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .request-actions {
+        width: 100%;
+        justify-content: flex-end;
     }
 }

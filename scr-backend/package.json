@@ -9,7 +9,6 @@
     "dev": "node esbuild.config.mjs --watch",
     "devbuild": "node esbuild.config.mjs --dev",
     "build": "node esbuild.config.mjs",
-    "generate-keys": "node generate-keys.mjs",
     "lint": "eslint src/"
   },
   "keywords": [],
@@ -21,6 +20,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
+    "human-verify": "^1.0.5",
     "multer": "^2.0.2",
     "mysql2": "^3.15.1",
     "node-schedule": "^2.1.1",

@@ -1,6 +1,6 @@
 import modal from '../modal.js';
 
-import { SERVER_URL, toast, getModalId, getModalNameFromId, originalFetch } from './config.js';
+import { toast, getModalId, getModalNameFromId } from './config.js';
 import { 
   showSendGroupCardModal, 
   sendGroupCard, 
@@ -11,7 +11,7 @@ import {
   toggleGroupMute 
 } from './group.js';
 import { loadFriendsList, showUserAvatarPopup } from './private.js';
-import { getRouter } from './routerInstance.js';
+import { navigateTo, getRouter } from './routerInstance.js';
 import {
   useBaseStore,
   useUserStore,
@@ -31,10 +31,11 @@ import {
   disconnectWebSocket,
   setPullingMessages,
   waitForSocketConnection,
-  processAndClearBuffers
+  processAndClearBuffers,
+  sendClearGlobalUnread
 } from './websocket.js';
-import { navigateTo } from './routerInstance.js';
 import { resetAllStores } from '@/stores/plugins/clearStore.js';
+import { getSelfInfo, refreshToken as apiRefreshToken } from '@/api/user.js';
 
 let currentGroupId = null;
 
@@ -86,27 +87,16 @@ async function refreshToken() {
     }
     
     try {
-        const response = await originalFetch(`${SERVER_URL}/api/refresh-token`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                userId: parseInt(userId),
-                refreshToken: refreshTokenValue
-            })
-        });
-        
-        const data = await response.json();
+        const res = await apiRefreshToken(userId, refreshTokenValue);
+        const data = res.data;
         
         if (data.status === 'success') {
+            baseStore.setCurrentSessionToken(data.token);
+            
             localStorage.setItem('currentSessionToken', data.token);
             localStorage.setItem('refreshToken', data.refreshToken);
             
             currentSessionToken = data.token;
-            if (baseStore && baseStore.setCurrentSessionToken) {
-              baseStore.setCurrentSessionToken(data.token);
-            }
 
             return true;
         } else {
@@ -375,13 +365,8 @@ async function initializeChat() {
             currentSessionToken = baseStore.currentSessionToken;
             
             try {
-                const response = await fetch(`${SERVER_URL}/api/self`, {
-                    headers: {
-                        'user-id': currentUser.id,
-                        'session-token': currentSessionToken
-                    }
-                });
-                const data = await response.json();
+                const res = await getSelfInfo();
+                const data = res.data;
                 if (data.status === 'success' && data.user) {
                     currentUser = {
                         id: data.user.id,
@@ -418,13 +403,8 @@ async function initializeChat() {
                 }
                 
                 try {
-                    const response = await fetch(`${SERVER_URL}/api/self`, {
-                        headers: {
-                            'user-id': userId,
-                            'session-token': currentSessionToken
-                        }
-                    });
-                    const data = await response.json();
+                    const response = await getSelfInfo();
+                    const data = response.data;
                     if (data.status === 'success' && data.user) {
                         currentUser = {
                             id: data.user.id,
@@ -472,6 +452,27 @@ async function initializeChat() {
           
           // 5. 处理拉取期间缓冲的 WS 消息（内部会关闭拉取标志）
           if (typeof processAndClearBuffers === 'function') await processAndClearBuffers();
+
+          // 6. 如果路由在主聊天室，绑定一次性点击事件清除未读
+          setTimeout(() => {
+            const router = getRouter?.();
+            const currentPath = router?.currentRoute?.value?.path || window.location.pathname || '';
+            if (currentPath === '/chat' || currentPath === '/chat/') {
+              const publicChatEl = document.querySelector('.chat-content[data-content="public-chat"]');
+              if (publicChatEl) {
+                const handleClick = function() {
+                  const unreadStore = useUnreadStore();
+                  if (unreadStore) {
+                    unreadStore.clearGlobalUnread();
+                    sendClearGlobalUnread();
+                    updateUnreadCountsDisplay();
+                  }
+                  publicChatEl.removeEventListener('click', handleClick);
+                };
+                publicChatEl.addEventListener('click', handleClick, { once: true });
+              }
+            }
+          }, 200);
         } catch (error) {
           console.error('初始化聊天失败:', error);
           // 出错时确保关闭拉取标志
