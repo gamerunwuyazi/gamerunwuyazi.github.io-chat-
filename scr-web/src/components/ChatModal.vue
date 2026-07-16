@@ -536,7 +536,7 @@
                 <div class="user-nickname" style="font-weight: 600; font-size: 15px;">{{ user.nickname }}</div>
                 <div class="user-username" style="color: #666; font-size: 13px;">@{{ user.username }}</div>
               </div>
-              <button v-if="isSearchResultUserFriend(user.id)" class="message-friend-btn" @click="handleMessageFriendFromSearch(user)" style="width: 32px; height: 32px; border-radius: 50%; background: #27ae60; color: white; border: none; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;" title="发消息">💬</button>
+              <button v-if="isSearchResultUserFriend(user.id)" class="message-friend-btn" @click="handleMessageFriendFromSearch(user)" style="width: 32px; height: 32px; border-radius: 50%; background: #27ae60; color: white; border: none; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;" title="发消息"><img src="/icon/Message-256.ico" alt="发消息" style="width: 16px; height: 16px;"></button>
               <button v-else class="add-friend-btn" @click="handleAddFriend(user)" style="width: 32px; height: 32px; border-radius: 50%; background: #3498db; color: white; border: none; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;" title="添加好友">+</button>
             </div>
           </div>
@@ -1690,17 +1690,12 @@ async function handleUserSearch() {
     
     const response = await searchUsers(searchKeyword.value.trim());
     const data = response.data;
+    const users = data.users || [];
     
-    if (data.status === 'success') {
-      const users = data.users || [];
-      
-      searchResults.value = users.filter(u => {
-        const isCurrentUser = String(u.id) === String(user?.id);
-        return !isCurrentUser;
-      });
-    } else {
-      searchResults.value = [];
-    }
+    searchResults.value = users.filter(u => {
+      const isCurrentUser = String(u.id) === String(user?.id);
+      return !isCurrentUser;
+    });
   } catch (error) {
     console.error('搜索用户失败:', error);
     searchResults.value = [];
@@ -1777,9 +1772,7 @@ watch(() => modalStore.showUserProfileModal, (newVal) => {
       checkUserBlockStatus(userId)
       .then(res => {
         const data = res.data;
-        if (data.status === 'success') {
-          userProfileIsBlocked.value = data.isBlocked;
-        }
+        userProfileIsBlocked.value = data.isBlocked;
       })
       .catch(e => {
         console.error('查询拉黑状态失败:', e);
@@ -1805,7 +1798,7 @@ async function loadGroupMembers(groupId) {
   try {
     const response = await getGroupMembers(groupId);
     const data = response.data;
-    if (data.status === 'success' && data.members) {
+    if (data.members) {
       // 1. 更新本地状态（用于模态框显示）
       groupMembers.value = data.members.map(member => ({
         ...member,
@@ -1831,10 +1824,6 @@ async function loadGroupMembers(groupId) {
       groupStore.currentGroupMembers = storeMembers;
       
       // 检测群昵称变更并更新消息列表中的 stored groupNickname
-      if (groupId) {
-        groupStore.updateGroupNicknameInMessages(String(groupId), storeMembers);
-        groupStore.detectAndUpdateGroupNicknames(String(groupId));
-      }
       
       // 3. 同步更新 IndexedDB 中的成员列表（可选，用于离线访问）
       try {
@@ -2039,30 +2028,25 @@ async function handleCreateGroup() {
       });
       const data = response.data;
 
-    if (data.status === 'success') {
-      createGroupMessage.value = '群组创建成功';
-      createGroupMessageType.value = 'success';
+    createGroupMessage.value = '群组创建成功';
+    createGroupMessageType.value = 'success';
 
-      if (data.createMessage && data.createMessage.groupId) {
-        groupStore.addGroupMessage(data.createMessage.groupId, data.createMessage);
-      }
-
-      loadGroupList();
-
-      setTimeout(() => {
-        modalStore.closeModal('createGroup');
-        newGroupName.value = '';
-        newGroupDesc.value = '';
-        selectedMembers.value = [];
-        createGroupMessage.value = '';
-      }, 1000);
-    } else {
-      createGroupMessage.value = data.message || '群组创建失败';
-      createGroupMessageType.value = 'error';
+    if (data.createMessage && data.createMessage.groupId) {
+      groupStore.addGroupMessage(data.createMessage.groupId, data.createMessage);
     }
+
+    loadGroupList();
+
+    setTimeout(() => {
+      modalStore.closeModal('createGroup');
+      newGroupName.value = '';
+      newGroupDesc.value = '';
+      selectedMembers.value = [];
+      createGroupMessage.value = '';
+    }, 1000);
   } catch (error) {
     console.error('创建群组失败:', error);
-    createGroupMessage.value = '创建群组失败，网络错误';
+    createGroupMessage.value = error.response?.data?.message || error.message || '群组创建失败';
     createGroupMessageType.value = 'error';
   }
 }
@@ -2114,9 +2098,7 @@ watch(() => modalStore.showGroupInfoModal, (newVal) => {
         request.get(`/api/group-remark/${groupId}`)
         .then(res => {
           const data = res.data;
-          if (data.status === 'success') {
-            groupUserRemark.value = data.remark || '';
-          }
+          groupUserRemark.value = data.remark || '';
         })
         .catch(e => {
           console.error('获取群组备注失败:', e);
@@ -2173,16 +2155,13 @@ async function saveGroupName() {
     const groupId = modalStore.modalData.groupInfo.id;
     const response = await updateGroupName(Number(groupId), tempGroupName.value.trim());
     const data = response.data;
-    if (data.status === 'success') {
-      toast.success('群组名称已更新');
-      modalStore.modalData.groupInfo.name = tempGroupName.value.trim();
-      editingGroupName.value = false;
-    } else {
-      toast.error(data.message || '更新群组名称失败');
-    }
+    toast.success('群组名称已更新');
+    modalStore.modalData.groupInfo.name = tempGroupName.value.trim();
+    editingGroupName.value = false;
   } catch (error) {
     console.error('更新群组名称失败:', error);
-    toast.error('更新群组名称失败');
+    const errorMessage = error.response?.data?.message || error.message || '更新群组名称失败';
+    toast.error(errorMessage);
   }
 }
 
@@ -2237,38 +2216,35 @@ async function saveGroupRemark() {
     const response = await setGroupRemark(Number(groupId), newRemark || null);
     const data = response.data;
 
-    if (data.status === 'success') {
-      groupUserRemark.value = newRemark;
+    groupUserRemark.value = newRemark;
 
-      // 更新群组列表中的备注
-      const currentGroup = groupStore.groupsList?.find(g => String(g.id) === String(groupId));
-      if (currentGroup) {
-        currentGroup.user_remark = newRemark || null;
-      }
-
-      // 同步更新 IndexedDB 中的备注数据
-      try {
-        const userId = baseStore.currentUser?.id || 'guest';
-        const prefix = `chats-${userId}`;
-        const key = `${prefix}-group-${groupId}`;
-        const existingData = await localForage.getItem(key);
-        if (existingData) {
-          const updatedData = { ...existingData };
-          updatedData.user_remark = newRemark || null;
-          await localForage.setItem(key, updatedData);
-        }
-      } catch (e) {
-        console.error('更新IndexedDB中的群组备注失败:', e);
-      }
-
-      toast.success(newRemark ? `已设置群组备注：${newRemark}` : '已清除群组备注');
-      editingGroupRemark.value = false;
-    } else {
-      toast.error(data.message || '设置群组备注失败');
+    // 更新群组列表中的备注
+    const currentGroup = groupStore.groupsList?.find(g => String(g.id) === String(groupId));
+    if (currentGroup) {
+      currentGroup.user_remark = newRemark || null;
     }
+
+    // 同步更新 IndexedDB 中的备注数据
+    try {
+      const userId = baseStore.currentUser?.id || 'guest';
+      const prefix = `chats-${userId}`;
+      const key = `${prefix}-group-${groupId}`;
+      const existingData = await localForage.getItem(key);
+      if (existingData) {
+        const updatedData = { ...existingData };
+        updatedData.user_remark = newRemark || null;
+        await localForage.setItem(key, updatedData);
+      }
+    } catch (e) {
+      console.error('更新IndexedDB中的群组备注失败:', e);
+    }
+
+    toast.success(newRemark ? `已设置群组备注：${newRemark}` : '已清除群组备注');
+    editingGroupRemark.value = false;
   } catch (e) {
     console.error('设置群组备注失败:', e);
-    toast.error('网络错误');
+    const errorMessage = e.response?.data?.message || e.message || '设置群组备注失败';
+    toast.error(errorMessage);
   }
 }
 
@@ -2309,23 +2285,19 @@ async function saveGroupNickname() {
     const response = await setGroupNickname(Number(groupId), newNickname || null);
     const data = response.data;
 
-    if (data.status === 'success') {
-      groupNickname.value = newNickname;
+    groupNickname.value = newNickname;
 
-      toast.success(newNickname ? `已设置群昵称：${newNickname}` : '已清除群昵称');
-      editingGroupNickname.value = false;
+    toast.success(newNickname ? `已设置群昵称：${newNickname}` : '已清除群昵称');
+    editingGroupNickname.value = false;
 
-      // 刷新成员列表以获取最新的群昵称数据
-      const groupId = modalStore.modalData.groupInfo?.id;
-      if (groupId) {
-        await loadGroupMembers(groupId);
-      }
-    } else {
-      toast.error(data.message || '设置群昵称失败');
+    // 刷新成员列表以获取最新的群昵称数据
+    if (groupId) {
+      await loadGroupMembers(groupId);
     }
   } catch (e) {
     console.error('设置群昵称失败:', e);
-    toast.error('网络错误');
+    const errorMessage = e.response?.data?.message || e.message || '设置群昵称失败';
+    toast.error(errorMessage);
   }
 }
 
@@ -2346,41 +2318,39 @@ async function loadGroupNickname() {
   try {
     const response = await getGroupNickname(groupId);
     const data = response.data;
-    if (data.status === 'success') {
-      const newNickname = data.group_nickname || '';
-      
-      // 1. 更新本地状态
-      groupNickname.value = newNickname;
-      
-      // 2. 更新 groupStore 中的成员列表（如果存在）
-      if (groupStore.currentGroupMembers) {
-        const currentUserId = baseStore.currentUser?.id;
-        if (currentUserId) {
-          const memberIndex = groupStore.currentGroupMembers.findIndex(
-            m => String(m.id) === String(currentUserId)
-          );
-          
-          if (memberIndex !== -1) {
-            groupStore.currentGroupMembers[memberIndex].group_nickname = newNickname || null;
-            // 触发响应式更新
-            groupStore.currentGroupMembers = [...groupStore.currentGroupMembers];
-          }
-        }
-      }
-      
-      // 3. 同步更新 IndexedDB 中的群组会话数据
-      try {
-        const userId = baseStore.currentUser?.id || 'guest';
-        const prefix = `chats-${userId}`;
-        const key = `${prefix}-group-${groupId}`;
-        const existingData = await localForage.getItem(key);
+    const newNickname = data.group_nickname || '';
+    
+    // 1. 更新本地状态
+    groupNickname.value = newNickname;
+    
+    // 2. 更新 groupStore 中的成员列表（如果存在）
+    if (groupStore.currentGroupMembers) {
+      const currentUserId = baseStore.currentUser?.id;
+      if (currentUserId) {
+        const memberIndex = groupStore.currentGroupMembers.findIndex(
+          m => String(m.id) === String(currentUserId)
+        );
         
-        if (existingData) {
-          const updatedData = { ...existingData };
+        if (memberIndex !== -1) {
+          groupStore.currentGroupMembers[memberIndex].group_nickname = newNickname || null;
+          // 触发响应式更新
+          groupStore.currentGroupMembers = [...groupStore.currentGroupMembers];
         }
-      } catch (e) {
-        console.error('⚠️ [loadGroupNickname] IndexedDB操作失败:', e);
       }
+    }
+    
+    // 3. 同步更新 IndexedDB 中的群组会话数据
+    try {
+      const userId = baseStore.currentUser?.id || 'guest';
+      const prefix = `chats-${userId}`;
+      const key = `${prefix}-group-${groupId}`;
+      const existingData = await localForage.getItem(key);
+      
+      if (existingData) {
+        const updatedData = { ...existingData };
+      }
+    } catch (e) {
+      console.error('⚠️ [loadGroupNickname] IndexedDB操作失败:', e);
     }
   } catch (e) {
     console.error('加载群昵称失败:', e);
@@ -2393,6 +2363,12 @@ function getMemberDisplayName(member) {
     return groupNickname.value || member.nickname || '我';
   }
 
+  // 如果是好友且有备注，优先显示备注
+  const friend = friendStore.friendsList?.find(f => String(f.id) === String(member.id));
+  if (friend && friend.remark?.trim()) {
+    return friend.remark.trim();
+  }
+
   // 其他成员如果有群昵称则显示群昵称，否则显示全局昵称
   return member.group_nickname || member.nickname || member.username || '未知';
 }
@@ -2402,16 +2378,13 @@ async function saveGroupNotice() {
     const groupId = modalStore.modalData.groupInfo.id;
     const response = await updateGroupDescription(Number(groupId), tempGroupNotice.value);
     const data = response.data;
-    if (data.status === 'success') {
-      toast.success('群组公告已更新');
-      modalStore.modalData.groupInfo.description = tempGroupNotice.value;
-      editingGroupNotice.value = false;
-    } else {
-      toast.error(data.message || '更新群组公告失败');
-    }
+    toast.success('群组公告已更新');
+    modalStore.modalData.groupInfo.description = tempGroupNotice.value;
+    editingGroupNotice.value = false;
   } catch (error) {
     console.error('更新群组公告失败:', error);
-    toast.error('更新群组公告失败');
+    const errorMessage = error.response?.data?.message || error.message || '更新群组公告失败';
+    toast.error(errorMessage);
   }
 }
 
@@ -2425,15 +2398,12 @@ async function handleRemoveGroupMember(member) {
     const groupId = modalStore.modalData.groupInfo.id;
     const response = await removeGroupMember(Number(groupId), Number(member.id));
     const data = response.data;
-    if (data.status === 'success' || (data.message && data.message.includes('成功'))) {
-      toast.success(`已成功踢出成员 ${member.nickname || member.username}`);
-      loadGroupMembers(groupId);
-    } else {
-      toast.error(data.message || '踢出成员失败');
-    }
+    toast.success(`已成功踢出成员 ${member.nickname || member.username}`);
+    loadGroupMembers(groupId);
   } catch (error) {
     console.error('踢出成员失败:', error);
-    toast.error('踢出成员失败');
+    const errorMessage = error.response?.data?.message || error.message || '踢出成员失败';
+    toast.error(errorMessage);
   }
 }
 
@@ -2448,15 +2418,12 @@ async function handleSetGroupAdmin(member) {
     const groupId = modalStore.modalData.groupInfo.id;
     const response = await setGroupAdmin(Number(groupId), Number(member.id), !member.is_admin);
     const data = response.data;
-    if (data.status === 'success') {
-      toast.success(data.message || `已${action}管理员权限`);
-      loadGroupMembers(groupId);
-    } else {
-      toast.error(data.message || `${action}管理员失败`);
-    }
+    toast.success(data.message || `已${action}管理员权限`);
+    loadGroupMembers(groupId);
   } catch (error) {
     console.error(`${action}管理员失败:`, error);
-    toast.error(`${action}管理员失败`);
+    const errorMessage = error.response?.data?.message || error.message || `${action}管理员失败`;
+    toast.error(errorMessage);
   }
 }
 
@@ -2526,21 +2493,18 @@ async function handleMuteGroupMember(member) {
     const groupId = modalStore.modalData.groupInfo.id;
     const response = await muteGroupMember(Number(groupId), Number(member.id), duration);
     const data = response.data;
-    if (data.status === 'success') {
-      if (duration > 0) {
-        const mutedUntil = new Date(data.mutedUntil);
-        const timeStr = formatMuteTime(mutedUntil);
-        toast.success(`已禁言 ${member.nickname || member.username}，解禁时间：${timeStr}`);
-      } else {
-        toast.success(`已永久禁言 ${member.nickname || member.username}`);
-      }
-      loadGroupMembers(groupId);
+    if (duration > 0) {
+      const mutedUntil = new Date(data.mutedUntil);
+      const timeStr = formatMuteTime(mutedUntil);
+      toast.success(`已禁言 ${member.nickname || member.username}，解禁时间：${timeStr}`);
     } else {
-      toast.error(data.message || '禁言失败');
+      toast.success(`已永久禁言 ${member.nickname || member.username}`);
     }
+    loadGroupMembers(groupId);
   } catch (error) {
     console.error('禁言成员失败:', error);
-    toast.error('禁言失败');
+    const errorMessage = error.response?.data?.message || error.message || '禁言失败';
+    toast.error(errorMessage);
   }
 }
 
@@ -2554,15 +2518,12 @@ async function handleUnmuteGroupMember(member) {
     const groupId = modalStore.modalData.groupInfo.id;
     const response = await unmuteGroupMember(Number(groupId), Number(member.id));
     const data = response.data;
-    if (data.status === 'success') {
-      toast.success(`已解除 ${member.nickname || member.username} 的禁言`);
-      loadGroupMembers(groupId);
-    } else {
-      toast.error(data.message || '解除禁言失败');
-    }
+    toast.success(`已解除 ${member.nickname || member.username} 的禁言`);
+    loadGroupMembers(groupId);
   } catch (error) {
     console.error('解除禁言失败:', error);
-    toast.error('解除禁言失败');
+    const errorMessage = error.response?.data?.message || error.message || '解除禁言失败';
+    toast.error(errorMessage);
   }
 }
 
@@ -2923,15 +2884,12 @@ async function handleToggleMuteAll() {
     const groupId = modalStore.modalData.groupInfo.id;
     const response = await setAllMute(Number(groupId), !isMuteAllEnabled.value);
     const data = response.data;
-    if (data.status === 'success') {
-      isMuteAllEnabled.value = !isMuteAllEnabled.value;
-      toast.success(data.message || `已${action}全员禁言`);
-    } else {
-      toast.error(data.message || `${action}全员禁言失败`);
-    }
+    isMuteAllEnabled.value = !isMuteAllEnabled.value;
+    toast.success(data.message || `已${action}全员禁言`);
   } catch (error) {
     console.error(`${action}全员禁言失败:`, error);
-    toast.error(`${action}全员禁言失败`);
+    const errorMessage = error.response?.data?.message || error.message || `${action}全员禁言失败`;
+    toast.error(errorMessage);
   }
 }
 
@@ -2939,51 +2897,49 @@ async function loadGroupMuteStatus(groupId) {
   try {
     const response = await getGroupMuteStatus(groupId);
     const data = response.data;
-    if (data.status === 'success') {
-      isMuteAllEnabled.value = data.isMuteAll;
+    isMuteAllEnabled.value = data.isMuteAll;
       
-      // 更新成员的禁言状态
-      if (groupMembers.value.length > 0 && data.members) {
-        groupMembers.value = groupMembers.value.map(member => {
-          const muteInfo = data.members.find(m => String(m.id) === String(member.id));
-          if (muteInfo && muteInfo.isMuted) {
-            const mutedUntil = muteInfo.mutedUntil;
+    // 更新成员的禁言状态
+    if (groupMembers.value.length > 0 && data.members) {
+      groupMembers.value = groupMembers.value.map(member => {
+        const muteInfo = data.members.find(m => String(m.id) === String(member.id));
+        if (muteInfo && muteInfo.isMuted) {
+          const mutedUntil = muteInfo.mutedUntil;
+          
+          // 使用 isPermanentMute 函数检测是否超过100年（双重保障）
+          const autoDetectedPermanent = isPermanentMute(mutedUntil);
+          
+          // 前端二次验证：检查临时禁言是否已过期（防止后端漏检或时区差异）
+          if (!autoDetectedPermanent && !muteInfo.isPermanent && mutedUntil) {
+            const mutedTime = new Date(mutedUntil);
+            const now = new Date();
+            const diffMs = mutedTime.getTime() - now.getTime();
             
-            // 使用 isPermanentMute 函数检测是否超过100年（双重保障）
-            const autoDetectedPermanent = isPermanentMute(mutedUntil);
-            
-            // 前端二次验证：检查临时禁言是否已过期（防止后端漏检或时区差异）
-            if (!autoDetectedPermanent && !muteInfo.isPermanent && mutedUntil) {
-              const mutedTime = new Date(mutedUntil);
-              const now = new Date();
-              const diffMs = mutedTime.getTime() - now.getTime();
-              
-              // 如果已过期，返回未禁言状态
-              if (diffMs <= 0) {
-                return {
-                  ...member,
-                  is_muted: false,
-                  muted_until: null,
-                  isPermanentMuted: false
-                };
-              }
+            // 如果已过期，返回未禁言状态
+            if (diffMs <= 0) {
+              return {
+                ...member,
+                is_muted: false,
+                muted_until: null,
+                isPermanentMuted: false
+              };
             }
-            
-            return {
-              ...member,
-              is_muted: true,
-              muted_until: mutedUntil,
-              isPermanentMuted: muteInfo.isPermanent || autoDetectedPermanent  // 优先使用后端判断，但前端也会自动检测
-            };
           }
+          
           return {
             ...member,
-            is_muted: false,
-            muted_until: null,
-            isPermanentMuted: false
+            is_muted: true,
+            muted_until: mutedUntil,
+            isPermanentMuted: muteInfo.isPermanent || autoDetectedPermanent  // 优先使用后端判断，但前端也会自动检测
           };
-        });
-      }
+        }
+        return {
+          ...member,
+          is_muted: false,
+          muted_until: null,
+          isPermanentMuted: false
+        };
+      });
     }
   } catch (error) {
     console.error('获取禁言状态失败:', error);
@@ -3005,20 +2961,17 @@ async function handleDissolveGroup() {
   try {
     const response = await dissolveGroup(baseStore.currentUser?.id, groupId);
     const data = response.data;
-    if (data.status === 'success') {
-      toast.success('群组已解散');
-      modalStore.closeModal('groupInfo');
-      sessionStore.setCurrentGroupId(null);
-      
-      await groupStore.markGroupAsDeleted(groupId, true);
-      
-      loadGroupList();
-    } else {
-      toast.error(data.message || '解散群组失败');
-    }
+    toast.success('群组已解散');
+    modalStore.closeModal('groupInfo');
+    sessionStore.setCurrentGroupId(null);
+    
+    await groupStore.markGroupAsDeleted(groupId, true);
+    
+    loadGroupList();
   } catch (error) {
     console.error('解散群组失败:', error);
-    toast.error('解散群组失败');
+    const errorMessage = error.response?.data?.message || error.message || '解散群组失败';
+    toast.error(errorMessage);
   }
 }
 
@@ -3037,20 +2990,17 @@ async function handleLeaveGroup() {
   try {
     const response = await leaveGroup(groupId);
     const data = response.data;
-    if (data.success || data.status === 'success') {
-      toast.success('已退出群组');
-      modalStore.closeModal('groupInfo');
-      sessionStore.setCurrentGroupId(null);
-      
-      await groupStore.markGroupAsDeleted(groupId, true);
-      
-      loadGroupList();
-    } else {
-      toast.error(data.message || '退出群组失败');
-    }
+    toast.success('已退出群组');
+    modalStore.closeModal('groupInfo');
+    sessionStore.setCurrentGroupId(null);
+    
+    await groupStore.markGroupAsDeleted(groupId, true);
+    
+    loadGroupList();
   } catch (error) {
     console.error('退出群组失败:', error);
-    toast.error('退出群组失败');
+    const errorMessage = error.response?.data?.message || error.message || '退出群组失败';
+    toast.error(errorMessage);
   }
 }
 
@@ -3069,20 +3019,17 @@ async function handleDeleteFriend() {
   try {
     const response = await removeFriend(friendId);
     const data = response.data;
-    if (data.status === 'success') {
-      toast.success('删除好友成功');
-      modalStore.closeModal('userProfile');
-      
-      await friendStore.markFriendAsDeleted(friendId, true);
-      
-      loadFriendsList();
-      sessionStore.setCurrentPrivateChatUserId(null);
-    } else {
-      toast.error(data.message || '删除好友失败');
-    }
+    toast.success('删除好友成功');
+    modalStore.closeModal('userProfile');
+    
+    await friendStore.markFriendAsDeleted(friendId, true);
+    
+    loadFriendsList();
+    sessionStore.setCurrentPrivateChatUserId(null);
   } catch (error) {
     console.error('删除好友失败:', error);
-    toast.error('删除好友失败');
+    const errorMessage = error.response?.data?.message || error.message || '删除好友失败';
+    toast.error(errorMessage);
   }
 }
 
@@ -3135,16 +3082,13 @@ async function confirmAddGroupMembers() {
     const groupId = modalStore.modalData.groupInfo.id;
     const response = await addGroupMembers(groupId, selectedFriendIdsForAdd.value);
     const data = response.data;
-    if (data.status === 'success' || (data.message && data.message.includes('成功'))) {
-      toast.success('成员添加成功');
-      showAddGroupMembersModal.value = false;
-      loadGroupMembers(groupId);
-    } else {
-      toast.error(data.message || '添加成员失败');
-    }
+    toast.success('成员添加成功');
+    showAddGroupMembersModal.value = false;
+    loadGroupMembers(groupId);
   } catch (error) {
     console.error('添加成员失败:', error);
-    toast.error('添加成员失败');
+    const errorMessage = error.response?.data?.message || error.message || '添加成员失败';
+    toast.error(errorMessage);
   }
 }
 
@@ -3208,20 +3152,17 @@ async function handleGroupAvatarChange(event) {
     const response = await uploadGroupAvatar(groupId, formData);
     const data = response.data;
     
-    if (data.status === 'success') {
-      toast.success('群头像上传成功');
-      const infoResponse = await getGroupInfo(groupId);
-      const infoData = infoResponse.data;
-      if (infoData.status === 'success' && infoData.group) {
-        modalStore.modalData.groupInfo = infoData.group;
-      }
-      loadGroupList();
-    } else {
-      toast.error('上传群头像失败: ' + (data.message || '未知错误'));
+    toast.success('群头像上传成功');
+    const infoResponse = await getGroupInfo(groupId);
+    const infoData = infoResponse.data;
+    if (infoData.group) {
+      modalStore.modalData.groupInfo = infoData.group;
     }
+    loadGroupList();
   } catch (error) {
     console.error('上传群头像失败:', error);
-    toast.error('上传群头像失败，网络错误');
+    const errorMessage = error.response?.data?.message || error.message || '上传群头像失败';
+    toast.error(errorMessage);
   }
   
   if (groupAvatarInput.value) {
@@ -3239,7 +3180,7 @@ async function fetchUserInfo(userId) {
   try {
     const response = await getUserInfo(userId);
     const data = response.data;
-    if (data.status === 'success' && data.user) {
+    if (data.user) {
       return {
         id: data.user.id,
         username: data.user.username,
@@ -3377,25 +3318,18 @@ async function handleUserProfileToggleBlockUser() {
     const response = await request.post(apiUrl, { targetUserId });
     const data = response.data;
     
-    if (data.status === 'success') {
-      // userProfileIsBlocked.value 已经被 v-model 更新了，无需再次修改
-      
-      // 刷新好友列表
-      if (typeof loadFriendsList === 'function') {
-        loadFriendsList();
-      }
-      
-      toast.success(data.message);
-    } else {
-      // 失败时，需要将状态恢复回去
-      userProfileIsBlocked.value = isCurrentlyBlocked;
-      toast.error(data.message || (isCurrentlyBlocked ? '取消拉黑失败' : '拉黑失败'));
+    // 刷新好友列表
+    if (typeof loadFriendsList === 'function') {
+      loadFriendsList();
     }
+    
+    toast.success(data.message);
   } catch (e) {
     console.error('拉黑操作失败:', e);
     // 异常时也需要恢复状态
     userProfileIsBlocked.value = !userProfileIsBlocked.value;
-    toast.error('网络错误');
+    const errorMessage = e.response?.data?.message || e.message || (isCurrentlyBlocked ? '取消拉黑失败' : '拉黑失败');
+    toast.error(errorMessage);
   } finally {
     userProfileBlockingLoading.value = false;
   }
@@ -3429,26 +3363,23 @@ async function saveRemark() {
     const response = await setFriendRemark(Number(targetUserId), newRemark || null);
     const data = response.data;
 
-    if (data.status === 'success') {
-      userProfileRemark.value = newRemark;
-      
-      const currentFriend = friendStore.friendsList.find(f => String(f.id) === String(targetUserId));
-      if (currentFriend) {
-        currentFriend.remark = newRemark || null;
-      }
-
-      if (typeof loadFriendsList === 'function') {
-        loadFriendsList();
-      }
-
-      toast.success(newRemark ? `已设置备注：${newRemark}` : '已清除备注');
-      isEditingRemark.value = false;
-    } else {
-      toast.error(data.message || '设置备注失败');
+    userProfileRemark.value = newRemark;
+    
+    const currentFriend = friendStore.friendsList.find(f => String(f.id) === String(targetUserId));
+    if (currentFriend) {
+      currentFriend.remark = newRemark || null;
     }
+
+    if (typeof loadFriendsList === 'function') {
+      loadFriendsList();
+    }
+
+    toast.success(newRemark ? `已设置备注：${newRemark}` : '已清除备注');
+    isEditingRemark.value = false;
   } catch (e) {
     console.error('设置备注失败:', e);
-    toast.error('网络错误');
+    const errorMessage = e.response?.data?.message || e.message || '设置备注失败';
+    toast.error(errorMessage);
   } finally {
     userProfileRemarkLoading.value = false;
   }
@@ -3520,11 +3451,9 @@ async function handleCancelFriendRequest(friendId) {
     const response = await cancelFriendRequest(friendId);
     const data = response.data;
 
-    if (data.status === 'success') {
-      await baseStore.loadFriendRequests();
-      hideUserAvatarPopupVue();
-      toast.success('已撤销好友申请');
-    }
+    await baseStore.loadFriendRequests();
+    hideUserAvatarPopupVue();
+    toast.success('已撤销好友申请');
   } catch (error) {
     console.error('撤销好友请求失败:', error);
   }

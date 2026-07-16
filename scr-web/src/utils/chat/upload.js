@@ -88,11 +88,7 @@ function uploadWithProgress(url, formData, baseStore, onSuccess, onError) {
 
               try {
                 const data = JSON.parse(retryXhr.responseText);
-                if (data.status === 'success') {
-                  onSuccess(data);
-                } else {
-                  onError(data.message || '上传失败');
-                }
+                onSuccess(data);
               } catch (e) {
                 onError('上传失败，请稍后重试');
               }
@@ -128,11 +124,7 @@ function uploadWithProgress(url, formData, baseStore, onSuccess, onError) {
 
     try {
       const data = JSON.parse(xhr.responseText);
-      if (data.status === 'success') {
-        onSuccess(data);
-      } else {
-        onError(data.message || '上传失败');
-      }
+      onSuccess(data);
     } catch (e) {
       console.error('解析上传响应失败:', e);
       onError('上传失败，服务器响应异常');
@@ -508,39 +500,35 @@ function uploadUserAvatar(file) {
 
   uploadAvatar(formData)
     .then(res => { const data = res.data;
-      if (data.status === 'success') {
-        showSuccess('头像上传成功');
+      showSuccess('头像上传成功');
 
-        if (data.avatarUrl) {
-          if (baseStore && baseStore.currentUser) {
-            baseStore.setCurrentUser({
-              ...baseStore.currentUser,
-              avatar_url: data.avatarUrl
-            });
-          }
-
-          const currentUserAvatar = document.getElementById('currentUserAvatar');
-          if (currentUserAvatar) {
-            currentUserAvatar.src = `${SERVER_URL}${data.avatarUrl}`;
-            currentUserAvatar.style.display = 'block';
-          }
-
-          const currentAvatarImg = document.getElementById('currentAvatarImg');
-          if (currentAvatarImg) {
-            currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
-          }
+      if (data.avatarUrl) {
+        if (baseStore && baseStore.currentUser) {
+          baseStore.setCurrentUser({
+            ...baseStore.currentUser,
+            avatar_url: data.avatarUrl
+          });
         }
 
-        const uploadAvatarButton = document.getElementById('uploadAvatarButton');
-        if (uploadAvatarButton) {
-          uploadAvatarButton.disabled = true;
+        const currentUserAvatar = document.getElementById('currentUserAvatar');
+        if (currentUserAvatar) {
+          currentUserAvatar.src = `${SERVER_URL}${data.avatarUrl}`;
+          currentUserAvatar.style.display = 'block';
         }
-      } else {
-        showError(data.message || '头像上传失败');
+
+        const currentAvatarImg = document.getElementById('currentAvatarImg');
+        if (currentAvatarImg) {
+          currentAvatarImg.src = `${SERVER_URL}${data.avatarUrl}`;
+        }
+      }
+
+      const uploadAvatarButton = document.getElementById('uploadAvatarButton');
+      if (uploadAvatarButton) {
+        uploadAvatarButton.disabled = true;
       }
     })
-    .catch(() => {
-      showError('头像上传失败，请重试');
+    .catch(err => {
+      showError(err.response?.data?.message || err.message || '头像上传失败，请重试');
     });
 }
 

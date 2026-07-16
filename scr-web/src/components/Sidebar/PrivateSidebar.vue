@@ -49,16 +49,14 @@ async function togglePrivateMute(userId) {
   try {
     const res = await setFriendDisturb(userId, newIsDisturb);
     const data = res.data;
-    if (data.status === 'success') {
-      friend.is_disturb = data.is_disturb;
-      if (newIsDisturb) {
-        unreadStore.clearPrivateUnread(userId);
-      }
-    } else {
-      console.error('设置好友免打扰失败:', data.message);
+    friend.is_disturb = data.is_disturb;
+    if (newIsDisturb) {
+      unreadStore.clearPrivateUnread(userId);
     }
   } catch (err) {
     console.error('设置好友免打扰请求失败:', err);
+    const errorMessage = err.response?.data?.message || err.message || '设置好友免打扰失败';
+    console.error('设置好友免打扰失败:', errorMessage);
   }
   
   hideContextMenu();
@@ -137,7 +135,7 @@ function getPrivateLastMessage(friend) {
   if (!lastMessage) return '';
 
   const recallNickname = tryGetRecallNickname(lastMessage.content);
-  if (lastMessage.messageType === 101 || lastMessage.isRecalled || recallNickname) {
+  if (lastMessage.messageType === 101 || lastMessage.isRecalled) {
     if (recallNickname) {
       return `${recallNickname}撤回了一条消息`;
     }
@@ -238,7 +236,7 @@ function handleSearchUserClick() {
                 <div class="search-container">
                     <input type="text" id="privateChatSearchInput" placeholder="搜索好友..." class="search-input" v-model="privateChatSearchKeyword">
                     <button id="clearPrivateChatSearch" class="clear-search-btn" v-if="privateChatSearchKeyword" @click="clearPrivateChatSearch">×</button>
-                    <button id="searchUserButton" class="create-group-btn" style="background-color: #3498db;" title="搜索用户" @click="handleSearchUserClick">+</button>
+                    <button id="searchUserButton" class="create-group-btn" title="搜索用户" @click="handleSearchUserClick">+</button>
                 </div>
             </div>
             <ul class="user-list" id="friendsList">
@@ -253,11 +251,11 @@ function handleSearchUserClick() {
                     <span class="user-avatar-wrapper">
                         <span v-if="getAvatarUrl(friend) && !isSvgAvatar(getAvatarUrl(friend))" class="user-avatar">
                             <img :src="`${baseStore.SERVER_URL}${getAvatarUrl(friend)}`" :alt="getFriendDisplayName(friend)" @error="handleAvatarError($event, friend)">
-                            <span v-if="friend.deleted_at" class="deleted-icon">🗑️</span>
+                            <span v-if="friend.deleted_at" class="deleted-icon"><i class="fas fa-trash-alt"></i></span>
                         </span>
                         <span v-else class="user-avatar">
                             {{ getFriendDisplayName(friend).charAt(0).toUpperCase() }}
-                            <span v-if="friend.deleted_at" class="deleted-icon">🗑️</span>
+                            <span v-if="friend.deleted_at" class="deleted-icon"><i class="fas fa-trash-alt"></i></span>
                         </span>
                         <span v-if="isUserOnline(friend.id) && !friend.deleted_at" class="online-indicator"></span>
                     </span>
@@ -267,7 +265,7 @@ function handleSearchUserClick() {
                         <span v-else-if="friend.deleted_at" class="friend-last-message" style="color: #000;">该会话已被删除</span>
                         <span v-else class="friend-last-message">{{ getPrivateLastMessage(friend) }}</span>
                     </div>
-                    <span v-if="isPrivateMuted(friend.id) && !friend.deleted_at" class="mute-icon" style="margin-left: 5px; font-size: 12px;" title="已免打扰">🔕</span>
+                    <span v-if="isPrivateMuted(friend.id) && !friend.deleted_at" class="mute-icon" style="margin-left: 5px; font-size: 12px;" title="已免打扰"><i class="fas fa-bell-slash"></i></span>
                     <div class="unread-count private-unread-count" v-if="unreadStore.unreadMessages.private && unreadStore.unreadMessages.private[friend.id] && !isPrivateMuted(friend.id)">
                         {{ unreadStore.unreadMessages.private[friend.id] }}
                     </div>
@@ -333,13 +331,13 @@ function handleSearchUserClick() {
 }
 
 .deleted-item {
-  opacity: 0.7;
-  background-color: #f5f5f5 !important;
-  border-left: 3px solid #e74c3c;
+  opacity: 0.6;
+  background-color: #fef2f2 !important;
+  border-left: 3px solid #ef4444;
 }
 
 .deleted-item:hover {
-  background-color: #ececec !important;
+  background-color: #fee2e2 !important;
 }
 
 .deleted-item .user-avatar {
@@ -351,15 +349,16 @@ function handleSearchUserClick() {
   position: absolute;
   bottom: -2px;
   right: -2px;
-  background: #fff;
+  background: #ffffff;
   border-radius: 50%;
-  font-size: 12px;
+  font-size: 10px;
   width: 18px;
   height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  color: #ef4444;
 }
 
 .online-indicator {
@@ -368,9 +367,9 @@ function handleSearchUserClick() {
   bottom: 0;
   width: 8px;
   height: 8px;
-  background: limegreen;
+  background: #22c55e;
   border-radius: 50%;
-  border: 2px solid white;
+  border: 2px solid #f5f6f8;
   z-index: 1;
 }
 
@@ -387,11 +386,12 @@ function handleSearchUserClick() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: #1e293b;
 }
 
 .friend-last-message {
   font-size: 12px;
-  color: #999;
+  color: #94a3b8;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

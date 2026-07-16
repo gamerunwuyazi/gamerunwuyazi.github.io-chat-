@@ -90,21 +90,18 @@ async function refreshToken() {
         const res = await apiRefreshToken(userId, refreshTokenValue);
         const data = res.data;
         
-        if (data.status === 'success') {
-            baseStore.setCurrentSessionToken(data.token);
-            
-            localStorage.setItem('currentSessionToken', data.token);
-            localStorage.setItem('refreshToken', data.refreshToken);
-            
-            currentSessionToken = data.token;
+        baseStore.setCurrentSessionToken(data.token);
+        
+        localStorage.setItem('currentSessionToken', data.token);
+        localStorage.setItem('refreshToken', data.refreshToken);
+        
+        currentSessionToken = data.token;
 
-            return true;
-        } else {
-            console.error('Token 刷新失败:', data.message);
-            return false;
-        }
+        return true;
     } catch (err) {
         console.error('刷新 Token 请求失败:', err);
+        const errorMessage = err.response?.data?.message || err.message || 'Token 刷新失败';
+        console.error('Token 刷新失败:', errorMessage);
         return false;
     }
 }
@@ -367,7 +364,7 @@ async function initializeChat() {
             try {
                 const res = await getSelfInfo();
                 const data = res.data;
-                if (data.status === 'success' && data.user) {
+                if (data.user) {
                     currentUser = {
                         id: data.user.id,
                         username: data.user.username,
@@ -405,7 +402,7 @@ async function initializeChat() {
                 try {
                     const response = await getSelfInfo();
                     const data = response.data;
-                    if (data.status === 'success' && data.user) {
+                    if (data.user) {
                         currentUser = {
                             id: data.user.id,
                             username: data.user.username,

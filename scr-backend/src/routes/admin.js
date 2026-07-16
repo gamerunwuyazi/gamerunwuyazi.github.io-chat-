@@ -227,22 +227,33 @@ export function setupRoutes(app, io) {
         return res.status(400).json({ status: 'error', message: '请提供 ipAddress 或 userId 至少一个参数' });
       }
 
-      if (ipAddress) {
+      if (ipAddress && userId) {
+        // 同时提供 IP 和用户ID 时，只删除同时匹配的记录
         await pool.execute(
-          'DELETE FROM scr_banned_ips WHERE ip_address = ?',
-          [ipAddress]
+          'DELETE FROM scr_banned_ips WHERE ip_address = ? AND user_id = ?',
+          [ipAddress, userId]
         );
 
         await redisClient.hDel('scr:banned_ips', ipAddress);
-      }
-
-      if (userId) {
-        await pool.execute(
-          'DELETE FROM scr_banned_ips WHERE user_id = ?',
-          [userId]
-        );
-
         await redisClient.hDel('scr:banned_users', String(userId));
+      } else {
+        if (ipAddress) {
+          await pool.execute(
+            'DELETE FROM scr_banned_ips WHERE ip_address = ?',
+            [ipAddress]
+          );
+
+          await redisClient.hDel('scr:banned_ips', ipAddress);
+        }
+
+        if (userId) {
+          await pool.execute(
+            'DELETE FROM scr_banned_ips WHERE user_id = ?',
+            [userId]
+          );
+
+          await redisClient.hDel('scr:banned_users', String(userId));
+        }
       }
 
       const unbannedTarget = ipAddress ? `IP ${ipAddress}` : `用户 ${userId}`;

@@ -64,12 +64,39 @@ export const useUserStore = defineStore('user', () => {
 
     const userIdStr = String(userId);
 
+    function updateMsgContentFor100(msg) {
+      if (msg.messageType === 100 && msg.content && typeof msg.content === 'string' && userInfo.nickname) {
+        try {
+          const parsed = JSON.parse(msg.content);
+          let changed = false;
+          const traverseAndUpdate = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+            for (const key of Object.keys(obj)) {
+              if (key === userIdStr && typeof obj[key] === 'string') {
+                if (obj[key] !== userInfo.nickname) {
+                  obj[key] = userInfo.nickname;
+                  changed = true;
+                }
+              } else if (typeof obj[key] === 'object') {
+                traverseAndUpdate(obj[key]);
+              }
+            }
+          };
+          traverseAndUpdate(parsed);
+          if (changed) {
+            msg.content = JSON.stringify(parsed);
+          }
+        } catch {}
+      }
+    }
+
     if (storageStore.fullPublicMessages && storageStore.fullPublicMessages.length > 0) {
       for (let i = 0; i < storageStore.fullPublicMessages.length; i++) {
         if (String(storageStore.fullPublicMessages[i].sender_id) === userIdStr || String(storageStore.fullPublicMessages[i].userId) === userIdStr) {
           if (userInfo.nickname) storageStore.fullPublicMessages[i].nickname = userInfo.nickname;
           if (userInfo.avatarUrl) storageStore.fullPublicMessages[i].avatarUrl = userInfo.avatarUrl;
         }
+        updateMsgContentFor100(storageStore.fullPublicMessages[i]);
       }
     }
 
@@ -81,6 +108,7 @@ export const useUserStore = defineStore('user', () => {
               if (userInfo.nickname) storageStore.fullGroupMessages[groupId][i].nickname = userInfo.nickname;
               if (userInfo.avatarUrl) storageStore.fullGroupMessages[groupId][i].avatarUrl = userInfo.avatarUrl;
             }
+            updateMsgContentFor100(storageStore.fullGroupMessages[groupId][i]);
           }
         }
       }
@@ -94,6 +122,7 @@ export const useUserStore = defineStore('user', () => {
               if (userInfo.nickname) storageStore.fullPrivateMessages[otherUserId][i].nickname = userInfo.nickname;
               if (userInfo.avatarUrl) storageStore.fullPrivateMessages[otherUserId][i].avatarUrl = userInfo.avatarUrl;
             }
+            updateMsgContentFor100(storageStore.fullPrivateMessages[otherUserId][i]);
           }
         }
       }
@@ -102,7 +131,14 @@ export const useUserStore = defineStore('user', () => {
     if (publicStore.publicMessages && publicStore.publicMessages.length > 0) {
       publicStore.publicMessages = publicStore.publicMessages.map(msg => {
         if (String(msg.sender_id) === userIdStr || String(msg.userId) === userIdStr) {
-          return { ...msg, ...(userInfo.nickname && { nickname: userInfo.nickname }), ...(userInfo.avatarUrl && { avatarUrl: userInfo.avatarUrl }) };
+          const updated = { ...msg, ...(userInfo.nickname && { nickname: userInfo.nickname }), ...(userInfo.avatarUrl && { avatarUrl: userInfo.avatarUrl }) };
+          updateMsgContentFor100(updated);
+          return updated;
+        }
+        if (msg.messageType === 100) {
+          const copy = { ...msg };
+          updateMsgContentFor100(copy);
+          return copy;
         }
         return msg;
       });
@@ -113,7 +149,14 @@ export const useUserStore = defineStore('user', () => {
         if (groupStore.groupMessages[groupId] && groupStore.groupMessages[groupId].length > 0) {
           groupStore.groupMessages[groupId] = groupStore.groupMessages[groupId].map(msg => {
             if (String(msg.sender_id) === userIdStr || String(msg.userId) === userIdStr) {
-              return { ...msg, ...(userInfo.nickname && { nickname: userInfo.nickname }), ...(userInfo.avatarUrl && { avatarUrl: userInfo.avatarUrl }) };
+              const updated = { ...msg, ...(userInfo.nickname && { nickname: userInfo.nickname }), ...(userInfo.avatarUrl && { avatarUrl: userInfo.avatarUrl }) };
+              updateMsgContentFor100(updated);
+              return updated;
+            }
+            if (msg.messageType === 100) {
+              const copy = { ...msg };
+              updateMsgContentFor100(copy);
+              return copy;
             }
             return msg;
           });
@@ -126,7 +169,14 @@ export const useUserStore = defineStore('user', () => {
         if (friendStore.privateMessages[otherUserId] && friendStore.privateMessages[otherUserId].length > 0) {
           friendStore.privateMessages[otherUserId] = friendStore.privateMessages[otherUserId].map(msg => {
             if (String(msg.sender_id) === userIdStr || String(msg.userId) === userIdStr) {
-              return { ...msg, ...(userInfo.nickname && { nickname: userInfo.nickname }), ...(userInfo.avatarUrl && { avatarUrl: userInfo.avatarUrl }) };
+              const updated = { ...msg, ...(userInfo.nickname && { nickname: userInfo.nickname }), ...(userInfo.avatarUrl && { avatarUrl: userInfo.avatarUrl }) };
+              updateMsgContentFor100(updated);
+              return updated;
+            }
+            if (msg.messageType === 100) {
+              const copy = { ...msg };
+              updateMsgContentFor100(copy);
+              return copy;
             }
             return msg;
           });

@@ -1,5 +1,9 @@
-import esbuild from 'esbuild';
-import { context } from 'esbuild';
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 xingk_gamerunwuyazi
+import esbuild, { context } from 'esbuild';
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+import path from 'path';
 import sqlTemplateStringPlugin from './plugins/sqlCompress.mjs';
 
 const args = process.argv.slice(2);
@@ -54,52 +58,99 @@ if (isDevBuild) {
   buildOptions.minifySyntax = true;
 }
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const appJsPath = path.join(__dirname, 'app.js');
+
 async function build() {
   try {
     if (isWatch) {
-      const ctx = await context(buildOptions);
-      
-      ctx.watch();
-      console.log('👀 Watching for changes...');
-      
-      let currentServer = null;
-      let rebuildCount = 0;
+      let childProcess = null;
+      let isInitialBuild = true;
+      let restartPending = false;
 
-      const startOrRestartServer = async () => {
-        try {
-          if (currentServer) {
-            console.log('🔄 检测到文件变化，正在重启服务器...');
-            
-            await new Promise((resolve) => {
-              currentServer.close(() => {
-                console.log('✅ 旧服务器已关闭');
-                resolve();
-              });
-            });
-            
-            currentServer = null;
-          }
+      const startServer = async () => {
+        return new Promise((resolve, reject) => {
+          const child = spawn('node', [appJsPath], {
+            stdio: 'inherit',
+            cwd: __dirname
+          });
 
-          console.log(`🚀 第 ${rebuildCount + 1} 次启动服务器...`);
-          
-          const modulePath = new URL('./app.js', import.meta.url).href;
-          const { server: serverInstance } = await import(`${modulePath}?t=${Date.now()}`);
-          
-          currentServer = serverInstance;
-          
-          console.log(`✅ 第 ${++rebuildCount} 次重载完成`);
-        } catch (err) {
-          console.error('❌ 重启服务器失败:', err.message);
+          child.on('error', (err) => {
+            console.error('❌ 启动服务器失败:', err.message);
+            reject(err);
+          });
+
+          // 给服务器一点时间启动，如果立即退出说明有错误
+          const startupTimeout = setTimeout(() => {
+            childProcess = child;
+            console.log(`✅ 服务器已启动 (PID: ${child.pid})`);
+            resolve();
+          }, 100);
+
+          child.on('exit', (code, signal) => {
+            clearTimeout(startupTimeout);
+            if (childProcess === child) {
+              childProcess = null;
+              console.log(`🔚 服务器进程已退出 (code: ${code}, signal: ${signal})`);
+              // 如果有待重启且不是被 SIGINT 杀死的，立即重启
+              if (restartPending && signal !== 'SIGINT') {
+                restartPending = false;
+                startServer().catch(console.error);
+              }
+            }
+          });
+        });
+      };
+
+      const stopServer = () => {
+        if (childProcess) {
+          childProcess.kill('SIGINT');
+          childProcess = null;
         }
       };
 
-      ctx.on('end', (result) => {
-        if (result.errors.length === 0) {
-          startOrRestartServer().catch(console.error);
-        }
+      const ctx = await context({
+        ...buildOptions,
+        plugins: [
+          ...buildOptions.plugins,
+          {
+            name: 'watch-server',
+            setup(build) {
+              build.onEnd(result => {
+                // 跳过初始构建，由后面的 startServer 处理首次启动
+                if (isInitialBuild) {
+                  isInitialBuild = false;
+                  return;
+                }
+                if (result.errors.length === 0) {
+                  stopServer();
+                  startServer().catch(console.error);
+                }
+              });
+            }
+          }
+        ]
       });
 
-      await startOrRestartServer();
+      ctx.watch();
+      
+      // 确保父进程退出时杀掉子进程
+      process.on('SIGINT', () => {
+        console.log('\n👋 正在关闭开发服务器...');
+        if (childProcess) {
+          childProcess.kill('SIGINT');
+        }
+        process.exit(0);
+      });
+      process.on('SIGTERM', () => {
+        if (childProcess) {
+          childProcess.kill('SIGTERM');
+        }
+        process.exit(0);
+      });
+
+      // 首次构建后启动服务器
+      await startServer();
     } else {
       await esbuild.build(buildOptions);
       if (!isDevBuild) {

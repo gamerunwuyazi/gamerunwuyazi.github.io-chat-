@@ -89,19 +89,19 @@
         </div>
         <div v-if="showMoreFunctions" class="more-functions" id="privateMoreFunctions">
           <button id="privateImageUploadButton" title="上传图片" @click="handlePrivateImageUploadClick">
-            📷 <span class="button-text">发送图片</span>
+            <i class="fas fa-image"></i> <span class="button-text">发送图片</span>
           </button>
           <button id="privateFileUploadButton" title="上传文件" @click="handlePrivateFileUploadClick">
-          📤 <span class="button-text">发送文件</span>
+          <i class="fas fa-file-upload"></i> <span class="button-text">发送文件</span>
         </button>
         <button id="privateVideoUploadButton" title="上传视频" @click="handlePrivateVideoUploadClick">
-          🎬 <span class="button-text">发送视频</span>
+          <i class="fas fa-video"></i> <span class="button-text">发送视频</span>
         </button>
           <button id="privateSendGroupCardButton" title="发送群名片" @click="handleSendGroupCard">
-            📱 <span class="button-text">发送群名片</span>
+            <i class="fas fa-address-card"></i> <span class="button-text">发送群名片</span>
           </button>
           <button id="privateSearchMessageButton" title="查找消息" @click="openSearchModal">
-            🔍 <span class="button-text">查找消息</span>
+            <i class="fas fa-search"></i> <span class="button-text">查找消息</span>
           </button>
         </div>
         <input v-if="showImageInput" type="file" ref="privateImageInputRef" id="privateImageInput" style="display: none;" accept="image/*" @change="handlePrivateImageUpload" @cancel="handlePrivateImageCancel">
@@ -323,7 +323,7 @@ const displayCurrentUserName = computed(() => {
       return currentFriend.remark.trim();
     }
   }
-  return currentUserName.value || '好友昵称';
+  return sessionStore.currentPrivateChatNickname || currentUserName.value || '好友昵称';
 });
 
 function applySavedPrivateState() {

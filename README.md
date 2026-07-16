@@ -59,10 +59,13 @@ npm install
 
 ```bash
 cd scr-backend
+# 生产环境
 cp .env.example .env.local
+# 开发环境
+cp .env.development .env.development.local
 ```
 
-编辑 `.env.local`，根据实际环境修改以下必填项：
+编辑对应的 `.env.local`（或 `.env.local.development`），根据实际环境修改以下必填项：
 
 ```ini
 DB_HOST=localhost          # MySQL 地址
@@ -74,38 +77,13 @@ ADMIN_PASSWORD=your_admin_pwd  # 管理员密码
 
 其余配置项可按需调整（端口、Redis、速率限制等），所有项均有默认值。
 
-### 3. 配置前端环境变量
+> 开发模式下（`npm run dev` / `npm run devbuild`）会自动加载 `.env.development.local`，生产模式下加载 `.env.local`。
 
-```bash
-cd scr-web
-cp .env.example .env
-```
-
-编辑 `.env`，设置后端服务地址：
-
-```ini
-VITE_SERVER_URL=http://localhost:3000  # 后端服务地址（留空则使用同域）
-```
-
-### 4. 启动 Redis 和 MySQL
+### 3. 启动 Redis 和 MySQL
 
 确保 Redis 和 MySQL 服务已运行，且 MySQL 中已创建对应的数据库（无需手动建表，系统启动时会自动创建）。
 
-### 5. 生成密钥
-
-```bash
-cd scr-backend
-npm run generate-keys
-```
-
-### 6. 构建后端
-
-```bash
-cd scr-backend
-npm run build
-```
-
-### 7. 启动后端服务
+### 4. 启动后端服务
 
 ```bash
 cd scr-backend
@@ -114,7 +92,7 @@ npm run server
 
 后端默认监听端口 **3000**。
 
-### 8. 启动前端（开发模式）
+### 5. 启动前端（开发模式）
 
 ```bash
 cd scr-web
@@ -123,7 +101,7 @@ npm run dev
 
 前端开发服务器默认监听端口 **8080**，访问 `http://localhost:8080` 即可。
 
-### 9. 生产环境构建前端
+### 6. 生产环境构建前端
 
 ```bash
 cd scr-web
@@ -145,10 +123,8 @@ simple-chat-room/
 │   │   ├── services/      # 业务逻辑
 │   │   ├── socket/        # WebSocket 事件处理
 │   │   └── utils/         # 工具函数
-│   ├── keys/              # 密钥文件（运行 generate-keys 生成）
 │   ├── app.js             # 构建产物
 │   ├── esbuild.config.mjs # 构建配置
-│   └── generate-keys.mjs  # RSA 密钥对生成脚本
 ├── scr-web/               # Vue 3 前端
 ├── LICENSE                # MIT 开源协议
 └── README.md              # 本文件
@@ -165,9 +141,7 @@ simple-chat-room/
 | `npm start` | 直接使用源码启动（不构建） |
 | `npm run dev` | 开发模式（构建后监听源码变化自动重启） |
 | `npm run devbuild` | 开发构建（仅构建，不压缩，不监听） |
-| `npm run generate-keys` | 生成 RSA 2048 密钥对到 keys/ 目录 |
 | `npm run lint` | 运行 ESLint 检查代码 |
-
 
 ### 前端
 

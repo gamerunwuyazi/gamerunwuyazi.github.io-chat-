@@ -169,60 +169,53 @@ async function handleLoginClick() {
   const res = await apiLogin(formData.username, formData.password, verifyResult.sessionId, verifyResult.pow.nonce);
   const data = res.data;
 
-  if (data.success || data.status === 'success' || data.code === 200) {
-   const userId = data.userId || (data.user && data.user.id) || (data.data && data.data.id) || '';
-   const nickname = data.nickname || (data.user && data.user.nickname) || (data.data && data.data.nickname) || '';
-   const signature = data.signature || (data.user && data.user.signature) || (data.data && data.data.signature) || '';
-   const avatarUrl = data.avatarUrl || (data.user && data.user.avatarUrl) || (data.data && data.data.avatarUrl) || (data.user && data.user.avatar) || (data.data && data.data.avatar) || null;
-   const gender = data.gender || (data.user && data.user.gender) || (data.data && data.data.gender) || 0;
-   const sessionToken = data.sessionToken || data.token || data.session_token;
-   const refreshToken = data.refreshToken || data.refresh_token;
+  // 登录成功处理
+  const userId = data.userId || (data.user && data.user.id) || (data.data && data.data.id) || '';
+  const nickname = data.nickname || (data.user && data.user.nickname) || (data.data && data.data.nickname) || '';
+  const signature = data.signature || (data.user && data.user.signature) || (data.data && data.data.signature) || '';
+  const avatarUrl = data.avatarUrl || (data.user && data.user.avatarUrl) || (data.data && data.data.avatarUrl) || (data.user && data.user.avatar) || (data.data && data.data.avatar) || null;
+  const gender = data.gender || (data.user && data.user.gender) || (data.data && data.data.gender) || 0;
+  const sessionToken = data.sessionToken || data.token || data.session_token;
+  const refreshToken = data.refreshToken || data.refresh_token;
 
-   if (!userId || !sessionToken) {
+  if (!userId || !sessionToken) {
     showMessage('登录响应数据不完整，请稍后重试', 'error');
     isSubmitting.value = false;
     return;
-   }
+  }
 
-   const userData = {
+  const userData = {
     id: userId ? String(userId) : '',
     nickname: nickname,
     signature: signature,
     gender: gender,
     avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
-   };
+  };
 
-   localStorage.setItem('currentSessionToken', sessionToken);
-   localStorage.setItem('chatUserId', userData.id);
+  localStorage.setItem('currentSessionToken', sessionToken);
+  localStorage.setItem('chatUserId', userData.id);
 
-   if (refreshToken) {
+  if (refreshToken) {
     localStorage.setItem('refreshToken', refreshToken);
-   }
+  }
 
-   showMessage('登录成功，正在跳转...', 'success');
-   setTimeout(() => {
+  showMessage('登录成功，正在跳转...', 'success');
+  setTimeout(() => {
     login();
-   }, 500);
-  } else {
-   let errorMessage = data.message || data.msg || '登录失败';
-
-   if (res.status === 401 || errorMessage.includes('用户名') || errorMessage.includes('密码')) {
+  }, 500);
+ } catch (error) {
+  let errorMessage = error.response?.data?.message || error.response?.data?.msg || error.message || '登录失败';
+  if (error.response?.status === 401 || errorMessage.includes('用户名') || errorMessage.includes('密码')) {
     showMessage(errorMessage, 'error');
     isSubmitting.value = false;
     return;
-   }
-
-   if (res.status === 429) {
-    errorMessage = errorMessage || '操作过于频繁，请稍后再试';
-   } else if (res.status === 403) {
-    errorMessage = errorMessage || '账号异常，请联系管理员';
-   }
-
-   showMessage(errorMessage, 'error');
-   isSubmitting.value = false;
   }
- } catch (error) {
-  showMessage('登录请求失败，请检查网络连接或稍后重试', 'error');
+  if (error.response?.status === 429) {
+    errorMessage = errorMessage || '操作过于频繁，请稍后再试';
+  } else if (error.response?.status === 403) {
+    errorMessage = errorMessage || '账号异常，请联系管理员';
+  }
+  showMessage(errorMessage, 'error');
   isSubmitting.value = false;
  }
 }

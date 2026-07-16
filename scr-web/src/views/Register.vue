@@ -201,23 +201,18 @@ async function validateUsername() {
     const res = await checkUsername(username);
     const data = res.data;
 
-    if (data.status === 'success') {
-      if (data.isAvailable) {
-        validation.username = '用户名可用';
-        validation.usernameClass = 'success';
-        return true;
-      } else {
-        validation.username = '用户名已存在';
-        validation.usernameClass = 'error';
-        return false;
-      }
+    if (data.isAvailable) {
+      validation.username = '用户名可用';
+      validation.usernameClass = 'success';
+      return true;
     } else {
-      validation.username = data.message || '检查失败，请稍后重试';
+      validation.username = '用户名已存在';
       validation.usernameClass = 'error';
       return false;
     }
   } catch (error) {
-    validation.username = '网络错误，请检查用户名是否合法，并稍后重试';
+    const errorMessage = error.response?.data?.message || error.message || '检查失败，请稍后重试';
+    validation.username = errorMessage;
     validation.usernameClass = 'error';
     return false;
   }
@@ -362,72 +357,56 @@ async function doRegisterRequest() {
     });
     const registerData = res.data;
 
-    if (!(registerData.success || registerData.status === 'success' || registerData.code === 200)) {
-      const errorMessage = registerData.message || registerData.msg || '注册失败，请稍后重试';
-
-      if (res.status === 400 && (errorMessage.includes('用户名') || errorMessage.includes('密码') || errorMessage.includes('昵称'))) {
-        showMessage(errorMessage, 'error');
-        isSubmitting.value = false;
-        return;
-      }
-
-      showMessage(errorMessage, 'error');
-      isSubmitting.value = false;
-      return;
-    }
-
     showMessage('注册成功，正在自动登录...', 'success');
 
     const loginRes = await apiLogin(formData.username, formData.password, registerData.autoLoginToken);
     const loginData = loginRes.data;
 
-    if (loginData.success || loginData.status === 'success' || loginData.code === 200) {
-      const userId = loginData.userId || (loginData.user && loginData.user.id) || (loginData.data && loginData.data.id) || '';
-      const nickname = loginData.nickname || (loginData.user && loginData.user.nickname) || (loginData.data && loginData.data.nickname) || '';
-      const signature = loginData.signature || (loginData.user && loginData.user.signature) || (loginData.data && loginData.data.signature) || '';
-      const avatarUrl = loginData.avatarUrl || (loginData.user && loginData.user.avatarUrl) || (loginData.data && loginData.data.avatarUrl) || (loginData.user && loginData.user.avatar) || (loginData.data && loginData.data.avatar) || null;
-      const gender = loginData.gender || (loginData.user && loginData.user.gender) || (loginData.data && loginData.data.gender) || 0;
-      const sessionToken = loginData.sessionToken || loginData.token || loginData.session_token;
-      const refreshToken = loginData.refreshToken || loginData.refresh_token;
+    const userId = loginData.userId || (loginData.user && loginData.user.id) || (loginData.data && loginData.data.id) || '';
+    const nickname = loginData.nickname || (loginData.user && loginData.user.nickname) || (loginData.data && loginData.data.nickname) || '';
+    const signature = loginData.signature || (loginData.user && loginData.user.signature) || (loginData.data && loginData.data.signature) || '';
+    const avatarUrl = loginData.avatarUrl || (loginData.user && loginData.user.avatarUrl) || (loginData.data && loginData.data.avatarUrl) || (loginData.user && loginData.user.avatar) || (loginData.data && loginData.data.avatar) || null;
+    const gender = loginData.gender || (loginData.user && loginData.user.gender) || (loginData.data && loginData.data.gender) || 0;
+    const sessionToken = loginData.sessionToken || loginData.token || loginData.session_token;
+    const refreshToken = loginData.refreshToken || loginData.refresh_token;
 
-      if (!userId || !sessionToken) {
-        showMessage('注册成功，但登录响应数据不完整，请手动登录', 'success');
-        setTimeout(() => {
-          router.push('/login');
-        }, 2000);
-        isSubmitting.value = false;
-        return;
-      }
-
-      const userData = {
-        id: userId ? String(userId) : '',
-        nickname: nickname,
-        signature: signature,
-        gender: gender,
-        avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
-      };
-
-      localStorage.setItem('currentSessionToken', sessionToken);
-      localStorage.setItem('chatUserId', userData.id);
-
-      if (refreshToken) {
-        localStorage.setItem('refreshToken', refreshToken);
-      }
-
-      showMessage('登录成功，正在跳转...', 'success');
-      setTimeout(() => {
-        login();
-      }, 500);
-    } else {
-      const errorMessage = loginData.message || loginData.msg || '注册成功，但自动登录失败，请手动登录';
-      showMessage(errorMessage, 'success');
+    if (!userId || !sessionToken) {
+      showMessage('注册成功，但登录响应数据不完整，请手动登录', 'success');
       setTimeout(() => {
         router.push('/login');
       }, 2000);
       isSubmitting.value = false;
+      return;
     }
+
+    const userData = {
+      id: userId ? String(userId) : '',
+      nickname: nickname,
+      signature: signature,
+      gender: gender,
+      avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
+    };
+
+    localStorage.setItem('currentSessionToken', sessionToken);
+    localStorage.setItem('chatUserId', userData.id);
+
+    if (refreshToken) {
+      localStorage.setItem('refreshToken', refreshToken);
+    }
+
+    showMessage('登录成功，正在跳转...', 'success');
+    setTimeout(() => {
+      login();
+    }, 500);
   } catch (error) {
-    showMessage('注册请求失败，请检查用户名/昵称/密码是否合法，并稍后重试', 'error');
+    const errorMessage = error.response?.data?.message || error.message || '注册失败，请稍后重试';
+    const status = error.response?.status;
+    if (status === 400 && (errorMessage.includes('用户名') || errorMessage.includes('密码') || errorMessage.includes('昵称'))) {
+      showMessage(errorMessage, 'error');
+      isSubmitting.value = false;
+      return;
+    }
+    showMessage(errorMessage, 'error');
     isSubmitting.value = false;
   }
 }

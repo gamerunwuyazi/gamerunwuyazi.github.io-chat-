@@ -122,6 +122,7 @@ import QuotedMessage from './QuotedMessage.vue';
 import { useBaseStore } from '@/stores/baseStore';
 import { useUserStore } from '@/stores/userStore';
 import { useGroupStore } from '@/stores/groupStore';
+import { useFriendStore } from '@/stores/friendStore';
 import { useModalStore } from '@/stores/modalStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useInputStore } from '@/stores/inputStore';
@@ -146,6 +147,7 @@ const props = defineProps({
 const baseStore = useBaseStore();
 const userStore = useUserStore();
 const groupStore = useGroupStore();
+const friendStore = useFriendStore();
 const modalStore = useModalStore();
 const sessionStore = useSessionStore();
 const inputStore = useInputStore();
@@ -203,7 +205,13 @@ const senderNickname = computed(() => {
     return props.message.groupNickname;
   }
 
-  // 3. 中等优先级：使用 userStore 中的全局昵称（实时更新）
+  // 3. 如果是好友，优先显示备注
+  const friend = friendStore.friendsList?.find(f => String(f.id) === String(messageUserId));
+  if (friend && friend.remark?.trim()) {
+    return friend.remark.trim();
+  }
+
+  // 4. 中等优先级：使用 userStore 中的全局昵称（实时更新）
   const onlineUsers = userStore.onlineUsers;
   if (onlineUsers && onlineUsers.length > 0) {
     const onlineUser = onlineUsers.find(u => String(u.id) === String(messageUserId));
@@ -212,7 +220,8 @@ const senderNickname = computed(() => {
     }
   }
 
-  // 4. 兜底：使用消息中存储的原始昵称
+  // 5. 兜底：使用消息中存储的原始昵称或好友昵称
+  if (friend) return friend.nickname || messageUser.value.nickname;
   return messageUser.value.nickname || '未知用户';
 });
 const senderInitials = computed(() => senderNickname.value ? senderNickname.value.charAt(0).toUpperCase() : 'U');
@@ -379,16 +388,13 @@ const messageData = computed(() => {
 
             switch (parsed.action) {
               case 'create': {
-                const otherIds = Object.keys(parsed).filter(k => k !== 'action' && k !== String(userId) && k !== 'groupName' && k !== 'content' && k !== 'otherNames');
-                const otherNamesStr = otherIds.map(id => {
-                  if (members && members.length > 0) {
-                    const m = members.find(m => String(m.id) === String(id));
-                    if (m) return m.group_nickname || m.nickname || parsed[id];
-                  }
-                  return parsed[id] || '用户';
-                }).join('、');
-                sysContent = otherNamesStr
-                  ? `${displayName}创建了群组，同时加入群组的有：${otherNamesStr}`
+                let otherCreateNamesStr = '';
+                if (parsed.otherNames && typeof parsed.otherNames === 'object' && !Array.isArray(parsed.otherNames)) {
+                  const names = Object.values(parsed.otherNames);
+                  otherCreateNamesStr = names.join('、');
+                }
+                sysContent = otherCreateNamesStr
+                  ? `${displayName}创建了群组，同时加入群组的有：${otherCreateNamesStr}`
                   : `${displayName}创建了群组`;
                 break;
               }

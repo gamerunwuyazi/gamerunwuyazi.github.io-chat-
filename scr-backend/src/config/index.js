@@ -2,20 +2,35 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 let envPath;
-if (fs.existsSync(path.join(process.cwd(), '.env.local'))) {
-  envPath = path.join(process.cwd(), '.env.local');
-} else if (fs.existsSync(path.join(process.cwd(), '.env'))) {
-  envPath = path.join(process.cwd(), '.env');
+if (isDev) {
+  if (fs.existsSync(path.join(process.cwd(), '.env.local.development'))) {
+    envPath = path.join(process.cwd(), '.env.local.development');
+  } else if (fs.existsSync(path.join(process.cwd(), '.env.development'))) {
+    envPath = path.join(process.cwd(), '.env.development');
+  }
+} else {
+  if (fs.existsSync(path.join(process.cwd(), '.env.local'))) {
+    envPath = path.join(process.cwd(), '.env.local');
+  } else if (fs.existsSync(path.join(process.cwd(), '.env'))) {
+    envPath = path.join(process.cwd(), '.env');
+  }
 }
 
 if (envPath) {
   dotenv.config({ path: envPath });
-  console.log('✅ 已加载环境变量配置文件');
+  console.log(`✅ 已加载${isDev ? '开发环境' : ''}配置文件`);
 } else {
   console.log('');
-  console.log('⚠️  未检测到 .env 或 .env.local 配置文件！');
-  console.log('⚠️  请修改 .env.example 为 .env.local 并填写配置信息');
+  if (isDev) {
+    console.log('⚠️  未检测到 .env.development 或 .env.development.local 配置文件！');
+    console.log('⚠️  请复制 .env.development 为 .env.development.local 并填写配置信息');
+  } else {
+    console.log('⚠️  未检测到 .env 或 .env.local 配置文件！');
+    console.log('⚠️  请复制 .env.example 为 .env.local 并填写配置信息');
+  }
   console.log('');
   console.log('需要配置以下环境变量:');
   console.log('  - DB_HOST: MySQL数据库地址');
@@ -44,9 +59,9 @@ export const dbConfig = {
 // 服务器配置
 // ============================================
 export const serverConfig = {
-  port: parseInt(process.env.PORT) || 15825,
-  nodeEnv: process.env.NODE_ENV || 'development',
-  corsOrigin: process.env.CORS_ORIGIN || '*'
+  port: parseInt(process.env.PORT) || 3000,
+  nodeEnv: process.env.NODE_ENV || 'production',
+  corsOrigin: process.env.CORS_ORIGIN || undefined
 };
 
 // ============================================
@@ -56,7 +71,8 @@ export const redisConfig = {
   url: process.env.REDIS_URL || null,
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT) || 6379,
-  password: process.env.REDIS_PASSWORD || undefined
+  password: process.env.REDIS_PASSWORD || undefined,
+  db: parseInt(process.env.REDIS_DB) || 0
 };
 
 // ============================================
@@ -151,6 +167,7 @@ export function getRedisUrl() {
     url += `:${redisConfig.password}@`;
   }
   url += `${redisConfig.host}:${redisConfig.port}`;
+  url += `/${redisConfig.db}`;
   
   return url;
 }

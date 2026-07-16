@@ -305,13 +305,11 @@ export const useFriendStore = defineStore('friend', () => {
         if (!sessionData.nickname) {
           try {
             const res = await getUserInfo(userId);
-            if (res.status === 200) {
-              const data = res.data;
-              if (data.status === 'success' && data.user) {
-                if (!sessionData.nickname && data.user.nickname) sessionData.nickname = data.user.nickname;
-                if (!sessionData.avatarUrl && data.user.avatar_url) sessionData.avatarUrl = data.user.avatar_url;
-                if (!sessionData.username && data.user.username) sessionData.username = data.user.username;
-              }
+            const data = res.data;
+            if (data.user) {
+              if (!sessionData.nickname && data.user.nickname) sessionData.nickname = data.user.nickname;
+              if (!sessionData.avatarUrl && data.user.avatar_url) sessionData.avatarUrl = data.user.avatar_url;
+              if (!sessionData.username && data.user.username) sessionData.username = data.user.username;
             }
           } catch (e) { /* ignore */ }
         }

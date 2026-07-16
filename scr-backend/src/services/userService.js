@@ -15,7 +15,6 @@ import {
   updateOnlineUserByUserId,
   logIPAction
 } from '../utils/session.js';
-import { isIPBanned } from '../middleware/auth.js';
 import { verifyPOWSolution } from 'human-verify/backend';
 
 let io;
@@ -58,9 +57,23 @@ export async function register(req, res) {
     const { username, password, nickname, gender, sessionId, nonce } = req.body;
     const clientIP = getClientIP(req);
 
-    const banInfo = await isIPBanned(clientIP);
-    if (banInfo.isBanned) {
-      return res.status(403).json({ status: 'error', message: '您的 IP 已被封禁', isBanned: true, remainingTime: banInfo.remainingTime });
+    // 直接查数据库检查 IP 封禁（不依赖 Redis）
+    const [ipBanRows] = await pool.execute(
+      'SELECT reason, expires_at FROM scr_banned_ips WHERE ip_address = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1',
+      [clientIP]
+    );
+    if (ipBanRows.length > 0) {
+      const banRecord = ipBanRows[0];
+      let message = '您的 IP 已被封禁';
+      if (banRecord.reason) message += `，原因：${banRecord.reason}`;
+      if (banRecord.expires_at) {
+        const diff = new Date(banRecord.expires_at) - new Date();
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        message += `，还剩 ${days}天${hours}小时${minutes}分钟解封`;
+      }
+      return res.status(403).json({ status: 'error', message });
     }
 
     if (!username || !password || !nickname || !sessionId || !nonce) {
@@ -140,28 +153,6 @@ export async function login(req, res) {
     const { username, password, sessionId, nonce, autoLoginToken } = req.body;
     const clientIP = getClientIP(req);
 
-    const banInfo = await isIPBanned(clientIP);
-    if (banInfo.isBanned) {
-      let message = '您的 IP 已被封禁';
-
-      if (banInfo.reason) {
-        message += `，原因：${banInfo.reason}`;
-      }
-
-      if (banInfo.remainingTime) {
-        const { days, hours, minutes } = banInfo.remainingTime;
-        message += `，还剩 ${days}天${hours}小时${minutes}分钟解封`;
-      }
-
-      return res.status(429).json({
-        status: 'error',
-        message: message,
-        isBanned: true,
-        reason: banInfo.reason,
-        remainingTime: banInfo.remainingTime
-      });
-    }
-
     // 账号密码登录（必须提供 username 和 password）
     if (username !== undefined && password !== undefined) {
       const isAutoLogin = !!autoLoginToken;
@@ -232,6 +223,42 @@ export async function login(req, res) {
       if (!isPasswordValid) {
         await logIPAction(user.id, clientIP, 'login_failed');
         return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
+      }
+
+      // 直接查数据库检查封禁：先查 IP，再查 user_id（不依赖 Redis）
+      const [ipBanRows] = await pool.execute(
+        'SELECT reason, expires_at FROM scr_banned_ips WHERE ip_address = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1',
+        [clientIP]
+      );
+      if (ipBanRows.length > 0) {
+        const banRecord = ipBanRows[0];
+        let message = '您的 IP 已被封禁';
+        if (banRecord.reason) message += `，原因：${banRecord.reason}`;
+        if (banRecord.expires_at) {
+          const diff = new Date(banRecord.expires_at) - new Date();
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          message += `，还剩 ${days}天${hours}小时${minutes}分钟解封`;
+        }
+        return res.status(429).json({ status: 'error', message, isBanned: true });
+      }
+      const [userBanRows] = await pool.execute(
+        'SELECT reason, expires_at FROM scr_banned_ips WHERE user_id = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1',
+        [user.id]
+      );
+      if (userBanRows.length > 0) {
+        const banRecord = userBanRows[0];
+        let message = '您的账号已被封禁';
+        if (banRecord.reason) message += `，原因：${banRecord.reason}`;
+        if (banRecord.expires_at) {
+          const diff = new Date(banRecord.expires_at) - new Date();
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          message += `，还剩 ${days}天${hours}小时${minutes}分钟解封`;
+        }
+        return res.status(429).json({ status: 'error', message, isBanned: true });
       }
 
       if (autoLoginToken) {
@@ -321,15 +348,15 @@ export async function refreshToken(req, res) {
 export async function updateNickname(req, res) {
   try {
     const userId = req.userId;
-    const { newNickname } = req.body;
+    const { nickname } = req.body;
 
-    if (!validateNickname(newNickname)) {
+    if (!validateNickname(nickname)) {
       return res.status(400).json({ status: 'error', message: '昵称不能为空' });
     }
 
     await pool.execute(
       'UPDATE scr_users SET nickname = ? WHERE id = ?',
-      [newNickname, userId]
+      [nickname, userId]
     );
 
     const [users] = await pool.execute(
@@ -345,10 +372,10 @@ export async function updateNickname(req, res) {
 
     const [nicknameUpdateResult] = await pool.execute(
       'INSERT INTO scr_messages (user_id, content, message_type, timestamp) VALUES (?, ?, ?, NOW())',
-      [userId, JSON.stringify({ type: 'nickname', nickname: newNickname }), 102]
+      [userId, JSON.stringify({ type: 'nickname', nickname }), 102]
     );
 
-    await updateOnlineUserByUserId(userId, { nickname: newNickname });
+    await updateOnlineUserByUserId(userId, { nickname });
 
     const now = new Date();
     const timestampMs = now.getTime();
@@ -357,7 +384,7 @@ export async function updateNickname(req, res) {
       userId: userId,
       nickname: user.nickname,
       avatarUrl: user.avatar_url,
-      content: JSON.stringify({ type: 'nickname', nickname: newNickname }),
+      content: JSON.stringify({ type: 'nickname', nickname: nickname }),
       messageType: 102,
       groupId: null,
       timestamp: timestampMs,
@@ -368,7 +395,7 @@ export async function updateNickname(req, res) {
 
     io.to('authenticated_users').emit('message-received', type102Message);
 
-    res.json({ status: 'success', message: '昵称修改成功', nickname: newNickname });
+    res.json({ status: 'success', message: '昵称修改成功', nickname: nickname });
   } catch (err) {
     console.error('修改昵称失败:', err.message);
     res.status(500).json({ status: 'error', message: '修改昵称失败' });

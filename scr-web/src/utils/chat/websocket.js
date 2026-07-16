@@ -514,6 +514,55 @@ function initializeWebSocket() {
                     storageStore.processUserInfoUpdateForRecallMessages(userId, updateData);
                 }
 
+                // 同步撤回消息内容更新到显示 stores（processUserInfoUpdateForRecallMessages 只更新了持久化层）
+                if (updateData.nickname && publicStore && publicStore.publicMessages) {
+                    publicStore.publicMessages = publicStore.publicMessages.map(msg => {
+                        if (msg.isRecalled && String(msg.userId) === String(userId)) {
+                            const recallTextMatch = msg.content ? msg.content.match(/^(.+)撤回了一条消息$/) : null;
+                            if (recallTextMatch) {
+                                return { ...msg, content: `${updateData.nickname}撤回了一条消息` };
+                            }
+                        }
+                        return msg;
+                    });
+                }
+                if (updateData.nickname && groupStore && groupStore.groupMessages) {
+                    for (const gId in groupStore.groupMessages) {
+                        if (groupStore.groupMessages[gId] && groupStore.groupMessages[gId].length > 0) {
+                            groupStore.groupMessages[gId] = groupStore.groupMessages[gId].map(msg => {
+                                if (msg.isRecalled && String(msg.userId) === String(userId)) {
+                                    const recallTextMatch = msg.content ? msg.content.match(/^(.+)撤回了一条消息$/) : null;
+                                    if (recallTextMatch) {
+                                        return { ...msg, content: `${updateData.nickname}撤回了一条消息` };
+                                    }
+                                }
+                                return msg;
+                            });
+                        }
+                    }
+                }
+                if (updateData.nickname && friendStore && friendStore.privateMessages) {
+                    const privateMsgs = toRaw(friendStore.privateMessages);
+                    Object.keys(privateMsgs).forEach(otherUserId => {
+                        const messages = privateMsgs[otherUserId];
+                        if (messages && Array.isArray(messages)) {
+                            let hasChanges = false;
+                            messages.forEach(msg => {
+                                if (msg.isRecalled && (String(msg.senderId) === String(userId) || String(msg.userId) === String(userId))) {
+                                    const recallTextMatch = msg.content ? msg.content.match(/^(.+)撤回了一条消息$/) : null;
+                                    if (recallTextMatch) {
+                                        msg.content = `${updateData.nickname}撤回了一条消息`;
+                                        hasChanges = true;
+                                    }
+                                }
+                            });
+                            if (hasChanges) {
+                                friendStore.privateMessages[otherUserId] = [...messages];
+                            }
+                        }
+                    });
+                }
+
                 // ========== 处理全局用户信息更新的102消息 ==========
 
                 // 1. 全局昵称更新（原有逻辑）
@@ -549,6 +598,9 @@ function initializeWebSocket() {
                     if (storageStore && storageStore.updateUserInfoInMessages) {
                         storageStore.updateUserInfoInMessages(userId, { nickname: updateData.nickname });
                     }
+                    if (userStore && userStore.updateUserInfoInMessages) {
+                        userStore.updateUserInfoInMessages(userId, { nickname: updateData.nickname });
+                    }
                     if (friendStore && friendStore.privateMessages) {
                         const privateMsgs = toRaw(friendStore.privateMessages);
                         Object.keys(privateMsgs).forEach(otherUserId => {
@@ -567,21 +619,45 @@ function initializeWebSocket() {
                             }
                         });
                     }
-                } else if (updateData.type === 'avatar' && updateData.avatarUrl) {
+                    // 更新 baseStore.currentUser（如果更新的是自己）
+                    if (baseStore && baseStore.currentUser && String(baseStore.currentUser.id) === String(userId) && updateData.nickname) {
+                        baseStore.setCurrentUser({ ...baseStore.currentUser, nickname: updateData.nickname });
+                    }
+                    // 更新 groupStore.currentGroupMembers
+                    if (groupStore && groupStore.currentGroupMembers && groupStore.currentGroupMembers.length > 0 && updateData.nickname) {
+                        let memberChanged = false;
+                        groupStore.currentGroupMembers.forEach((m, idx) => {
+                            if (String(m.id) === String(userId)) {
+                                groupStore.currentGroupMembers[idx].nickname = updateData.nickname;
+                                memberChanged = true;
+                            }
+                        });
+                        if (memberChanged) {
+                            groupStore.currentGroupMembers = [...groupStore.currentGroupMembers];
+                        }
+                    }
+                    // 更新 sessionStore 当前私聊对象信息
+                    if (sessionStore && updateData.nickname) {
+                        if (sessionStore.currentPrivateChatUserId && String(sessionStore.currentPrivateChatUserId) === String(userId)) {
+                            sessionStore.currentPrivateChatNickname = updateData.nickname;
+                        }
+                    }
+                } else if (updateData.type === 'avatar' && (updateData.avatarUrl || updateData.avatar_url)) {
+                    const avatarUrl = updateData.avatarUrl || updateData.avatar_url;
                     if (userStore && userStore.onlineUsers) {
                         const userIndex = userStore.onlineUsers.findIndex(u => String(u.id) === String(userId));
                         if (userIndex !== -1) {
-                            userStore.onlineUsers[userIndex].avatar = updateData.avatarUrl;
-                            userStore.onlineUsers[userIndex].avatarUrl = updateData.avatarUrl;
-                            userStore.onlineUsers[userIndex].avatar_url = updateData.avatarUrl;
+                            userStore.onlineUsers[userIndex].avatar = avatarUrl;
+                            userStore.onlineUsers[userIndex].avatarUrl = avatarUrl;
+                            userStore.onlineUsers[userIndex].avatar_url = avatarUrl;
                         }
                     }
                     if (friendStore && friendStore.friendsList) {
                         const friendIndex = friendStore.friendsList.findIndex(f => String(f.id) === String(userId));
                         if (friendIndex !== -1) {
-                            friendStore.friendsList[friendIndex].avatarUrl = updateData.avatarUrl;
-                            friendStore.friendsList[friendIndex].avatar_url = updateData.avatarUrl;
-                            friendStore.friendsList[friendIndex].avatar = updateData.avatarUrl;
+                            friendStore.friendsList[friendIndex].avatarUrl = avatarUrl;
+                            friendStore.friendsList[friendIndex].avatar_url = avatarUrl;
+                            friendStore.friendsList[friendIndex].avatar = avatarUrl;
                             friendStore.friendsList = [...friendStore.friendsList];
                         }
                     }
@@ -594,14 +670,17 @@ function initializeWebSocket() {
                         const existingData = await localForage.getItem(key);
                         if (existingData) {
                             const updatedSessionData = { ...existingData };
-                            updatedSessionData.avatarUrl = updateData.avatarUrl;
+                            updatedSessionData.avatarUrl = avatarUrl;
                             await localForage.setItem(key, updatedSessionData);
                         }
                     } catch (e) {
                         console.error('更新IndexedDB中的好友头像失败:', e);
                     }
                     if (storageStore && storageStore.updateUserInfoInMessages) {
-                        storageStore.updateUserInfoInMessages(userId, { avatarUrl: updateData.avatarUrl });
+                        storageStore.updateUserInfoInMessages(userId, { avatarUrl });
+                    }
+                    if (userStore && userStore.updateUserInfoInMessages) {
+                        userStore.updateUserInfoInMessages(userId, { avatarUrl });
                     }
                     if (friendStore && friendStore.privateMessages) {
                         const privateMsgs = toRaw(friendStore.privateMessages);
@@ -611,7 +690,7 @@ function initializeWebSocket() {
                                 let hasChanges = false;
                                 messages.forEach(msg => {
                                     if (String(msg.senderId) === String(userId)) {
-                                        msg.avatarUrl = updateData.avatarUrl;
+                                        msg.avatarUrl = avatarUrl;
                                         hasChanges = true;
                                     }
                                 });
@@ -620,6 +699,27 @@ function initializeWebSocket() {
                                 }
                             }
                         });
+                    }
+                    // 更新 baseStore.currentUser（如果更新的是自己）
+                    if (baseStore && baseStore.currentUser && String(baseStore.currentUser.id) === String(userId)) {
+                        baseStore.setCurrentUser({ ...baseStore.currentUser, avatarUrl: avatarUrl });
+                    }
+                    // 更新 groupStore.currentGroupMembers
+                    if (groupStore && groupStore.currentGroupMembers && groupStore.currentGroupMembers.length > 0) {
+                        let memberChanged = false;
+                        groupStore.currentGroupMembers.forEach((m, idx) => {
+                            if (String(m.id) === String(userId)) {
+                                groupStore.currentGroupMembers[idx].avatarUrl = avatarUrl;
+                                memberChanged = true;
+                            }
+                        });
+                        if (memberChanged) {
+                            groupStore.currentGroupMembers = [...groupStore.currentGroupMembers];
+                        }
+                    }
+                    // 更新 sessionStore 当前私聊对象头像
+                    if (sessionStore && sessionStore.currentPrivateChatUserId && String(sessionStore.currentPrivateChatUserId) === String(userId)) {
+                        sessionStore.currentPrivateChatAvatarUrl = avatarUrl;
                     }
                 }
             } catch (e) {
@@ -1435,11 +1535,6 @@ function initializeWebSocket() {
             }
         }
 
-        // 先执行 updateUserGroupNicknameInMessages（在 storageStore 循环之前，以便能检测到原始状态的变化）
-        if (groupStore && groupStore.updateUserGroupNicknameInMessages && data.groupId) {
-            groupStore.updateUserGroupNicknameInMessages(data.groupId, data.userId, groupNicknameValue || null, data.nickname);
-        }
-
         // 同时更新 storageStore 中的消息
         if (storageStore && storageStore.fullGroupMessages) {
             const groupIdStr = String(data.groupId);
@@ -1548,9 +1643,6 @@ function initializeWebSocket() {
             if (groupStore && groupStore.groupMessages && groupStore.groupMessages[gId]) {
                 groupStore.groupMessages[gId] = [...groupStore.groupMessages[gId]];
             }
-            if (groupStore && groupStore.syncLastMessageGroupNickname) {
-                groupStore.syncLastMessageGroupNickname(gId);
-            }
             if (storageStore) {
                 storageStore.saveToStorage();
             }
@@ -1558,7 +1650,6 @@ function initializeWebSocket() {
             // 触发侧边栏响应式更新（确保 group.lastMessage 的嵌套属性变更能被 Vue 检测）
             if (groupStore && groupStore.groupsList) {
                 groupStore.groupsList = [...groupStore.groupsList];
-                groupStore.syncLastMessageGroupNickname(gId);
             }
         }
 
@@ -2297,11 +2388,12 @@ function initializeWebSocket() {
     });
 
     // 私信消息接收事件
-    socket.on('private-message-received', (message) => {
+    socket.on('private-message-received', async (message) => {
         const sessionStore = useSessionStore();
         const baseStore = useBaseStore();
         const storageStore = useStorageStore();
         const friendStore = useFriendStore();
+        const userStore = useUserStore();
         const unreadStore = useUnreadStore();
 
         // 如果在拉取消息中，将消息放入缓冲队列，等拉取完成后再处理
@@ -2443,6 +2535,132 @@ function initializeWebSocket() {
             }
             
             // 添加103已读回执消息到IndexedDB（但不加入store）
+            friendStore.addPrivateMessage(chatPartnerId, message);
+            return;
+        }
+
+        // 检查是否是类型102用户信息更新消息
+        if (message.messageType === 102) {
+            try {
+                const updateData = JSON.parse(message.content);
+                const userId = message.userId;
+
+                if (storageStore && storageStore.processUserInfoUpdateForRecallMessages) {
+                    storageStore.processUserInfoUpdateForRecallMessages(userId, updateData);
+                }
+
+                // 全局昵称更新
+                if (updateData.type === 'nickname' && updateData.nickname) {
+                    if (userStore && userStore.onlineUsers) {
+                        const userIndex = userStore.onlineUsers.findIndex(u => String(u.id) === String(userId));
+                        if (userIndex !== -1) {
+                            userStore.onlineUsers[userIndex].nickname = updateData.nickname;
+                        }
+                    }
+                    if (friendStore && friendStore.friendsList) {
+                        const friendIndex = friendStore.friendsList.findIndex(f => String(f.id) === String(userId));
+                        if (friendIndex !== -1) {
+                            friendStore.friendsList[friendIndex].nickname = updateData.nickname;
+                            friendStore.friendsList = [...friendStore.friendsList];
+                        }
+                    }
+                    try {
+                        const currentUser = baseStore.currentUser;
+                        const userIdForStorage = currentUser?.id || 'guest';
+                        const prefix = `chats-${userIdForStorage}`;
+                        const key = `${prefix}-private-${userId}`;
+                        const existingData = await localForage.getItem(key);
+                        if (existingData) {
+                            const updatedSessionData = { ...existingData };
+                            updatedSessionData.nickname = updateData.nickname;
+                            await localForage.setItem(key, updatedSessionData);
+                        }
+                    } catch (e) {
+                        console.error('更新IndexedDB中的好友昵称失败:', e);
+                    }
+                    if (storageStore && storageStore.updateUserInfoInMessages) {
+                        storageStore.updateUserInfoInMessages(userId, { nickname: updateData.nickname });
+                    }
+                    if (friendStore && friendStore.privateMessages) {
+                        const privateMsgs = toRaw(friendStore.privateMessages);
+                        Object.keys(privateMsgs).forEach(otherUserId => {
+                            const messages = privateMsgs[otherUserId];
+                            if (messages && Array.isArray(messages)) {
+                                let hasChanges = false;
+                                messages.forEach(msg => {
+                                    if (String(msg.senderId) === String(userId)) {
+                                        msg.nickname = updateData.nickname;
+                                        hasChanges = true;
+                                    }
+                                });
+                                if (hasChanges) {
+                                    friendStore.privateMessages[otherUserId] = [...messages];
+                                }
+                            }
+                        });
+                    }
+                } else if (updateData.type === 'avatar' && (updateData.avatarUrl || updateData.avatar_url)) {
+                    const avatarUrl = updateData.avatarUrl || updateData.avatar_url;
+                    if (userStore && userStore.onlineUsers) {
+                        const userIndex = userStore.onlineUsers.findIndex(u => String(u.id) === String(userId));
+                        if (userIndex !== -1) {
+                            userStore.onlineUsers[userIndex].avatar = avatarUrl;
+                            userStore.onlineUsers[userIndex].avatarUrl = avatarUrl;
+                            userStore.onlineUsers[userIndex].avatar_url = avatarUrl;
+                        }
+                    }
+                    if (friendStore && friendStore.friendsList) {
+                        const friendIndex = friendStore.friendsList.findIndex(f => String(f.id) === String(userId));
+                        if (friendIndex !== -1) {
+                            friendStore.friendsList[friendIndex].avatarUrl = avatarUrl;
+                            friendStore.friendsList[friendIndex].avatar_url = avatarUrl;
+                            friendStore.friendsList[friendIndex].avatar = avatarUrl;
+                            friendStore.friendsList = [...friendStore.friendsList];
+                        }
+                    }
+                    try {
+                        const currentUser = baseStore.currentUser;
+                        const userIdForStorage = currentUser?.id || 'guest';
+                        const prefix = `chats-${userIdForStorage}`;
+                        const key = `${prefix}-private-${userId}`;
+                        const existingData = await localForage.getItem(key);
+                        if (existingData) {
+                            const updatedSessionData = { ...existingData };
+                            updatedSessionData.avatarUrl = avatarUrl;
+                            await localForage.setItem(key, updatedSessionData);
+                        }
+                    } catch (e) {
+                        console.error('更新IndexedDB中的好友头像失败:', e);
+                    }
+                    if (storageStore && storageStore.updateUserInfoInMessages) {
+                        storageStore.updateUserInfoInMessages(userId, { avatarUrl });
+                    }
+                    if (userStore && userStore.updateUserInfoInMessages) {
+                        userStore.updateUserInfoInMessages(userId, { avatarUrl });
+                    }
+                    if (friendStore && friendStore.privateMessages) {
+                        const privateMsgs = toRaw(friendStore.privateMessages);
+                        Object.keys(privateMsgs).forEach(otherUserId => {
+                            const messages = privateMsgs[otherUserId];
+                            if (messages && Array.isArray(messages)) {
+                                let hasChanges = false;
+                                messages.forEach(msg => {
+                                    if (String(msg.senderId) === String(userId)) {
+                                        msg.avatarUrl = avatarUrl;
+                                        hasChanges = true;
+                                    }
+                                });
+                                if (hasChanges) {
+                                    friendStore.privateMessages[otherUserId] = [...messages];
+                                }
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error('解析102消息失败:', e);
+            }
+            // 添加102消息到IndexedDB但不加入显示列表
             friendStore.addPrivateMessage(chatPartnerId, message);
             return;
         }

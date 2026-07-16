@@ -190,14 +190,18 @@ const senderNickname = computed(() => {
       if (props.message.nickname === currentUserNick) {
         const senderId = props.message.userId || props.message.senderId;
         const friend = friendStore.friendsList?.find(f => String(f.id) === String(senderId));
-        if (friend?.nickname) return friend.nickname;
+        if (friend) return friend.remark?.trim() || friend.nickname;
       }
     }
+    const senderId = props.message.userId || props.message.senderId;
+    const friend = friendStore.friendsList?.find(f => String(f.id) === String(senderId));
+    if (friend) return friend.remark?.trim() || friend.nickname || props.message.nickname;
     return props.message.nickname;
   }
   const senderId = props.message.userId || props.message.senderId;
   const friend = friendStore.friendsList?.find(f => String(f.id) === String(senderId));
-  return friend?.nickname || '未知用户';
+  if (friend) return friend.remark?.trim() || friend.nickname;
+  return '未知用户';
 });
 
 const senderUser = computed(() => {
@@ -333,8 +337,23 @@ const messageData = computed(() => {
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
           const keys = Object.keys(parsed);
           if (keys.length > 0) {
-            recallNickname = parsed[keys[0]];
+            const recallerId = keys[0];
+            const storedNickname = parsed[recallerId];
+            // 从好友列表查找最新昵称（优先备注，其次昵称）
+            const friends = friendStore.friendsList;
+            if (friends && friends.length > 0) {
+              const friend = friends.find(f => String(f.id) === String(recallerId));
+              if (friend) {
+                recallNickname = friend.remark || friend.nickname || storedNickname;
+              } else {
+                recallNickname = storedNickname;
+              }
+            } else {
+              recallNickname = storedNickname;
+            }
           }
+        } else {
+          recallNickname = props.message.nickname || '某人';
         }
       } catch (e) {
         recallNickname = props.message.nickname || '某人';

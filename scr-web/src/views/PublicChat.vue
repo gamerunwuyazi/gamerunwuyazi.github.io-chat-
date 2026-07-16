@@ -91,19 +91,19 @@
       </div>
       <div v-if="showMoreFunctions" class="more-functions" id="mainMoreFunctions">
         <button id="imageUploadButton" title="上传图片" @click="handleImageUploadClick">
-          📷 <span class="button-text">发送图片</span>
+          <i class="fas fa-image"></i> <span class="button-text">发送图片</span>
         </button>
         <button id="fileUploadButton" title="上传文件" @click="handleFileUploadClick">
-          📤 <span class="button-text">发送文件</span>
+          <i class="fas fa-file-upload"></i> <span class="button-text">发送文件</span>
         </button>
         <button id="videoUploadButton" title="上传视频" @click="handleVideoUploadClick">
-          🎬 <span class="button-text">发送视频</span>
+          <i class="fas fa-video"></i> <span class="button-text">发送视频</span>
         </button>
         <button id="sendGroupCardButton" title="发送群名片" @click="handleSendGroupCard">
-          📱 <span class="button-text">发送群名片</span>
+          <i class="fas fa-address-card"></i> <span class="button-text">发送群名片</span>
         </button>
         <button id="searchMessageButton" title="查找消息" @click="openSearchModal">
-          🔍 <span class="button-text">查找消息</span>
+          <i class="fas fa-search"></i> <span class="button-text">查找消息</span>
         </button>
       </div>
       <input v-if="showImageInput" type="file" ref="imageInputRef" id="imageInput" style="display: none;" accept="image/*" @change="handleImageUpload" @cancel="handleImageCancel">

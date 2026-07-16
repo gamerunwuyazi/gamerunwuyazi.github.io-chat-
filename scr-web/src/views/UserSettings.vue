@@ -20,6 +20,9 @@ const currentUser = computed(() => baseStore.currentUser);
 
 const currentSetting = ref('')
 
+// 构建时注入的最后更新时间
+const buildTime = import.meta.env.VITE_BUILD_TIME || '未知'
+
 // 人机验证进度状态
 const captchaVisible = ref(false);
 const captchaProgress = ref(0);
@@ -162,25 +165,17 @@ async function doChangePassword() {
   try {
     const res = await changePassword(passwordForm.value.oldPassword, passwordForm.value.newPassword, verifyResult.sessionId, verifyResult.pow.nonce);
     const data = res.data;
-
-    if (data.status === 'success') {
-      passwordMessage.value = '密码修改成功'
-      passwordMessageClass.value = 'success'
-      passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
-    } else {
-      const errorMessage = data.message || '密码修改失败';
-
-      if (res.status === 400 && errorMessage.includes('原密码')) {
-        passwordMessage.value = errorMessage;
-        passwordMessageClass.value = 'error';
-      } else {
-        passwordMessage.value = errorMessage;
-        passwordMessageClass.value = 'error';
-      }
-    }
+    passwordMessage.value = '密码修改成功'
+    passwordMessageClass.value = 'success'
+    passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
   } catch (error) {
     console.error('修改密码失败:', error)
-    passwordMessage.value = '网络错误';
+    const errorMessage = error.response?.data?.message || error.message || '密码修改失败';
+    if (error.response?.status === 400 && errorMessage.includes('原密码')) {
+      passwordMessage.value = errorMessage;
+    } else {
+      passwordMessage.value = errorMessage;
+    }
     passwordMessageClass.value = 'error';
   }
 }
@@ -207,21 +202,15 @@ async function handleChangeNickname() {
   try {
     const res = await updateNickname(newNickname);
     const data = res.data;
-
-    if (data.status === 'success') {
-      nicknameMessage.value = '昵称修改成功'
-      nicknameMessageClass.value = 'success'
-      const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
-      user.nickname = newNickname
-      localStorage.setItem('currentUser', JSON.stringify(user))
-      baseStore.setCurrentUser(user)
-    } else {
-      nicknameMessage.value = data.message || '昵称修改失败'
-      nicknameMessageClass.value = 'error'
-    }
+    nicknameMessage.value = '昵称修改成功'
+    nicknameMessageClass.value = 'success'
+    const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
+    user.nickname = newNickname
+    localStorage.setItem('currentUser', JSON.stringify(user))
+    baseStore.setCurrentUser(user)
   } catch (error) {
     console.error('修改昵称失败:', error)
-    nicknameMessage.value = '网络错误'
+    nicknameMessage.value = error.response?.data?.message || error.message || '昵称修改失败'
     nicknameMessageClass.value = 'error'
   }
 }
@@ -235,20 +224,14 @@ async function handleChangeSignature() {
   try {
     const res = await updateSignature(signatureForm.value.newSignature);
     const data = res.data;
-
-    if (data.status === 'success') {
-      signatureMessage.value = '个性签名修改成功'
-      signatureMessageClass.value = 'success'
-      const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
-      user.signature = signatureForm.value.newSignature
-      localStorage.setItem('currentUser', JSON.stringify(user))
-      baseStore.setCurrentUser(user)
-    } else {
-      signatureMessage.value = data.message || '个性签名修改失败'
-      signatureMessageClass.value = 'error'
-    }
+    signatureMessage.value = '个性签名修改成功'
+    signatureMessageClass.value = 'success'
+    const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
+    user.signature = signatureForm.value.newSignature
+    localStorage.setItem('currentUser', JSON.stringify(user))
+    baseStore.setCurrentUser(user)
   } catch (error) {
-    signatureMessage.value = '网络错误'
+    signatureMessage.value = error.response?.data?.message || error.message || '个性签名修改失败'
     signatureMessageClass.value = 'error'
   }
 }
@@ -262,19 +245,13 @@ async function handleChangeGender() {
   try {
     const res = await updateGender(parseInt(genderForm.value.newGender));
     const data = res.data;
-
-    if (data.status === 'success') {
-      genderMessage.value = '性别修改成功'
-      genderMessageClass.value = 'success'
-      if (baseStore.currentUser) {
-        baseStore.currentUser.gender = parseInt(genderForm.value.newGender)
-      }
-    } else {
-      genderMessage.value = data.message || '性别修改失败'
-      genderMessageClass.value = 'error'
+    genderMessage.value = '性别修改成功'
+    genderMessageClass.value = 'success'
+    if (baseStore.currentUser) {
+      baseStore.currentUser.gender = parseInt(genderForm.value.newGender)
     }
   } catch (error) {
-    genderMessage.value = '网络错误'
+    genderMessage.value = error.response?.data?.message || error.message || '性别修改失败'
     genderMessageClass.value = 'error'
   }
 }
@@ -347,28 +324,22 @@ async function handleUploadAvatar() {
   try {
     const res = await uploadAvatar(formData);
     const data = res.data;
+    avatarMessage.value = '头像上传成功'
+    avatarMessageClass.value = 'success'
+    const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
+    user.avatarUrl = data.avatarUrl
+    user.avatar_url = data.avatarUrl
+    user.avatarVersion = Date.now()
+    localStorage.setItem('currentUser', JSON.stringify(user))
 
-    if (data.status === 'success') {
-      avatarMessage.value = '头像上传成功'
-      avatarMessageClass.value = 'success'
-      const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
-      user.avatarUrl = data.avatarUrl
-      user.avatar_url = data.avatarUrl
-      user.avatarVersion = Date.now()
-      localStorage.setItem('currentUser', JSON.stringify(user))
+    baseStore.setCurrentUser(user)
 
-      baseStore.setCurrentUser(user)
+    selectedAvatarFile.value = null
+    avatarPreview.value = ''
 
-      selectedAvatarFile.value = null
-      avatarPreview.value = ''
-
-      window.dispatchEvent(new CustomEvent('user-avatar-updated', { detail: { avatarUrl: data.avatarUrl, avatarVersion: user.avatarVersion } }))
-    } else {
-      avatarMessage.value = data.message || '头像上传失败'
-      avatarMessageClass.value = 'error'
-    }
+    window.dispatchEvent(new CustomEvent('user-avatar-updated', { detail: { avatarUrl: data.avatarUrl, avatarVersion: user.avatarVersion } }))
   } catch (error) {
-    avatarMessage.value = '网络错误'
+    avatarMessage.value = error.response?.data?.message || error.message || '头像上传失败'
     avatarMessageClass.value = 'error'
   }
 }
@@ -415,18 +386,12 @@ async function handleAcceptFriendRequest(requesterId) {
   try {
     const res = await acceptFriendRequest(requesterId);
     const data = res.data;
-
-    if (data.status === 'success') {
-      friendRequestMessage.value = '已接受好友请求'
-      friendRequestMessageClass.value = 'success'
-      await baseStore.loadFriendRequests()
-    } else {
-      friendRequestMessage.value = data.message || '接受好友请求失败'
-      friendRequestMessageClass.value = 'error'
-    }
+    friendRequestMessage.value = '已接受好友请求'
+    friendRequestMessageClass.value = 'success'
+    await baseStore.loadFriendRequests()
   } catch (error) {
     console.error('接受好友请求失败:', error)
-    friendRequestMessage.value = '网络错误'
+    friendRequestMessage.value = error.response?.data?.message || error.message || '接受好友请求失败'
     friendRequestMessageClass.value = 'error'
   }
 }
@@ -437,18 +402,12 @@ async function handleRejectFriendRequest(requesterId) {
   try {
     const res = await rejectFriendRequest(requesterId);
     const data = res.data;
-
-    if (data.status === 'success') {
-      friendRequestMessage.value = '已拒绝好友请求'
-      friendRequestMessageClass.value = 'success'
-      await baseStore.loadFriendRequests()
-    } else {
-      friendRequestMessage.value = data.message || '拒绝好友请求失败'
-      friendRequestMessageClass.value = 'error'
-    }
+    friendRequestMessage.value = '已拒绝好友请求'
+    friendRequestMessageClass.value = 'success'
+    await baseStore.loadFriendRequests()
   } catch (error) {
     console.error('拒绝好友请求失败:', error)
-    friendRequestMessage.value = '网络错误'
+    friendRequestMessage.value = error.response?.data?.message || error.message || '拒绝好友请求失败'
     friendRequestMessageClass.value = 'error'
   }
 }
@@ -459,18 +418,12 @@ async function handleCancelFriendRequest(friendId) {
   try {
     const res = await cancelFriendRequest(friendId);
     const data = res.data;
-
-    if (data.status === 'success') {
-      friendRequestMessage.value = '已撤销好友请求'
-      friendRequestMessageClass.value = 'success'
-      await baseStore.loadFriendRequests()
-    } else {
-      friendRequestMessage.value = data.message || '撤销好友请求失败'
-      friendRequestMessageClass.value = 'error'
-    }
+    friendRequestMessage.value = '已撤销好友请求'
+    friendRequestMessageClass.value = 'success'
+    await baseStore.loadFriendRequests()
   } catch (error) {
     console.error('撤销好友请求失败:', error)
-    friendRequestMessage.value = '网络错误'
+    friendRequestMessage.value = error.response?.data?.message || error.message || '撤销好友请求失败'
     friendRequestMessageClass.value = 'error'
   }
 }
@@ -655,12 +608,8 @@ onUnmounted(() => {
         <h2>版本信息</h2>
         <div class="version-info">
           <div class="version-item">
-            <div class="version-label">当前版本</div>
-            <div class="version-value">1.0.0</div>
-          </div>
-          <div class="version-item">
             <div class="version-label">最后更新</div>
-            <div class="version-value">2026.5.30</div>
+            <div class="version-value">{{ buildTime }}</div>
           </div>
           <div class="version-item">
             <div class="version-label">开发者</div>

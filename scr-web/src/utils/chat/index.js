@@ -53,7 +53,7 @@ async function login() {
       try {
         const response = await getSelfInfo();
         const data = response.data;
-        if (data.status === 'success' && data.user) {
+        if (data.user) {
           baseStore.setCurrentUser({
             id: data.user.id,
             username: data.user.username,

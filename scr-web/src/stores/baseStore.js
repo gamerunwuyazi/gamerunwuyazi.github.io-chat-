@@ -47,15 +47,12 @@ export const useBaseStore = defineStore('base', () => {
     try {
       const response = await apiSetFriendVerification(requireVerification);
       const data = response.data;
-      if (data.status === 'success') {
-        friendVerification.value = requireVerification;
-        return { success: true, message: data.message };
-      } else {
-        return { success: false, message: data.message };
-      }
+      friendVerification.value = requireVerification;
+      return { success: true, message: data.message };
     } catch (error) {
       console.error('设置好友验证失败:', error);
-      return { success: false, message: '设置好友验证失败' };
+      const errorMessage = error.response?.data?.message || error.message || '设置好友验证失败';
+      return { success: false, message: errorMessage };
     }
   }
 

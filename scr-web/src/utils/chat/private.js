@@ -132,9 +132,7 @@ async function loadFriendsList() {
   try {
     const res = await getFriendsList();
     const data = res.data;
-    if (data.status === 'success') {
-      await updateFriendsList(data.friends);
-    }
+    await updateFriendsList(data.friends);
   } catch (e) {
     console.error('加载好友列表失败:', e);
   }
@@ -366,15 +364,11 @@ export function addFriend(userId, message = '') {
 
   apiAddFriend(userId, message).then(res => {
     const data = res.data;
-    if (data.status === 'success') {
-      loadFriendsList();
-      toast.success(data.message);
-    } else {
-      toast.error(data.message || '操作失败');
-    }
+    loadFriendsList();
+    toast.success(data.message);
   })
-  .catch(() => {
-    toast.error('网络错误');
+  .catch(err => {
+    toast.error(err.response?.data?.message || err.message || '操作失败');
   });
 }
 
@@ -391,30 +385,26 @@ async function deleteFriend(userId) {
   if (confirmed) {
     removeFriend(userId).then(res => {
       const data = res.data;
-        if (data.status === 'success') {
-          if (friendStore && friendStore.markFriendAsDeleted) {
-            friendStore.markFriendAsDeleted(userId, true);
-          }
-          
-          loadFriendsList();
-
-          const currentPrivateChatUserId = sessionStore.currentPrivateChatUserId;
-          if (currentPrivateChatUserId === userId) {
-            const privateChatInterface = document.getElementById('privateChatInterface');
-            const privateEmptyState = document.getElementById('privateEmptyState');
-            if (privateChatInterface && privateEmptyState) {
-              privateChatInterface.style.display = 'none';
-              privateEmptyState.style.display = 'flex';
-            }
-          }
-
-          toast.success('删除好友成功');
-        } else {
-          toast.error('删除好友失败: ' + data.message);
+        if (friendStore && friendStore.markFriendAsDeleted) {
+          friendStore.markFriendAsDeleted(userId, true);
         }
+        
+        loadFriendsList();
+
+        const currentPrivateChatUserId = sessionStore.currentPrivateChatUserId;
+        if (currentPrivateChatUserId === userId) {
+          const privateChatInterface = document.getElementById('privateChatInterface');
+          const privateEmptyState = document.getElementById('privateEmptyState');
+          if (privateChatInterface && privateEmptyState) {
+            privateChatInterface.style.display = 'none';
+            privateEmptyState.style.display = 'flex';
+          }
+        }
+
+        toast.success('删除好友成功');
       })
-      .catch(() => {
-        toast.error('删除好友失败: 网络错误');
+      .catch(err => {
+        toast.error('删除好友失败: ' + (err.response?.data?.message || err.message || '网络错误'));
       });
   }
 }
@@ -439,7 +429,7 @@ function showUserProfile(user) {
   getUserInfo(user.id).then(res => {
     const data = res.data;
       let fullUser = user;
-      if (data.status === 'success' && data.user) {
+      if (data.user) {
         fullUser = {
           id: data.user.id,
           username: data.user.username,
@@ -479,19 +469,12 @@ function searchUsers(keyword) {
 
   apiSearchUsers(keyword).then(res => {
     const data = res.data;
-      if (data.status === 'success') {
-        displaySearchResults(data.users);
-      } else {
-        const searchResults = document.getElementById('searchResults');
-        if (searchResults) {
-          searchResults.innerHTML = '<div class="search-result-item">搜索失败: ' + data.message + '</div>';
-        }
-      }
+      displaySearchResults(data.users);
     })
-    .catch(() => {
+    .catch(err => {
       const searchResults = document.getElementById('searchResults');
       if (searchResults) {
-        searchResults.innerHTML = '<div class="search-result-item">搜索失败: 网络错误</div>';
+        searchResults.innerHTML = '<div class="search-result-item">搜索失败: ' + (err.response?.data?.message || err.message || '未知错误') + '</div>';
       }
     });
 }
