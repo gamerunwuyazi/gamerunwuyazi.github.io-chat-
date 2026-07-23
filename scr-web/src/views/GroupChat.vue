@@ -110,19 +110,19 @@
         </div>
         <div v-if="showMoreFunctions" class="more-functions" id="groupMoreFunctions">
           <button id="groupImageUploadButton" title="上传图片" @click="handleGroupImageUploadClick">
-            📷 <span class="button-text">发送图片</span>
+            <i class="fas fa-image"></i> <span class="button-text">发送图片</span>
           </button>
           <button id="groupFileUploadButton" title="上传文件" @click="handleGroupFileUploadClick">
-          📤 <span class="button-text">发送文件</span>
+          <i class="fas fa-file-upload"></i> <span class="button-text">发送文件</span>
         </button>
         <button id="groupVideoUploadButton" title="上传视频" @click="handleGroupVideoUploadClick">
-          🎬 <span class="button-text">发送视频</span>
+          <i class="fas fa-video"></i> <span class="button-text">发送视频</span>
         </button>
           <button id="sendGroupCardButtonGroup" title="发送群名片" @click="handleSendGroupCard">
-            📱 <span class="button-text">发送群名片</span>
+            <i class="fas fa-address-card"></i> <span class="button-text">发送群名片</span>
           </button>
           <button id="groupSearchMessageButton" title="查找消息" @click="openSearchModal">
-            🔍 <span class="button-text">查找消息</span>
+            <i class="fas fa-search"></i> <span class="button-text">查找消息</span>
           </button>
         </div>
         <input v-if="showImageInput" type="file" ref="groupImageInputRef" id="groupImageInput" style="display: none;" accept="image/*" @change="handleGroupImageUpload" @cancel="handleGroupImageCancel">
@@ -309,6 +309,7 @@ import {
 import toast from "@/utils/toast";
 import { useMessageHighlight } from "@/composables/useMessageHighlight";
 import SearchMessageModal from "@/components/SearchMessageModal.vue";
+import { getGroupInfo, getGroupMembers } from '@/api/group.js';
 
 const baseStore = useBaseStore();
 const userStore = useUserStore();
@@ -385,7 +386,7 @@ const displayGroupName = computed(() => {
     return currentGroup.user_remark.trim();
   }
 
-  return currentGroupName.value || '群组名称';
+  return sessionStore.currentGroupName || currentGroupName.value || '群组名称';
 });
 
 const currentUserId = computed(() => baseStore.currentUser?.id);
@@ -466,55 +467,38 @@ function applySavedGroupState() {
 
 function loadCurrentGroupInfo() {
   if (!sessionStore.currentGroupId) return;
-  const user = baseStore.currentUser;
-  const sessionToken = baseStore.currentSessionToken;
   
-  if (!user || !sessionToken) return;
-  
-  fetch(`${baseStore.SERVER_URL}/api/group-info/${sessionStore.currentGroupId}`, {
-    headers: {
-      'user-id': user.id,
-      'session-token': sessionToken
-    }
+  getGroupInfo(sessionStore.currentGroupId).then(res => {
+    const data = res.data;
+    currentGroupInfo.value = data.group;
   })
-    .then(response => response.json())
-    .then(data => {
-      if (data.status === 'success') {
-        currentGroupInfo.value = data.group;
-      }
+    .catch(err => {
+      console.error('获取群组信息失败:', err);
     });
     
-  fetch(`${baseStore.SERVER_URL}/api/group-members/${sessionStore.currentGroupId}`, {
-    headers: {
-      'user-id': user.id,
-      'session-token': sessionToken
+  getGroupMembers(sessionStore.currentGroupId).then(res => {
+    const data = res.data;
+    groupMembers.value = data.members || [];
+
+    // 同步到 groupStore，供 GroupMessageItem 计算属性使用
+    if (data.members && data.members.length > 0) {
+      const storeMembers = data.members.map(m => ({
+        id: Number(m.id),
+        nickname: m.nickname || '',
+        avatarUrl: m.avatarUrl || '',
+        is_admin: Number(m.is_admin) || 0,
+        is_muted: m.is_muted || null,
+        group_nickname: m.group_nickname || null
+      }));
+      groupStore.currentGroupMembers = storeMembers;
+      // 检测群昵称变更并更新消息列表中的 stored groupNickname
+      groupStore.updateGroupNicknameInMessages(sessionStore.currentGroupId, storeMembers);
+      // 检测最后消息的 stored groupNickname 是否与成员信息一致
+      groupStore.detectAndUpdateGroupNicknames(sessionStore.currentGroupId);
+    } else {
+      groupStore.currentGroupMembers = [];
     }
   })
-    .then(response => response.json())
-    .then(data => {
-      if (data.status === 'success') {
-        groupMembers.value = data.members || [];
-
-        // 同步到 groupStore，供 GroupMessageItem 计算属性使用
-        if (data.members && data.members.length > 0) {
-          const storeMembers = data.members.map(m => ({
-            id: Number(m.id),
-            nickname: m.nickname || '',
-            avatarUrl: m.avatarUrl || '',
-            is_admin: Number(m.is_admin) || 0,
-            is_muted: m.is_muted || null,
-            group_nickname: m.group_nickname || null
-          }));
-          groupStore.currentGroupMembers = storeMembers;
-          // 检测群昵称变更并更新消息列表中的 stored groupNickname
-          groupStore.updateGroupNicknameInMessages(sessionStore.currentGroupId, storeMembers);
-          // 检测最后消息的 stored groupNickname 是否与成员信息一致
-          groupStore.detectAndUpdateGroupNicknames(sessionStore.currentGroupId);
-        } else {
-          groupStore.currentGroupMembers = [];
-        }
-      }
-    })
     .catch(err => {
       console.error('加载群组成员失败:', err);
       groupMembers.value = [];
@@ -527,6 +511,10 @@ function toggleMarkdownToolbar() {
 
 function toggleMoreFunctions() {
   showMoreFunctions.value = !showMoreFunctions.value;
+}
+
+function isMobileDevice() {
+  return window.innerWidth <= 768;
 }
 
 function handleGroupMessageInputKeydown(e) {
@@ -562,10 +550,15 @@ function handleGroupMessageInputKeydown(e) {
     }, 0);
   }
   
+  const isMobile = isMobileDevice();
+  
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+    if (isMobile) {
+      return;
+    }
     e.preventDefault();
     handleSendGroupMessage();
-  } else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
+  } else if (e.key === 'Enter' && (e.ctrlKey || (isMobile && !e.shiftKey))) {
     e.preventDefault();
     insertGroupNewLine();
   } else if (e.key === 'm' && e.ctrlKey) {
@@ -888,18 +881,13 @@ function handleGroupInfoClick() {
     return;
   }
   
-  fetch(`${baseStore.SERVER_URL}/api/group-info/${sessionStore.currentGroupId}`, {
-    headers: {
-      'user-id': user.id,
-      'session-token': sessionToken
-    }
+  getGroupInfo(sessionStore.currentGroupId).then(res => {
+    const data = res.data;
+    currentGroupInfo.value = data.group;
+    modalStore.openModal('groupInfo', data.group);
   })
-    .then(response => response.json())
-    .then(data => {
-      if (data.status === 'success') {
-        currentGroupInfo.value = data.group;
-        modalStore.openModal('groupInfo', data.group);
-      }
+    .catch(err => {
+      console.error('获取群组信息失败:', err);
     });
 }
 
@@ -1202,14 +1190,8 @@ function formatTime(timestamp) {
 
 function scrollToMessage(message) {
   closeSearchModal();
-  const groupId = sessionStore.currentGroupId;
-  const messages = groupStore.groupMessages[groupId] || [];
-  const messageIndex = messages.findIndex(m => m.id === message.id);
-  if (messageIndex !== -1 && groupMessageContainerRef.value) {
-    const messageElements = groupMessageContainerRef.value.querySelectorAll('.message');
-    const targetElement = messageElements[messageIndex];
-    if (targetElement) scrollAndHighlight(targetElement);
-  }
+  const targetElement = groupMessageContainerRef.value?.querySelector(`[data-id="${message.id}"]`);
+  if (targetElement) scrollAndHighlight(targetElement);
 }
 
 function navigateToNextSearchResult() {

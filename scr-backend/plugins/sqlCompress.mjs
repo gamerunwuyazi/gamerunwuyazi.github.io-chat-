@@ -71,36 +71,44 @@ function isSQLStatement(content) {
 
 function compressSQLContent(content) {
   let result = content;
-  
+
+  // 记录原始内容是否以空白字符开头/结尾（如模板字面量拼接所需的空格）
+  const hasLeadingSpace = /^\s/.test(result);
+  const hasTrailingSpace = /\s$/.test(result);
+
   result = result.replace(/--.*$/gm, '');
-  
+
   result = result.replace(/\/\*[\s\S]*?\*\//g, '');
-  
+
   while (result.includes('\n\n')) {
     result = result.replace(/\n\n/g, '\n');
   }
-  
+
   const lines = result.split('\n');
   const compressedLines = [];
-  
+
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i].trimEnd();
-    
+
     if (line.trim() === '') {
       continue;
     }
-    
+
     compressedLines.push(line);
   }
-  
+
   result = compressedLines.join(' ');
-  
+
   while (result.includes('  ')) {
     result = result.replace(/  /g, ' ');
   }
-  
+
   result = result.trim();
-  
+
+  // 恢复原始的首尾空白（确保模板字面量拼接时空格不被吞掉）
+  if (hasLeadingSpace) result = ' ' + result;
+  if (hasTrailingSpace) result = result + ' ';
+
   result = result.replace(/\(\s+/g, '(');
   result = result.replace(/\s+\)/g, ')');
   result = result.replace(/,\s+/g, ', ');
@@ -108,7 +116,7 @@ function compressSQLContent(content) {
   result = result.replace(/;\s+/g, '; ');
   result = result.replace(/\{\s+/g, '{ ');
   result = result.replace(/\s+\}/g, ' }');
-  
+
   return result;
 }
 

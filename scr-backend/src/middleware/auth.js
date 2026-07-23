@@ -216,7 +216,6 @@ async function validateIP(req, res, next) {
 const excludedPaths = {
   '*': [
     '/api/health',
-    '/api/check-status',
     '/api/session-check',
     '/api/sessions',
     '/api/admin/',
@@ -224,7 +223,8 @@ const excludedPaths = {
     '/api/login',
     '/api/refresh-token',
     '/api/check-username',
-    '/api/captcha'
+    '/api/verify/challenge',
+    '/api/verify/pow-challenge'
   ],
   'GET': [
     '/avatars',
@@ -256,6 +256,25 @@ async function validateIPAndSession(req, res, next) {
 
     if (isExcluded) {
       return next();
+    }
+
+    // 仅认证在 app.router 中注册的路由
+    const router = (req.app && req.app.router) || (req.app && req.app._router);
+    if (router && router.stack) {
+      const method = req.method.toLowerCase();
+      const isKnownRoute = router.stack.some(layer => {
+        if (!layer.route) return false;
+        if (!layer.route.methods[method]) return false;
+        try {
+          return layer.match(req.path);
+        } catch {
+          return false;
+        }
+      });
+
+      if (!isKnownRoute) {
+        return next();
+      }
     }
 
     let clientIP = getClientIP(req);

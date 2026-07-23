@@ -1,15 +1,14 @@
 <script setup>
-import { SliderCaptcha } from 'scr-slider-captcha/frontend';
-import {ref, computed, onMounted, onUnmounted} from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 
-import 'scr-slider-captcha/frontend/style.css';
-import { useCaptcha } from '@/composables/useCaptcha';
-import {useBaseStore} from "@/stores/baseStore";
-import {useStorageStore} from "@/stores/storageStore";
-import {useUnreadStore} from "@/stores/unreadStore";
-import {currentSessionToken} from "@/utils/chat";
+import { useBaseStore } from "@/stores/baseStore";
+import { useStorageStore } from "@/stores/storageStore";
+import { useUnreadStore } from "@/stores/unreadStore";
+import { currentSessionToken } from "@/utils/chat";
 import modal from "@/utils/modal";
-import { originalFetch } from "@/utils/chat/config.js";
+import { updateNickname, updateSignature, updateGender, changePassword, acceptFriendRequest, rejectFriendRequest, cancelFriendRequest } from '@/api/user.js';
+import { uploadAvatar } from '@/api/upload.js';
+import { humanVerify } from 'human-verify';
 
 const baseStore = useBaseStore();
 const storageStore = useStorageStore();
@@ -18,12 +17,16 @@ const SERVER_URL = import.meta.env.VITE_SERVER_URL || ''
 
 const currentUser = computed(() => baseStore.currentUser);
 
-const {
-  resetCaptcha,
-  captchaError
-} = useCaptcha();
 
 const currentSetting = ref('')
+
+// 构建时注入的最后更新时间
+const buildTime = import.meta.env.VITE_BUILD_TIME || '未知'
+
+// 人机验证进度状态
+const captchaVisible = ref(false);
+const captchaProgress = ref(0);
+const captchaStatus = ref('');
 
 const passwordForm = ref({
   oldPassword: '',
@@ -32,15 +35,6 @@ const passwordForm = ref({
 })
 const passwordMessage = ref('')
 const passwordMessageClass = ref('')
-
-// 模态框状态
-const captchaModalVisible = ref(false);
-const modalBgBase64 = ref('');
-const modalPuzzleBase64 = ref('');
-const modalTargetY = ref(0);
-const modalPuzzleSize = ref(50);
-const modalPublicKey = ref('');
-let pendingCaptchaId = '';
 
 const isPasswordFormValid = computed(() => {
   const oldPasswordValid = !!passwordForm.value.oldPassword && String(passwordForm.value.oldPassword).trim().length > 0;
@@ -87,6 +81,8 @@ const userInitials = computed(() => {
   return nickname ? nickname.charAt(0).toUpperCase() : 'U'
 })
 
+const serverUrl = import.meta.env.VITE_SERVER_URL || '';
+
 function isSvgAvatar(url) {
   return url && /\.svg$/i.test(url);
 }
@@ -102,47 +98,8 @@ function getCurrentSessionToken() {
   return localStorage.getItem('currentSessionToken') || ''
 }
 
-async function openCaptchaModal() {
-  captchaError.value = '';
-  captchaModalVisible.value = true;
-  try {
-    const res = await originalFetch(`${SERVER_URL}/api/captcha/create`, {
-      method: 'POST'
-    });
-    const data = await res.json();
-    if (data.captchaId) {
-      pendingCaptchaId = data.captchaId;
-      modalBgBase64.value = data.bgBase64;
-      modalPuzzleBase64.value = data.puzzleBase64;
-      modalTargetY.value = data.targetY;
-      modalPuzzleSize.value = data.puzzleSize;
-      modalPublicKey.value = data.publicKey || '';
-    } else {
-      captchaError.value = data.message || '获取验证码失败';
-    }
-  } catch (err) {
-    const msg = err?.message || '';
-    if (msg && !msg.includes('Failed to fetch')) {
-      captchaError.value = msg;
-    } else {
-      captchaError.value = '网络错误，请稍后重试';
-    }
-  }
-}
-
-function closeCaptchaModal() {
-  captchaModalVisible.value = false;
-  modalBgBase64.value = '';
-  modalPuzzleBase64.value = '';
-}
-
-async function onCaptchaVerify(encryptedData) {
-  await doChangePassword(pendingCaptchaId, encryptedData);
-}
-
 function handleSettingClick(setting) {
   currentSetting.value = setting
-  
   if (setting === 'change-nickname') {
     nicknameForm.value.newNickname = currentUser.value?.nickname || ''
   } else if (setting === 'change-gender') {
@@ -159,7 +116,7 @@ function handleSettingClick(setting) {
   }
 }
 
-function handlePasswordClick() {
+async function handlePasswordClick() {
   passwordMessage.value = '';
 
   if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
@@ -175,184 +132,126 @@ function handlePasswordClick() {
     return
   }
 
-  openCaptchaModal();
+  doChangePassword();
 }
 
-async function doChangePassword(captchaIdVal, encryptedTrajectoryVal) {
-  const userId = getCurrentUserId()
-  const sessionToken = getCurrentSessionToken()
+async function doChangePassword() {
+  let verifyResult = null;
+
+  // 显示人机验证进度
+  captchaVisible.value = true;
+  captchaProgress.value = 0;
+  captchaStatus.value = '准备验证...';
 
   try {
-    const response = await originalFetch(`${SERVER_URL}/api/user/change-password`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': userId,
-        'session-token': sessionToken
-      },
-      body: JSON.stringify({
-        oldPassword: passwordForm.value.oldPassword,
-        newPassword: passwordForm.value.newPassword,
-        captchaId: captchaIdVal,
-        encryptedTrajectory: encryptedTrajectoryVal
-      })
-    })
-
-    const data = await response.json()
-
-    if (data.status === 'success') {
-      closeCaptchaModal();
-      passwordMessage.value = '密码修改成功'
-      passwordMessageClass.value = 'success'
-      passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
-      resetCaptcha();
-    } else {
-      const errorMessage = data.message || '密码修改失败';
-
-      if (response.status === 400 && errorMessage.includes('原密码')) {
-        closeCaptchaModal();
-        passwordMessage.value = errorMessage;
-        passwordMessageClass.value = 'error';
-      } else if (errorMessage.includes('人机验证') || errorMessage.includes('验证码')) {
-        captchaError.value = errorMessage;
-        modalBgBase64.value = '';
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        await openCaptchaModal();
-      } else {
-        captchaError.value = errorMessage;
-        resetCaptcha();
-        await openCaptchaModal();
+    verifyResult = await humanVerify({
+      challengeUrl: `${serverUrl}/api/verify/challenge`,
+      powChallengeUrl: `${serverUrl}/api/verify/pow-challenge`,
+      onProgress: (progress, status) => {
+        captchaProgress.value = progress;
+        captchaStatus.value = status;
       }
-    }
+    });
+
+    // 验证完成，隐藏进度显示
+    captchaVisible.value = false;
+  } catch (err) {
+    console.error('人机验证出错:', err);
+    passwordMessage.value = '人机验证失败，请重试';
+    passwordMessageClass.value = 'error';
+    return;
+  }
+
+  try {
+    const res = await changePassword(passwordForm.value.oldPassword, passwordForm.value.newPassword, verifyResult.sessionId, verifyResult.pow.nonce);
+    const data = res.data;
+    passwordMessage.value = '密码修改成功'
+    passwordMessageClass.value = 'success'
+    passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
   } catch (error) {
     console.error('修改密码失败:', error)
-    closeCaptchaModal();
-    passwordMessage.value = '网络错误';
+    const errorMessage = error.response?.data?.message || error.message || '密码修改失败';
+    if (error.response?.status === 400 && errorMessage.includes('原密码')) {
+      passwordMessage.value = errorMessage;
+    } else {
+      passwordMessage.value = errorMessage;
+    }
     passwordMessageClass.value = 'error';
   }
 }
 
 async function handleChangeNickname() {
   nicknameMessage.value = ''
-  
+
   const newNickname = nicknameForm.value.newNickname.trim()
   if (!newNickname) {
     nicknameMessage.value = '昵称不能为空'
     nicknameMessageClass.value = 'error'
     return
   }
-  
+
   const userId = getCurrentUserId()
   const sessionToken = getCurrentSessionToken()
-  
+
   if (!userId) {
     nicknameMessage.value = '用户未登录'
     nicknameMessageClass.value = 'error'
     return
   }
-  
+
   try {
-    const response = await fetch(`${SERVER_URL}/api/user/update-nickname`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': userId,
-        'session-token': sessionToken
-      },
-      body: JSON.stringify({
-        newNickname: newNickname
-      })
-    })
-    
-    const data = await response.json()
-    
-    if (data.status === 'success') {
-      nicknameMessage.value = '昵称修改成功'
-      nicknameMessageClass.value = 'success'
-      const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
-      user.nickname = newNickname
-      localStorage.setItem('currentUser', JSON.stringify(user))
-      baseStore.setCurrentUser(user)
-    } else {
-      nicknameMessage.value = data.message || '昵称修改失败'
-      nicknameMessageClass.value = 'error'
-    }
+    const res = await updateNickname(newNickname);
+    const data = res.data;
+    nicknameMessage.value = '昵称修改成功'
+    nicknameMessageClass.value = 'success'
+    const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
+    user.nickname = newNickname
+    localStorage.setItem('currentUser', JSON.stringify(user))
+    baseStore.setCurrentUser(user)
   } catch (error) {
     console.error('修改昵称失败:', error)
-    nicknameMessage.value = '网络错误'
+    nicknameMessage.value = error.response?.data?.message || error.message || '昵称修改失败'
     nicknameMessageClass.value = 'error'
   }
 }
 
 async function handleChangeSignature() {
   signatureMessage.value = ''
-  
+
   const userId = getCurrentUserId()
   const sessionToken = getCurrentSessionToken()
-  
+
   try {
-    const response = await fetch(`${SERVER_URL}/api/update-signature`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': userId,
-        'session-token': sessionToken
-      },
-      body: JSON.stringify({
-        signature: signatureForm.value.newSignature
-      })
-    })
-    const data = await response.json()
-    
-    if (data.status === 'success') {
-      signatureMessage.value = '个性签名修改成功'
-      signatureMessageClass.value = 'success'
-      const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
-      user.signature = signatureForm.value.newSignature
-      localStorage.setItem('currentUser', JSON.stringify(user))
-      baseStore.setCurrentUser(user)
-    } else {
-      signatureMessage.value = data.message || '个性签名修改失败'
-      signatureMessageClass.value = 'error'
-    }
+    const res = await updateSignature(signatureForm.value.newSignature);
+    const data = res.data;
+    signatureMessage.value = '个性签名修改成功'
+    signatureMessageClass.value = 'success'
+    const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
+    user.signature = signatureForm.value.newSignature
+    localStorage.setItem('currentUser', JSON.stringify(user))
+    baseStore.setCurrentUser(user)
   } catch (error) {
-    signatureMessage.value = '网络错误'
+    signatureMessage.value = error.response?.data?.message || error.message || '个性签名修改失败'
     signatureMessageClass.value = 'error'
   }
 }
 
 async function handleChangeGender() {
   genderMessage.value = ''
-  
+
   const userId = getCurrentUserId()
   const sessionToken = getCurrentSessionToken()
-  
+
   try {
-    const response = await fetch(`${SERVER_URL}/api/update-gender`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': userId,
-        'session-token': sessionToken
-      },
-      body: JSON.stringify({
-        gender: parseInt(genderForm.value.newGender)
-      })
-    })
-    const data = await response.json()
-    
-    if (data.status === 'success') {
-      genderMessage.value = '性别修改成功'
-      genderMessageClass.value = 'success'
-      if (baseStore.currentUser) {
-        baseStore.currentUser.gender = parseInt(genderForm.value.newGender)
-      }
-    } else {
-      genderMessage.value = data.message || '性别修改失败'
-      genderMessageClass.value = 'error'
+    const res = await updateGender(parseInt(genderForm.value.newGender));
+    const data = res.data;
+    genderMessage.value = '性别修改成功'
+    genderMessageClass.value = 'success'
+    if (baseStore.currentUser) {
+      baseStore.currentUser.gender = parseInt(genderForm.value.newGender)
     }
   } catch (error) {
-    genderMessage.value = '网络错误'
+    genderMessage.value = error.response?.data?.message || error.message || '性别修改失败'
     genderMessageClass.value = 'error'
   }
 }
@@ -365,21 +264,21 @@ function handleAvatarPreviewError() {
 function handleAvatarChange(event) {
   const file = event.target.files[0]
   if (!file) return
-  
+
   if (!file.type.startsWith('image/')) {
     avatarMessage.value = '请选择图片文件'
     avatarMessageClass.value = 'error'
     return
   }
-  
+
   if (file.size > 2 * 1024 * 1024) {
     avatarMessage.value = '图片大小不能超过2MB'
     avatarMessageClass.value = 'error'
     return
   }
-  
+
   selectedAvatarFile.value = file
-  
+
   const reader = new FileReader()
   reader.onload = (e) => {
     avatarPreview.value = e.target.result
@@ -414,46 +313,33 @@ async function handleUploadAvatar() {
     avatarMessageClass.value = 'error'
     return
   }
-  
+
   const userId = getCurrentUserId()
   const sessionToken = getCurrentSessionToken()
-  
+
   const formData = new FormData()
   formData.append('avatar', selectedAvatarFile.value)
   formData.append('userId', userId)
-  
+
   try {
-    const response = await fetch(`${SERVER_URL}/api/upload-avatar`, {
-      method: 'POST',
-      headers: {
-        'user-id': userId,
-        'session-token': sessionToken
-      },
-      body: formData
-    })
-    const data = await response.json()
-    
-    if (data.status === 'success') {
-      avatarMessage.value = '头像上传成功'
-      avatarMessageClass.value = 'success'
-      const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
-      user.avatarUrl = data.avatarUrl
-      user.avatar_url = data.avatarUrl
-      user.avatarVersion = Date.now()
-      localStorage.setItem('currentUser', JSON.stringify(user))
-      
-      baseStore.setCurrentUser(user)
-      
-      selectedAvatarFile.value = null
-      avatarPreview.value = ''
-      
-      window.dispatchEvent(new CustomEvent('user-avatar-updated', { detail: { avatarUrl: data.avatarUrl, avatarVersion: user.avatarVersion } }))
-    } else {
-      avatarMessage.value = data.message || '头像上传失败'
-      avatarMessageClass.value = 'error'
-    }
+    const res = await uploadAvatar(formData);
+    const data = res.data;
+    avatarMessage.value = '头像上传成功'
+    avatarMessageClass.value = 'success'
+    const user = baseStore.currentUser ? { ...baseStore.currentUser } : JSON.parse(localStorage.getItem('currentUser') || '{}')
+    user.avatarUrl = data.avatarUrl
+    user.avatar_url = data.avatarUrl
+    user.avatarVersion = Date.now()
+    localStorage.setItem('currentUser', JSON.stringify(user))
+
+    baseStore.setCurrentUser(user)
+
+    selectedAvatarFile.value = null
+    avatarPreview.value = ''
+
+    window.dispatchEvent(new CustomEvent('user-avatar-updated', { detail: { avatarUrl: data.avatarUrl, avatarVersion: user.avatarVersion } }))
   } catch (error) {
-    avatarMessage.value = '网络错误'
+    avatarMessage.value = error.response?.data?.message || error.message || '头像上传失败'
     avatarMessageClass.value = 'error'
   }
 }
@@ -496,109 +382,64 @@ async function handleToggleFriendVerification() {
 
 async function handleAcceptFriendRequest(requesterId) {
   friendRequestMessage.value = ''
-  const userId = getCurrentUserId()
-  const sessionToken = getCurrentSessionToken()
 
   try {
-    const response = await fetch(`${SERVER_URL}/api/user/accept-friend-request`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': userId,
-        'session-token': sessionToken
-      },
-      body: JSON.stringify({ requesterId })
-    })
-
-    const data = await response.json()
-
-    if (data.status === 'success') {
-      friendRequestMessage.value = '已接受好友请求'
-      friendRequestMessageClass.value = 'success'
-      await baseStore.loadFriendRequests()
-    } else {
-      friendRequestMessage.value = data.message || '接受好友请求失败'
-      friendRequestMessageClass.value = 'error'
-    }
+    const res = await acceptFriendRequest(requesterId);
+    const data = res.data;
+    friendRequestMessage.value = '已接受好友请求'
+    friendRequestMessageClass.value = 'success'
+    await baseStore.loadFriendRequests()
   } catch (error) {
     console.error('接受好友请求失败:', error)
-    friendRequestMessage.value = '网络错误'
+    friendRequestMessage.value = error.response?.data?.message || error.message || '接受好友请求失败'
     friendRequestMessageClass.value = 'error'
   }
 }
 
 async function handleRejectFriendRequest(requesterId) {
   friendRequestMessage.value = ''
-  const userId = getCurrentUserId()
-  const sessionToken = getCurrentSessionToken()
 
   try {
-    const response = await fetch(`${SERVER_URL}/api/user/reject-friend-request`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': userId,
-        'session-token': sessionToken
-      },
-      body: JSON.stringify({ requesterId })
-    })
-
-    const data = await response.json()
-
-    if (data.status === 'success') {
-      friendRequestMessage.value = '已拒绝好友请求'
-      friendRequestMessageClass.value = 'success'
-      await baseStore.loadFriendRequests()
-    } else {
-      friendRequestMessage.value = data.message || '拒绝好友请求失败'
-      friendRequestMessageClass.value = 'error'
-    }
+    const res = await rejectFriendRequest(requesterId);
+    const data = res.data;
+    friendRequestMessage.value = '已拒绝好友请求'
+    friendRequestMessageClass.value = 'success'
+    await baseStore.loadFriendRequests()
   } catch (error) {
     console.error('拒绝好友请求失败:', error)
-    friendRequestMessage.value = '网络错误'
+    friendRequestMessage.value = error.response?.data?.message || error.message || '拒绝好友请求失败'
     friendRequestMessageClass.value = 'error'
   }
 }
 
 async function handleCancelFriendRequest(friendId) {
   friendRequestMessage.value = ''
-  const userId = getCurrentUserId()
-  const sessionToken = getCurrentSessionToken()
 
   try {
-    const response = await fetch(`${SERVER_URL}/api/user/cancel-friend-request`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-id': userId,
-        'session-token': sessionToken
-      },
-      body: JSON.stringify({ friendId })
-    })
-
-    const data = await response.json()
-
-    if (data.status === 'success') {
-      friendRequestMessage.value = '已撤销好友请求'
-      friendRequestMessageClass.value = 'success'
-      await baseStore.loadFriendRequests()
-    } else {
-      friendRequestMessage.value = data.message || '撤销好友请求失败'
-      friendRequestMessageClass.value = 'error'
-    }
+    const res = await cancelFriendRequest(friendId);
+    const data = res.data;
+    friendRequestMessage.value = '已撤销好友请求'
+    friendRequestMessageClass.value = 'success'
+    await baseStore.loadFriendRequests()
   } catch (error) {
     console.error('撤销好友请求失败:', error)
-    friendRequestMessage.value = '网络错误'
+    friendRequestMessage.value = error.response?.data?.message || error.message || '撤销好友请求失败'
     friendRequestMessageClass.value = 'error'
   }
 }
 
+function handleSettingsBack() {
+  currentSetting.value = ''
+}
+
 onMounted(() => {
   window.addEventListener('settings-item-click', handleSettingsItemClick)
+  window.addEventListener('settings-back', handleSettingsBack)
 })
 
 onUnmounted(() => {
   window.removeEventListener('settings-item-click', handleSettingsItemClick)
+  window.removeEventListener('settings-back', handleSettingsBack)
 })
 </script>
 
@@ -623,12 +464,29 @@ onUnmounted(() => {
           </div>
           <div class="form-group">
             <label for="confirmPassword">确认新密码</label>
-            <input type="password" id="confirmPassword" v-model="passwordForm.confirmPassword" placeholder="请再次输入新密码" required>
+            <input type="password" id="confirmPassword" v-model="passwordForm.confirmPassword" placeholder="请再次输入新密码"
+              required>
           </div>
           <div v-if="passwordMessage" :class="'form-message ' + passwordMessageClass">{{ passwordMessage }}</div>
           <div class="form-actions">
             <button type="submit" class="save-btn" :disabled="!isPasswordFormValid">保存</button>
             <button type="button" class="cancel-btn" @click="currentSetting = ''">取消</button>
+          </div>
+          <!-- 人机验证进度显示（底部左侧） -->
+          <div v-if="captchaVisible" class="captcha-progress-row">
+            <div class="captcha-progress-ring">
+              <svg viewBox="0 0 100 100" class="progress-svg">
+                <defs>
+                  <linearGradient id="capGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#3b82f6" />
+                    <stop offset="100%" stop-color="#06b6d4" />
+                  </linearGradient>
+                </defs>
+                <circle cx="50" cy="50" r="45" class="progress-bg"></circle>
+                <circle cx="50" cy="50" r="45" class="progress-bar" stroke="url(#capGradient)" :style="{ strokeDashoffset: 283 - (captchaProgress * 283 / 100) }"></circle>
+              </svg>
+            </div>
+            <div class="captcha-status-text">{{ captchaProgress }}%: {{ captchaStatus }}</div>
           </div>
         </form>
       </div>
@@ -655,15 +513,18 @@ onUnmounted(() => {
             <label>选择性别</label>
             <div class="gender-options" style="display: flex; gap: 20px; margin-top: 10px;">
               <label class="gender-option" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                <input type="radio" name="gender" value="0" v-model="genderForm.newGender" style="width: auto; margin: 0;">
+                <input type="radio" name="gender" value="0" v-model="genderForm.newGender"
+                  style="width: auto; margin: 0;">
                 <span>保密</span>
               </label>
               <label class="gender-option" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                <input type="radio" name="gender" value="1" v-model="genderForm.newGender" style="width: auto; margin: 0;">
+                <input type="radio" name="gender" value="1" v-model="genderForm.newGender"
+                  style="width: auto; margin: 0;">
                 <span>男</span>
               </label>
               <label class="gender-option" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                <input type="radio" name="gender" value="2" v-model="genderForm.newGender" style="width: auto; margin: 0;">
+                <input type="radio" name="gender" value="2" v-model="genderForm.newGender"
+                  style="width: auto; margin: 0;">
                 <span>女</span>
               </label>
             </div>
@@ -681,7 +542,8 @@ onUnmounted(() => {
         <form class="settings-form" @submit.prevent="handleChangeSignature">
           <div class="form-group">
             <label for="newSignature">个性签名</label>
-            <textarea id="newSignature" v-model="signatureForm.newSignature" placeholder="请输入个性签名（最多500字）" maxlength="500" rows="3"></textarea>
+            <textarea id="newSignature" v-model="signatureForm.newSignature" placeholder="请输入个性签名（最多500字）"
+              maxlength="500" rows="3"></textarea>
           </div>
           <div v-if="signatureMessage" :class="'form-message ' + signatureMessageClass">{{ signatureMessage }}</div>
           <div class="form-actions">
@@ -695,13 +557,18 @@ onUnmounted(() => {
         <h2>上传头像</h2>
         <div class="avatar-upload-section">
           <div class="avatar-preview" id="avatarPreview">
-            <img v-if="avatarPreview && avatarPreview !== '' && !isSvgAvatar(avatarPreview)" :src="avatarPreview" alt="头像预览" style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover;" @error="handleAvatarPreviewError">
-            <span v-else class="user-initials" style="width: 120px; height: 120px; font-size: 48px;">{{ userInitials }}</span>
+            <img v-if="avatarPreview && avatarPreview !== '' && !isSvgAvatar(avatarPreview)" :src="avatarPreview"
+              alt="头像预览" style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover;"
+              @error="handleAvatarPreviewError">
+            <span v-else class="user-initials" style="width: 120px; height: 120px; font-size: 48px;">{{ userInitials
+              }}</span>
           </div>
           <div class="avatar-upload-buttons">
-            <input type="file" ref="avatarInputRef" id="avatarFileInput" style="display: none;" accept="image/*" @change="handleAvatarChange">
+            <input type="file" ref="avatarInputRef" id="avatarFileInput" style="display: none;" accept="image/*"
+              @change="handleAvatarChange">
             <button id="selectAvatarButton" class="save-btn" @click="triggerAvatarSelect">选择图片</button>
-            <button id="uploadAvatarButton" class="save-btn" :disabled="!selectedAvatarFile" @click="handleUploadAvatar">上传头像</button>
+            <button id="uploadAvatarButton" class="save-btn" :disabled="!selectedAvatarFile"
+              @click="handleUploadAvatar">上传头像</button>
           </div>
           <div v-if="avatarMessage" :class="'form-message ' + avatarMessageClass">{{ avatarMessage }}</div>
         </div>
@@ -723,9 +590,6 @@ onUnmounted(() => {
             <div class="shortcut-keys">Ctrl + M</div>
           </div>
         </div>
-        <div class="form-actions" style="margin-top: 20px;">
-          <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
-        </div>
       </div>
 
       <div v-if="currentSetting === 'clear-unread-counts'" class="settings-detail">
@@ -734,7 +598,8 @@ onUnmounted(() => {
           <p>此操作将清除所有会话的未读消息计数。</p>
         </div>
         <div class="form-actions">
-          <button type="button" class="save-btn" style="background: #3498db;" @click="handleClearUnreadCounts">清除未读计数</button>
+          <button type="button" class="save-btn" style="background: #3498db;"
+            @click="handleClearUnreadCounts">清除未读计数</button>
           <button type="button" class="cancel-btn" @click="currentSetting = ''">取消</button>
         </div>
       </div>
@@ -743,20 +608,13 @@ onUnmounted(() => {
         <h2>版本信息</h2>
         <div class="version-info">
           <div class="version-item">
-            <div class="version-label">当前版本</div>
-            <div class="version-value">1.0.0</div>
-          </div>
-          <div class="version-item">
             <div class="version-label">最后更新</div>
-            <div class="version-value">2026.5.30</div>
+            <div class="version-value">{{ buildTime }}</div>
           </div>
           <div class="version-item">
             <div class="version-label">开发者</div>
             <div class="version-value">无崖子——gamerunwuyazi</div>
           </div>
-        </div>
-        <div class="form-actions" style="margin-top: 20px;">
-          <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
         </div>
       </div>
 
@@ -771,9 +629,6 @@ onUnmounted(() => {
 
           <h3>如何创建群组？</h3>
           <p>在群组聊天界面，点击左侧群组列表上方的"+"按钮即可创建新群组。</p>
-        </div>
-        <div class="form-actions" style="margin-top: 20px;">
-          <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
         </div>
       </div>
 
@@ -803,7 +658,8 @@ onUnmounted(() => {
               <div v-for="request in sentFriendRequestsFromStore" :key="request.id" class="request-item pending">
                 <div class="request-user-info">
                   <img v-if="request.avatar_url" :src="SERVER_URL + request.avatar_url" alt="头像" class="request-avatar">
-                  <div v-else class="request-avatar-placeholder">{{ request.nickname?.charAt(0)?.toUpperCase() || 'U' }}</div>
+                  <div v-else class="request-avatar-placeholder">{{ request.nickname?.charAt(0)?.toUpperCase() || 'U' }}
+                  </div>
                   <div class="request-details">
                     <div class="request-nickname">{{ request.nickname || request.username }}</div>
                     <div class="request-time">等待对方接受 · {{ formatTime(request.created_at) }}</div>
@@ -825,11 +681,15 @@ onUnmounted(() => {
               <div v-else class="requests-list">
                 <div v-for="request in receivedFriendRequestsFromStore" :key="request.id" class="request-item">
                   <div class="request-user-info">
-                    <img v-if="request.avatar_url" :src="SERVER_URL + request.avatar_url" alt="头像" class="request-avatar">
-                    <div v-else class="request-avatar-placeholder">{{ request.nickname?.charAt(0)?.toUpperCase() || 'U' }}</div>
+                    <img v-if="request.avatar_url" :src="SERVER_URL + request.avatar_url" alt="头像"
+                      class="request-avatar">
+                    <div v-else class="request-avatar-placeholder">{{ request.nickname?.charAt(0)?.toUpperCase() || 'U'
+                      }}</div>
                     <div class="request-details">
-                      <div class="request-nickname">{{ request.nickname || request.username }}</div>
-                      <div class="request-time">{{ formatTime(request.created_at) }}</div>
+                      <div class="request-nickname">{{ request.nickname || request.username }}<span
+                          class="request-time"> · {{ formatTime(request.created_at) }}</span></div>
+                      <div class="request-message" :title="request.request_message">{{ request.request_message ||
+                        '未设置留言' }}</div>
                     </div>
                   </div>
                   <div class="request-actions">
@@ -848,8 +708,10 @@ onUnmounted(() => {
               <div v-else class="requests-list">
                 <div v-for="request in sentFriendRequestsFromStore" :key="request.id" class="request-item pending">
                   <div class="request-user-info">
-                    <img v-if="request.avatar_url" :src="SERVER_URL + request.avatar_url" alt="头像" class="request-avatar">
-                    <div v-else class="request-avatar-placeholder">{{ request.nickname?.charAt(0)?.toUpperCase() || 'U' }}</div>
+                    <img v-if="request.avatar_url" :src="SERVER_URL + request.avatar_url" alt="头像"
+                      class="request-avatar">
+                    <div v-else class="request-avatar-placeholder">{{ request.nickname?.charAt(0)?.toUpperCase() || 'U'
+                      }}</div>
                     <div class="request-details">
                       <div class="request-nickname">{{ request.nickname || request.username }}</div>
                       <div class="request-time">等待对方接受 · {{ formatTime(request.created_at) }}</div>
@@ -863,129 +725,17 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div v-if="friendRequestMessage" :class="'form-message ' + friendRequestMessageClass" style="margin-top: 15px;">
+          <div v-if="friendRequestMessage" :class="'form-message ' + friendRequestMessageClass"
+            style="margin-top: 15px;">
             {{ friendRequestMessage }}
-          </div>
-
-          <div class="form-actions" style="margin-top: 20px;">
-            <button type="button" class="cancel-btn" @click="currentSetting = ''">返回</button>
           </div>
         </div>
       </div>
     </div>
-
-    <!-- 验证码模态框 -->
-    <Teleport to="body">
-      <div v-if="captchaModalVisible" class="captcha-modal-overlay" @click.self="closeCaptchaModal">
-        <div class="captcha-modal">
-          <div class="captcha-modal-header">
-            <span>请完成人机验证</span>
-            <button class="captcha-close-btn" @click="closeCaptchaModal">&times;</button>
-          </div>
-          <div class="captcha-modal-body">
-            <SliderCaptcha
-              :bg-base64="modalBgBase64"
-              :puzzle-base64="modalPuzzleBase64"
-              :target-y="modalTargetY"
-              :puzzle-size="modalPuzzleSize"
-              :width="300"
-              :height="150"
-              :public-key="modalPublicKey"
-              @verify="onCaptchaVerify"
-            />
-            <div v-if="captchaError" class="captcha-error">{{ captchaError }}</div>
-          </div>
-        </div>
-      </div>
-    </Teleport>
   </div>
 </template>
 
 <style scoped>
-.captcha-container {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.captcha-error {
-  color: #d32f2f;
-  font-size: 13px;
-  margin-top: 6px;
-}
-
-/* 验证码模态框 */
-.captcha-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-}
-
-.captcha-modal {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-  padding: 24px;
-  max-width: 360px;
-  width: 90%;
-  animation: modalIn 0.2s ease-out;
-}
-
-@keyframes modalIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.captcha-modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  font-size: 16px;
-  font-weight: 600;
-  color: #333;
-}
-
-.captcha-close-btn {
-  background: none;
-  border: none;
-  font-size: 22px;
-  color: #999;
-  cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
-  transition: color 0.2s;
-}
-
-.captcha-close-btn:hover {
-  color: #333;
-}
-
-.captcha-modal-body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.captcha-loading {
-  padding: 40px 0;
-  color: #999;
-  font-size: 14px;
-}
-
 :global(body.dark-mode) .settings-detail {
   background-color: #161b22 !important;
   border: 1px solid #30363d;
@@ -1000,6 +750,69 @@ onUnmounted(() => {
 :global(body.dark-mode) .version-value,
 :global(body.dark-mode) .help-content h3,
 :global(body.dark-mode) .help-content p {
+  color: #c9d1d9;
+}
+
+:global(body.dark-mode) .verification-toggle {
+  background: #0d1117 !important;
+  border: 1px solid #30363d !important;
+}
+
+:global(body.dark-mode) .toggle-label {
+  color: #c9d1d9;
+}
+
+:global(body.dark-mode) .toggle-description {
+  color: #8b949e;
+}
+
+:global(body.dark-mode) .empty-requests {
+  background: #0d1117 !important;
+  color: #8b949e !important;
+  border: 1px solid #30363d !important;
+}
+
+:global(body.dark-mode) .request-time {
+  color: #8b949e;
+}
+
+:global(body.dark-mode) .loading-state {
+  color: #8b949e;
+}
+
+:global(body.dark-mode) .requests-section h3 {
+  color: #c9d1d9;
+}
+
+:global(body.dark-mode) .slider {
+  background-color: #484f58;
+}
+
+:global(body.dark-mode) .slider:before {
+  background-color: #c9d1d9;
+}
+
+:global(body.dark-mode) .settings-form label {
+  color: #c9d1d9;
+}
+
+:global(body.dark-mode) .settings-form input[type="text"],
+:global(body.dark-mode) .settings-form input[type="password"],
+:global(body.dark-mode) .settings-form textarea {
+  background: #21262d;
+  color: #c9d1d9;
+  border-color: #30363d;
+}
+
+:global(body.dark-mode) .settings-form input[type="text"]:focus,
+:global(body.dark-mode) .settings-form input[type="password"]:focus,
+:global(body.dark-mode) .settings-form textarea:focus {
+  border-color: #58a6ff;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.3);
+}
+
+:global(body.dark-mode) .gender-option span {
   color: #c9d1d9;
 }
 
@@ -1064,11 +877,11 @@ onUnmounted(() => {
   transition: .4s;
 }
 
-input:checked + .slider {
+input:checked+.slider {
   background-color: #2196F3;
 }
 
-input:checked + .slider:before {
+input:checked+.slider:before {
   transform: translateX(26px);
 }
 
@@ -1112,7 +925,7 @@ input:checked + .slider:before {
   gap: 12px;
 }
 
-.request-item {
+:global(.request-item) {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1123,32 +936,43 @@ input:checked + .slider:before {
   transition: all 0.2s;
 }
 
-:global(body.dark-mode) .request-item {
-  background: #161b22;
-  border-color: #30363d;
-  color: #c9d1d9;
+:global(.request-item.pending) {
+  background: #fff;
+  border: 1px solid #e0e0e0;
 }
 
-.request-item:hover {
+:global(body.dark-mode .request-item) {
+  background: #161b22 !important;
+  border-color: #30363d !important;
+  color: #c9d1d9 !important;
+}
+
+:global(body.dark-mode .request-item.pending) {
+  background: #161b22 !important;
+  border-color: #30363d !important;
+  color: #c9d1d9 !important;
+}
+
+:global(.request-item:hover) {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   border-color: #2196F3;
 }
 
-.request-user-info {
+:global(.request-user-info) {
   display: flex;
   align-items: center;
   gap: 12px;
   flex: 1;
 }
 
-.request-avatar {
+:global(.request-avatar) {
   width: 45px;
   height: 45px;
   border-radius: 50%;
   object-fit: cover;
 }
 
-.request-avatar-placeholder {
+:global(.request-avatar-placeholder) {
   width: 45px;
   height: 45px;
   border-radius: 50%;
@@ -1157,38 +981,57 @@ input:checked + .slider:before {
   align-items: center;
   justify-content: center;
   color: white;
+  font-weight: bold;
   font-size: 18px;
-  font-weight: 500;
 }
 
-.request-details {
+:global(.request-details) {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.request-nickname {
+:global(.request-nickname) {
   font-size: 15px;
   font-weight: 500;
   color: #333;
 }
 
-:global(body.dark-mode) .request-nickname {
-  color: #c9d1d9;
+:global(body.dark-mode .request-nickname) {
+  color: #e6edf3;
 }
 
-.request-time {
+:global(.request-message) {
+  font-size: 13px;
+  color: #999;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+:global(body.dark-mode .request-message) {
+  color: #8b949e;
+}
+
+:global(.request-time) {
   font-size: 13px;
   color: #999;
 }
 
-.request-actions {
-  display: flex;
-  gap: 8px;
+:global(body.dark-mode .request-time) {
+  color: #8b949e;
 }
 
-.accept-btn,
-.reject-btn {
+:global(.request-actions) {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+:global(.accept-btn),
+:global(.reject-btn) {
   padding: 6px 16px;
   border: none;
   border-radius: 5px;
@@ -1198,25 +1041,25 @@ input:checked + .slider:before {
   font-weight: 500;
 }
 
-.accept-btn {
+:global(.accept-btn) {
   background: #4CAF50;
   color: white;
 }
 
-.accept-btn:hover {
+:global(.accept-btn:hover) {
   background: #45a049;
 }
 
-.reject-btn {
+:global(.reject-btn) {
   background: #f44336;
   color: white;
 }
 
-.reject-btn:hover {
+:global(.reject-btn:hover) {
   background: #da190b;
 }
 
-.cancel-btn-small {
+:global(.cancel-btn-small) {
   padding: 6px 16px;
   border: none;
   border-radius: 5px;
@@ -1228,11 +1071,11 @@ input:checked + .slider:before {
   color: white;
 }
 
-.cancel-btn-small:hover {
+:global(.cancel-btn-small:hover) {
   background: #f57c00;
 }
 
-.request-status {
+:global(.request-status) {
   color: #ff9800;
   font-size: 14px;
   font-weight: 500;
@@ -1242,5 +1085,73 @@ input:checked + .slider:before {
   text-align: center;
   padding: 40px;
   color: #666;
+}
+
+/* 人机验证进度显示 */
+.captcha-progress-row {
+ display: flex;
+ align-items: center;
+ gap: 14px;
+ margin: 16px 0;
+ padding: 12px 18px;
+ background: linear-gradient(135deg, #f0f7ff 0%, #e8f4fd 100%);
+ border: 1px solid rgba(59, 130, 246, 0.12);
+ border-radius: 10px;
+ box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.captcha-progress-ring {
+ position: relative;
+ width: 36px;
+ height: 36px;
+ flex-shrink: 0;
+}
+
+.progress-svg {
+ width: 100%;
+ height: 100%;
+ transform: rotate(-90deg);
+}
+
+.progress-bg {
+ fill: none;
+ stroke: rgba(59, 130, 246, 0.12);
+ stroke-width: 6;
+}
+
+.progress-bar {
+ fill: none;
+ stroke-width: 6;
+ stroke-linecap: round;
+ stroke-dasharray: 283;
+ stroke-dashoffset: 283;
+ transition: stroke-dashoffset 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.captcha-status-text {
+ font-size: 13px;
+ color: #3b82f6;
+ line-height: 1.4;
+ font-weight: 500;
+ letter-spacing: 0.01em;
+}
+
+/* 深色模式下的验证进度样式 */
+body.dark-mode .captcha-progress-row {
+ background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
+ border-color: rgba(59, 130, 246, 0.2);
+ box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+body.dark-mode .progress-bg {
+ stroke: rgba(56, 189, 248, 0.12);
+}
+
+body.dark-mode .progress-bar {
+ stroke: url(#capGradient);
+}
+
+body.dark-mode .captcha-status-text {
+ color: #38bdf8;
 }
 </style>

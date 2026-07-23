@@ -4,6 +4,7 @@ import localForage from 'localforage';
 import { useStorageStore } from './storageStore';
 import { useBaseStore } from './baseStore';
 import { useSessionStore } from './sessionStore';
+import { getUserInfo } from '@/api/friend.js';
 
 export const useFriendStore = defineStore('friend', () => {
   const friendsList = ref([]);
@@ -303,17 +304,12 @@ export const useFriendStore = defineStore('friend', () => {
 
         if (!sessionData.nickname) {
           try {
-            const response = await fetch(`/api/user/${userId}`, {
-              method: 'GET',
-              headers: { 'session-token': localStorage.getItem('currentSessionToken') }
-            });
-            if (response.ok) {
-              const data = await response.json();
-              if (data.status === 'success' && data.user) {
-                if (!sessionData.nickname && data.user.nickname) sessionData.nickname = data.user.nickname;
-                if (!sessionData.avatarUrl && data.user.avatar_url) sessionData.avatarUrl = data.user.avatar_url;
-                if (!sessionData.username && data.user.username) sessionData.username = data.user.username;
-              }
+            const res = await getUserInfo(userId);
+            const data = res.data;
+            if (data.user) {
+              if (!sessionData.nickname && data.user.nickname) sessionData.nickname = data.user.nickname;
+              if (!sessionData.avatarUrl && data.user.avatar_url) sessionData.avatarUrl = data.user.avatar_url;
+              if (!sessionData.username && data.user.username) sessionData.username = data.user.username;
             }
           } catch (e) { /* ignore */ }
         }

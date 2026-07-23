@@ -24,7 +24,8 @@ import {
   getGroupRemark,
   setGroupNickname,
   getGroupNickname,
-  getGroupEncryptionPublicKeys
+  getGroupEncryptionPublicKeys,
+  handleSetGroupDisturb
 } from '../services/groupService.js';
 import { groupAvatarUpload } from '../middleware/upload.js';
 
@@ -131,5 +132,9 @@ export function setupRoutes(app, io) {
 
   app.get('/api/get-group-nickname/:groupId', (req, res) => {
     getGroupNickname(req, res);
+  });
+
+  app.post('/api/set-group-disturb', (req, res) => {
+    handleSetGroupDisturb(req, res);
   });
 }

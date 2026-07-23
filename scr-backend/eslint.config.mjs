@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 xingk_gamerunwuyazi
 import js from '@eslint/js';
 
 export default [

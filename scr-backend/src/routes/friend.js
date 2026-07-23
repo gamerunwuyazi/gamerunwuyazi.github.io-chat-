@@ -13,7 +13,8 @@ import {
   handleUnblockUser,
   handleCheckBlockStatus,
   handleSearchUsers,
-  handleSetFriendRemark
+  handleSetFriendRemark,
+  handleSetFriendDisturb
 } from '../services/friendService.js';
 
 export function setupRoutes(app, io) {
@@ -75,5 +76,9 @@ export function setupRoutes(app, io) {
 
   app.post('/api/user/set-friend-remark', (req, res) => {
     handleSetFriendRemark(req, res, io);
+  });
+
+  app.post('/api/user/set-friend-disturb', (req, res) => {
+    handleSetFriendDisturb(req, res);
   });
 }

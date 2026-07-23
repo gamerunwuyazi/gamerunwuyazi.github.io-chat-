@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 xingk_gamerunwuyazi
 import express from 'express';
 import http from 'http';
 import path from 'path';
@@ -24,6 +26,7 @@ import {
 } from './config/index.js';
 
 const app = express();
+app.set('trust proxy', '127.0.0.1');
 const server = http.createServer(app);
 
 const uploadDir = path.join(process.cwd(), uploadConfig.uploadDir);
@@ -93,7 +96,6 @@ app.use((req, res, next) => {
   const startTime = Date.now();
   res.on('finish', async () => {
     if (req.path.startsWith('/api/')) {
-      const duration = Date.now() - startTime;
       const clientIP = getClientIP(req);
       const userId = req.userId
         || req.body?.userId
@@ -162,18 +164,20 @@ async function initializeDatabase() {
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS scr_users (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(255) NOT NULL UNIQUE,
+        username VARCHAR(255) NOT NULL,
         password VARCHAR(255) NOT NULL,
         nickname VARCHAR(255) NOT NULL,
         gender TINYINT DEFAULT 0 COMMENT '性别：0=保密，1=男，2=女',
         signature VARCHAR(500) DEFAULT NULL COMMENT '用户个性签名',
         encryption_public_key TEXT DEFAULT NULL COMMENT '端到端加密公钥',
         avatar_url VARCHAR(500) DEFAULT NULL,
-        friend_verification TINYINT(1) DEFAULT 0 COMMENT '加我为好友时是否需要验证：0=不需要，1=需要',
         last_online TIMESTAMP NULL DEFAULT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+        friend_verification TINYINT(1) DEFAULT 0 COMMENT '好友验证开关',
+        UNIQUE KEY username (username),
         INDEX username_index (username),
-        INDEX last_online_index (last_online)
+        INDEX last_online_index (last_online),
+        INDEX idx_users_friend_verification (friend_verification)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
@@ -197,7 +201,7 @@ async function initializeDatabase() {
         request_time DATETIME NOT NULL,
         ip_address VARCHAR(45) NOT NULL,
         FOREIGN KEY (user_id) REFERENCES scr_users(id) ON DELETE CASCADE,
-        INDEX idx_scr_file_requests_user_time (user_id, request_time)
+        INDEX idx_chat_file_requests_user_time (user_id, request_time)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
@@ -238,7 +242,7 @@ async function initializeDatabase() {
         creator_id INT NOT NULL,
         avatar_url VARCHAR(500) DEFAULT NULL,
         is_mute_all TINYINT(1) DEFAULT 0 COMMENT '是否全员禁言: 0=不禁言, 1=全员禁言',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
         deleted_at DATETIME DEFAULT NULL,
         INDEX creator_id_index (creator_id),
         FOREIGN KEY (creator_id) REFERENCES scr_users(id) ON DELETE CASCADE
@@ -250,14 +254,16 @@ async function initializeDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         friend_id INT NOT NULL,
-        status TINYINT DEFAULT 1 COMMENT '好友状态：0=被拉黑后删除(污点)，1=正常好友，2=等待对方接受，3=等待自己接受，4=拉黑对方，5=被对方拉黑(污点)，6=被删除，7=待处理已拉黑-被动(污点)，8=待处理已拉黑-主动(污点)，9=彻底清除(污点)，10=双向拉黑，11=双向拉黑后删除(污点)，12=双向彻底清除(污点)，13=待处理双方污点-发送(污点)，14=待处理双方污点-接收(污点)',
-        remark VARCHAR(100) DEFAULT NULL COMMENT '用户给好友设置的备注名',
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        status TINYINT DEFAULT 1 COMMENT '好友状态：0=被拉黑后删除，1=正常好友，2=等待对方接受，3=等待自己接受，4=被拉黑',
+        remark VARCHAR(100) DEFAULT NULL COMMENT '用户给好友设置的备注名',
+        is_disturb TINYINT(1) DEFAULT 0 COMMENT '是否免打扰: 0=否, 1=是',
         FOREIGN KEY (user_id) REFERENCES scr_users(id) ON DELETE CASCADE,
         FOREIGN KEY (friend_id) REFERENCES scr_users(id) ON DELETE CASCADE,
         UNIQUE KEY unique_friendship (user_id, friend_id),
         INDEX idx_friends_user_id (user_id),
-        INDEX idx_friends_friend_id (friend_id)
+        INDEX idx_friends_friend_id (friend_id),
+        INDEX idx_friends_status (status)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
@@ -267,10 +273,10 @@ async function initializeDatabase() {
         sender_id INT NOT NULL,
         receiver_id INT NOT NULL,
         content TEXT,
-        at_userid JSON DEFAULT NULL COMMENT '@用户ID列表，JSON数组格式',
-        message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件，4代表引用消息',
+        at_userid TEXT,
+        message_type INT NOT NULL DEFAULT 0 COMMENT '0代表文字，1代表图片，2代表文件',
         is_read TINYINT NOT NULL DEFAULT 0 COMMENT '0代表未读，1代表已读',
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        timestamp TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (sender_id) REFERENCES scr_users(id) ON DELETE CASCADE,
         FOREIGN KEY (receiver_id) REFERENCES scr_users(id) ON DELETE CASCADE,
         INDEX idx_private_messages_sender_receiver (sender_id, receiver_id),
@@ -287,15 +293,14 @@ async function initializeDatabase() {
         is_encrypted TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为端到端加密消息',
         encrypted_content LONGTEXT DEFAULT NULL COMMENT '端到端加密密文内容',
         encryption_metadata JSON DEFAULT NULL COMMENT '端到端加密元数据',
-        at_userid JSON DEFAULT NULL COMMENT '@用户ID列表，JSON数组格式',
-        message_type INT NOT NULL DEFAULT '0' COMMENT '0代表文字，1代表图片，2代表文件，4代表引用消息',
+        message_type INT NOT NULL DEFAULT 0 COMMENT '0代表文字，1代表图片，2代表文件，4代表引用消息',
         group_id INT DEFAULT NULL,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        timestamp TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+        at_userid TEXT,
         INDEX user_id_index (user_id),
         INDEX group_id_index (group_id),
-        INDEX timestamp_index (timestamp),
-        FOREIGN KEY (user_id) REFERENCES scr_users(id) ON DELETE CASCADE,
-        FOREIGN KEY (group_id) REFERENCES scr_groups(id) ON DELETE CASCADE
+        INDEX idx_group_id_sequence (group_id),
+        FOREIGN KEY (user_id) REFERENCES scr_users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
@@ -327,9 +332,10 @@ async function initializeDatabase() {
         is_admin TINYINT(1) DEFAULT 0,
         is_muted DATETIME NULL DEFAULT NULL COMMENT '禁言状态: NULL=未禁言, 1=永久禁言, 时间戳=临时禁言截止时间',
         remark VARCHAR(100) DEFAULT NULL COMMENT '用户给群组设置的备注名',
+        is_disturb TINYINT(1) DEFAULT 0 COMMENT '是否免打扰: 0=否, 1=是',
         group_nickname VARCHAR(50) DEFAULT NULL COMMENT '用户在该群的昵称',
-        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        deleted_at TIMESTAMP NULL DEFAULT NULL,
+        joined_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+        deleted_at DATETIME DEFAULT NULL,
         INDEX group_id_index (group_id),
         INDEX user_id_index (user_id),
         FOREIGN KEY (group_id) REFERENCES scr_groups(id) ON DELETE CASCADE,

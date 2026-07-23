@@ -156,13 +156,26 @@ async function checkFileRequestLimit(req, res, next) {
       });
     }
 
-    await pool.execute(
-      'INSERT INTO scr_file_request_logs (user_id, request_time, ip_address) VALUES (?, ?, ?)',
-      [userId, now, req.ip]
-    );
-    await pool.execute(
-      'DELETE FROM scr_file_request_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM scr_file_request_logs ORDER BY request_time DESC LIMIT 1000) AS tmp)'
-    );
+    // 写入日志并清理旧记录，遇到死锁自动重试
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await pool.execute(
+          'INSERT INTO scr_file_request_logs (user_id, request_time, ip_address) VALUES (?, ?, ?)',
+          [userId, now, req.ip]
+        );
+        await pool.execute(
+          'DELETE FROM scr_file_request_logs WHERE id NOT IN (SELECT id FROM (SELECT id FROM scr_file_request_logs ORDER BY request_time DESC LIMIT 1000) AS tmp)'
+        );
+        break;
+      } catch (innerErr) {
+        if (innerErr.code === 'ER_LOCK_DEADLOCK' && attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 200 * attempt));
+          continue;
+        }
+        throw innerErr;
+      }
+    }
 
     next();
   } catch (err) {

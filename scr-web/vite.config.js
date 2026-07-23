@@ -4,6 +4,16 @@ import { defineConfig } from 'vite'
 import { createHtmlPlugin } from 'vite-plugin-html'
 import viteCompression from 'vite-plugin-compression'
 
+// 获取北京当前时间，格式化为 YYYY.M.D
+function getBeijingDate() {
+  const now = new Date();
+  const beijing = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const y = beijing.getUTCFullYear();
+  const m = beijing.getUTCMonth() + 1;
+  const d = beijing.getUTCDate();
+  return `${y}.${m}.${d}`;
+}
+
 export default defineConfig(({ mode }) => {
   const isProduction = mode === 'production'
 
@@ -43,8 +53,30 @@ export default defineConfig(({ mode }) => {
       },
     },
 
+    define: {
+      'import.meta.env.VITE_BUILD_TIME': JSON.stringify(getBeijingDate()),
+    },
+
     server: {
       port: 8080,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3001',
+          changeOrigin: true,
+          secure: false
+        },
+        '/socket.io': {
+          target: 'http://localhost:3001',
+          changeOrigin: true,
+          secure: false,
+          ws: true
+        },
+        '/avatars': {
+          target: 'http://localhost:3001',
+          changeOrigin: true,
+          secure: false
+        }
+      },
     },
 
     preview: {

@@ -1,368 +1,223 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <template>
-  <div class="login-container">
-    <!-- 装饰性元素 -->
-    <div class="decoration decoration-1"></div>
-    <div class="decoration decoration-2"></div>
-    <div class="decoration decoration-3"></div>
+ <div class="login-container">
+  <!-- 装饰性元素 -->
+  <div class="decoration decoration-1"></div>
+  <div class="decoration decoration-2"></div>
+  <div class="decoration decoration-3"></div>
 
-    <div class="login-form">
-      <button class="theme-toggle" type="button" @click="toggleDarkMode" :title="isDarkMode ? '切换为浅色模式' : '切换为深色模式'">
-        <span class="theme-icon">{{ isDarkMode ? '☀️' : '🌙' }}</span>
-      </button>
-      <h1>登录聊天室</h1>
-      <form @submit.prevent="handleLoginClick">
-        <div class="input-group">
-          <label for="username">用户名</label>
-          <input 
-            type="text" 
-            id="username" 
-            v-model="formData.username" 
-            name="username" 
-            required 
-            placeholder="请输入用户名"
-          >
-        </div>
-        <div class="input-group">
-          <label for="password">密码</label>
-          <input 
-            type="password" 
-            id="password" 
-            v-model="formData.password" 
-            name="password" 
-            required 
-            placeholder="请输入密码"
-          >
-        </div>
-        <button type="submit" :disabled="!isFormValid || isSubmitting || captchaModalVisible">
-          {{ isSubmitting ? '登录中...' : '登录' }}
-        </button>
-      </form>
-      <p class="register-link">还没有账号？<router-link to="/register">去注册</router-link></p>
-      <div v-if="message" :class="['login-message', messageType]">
-        {{ message }}
-      </div>
+  <div class="login-form">
+   <button class="theme-toggle" type="button" @click="toggleDarkMode" :title="isDarkMode ? '切换为浅色模式' : '切换为深色模式'">
+    <span class="theme-icon">{{ isDarkMode ? '☀️' : '🌙' }}</span>
+   </button>
+   <h1>登录聊天室</h1>
+   <form @submit.prevent="handleLoginClick">
+    <div class="input-group">
+     <label for="username">用户名</label>
+     <input
+      type="text"
+      id="username"
+      v-model="formData.username"
+      name="username"
+      required
+      placeholder="请输入用户名"
+     >
     </div>
-
-    <!-- 验证码模态框 -->
-    <Teleport to="body">
-      <div v-if="captchaModalVisible" class="captcha-modal-overlay" @click.self="closeCaptchaModal">
-        <div class="captcha-modal">
-          <div class="captcha-modal-header">
-            <span>请完成人机验证</span>
-            <button class="captcha-close-btn" @click="closeCaptchaModal">&times;</button>
-          </div>
-          <div class="captcha-modal-body">
-            <SliderCaptcha
-              :bg-base64="modalBgBase64"
-              :puzzle-base64="modalPuzzleBase64"
-              :target-y="modalTargetY"
-              :puzzle-size="modalPuzzleSize"
-              :width="300"
-              :height="150"
-              :public-key="modalPublicKey"
-              @verify="onCaptchaVerify"
-            />
-            <div v-if="captchaError" class="captcha-error">{{ captchaError }}</div>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <div class="input-group">
+     <label for="password">密码</label>
+     <input
+      type="password"
+      id="password"
+      v-model="formData.password"
+      name="password"
+      required
+      placeholder="请输入密码"
+     >
+    </div>
+    <div v-if="loginNotice" class="login-notice" v-html="loginNotice" :style="noticeStyle"></div>
+    <button type="submit" :disabled="!isFormValid || isSubmitting">
+     {{ isSubmitting ? '登录中...' : '登录' }}
+    </button>
+   </form>
+   <p class="register-link">还没有账号？<router-link to="/register">去注册</router-link></p>
+   
+   <!-- 人机验证进度显示（底部左侧） -->
+   <div v-if="captchaVisible" class="captcha-progress-row">
+     <div class="captcha-progress-ring">
+       <svg viewBox="0 0 100 100" class="progress-svg">
+         <defs>
+           <linearGradient id="capGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+             <stop offset="0%" stop-color="#3b82f6" />
+             <stop offset="100%" stop-color="#06b6d4" />
+           </linearGradient>
+         </defs>
+         <circle cx="50" cy="50" r="45" class="progress-bg"></circle>
+         <circle cx="50" cy="50" r="45" class="progress-bar" stroke="url(#capGradient)" :style="{ strokeDashoffset: 283 - (captchaProgress * 283 / 100) }"></circle>
+       </svg>
+     </div>
+     <div class="captcha-status-text">{{ captchaProgress }}%: {{ captchaStatus }}</div>
+   </div>
+   
+   <div v-if="message" :class="['login-message', messageType]">
+    {{ message }}
+   </div>
   </div>
+ </div>
 </template>
 
 <script setup>
-import { SliderCaptcha } from 'scr-slider-captcha/frontend';
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
-
-import { useCaptcha } from '@/composables/useCaptcha';
+import { humanVerify } from 'human-verify';
 import { login } from "@/utils/chat";
-import { originalFetch } from "@/utils/chat/config.js";
+import { login as apiLogin } from '@/api/user.js';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
-
-const {
-  captchaError
-} = useCaptcha();
+const loginNotice = import.meta.env.VITE_LOGIN_NOTICE || '';
+const noticeColor = import.meta.env.VITE_LOGIN_NOTICE_COLOR || '';
+const noticeBg = import.meta.env.VITE_LOGIN_NOTICE_BG || '';
+const noticeBorder = import.meta.env.VITE_LOGIN_NOTICE_BORDER || '';
+const noticeStyle = computed(() => {
+ const style = {};
+ if (noticeColor) style.color = noticeColor;
+ if (noticeBg) style.backgroundColor = noticeBg;
+ if (noticeBorder) style.borderColor = noticeBorder;
+ return style;
+});
 
 // 深色模式切换
 const isDarkMode = ref(false);
 onMounted(() => {
-  try {
-    isDarkMode.value = document.body.classList.contains('dark-mode');
-  } catch {}
+ try {
+  isDarkMode.value = document.body.classList.contains('dark-mode');
+ } catch {}
 });
 function toggleDarkMode() {
-  isDarkMode.value = !isDarkMode.value;
-  document.body.classList.toggle('dark-mode', isDarkMode.value);
-  try {
-    localStorage.setItem('dark-mode', isDarkMode.value ? '1' : '0');
-  } catch {}
+ isDarkMode.value = !isDarkMode.value;
+ document.body.classList.toggle('dark-mode', isDarkMode.value);
+ try {
+  localStorage.setItem('dark-mode', isDarkMode.value ? '1' : '0');
+ } catch {}
 }
 
 const formData = reactive({
-  username: '',
-  password: ''
+ username: '',
+ password: ''
 });
 
 const message = ref('');
 const messageType = ref('error');
 const isSubmitting = ref(false);
 
-// 模态框状态
-const captchaModalVisible = ref(false);
-const modalBgBase64 = ref('');
-const modalPuzzleBase64 = ref('');
-const modalTargetY = ref(0);
-const modalPuzzleSize = ref(50);
-const modalPublicKey = ref('');
-let pendingCaptchaId = '';
+// 人机验证进度状态
+const captchaVisible = ref(false);
+const captchaProgress = ref(0);
+const captchaStatus = ref('');
 
-// 调试函数：使用自动登录Token登录
-async function autoLoginWithTokenFunc(autoLoginToken, username, password) {
-  if (!autoLoginToken || !username || !password) {
-    console.error('请提供autoLoginToken、username和password');
-    return;
-  }
-
-  try {
-    const loginResponse = await originalFetch(`${SERVER_URL}/api/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        username: username,
-        password: password,
-        autoLoginToken: autoLoginToken
-      })
-    });
-
-    const loginResponseText = await loginResponse.text();
-
-    let loginData;
-    try {
-      loginData = JSON.parse(loginResponseText);
-    } catch (parseError) {
-      console.error('登录响应解析失败');
-      return;
-    }
-
-    if (!(loginData.success || loginData.status === 'success' || loginData.code === 200)) {
-      const errorMessage = loginData.message || loginData.msg || '自动登录失败';
-      console.error(errorMessage);
-      return;
-    }
-
-    const userId = loginData.userId || (loginData.user && loginData.user.id) || (loginData.data && loginData.data.id) || '';
-    const nickname = loginData.nickname || (loginData.user && loginData.user.nickname) || (loginData.data && loginData.data.nickname) || '';
-    const signature = loginData.signature || (loginData.user && loginData.user.signature) || (loginData.data && loginData.data.signature) || '';
-    const avatarUrl = loginData.avatarUrl || (loginData.user && loginData.user.avatarUrl) || (loginData.data && loginData.data.avatarUrl) || (loginData.user && loginData.user.avatar) || (loginData.data && loginData.data.avatar) || null;
-    const gender = loginData.gender || (loginData.user && loginData.user.gender) || (loginData.data && loginData.data.gender) || 0;
-    const sessionToken = loginData.sessionToken || loginData.token || loginData.session_token;
-    const refreshToken = loginData.refreshToken || loginData.refresh_token;
-
-    if (!userId || !sessionToken) {
-      console.error('登录响应数据不完整');
-      return;
-    }
-
-    const userData = {
-      id: userId ? String(userId) : '',
-      nickname: nickname,
-      signature: signature,
-      gender: gender,
-      avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
-    };
-
-    localStorage.setItem('currentSessionToken', sessionToken);
-    localStorage.setItem('chatUserId', userData.id);
-    
-    if (refreshToken) {
-      localStorage.setItem('refreshToken', refreshToken);
-    }
-
-    setTimeout(() => {
-      login();
-    }, 500);
-  } catch (error) {
-    console.error('自动登录请求失败:', error);
-  }
-}
-
-if (import.meta.env.DEV) {
-  onMounted(() => {
-    window.autoLoginWithToken = autoLoginWithTokenFunc;
-  });
-  
-  onUnmounted(() => {
-    delete window.autoLoginWithToken;
-  });
-}
+const serverUrl = import.meta.env.VITE_SERVER_URL || '';
 
 const isFormValid = computed(() => {
-  const usernameValid = !!formData.username && String(formData.username).trim().length > 0;
-  const passwordValid = !!formData.password && String(formData.password).trim().length > 0;
-  return usernameValid && passwordValid;
+ const usernameValid = !!formData.username && String(formData.username).trim().length > 0;
+ const passwordValid = !!formData.password && String(formData.password).trim().length > 0;
+ return usernameValid && passwordValid;
 });
 
 function showMessage(msg, type) {
-  message.value = msg;
-  messageType.value = type;
-  setTimeout(() => {
-    message.value = '';
-  }, 5000);
+ message.value = msg;
+ messageType.value = type;
+ setTimeout(() => {
+  message.value = '';
+ }, 5000);
 }
 
-async function openCaptchaModal() {
-  captchaError.value = '';
-  captchaModalVisible.value = true;
-  try {
-    const res = await originalFetch(`${SERVER_URL}/api/captcha/create`, {
-      method: 'POST'
-    });
-    const data = await res.json();
-    if (data.captchaId) {
-      pendingCaptchaId = data.captchaId;
-      modalBgBase64.value = data.bgBase64;
-      modalPuzzleBase64.value = data.puzzleBase64;
-      modalTargetY.value = data.targetY;
-      modalPuzzleSize.value = data.puzzleSize;
-      modalPublicKey.value = data.publicKey || '';
-    } else {
-      captchaError.value = data.message || '获取验证码失败';
+async function handleLoginClick() {
+ if (!formData.username || !formData.password) {
+  showMessage('请输入用户名和密码', 'error');
+  return;
+ }
+
+ if (isSubmitting.value) return;
+
+ isSubmitting.value = true;
+
+ // 显示人机验证进度
+ captchaVisible.value = true;
+ captchaProgress.value = 0;
+ captchaStatus.value = '准备验证...';
+
+ try {
+  // 人机验证（函数模式）
+  const verifyResult = await humanVerify({
+    challengeUrl: `${serverUrl}/api/verify/challenge`,
+    powChallengeUrl: `${serverUrl}/api/verify/pow-challenge`,
+    powVerifyUrl: `${serverUrl}/api/login`,
+    onProgress: (progress, status) => {
+      captchaProgress.value = progress;
+      captchaStatus.value = status;
     }
-  } catch (err) {
-    const msg = err?.message || '';
-    if (msg && !msg.includes('Failed to fetch')) {
-      captchaError.value = msg;
-    } else {
-      captchaError.value = '网络错误，请稍后重试';
-    }
+  });
+
+  // 验证完成，隐藏进度显示
+  captchaVisible.value = false;
+
+  if (!verifyResult.passed) {
+   captchaVisible.value = false;
+   showMessage(verifyResult.reason || '人机验证未通过', 'error');
+   isSubmitting.value = false;
+   return;
   }
-}
 
-function closeCaptchaModal() {
-  captchaModalVisible.value = false;
-  modalBgBase64.value = '';
-  modalPuzzleBase64.value = '';
-  isSubmitting.value = false;
-}
+  // 登录
+  const res = await apiLogin(formData.username, formData.password, verifyResult.sessionId, verifyResult.pow.nonce);
+  const data = res.data;
 
-async function onCaptchaVerify(encryptedData) {
-  await doLoginRequest(pendingCaptchaId, encryptedData);
-}
+  // 登录成功处理
+  const userId = data.userId || (data.user && data.user.id) || (data.data && data.data.id) || '';
+  const nickname = data.nickname || (data.user && data.user.nickname) || (data.data && data.data.nickname) || '';
+  const signature = data.signature || (data.user && data.user.signature) || (data.data && data.data.signature) || '';
+  const avatarUrl = data.avatarUrl || (data.user && data.user.avatarUrl) || (data.data && data.data.avatarUrl) || (data.user && data.user.avatar) || (data.data && data.data.avatar) || null;
+  const gender = data.gender || (data.user && data.user.gender) || (data.data && data.data.gender) || 0;
+  const sessionToken = data.sessionToken || data.token || data.session_token;
+  const refreshToken = data.refreshToken || data.refresh_token;
 
-function handleLoginClick() {
-  if (!formData.username || !formData.password) {
-    showMessage('请输入用户名和密码', 'error');
+  if (!userId || !sessionToken) {
+    showMessage('登录响应数据不完整，请稍后重试', 'error');
+    isSubmitting.value = false;
     return;
   }
-  openCaptchaModal();
-}
 
-async function doLoginRequest(captchaIdVal, encryptedTrajectoryVal) {
-  isSubmitting.value = true;
+  const userData = {
+    id: userId ? String(userId) : '',
+    nickname: nickname,
+    signature: signature,
+    gender: gender,
+    avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
+  };
 
-  try {
-    const response = await originalFetch(`${SERVER_URL}/api/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        username: formData.username,
-        password: formData.password,
-        captchaId: captchaIdVal,
-        encryptedTrajectory: encryptedTrajectoryVal
-      })
-    });
+  localStorage.setItem('currentSessionToken', sessionToken);
+  localStorage.setItem('chatUserId', userData.id);
 
-    const responseText = await response.text();
-
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      showMessage('服务器响应格式错误，请稍后重试', 'error');
-      closeCaptchaModal();
-      return;
-    }
-
-    if (data.success || data.status === 'success' || data.code === 200) {
-      const userId = data.userId || (data.user && data.user.id) || (data.data && data.data.id) || '';
-      const nickname = data.nickname || (data.user && data.user.nickname) || (data.data && data.data.nickname) || '';
-      const signature = data.signature || (data.user && data.user.signature) || (data.data && data.data.signature) || '';
-      const avatarUrl = data.avatarUrl || (data.user && data.user.avatarUrl) || (data.data && data.data.avatarUrl) || (data.user && data.user.avatar) || (data.data && data.data.avatar) || null;
-      const gender = data.gender || (data.user && data.user.gender) || (data.data && data.data.gender) || 0;
-      const sessionToken = data.sessionToken || data.token || data.session_token;
-      const refreshToken = data.refreshToken || data.refresh_token;
-
-      if (!userId || !sessionToken) {
-        showMessage('登录响应数据不完整，请稍后重试', 'error');
-        closeCaptchaModal();
-        return;
-      }
-
-      const userData = {
-        id: userId ? String(userId) : '',
-        nickname: nickname,
-        signature: signature,
-        gender: gender,
-        avatarUrl: avatarUrl && typeof avatarUrl === 'string' ? avatarUrl.trim() : null
-      };
-
-      localStorage.setItem('currentSessionToken', sessionToken);
-      localStorage.setItem('chatUserId', userData.id);
-      
-      if (refreshToken) {
-        localStorage.setItem('refreshToken', refreshToken);
-      }
-
-      closeCaptchaModal();
-      showMessage('登录成功，正在跳转...', 'success');
-      setTimeout(() => {
-        login();
-      }, 500);
-    } else {
-      let errorMessage = data.message || data.msg || '登录失败';
-
-      if (response.status === 401 || errorMessage.includes('用户名') || errorMessage.includes('密码')) {
-        closeCaptchaModal();
-        showMessage(errorMessage, 'error');
-        isSubmitting.value = false;
-        return;
-      }
-
-      if (response.status === 400) {
-        if (errorMessage.includes('人机验证') || errorMessage.includes('验证码')) {
-          captchaError.value = '人机验证失败，请重试';
-          modalBgBase64.value = '';
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          await openCaptchaModal();
-          isSubmitting.value = false;
-          return;
-        } else if (errorMessage.includes('频繁') || errorMessage.includes('频率')) {
-          // keep original
-        } else if (errorMessage.includes('封禁')) {
-          // keep original
-        } else {
-          errorMessage = errorMessage || '登录信息有误，请检查后重试';
-        }
-      } else if (response.status === 429) {
-        errorMessage = errorMessage || '操作过于频繁，请稍后再试';
-      } else if (response.status === 403) {
-        errorMessage = errorMessage || '账号异常，请联系管理员';
-      }
-
-      captchaError.value = errorMessage;
-      isSubmitting.value = false;
-    }
-  } catch (error) {
-    closeCaptchaModal();
-    showMessage('登录请求失败，请检查网络连接或稍后重试', 'error');
-    isSubmitting.value = false;
+  if (refreshToken) {
+    localStorage.setItem('refreshToken', refreshToken);
   }
+
+  showMessage('登录成功，正在跳转...', 'success');
+  setTimeout(() => {
+    login();
+  }, 500);
+ } catch (error) {
+  let errorMessage = error.response?.data?.message || error.response?.data?.msg || error.message || '登录失败';
+  if (error.response?.status === 401 || errorMessage.includes('用户名') || errorMessage.includes('密码')) {
+    showMessage(errorMessage, 'error');
+    isSubmitting.value = false;
+    return;
+  }
+  if (error.response?.status === 429) {
+    errorMessage = errorMessage || '操作过于频繁，请稍后再试';
+  } else if (error.response?.status === 403) {
+    errorMessage = errorMessage || '账号异常，请联系管理员';
+  }
+  showMessage(errorMessage, 'error');
+  isSubmitting.value = false;
+ }
 }
 </script>
 
@@ -534,6 +389,18 @@ input:focus {
   border-color: #0072ff;
   background-color: white;
   box-shadow: 0 0 0 3px rgba(0, 114, 255, 0.1);
+}
+
+/* 通知文本样式 */
+.login-notice {
+  text-align: center;
+  font-size: 13px;
+  color: #e67e22;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #f0c27a;
+  background-color: #fef9e7;
+  margin-top: 10px;
 }
 
 button {
@@ -760,6 +627,11 @@ button:disabled {
     color: #3fb950;
     border-color: rgba(46, 160, 67, 0.4);
   }
+  .login-notice {
+    background-color: rgba(210, 153, 34, 0.15);
+    color: #d29922;
+    border-color: rgba(210, 153, 34, 0.4);
+  }
   .decoration {
     background: rgba(56, 139, 253, 0.15) !important;
   }
@@ -857,6 +729,11 @@ body.dark-mode .login-form .login-message.success {
   color: #3fb950 !important;
   border-color: rgba(46, 160, 67, 0.4) !important;
 }
+body.dark-mode .login-form .login-notice {
+  background-color: rgba(210, 153, 34, 0.15) !important;
+  color: #d29922 !important;
+  border-color: rgba(210, 153, 34, 0.4) !important;
+}
 body.dark-mode .login-container .decoration,
 body.dark-mode .login-container .decoration-1 {
   background: rgba(56, 139, 253, 0.15) !important;
@@ -882,6 +759,84 @@ body.dark-mode .login-container .captcha-close-btn:hover {
   color: #f0f6fc !important;
 }
 body.dark-mode .login-container .captcha-error {
-  color: #f85149 !important;
+ color: #f85149 !important;
+}
+
+/* 人机验证进度显示 */
+.login-content {
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ gap: 20px;
+ min-height: 100vh;
+ padding: 40px 20px;
+ box-sizing: border-box;
+}
+
+.captcha-progress-row {
+ display: flex;
+ align-items: center;
+ gap: 14px;
+ margin: 16px 0;
+ padding: 12px 18px;
+ background: linear-gradient(135deg, #f0f7ff 0%, #e8f4fd 100%);
+ border: 1px solid rgba(59, 130, 246, 0.12);
+ border-radius: 10px;
+ box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.captcha-progress-ring {
+ position: relative;
+ width: 36px;
+ height: 36px;
+ flex-shrink: 0;
+}
+
+.progress-svg {
+ width: 100%;
+ height: 100%;
+ transform: rotate(-90deg);
+}
+
+.progress-bg {
+ fill: none;
+ stroke: rgba(59, 130, 246, 0.12);
+ stroke-width: 6;
+}
+
+.progress-bar {
+ fill: none;
+ stroke-width: 6;
+ stroke-linecap: round;
+ stroke-dasharray: 283;
+ stroke-dashoffset: 283;
+ transition: stroke-dashoffset 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.captcha-status-text {
+ font-size: 13px;
+ color: #3b82f6;
+ line-height: 1.4;
+ font-weight: 500;
+ letter-spacing: 0.01em;
+}
+
+/* 深色模式下的验证进度样式 */
+body.dark-mode .captcha-progress-row {
+ background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
+ border-color: rgba(59, 130, 246, 0.2);
+ box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+body.dark-mode .progress-bg {
+ stroke: rgba(56, 189, 248, 0.12);
+}
+
+body.dark-mode .progress-bar {
+ stroke: url(#capGradient);
+}
+
+body.dark-mode .captcha-status-text {
+ color: #38bdf8;
 }
 </style>

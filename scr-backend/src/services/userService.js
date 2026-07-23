@@ -15,34 +15,33 @@ import {
   updateOnlineUserByUserId,
   logIPAction
 } from '../utils/session.js';
-import { isIPBanned } from '../middleware/auth.js';
+import { verifyPOWSolution } from 'human-verify/backend';
 
 let io;
-let cachedPrivateKey = null;
 
-function getPrivateKey() {
-  if (!cachedPrivateKey) {
-    const keysDir = path.join(process.cwd(), 'keys');
-    cachedPrivateKey = fs.readFileSync(path.join(keysDir, 'private.pem'), 'utf8');
-  }
-  return cachedPrivateKey;
-}
-
-async function verifyCaptchaToken(captchaId, encryptedTrajectory) {
-  if (!captchaId || !encryptedTrajectory) {
-    return { success: false, message: '缺少验证码参数' };
-  }
+// POW 验证函数 - 只验证 POW，行为验证已在 /api/verify/pow-challenge 完成
+async function verifyHuman(req, res) {
   try {
-    const { verifyCaptcha } = await import('scr-slider-captcha/backend');
-    const privateKey = getPrivateKey();
-    const result = verifyCaptcha(captchaId, encryptedTrajectory, privateKey, 70);
-    if (result.success) {
-      return { success: true };
+    const { sessionId, nonce } = req.body;
+    
+    if (!sessionId || !nonce) {
+      return { success: false, message: '缺少 POW 验证数据' };
     }
-    return { success: false, message: '人机验证失败' };
+
+    // POW 验证
+    const powResult = verifyPOWSolution(sessionId, nonce);
+    if (!powResult.success) {
+      return { success: false, message: powResult.error || 'POW 验证失败' };
+    }
+    
+    if (!powResult.passed) {
+      return { success: false, message: 'POW 验证未通过' };
+    }
+
+    return { success: true, token: powResult.token };
   } catch (err) {
-    console.error('验证码验证失败:', err.message);
-    return { success: false, message: '验证码验证失败' };
+    console.error('POW 验证失败:', err.message);
+    return { success: false, message: 'POW 验证失败' };
   }
 }
 
@@ -55,15 +54,29 @@ const avatarDir = path.join(process.cwd(), 'public', 'avatars');
 
 export async function register(req, res) {
   try {
-    const { username, password, nickname, gender, captchaId, encryptedTrajectory } = req.body;
+    const { username, password, nickname, gender, sessionId, nonce } = req.body;
     const clientIP = getClientIP(req);
 
-    const banInfo = await isIPBanned(clientIP);
-    if (banInfo.isBanned) {
-      return res.status(403).json({ status: 'error', message: '您的 IP 已被封禁', isBanned: true, remainingTime: banInfo.remainingTime });
+    // 直接查数据库检查 IP 封禁（不依赖 Redis）
+    const [ipBanRows] = await pool.execute(
+      'SELECT reason, expires_at FROM scr_banned_ips WHERE ip_address = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1',
+      [clientIP]
+    );
+    if (ipBanRows.length > 0) {
+      const banRecord = ipBanRows[0];
+      let message = '您的 IP 已被封禁';
+      if (banRecord.reason) message += `，原因：${banRecord.reason}`;
+      if (banRecord.expires_at) {
+        const diff = new Date(banRecord.expires_at) - new Date();
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        message += `，还剩 ${days}天${hours}小时${minutes}分钟解封`;
+      }
+      return res.status(403).json({ status: 'error', message });
     }
 
-    if (!username || !password || !nickname || !captchaId || !encryptedTrajectory) {
+    if (!username || !password || !nickname || !sessionId || !nonce) {
       return res.status(400).json({ status: 'error', message: '请填写所有字段' });
     }
 
@@ -72,7 +85,8 @@ export async function register(req, res) {
       return res.status(400).json({ status: 'error', message: '性别参数非法' });
     }
 
-    const captchaResult = await verifyCaptchaToken(captchaId, encryptedTrajectory);
+    // 人机验证
+    const captchaResult = await verifyHuman(req, res);
     if (!captchaResult.success) {
       return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
     }
@@ -136,41 +150,20 @@ export async function register(req, res) {
 
 export async function login(req, res) {
   try {
-    const { username, password, captchaId, encryptedTrajectory, autoLoginToken } = req.body;
+    const { username, password, sessionId, nonce, autoLoginToken } = req.body;
     const clientIP = getClientIP(req);
-
-    const banInfo = await isIPBanned(clientIP);
-    if (banInfo.isBanned) {
-      let message = '您的 IP 已被封禁';
-
-      if (banInfo.reason) {
-        message += `，原因：${banInfo.reason}`;
-      }
-
-      if (banInfo.remainingTime) {
-        const { days, hours, minutes } = banInfo.remainingTime;
-        message += `，还剩 ${days}天${hours}小时${minutes}分钟解封`;
-      }
-
-      return res.status(429).json({
-        status: 'error',
-        message: message,
-        isBanned: true,
-        reason: banInfo.reason,
-        remainingTime: banInfo.remainingTime
-      });
-    }
 
     // 账号密码登录（必须提供 username 和 password）
     if (username !== undefined && password !== undefined) {
       const isAutoLogin = !!autoLoginToken;
 
       if (!isAutoLogin) {
-        if (!captchaId || !encryptedTrajectory) {
+        if (!sessionId || !nonce) {
           return res.status(400).json({ status: 'error', message: '请完成人机验证' });
         }
 
-        const captchaResult = await verifyCaptchaToken(captchaId, encryptedTrajectory);
+        // POW 验证
+        const captchaResult = await verifyHuman(req, res);
         if (!captchaResult.success) {
           return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
         }
@@ -230,6 +223,42 @@ export async function login(req, res) {
       if (!isPasswordValid) {
         await logIPAction(user.id, clientIP, 'login_failed');
         return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
+      }
+
+      // 直接查数据库检查封禁：先查 IP，再查 user_id（不依赖 Redis）
+      const [ipBanRows] = await pool.execute(
+        'SELECT reason, expires_at FROM scr_banned_ips WHERE ip_address = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1',
+        [clientIP]
+      );
+      if (ipBanRows.length > 0) {
+        const banRecord = ipBanRows[0];
+        let message = '您的 IP 已被封禁';
+        if (banRecord.reason) message += `，原因：${banRecord.reason}`;
+        if (banRecord.expires_at) {
+          const diff = new Date(banRecord.expires_at) - new Date();
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          message += `，还剩 ${days}天${hours}小时${minutes}分钟解封`;
+        }
+        return res.status(429).json({ status: 'error', message, isBanned: true });
+      }
+      const [userBanRows] = await pool.execute(
+        'SELECT reason, expires_at FROM scr_banned_ips WHERE user_id = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1',
+        [user.id]
+      );
+      if (userBanRows.length > 0) {
+        const banRecord = userBanRows[0];
+        let message = '您的账号已被封禁';
+        if (banRecord.reason) message += `，原因：${banRecord.reason}`;
+        if (banRecord.expires_at) {
+          const diff = new Date(banRecord.expires_at) - new Date();
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          message += `，还剩 ${days}天${hours}小时${minutes}分钟解封`;
+        }
+        return res.status(429).json({ status: 'error', message, isBanned: true });
       }
 
       if (autoLoginToken) {
@@ -319,15 +348,15 @@ export async function refreshToken(req, res) {
 export async function updateNickname(req, res) {
   try {
     const userId = req.userId;
-    const { newNickname } = req.body;
+    const { nickname } = req.body;
 
-    if (!validateNickname(newNickname)) {
+    if (!validateNickname(nickname)) {
       return res.status(400).json({ status: 'error', message: '昵称不能为空' });
     }
 
     await pool.execute(
       'UPDATE scr_users SET nickname = ? WHERE id = ?',
-      [newNickname, userId]
+      [nickname, userId]
     );
 
     const [users] = await pool.execute(
@@ -343,10 +372,10 @@ export async function updateNickname(req, res) {
 
     const [nicknameUpdateResult] = await pool.execute(
       'INSERT INTO scr_messages (user_id, content, message_type, timestamp) VALUES (?, ?, ?, NOW())',
-      [userId, JSON.stringify({ type: 'nickname', nickname: newNickname }), 102]
+      [userId, JSON.stringify({ type: 'nickname', nickname }), 102]
     );
 
-    await updateOnlineUserByUserId(userId, { nickname: newNickname });
+    await updateOnlineUserByUserId(userId, { nickname });
 
     const now = new Date();
     const timestampMs = now.getTime();
@@ -355,7 +384,7 @@ export async function updateNickname(req, res) {
       userId: userId,
       nickname: user.nickname,
       avatarUrl: user.avatar_url,
-      content: JSON.stringify({ type: 'nickname', nickname: newNickname }),
+      content: JSON.stringify({ type: 'nickname', nickname: nickname }),
       messageType: 102,
       groupId: null,
       timestamp: timestampMs,
@@ -366,7 +395,7 @@ export async function updateNickname(req, res) {
 
     io.to('authenticated_users').emit('message-received', type102Message);
 
-    res.json({ status: 'success', message: '昵称修改成功', nickname: newNickname });
+    res.json({ status: 'success', message: '昵称修改成功', nickname: nickname });
   } catch (err) {
     console.error('修改昵称失败:', err.message);
     res.status(500).json({ status: 'error', message: '修改昵称失败' });
@@ -432,9 +461,9 @@ export async function changePassword(req, res) {
   try {
     const userId = req.userId;
     const clientIP = getClientIP(req);
-    const { oldPassword, newPassword, captchaId, encryptedTrajectory } = req.body;
+    const { oldPassword, newPassword, sessionId, nonce } = req.body;
 
-    if (!oldPassword || !newPassword || !captchaId || !encryptedTrajectory) {
+    if (!oldPassword || !newPassword || !sessionId || !nonce) {
       return res.status(400).json({ status: 'error', message: '缺少必要参数' });
     }
 
@@ -442,7 +471,8 @@ export async function changePassword(req, res) {
       return res.status(400).json({ status: 'error', message: '新密码格式错误' });
     }
 
-    const captchaResult = await verifyCaptchaToken(captchaId, encryptedTrajectory);
+    // POW 验证
+    const captchaResult = await verifyHuman(req, res);
     if (!captchaResult.success) {
       return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
     }
@@ -738,5 +768,39 @@ export async function getUserById(req, res) {
   } catch (err) {
     console.error('获取用户信息失败:', err.message);
     res.status(500).json({ status: 'error', message: '获取用户信息失败' });
+  }
+}
+
+export async function checkUsername(req, res) {
+  try {
+    const { username } = req.query;
+
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ status: 'error', message: '用户名不能为空' });
+    }
+
+    if (!validateUsername(username)) {
+      return res.status(400).json({ status: 'error', message: '用户名非法' });
+    }
+
+    const trimmedUsername = username.trim();
+
+    if (!trimmedUsername) {
+      return res.status(400).json({ status: 'error', message: '用户名不能为空' });
+    }
+
+    const [existingUsers] = await pool.execute(
+      'SELECT id FROM scr_users WHERE username = ?',
+      [trimmedUsername]
+    );
+
+    res.json({
+      status: 'success',
+      isAvailable: existingUsers.length === 0,
+      username: trimmedUsername
+    });
+  } catch (err) {
+    console.error('❌ 检查用户名失败:', err.message);
+    res.status(500).json({ status: 'error', message: '检查用户名失败' });
   }
 }

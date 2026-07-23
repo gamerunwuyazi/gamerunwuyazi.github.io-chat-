@@ -86,8 +86,7 @@ export function registerUserHandlers(socket, io, { pool, addOnlineUser, removeOn
         nickname: nickname,
         socketId: socket.id,
         avatarUrl: avatarUrl,
-        gender: gender,
-        sessionToken: userData.sessionToken
+        gender: gender
       });
   
       // 将用户添加到已认证集合和房间，只有发送过 user-joined 的用户才能收到主聊天室消息

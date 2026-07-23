@@ -9,6 +9,7 @@ import { useSessionStore } from './sessionStore';
 import { useUnreadStore } from './unreadStore';
 import { useBaseStore } from './baseStore';
 import { getRouter } from '@/utils/chat/routerInstance.js';
+import { getOfflineMessages, deleteDeletedSession } from '@/api/message.js';
 import { decryptChatMessage, decryptChatMessages } from '@/utils/chat/encryption.js';
 
 // 判断用户是否正在关注指定会话（页面级焦点：路由 + sessionStore + 浏览器级焦点：document.hidden / document.hasFocus）
@@ -39,8 +40,6 @@ function isUserFocusedOnChat(chatType, chatId) {
   }
   return false;
 }
-
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
 let cachePublicMessages = [];
 let cacheGroupMessages = {};
@@ -403,21 +402,23 @@ export const useStorageStore = defineStore('storage', () => {
             console.error('更新IndexedDB中的好友昵称失败:', e);
           }
           updateUserInfoInMessages(userId, { nickname: updateData.nickname });
-        } else if (updateData.type === 'avatar' && updateData.avatar_url) {
+          userStore.updateUserInfoInMessages(userId, { nickname: updateData.nickname });
+        } else if (updateData.type === 'avatar' && (updateData.avatar_url || updateData.avatarUrl)) {
+          const avatarUrl = updateData.avatar_url || updateData.avatarUrl;
           if (userStore.onlineUsers) {
             const userIndex = userStore.onlineUsers.findIndex(u => String(u.id) === String(userId));
             if (userIndex !== -1) {
-              userStore.onlineUsers[userIndex].avatar = updateData.avatar_url;
-              userStore.onlineUsers[userIndex].avatarUrl = updateData.avatar_url;
-              userStore.onlineUsers[userIndex].avatar_url = updateData.avatar_url;
+              userStore.onlineUsers[userIndex].avatar = avatarUrl;
+              userStore.onlineUsers[userIndex].avatarUrl = avatarUrl;
+              userStore.onlineUsers[userIndex].avatar_url = avatarUrl;
             }
           }
           if (friendStore.friendsList) {
             const friendIndex = friendStore.friendsList.findIndex(f => String(f.id) === String(userId));
             if (friendIndex !== -1) {
-              friendStore.friendsList[friendIndex].avatarUrl = updateData.avatar_url;
-              friendStore.friendsList[friendIndex].avatar_url = updateData.avatar_url;
-              friendStore.friendsList[friendIndex].avatar = updateData.avatar_url;
+              friendStore.friendsList[friendIndex].avatarUrl = avatarUrl;
+              friendStore.friendsList[friendIndex].avatar_url = avatarUrl;
+              friendStore.friendsList[friendIndex].avatar = avatarUrl;
               friendStore.friendsList = [...friendStore.friendsList];
             }
           }
@@ -427,13 +428,14 @@ export const useStorageStore = defineStore('storage', () => {
             const existingData = await localForage.getItem(key);
             if (existingData) {
               const updatedSessionData = { ...toRaw(existingData) };
-              updatedSessionData.avatarUrl = updateData.avatar_url;
+              updatedSessionData.avatarUrl = avatarUrl;
               await localForage.setItem(key, updatedSessionData);
             }
           } catch (e) {
             console.error('更新IndexedDB中的好友头像失败:', e);
           }
-          updateUserInfoInMessages(userId, { avatarUrl: updateData.avatar_url });
+          updateUserInfoInMessages(userId, { avatarUrl });
+          userStore.updateUserInfoInMessages(userId, { avatarUrl });
         }
       } catch (e) {
         console.error('解析102消息失败:', e);
@@ -808,48 +810,40 @@ export const useStorageStore = defineStore('storage', () => {
       const publicAndGroupMinIdParam = publicAndGroupMinId.value;
       const privateMinIdParam = privateMinId.value;
 
-      const response = await fetch(`${SERVER_URL}/api/offline-messages?publicAndGroupMinId=${publicAndGroupMinIdParam}&privateMinId=${privateMinIdParam}`, {
-        headers: {
-          'user-id': currentUser.id,
-          'session-token': currentSessionToken
-        }
-      });
+      const res = await getOfflineMessages(publicAndGroupMinIdParam, privateMinIdParam);
+      const data = res.data;
 
-      const data = await response.json();
-
-      if (data.status === 'success') {
-        if (data.publicMessages && data.publicMessages.length > 0) {
-          data.publicMessages.forEach(message => {
-            if (message.message_type === 102) {
-              userInfoUpdateMessages.push({ ...message, type: 'public' });
-            } else {
-              processOfflineMessage({ ...message, type: 'public' }, onlySaveToDB);
-            }
-          });
-        }
-        if (data.groupMessages && data.groupMessages.length > 0) {
-          data.groupMessages.forEach(message => {
-            if (message.message_type === 102) {
-              userInfoUpdateMessages.push({ ...message, type: 'group' });
-            } else {
-              processOfflineMessage({ ...message, type: 'group' }, onlySaveToDB);
-            }
-          });
-        }
-        if (data.privateMessages && data.privateMessages.length > 0) {
-          data.privateMessages.forEach(message => {
-            if (message.message_type === 102) {
-              userInfoUpdateMessages.push({ ...message, type: 'private' });
-            } else {
-              processOfflineMessage({ ...message, type: 'private' }, onlySaveToDB);
-            }
-          });
-        }
-        
-        baseStore.hasReceivedHistory = true;
-        baseStore.hasReceivedGroupHistory = true;
-        baseStore.hasReceivedPrivateHistory = true;
+      if (data.publicMessages && data.publicMessages.length > 0) {
+        data.publicMessages.forEach(message => {
+          if (message.message_type === 102) {
+            userInfoUpdateMessages.push({ ...message, type: 'public' });
+          } else {
+            processOfflineMessage({ ...message, type: 'public' }, onlySaveToDB);
+          }
+        });
       }
+      if (data.groupMessages && data.groupMessages.length > 0) {
+        data.groupMessages.forEach(message => {
+          if (message.message_type === 102) {
+            userInfoUpdateMessages.push({ ...message, type: 'group' });
+          } else {
+            processOfflineMessage({ ...message, type: 'group' }, onlySaveToDB);
+          }
+        });
+      }
+      if (data.privateMessages && data.privateMessages.length > 0) {
+        data.privateMessages.forEach(message => {
+          if (message.message_type === 102) {
+            userInfoUpdateMessages.push({ ...message, type: 'private' });
+          } else {
+            processOfflineMessage({ ...message, type: 'private' }, onlySaveToDB);
+          }
+        });
+      }
+      
+      baseStore.hasReceivedHistory = true;
+      baseStore.hasReceivedGroupHistory = true;
+      baseStore.hasReceivedPrivateHistory = true;
     } catch (error) {
       console.error('获取离线消息失败:', error);
     } finally {
@@ -861,16 +855,12 @@ export const useStorageStore = defineStore('storage', () => {
           const newMessages = cachePublicMessages.filter(m => !existingPublicMessageIds.has(m.id));
 
           if (newMessages.length > 0) {
-            const isUserActive = isUserFocusedOnChat('public', null);
-
             const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
 
-            if (!isUserActive) {
-              if (otherUserMessages.length > 0) {
-                const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
-                savedUnreadCounts.global += otherUserMessages.length;
-                if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
-              }
+            if (otherUserMessages.length > 0) {
+              const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
+              savedUnreadCounts.global += otherUserMessages.length;
+              if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
             }
           }
 
@@ -894,14 +884,12 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cacheGroupMessages[groupId].filter(m => !existingIds.has(m.id));
 
             if (newMessages.length > 0) {
-              const isUserActive = isUserFocusedOnChat('group', groupId);
-
               const mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
               const isMuted = mutedGroups.includes(groupId.toString());
 
               const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
 
-              if (!isMuted && !isUserActive) {
+              if (!isMuted) {
                 if (otherUserMessages.length > 0) {
                   const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
                   if (!savedUnreadCounts.groups[groupId]) {
@@ -948,19 +936,15 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cachePrivateMessages[userId].filter(m => !existingIds.has(m.id));
 
             if (newMessages.length > 0) {
-              const isUserActive = isUserFocusedOnChat('private', userId);
-
               const otherUserMessages = newMessages.filter(m => String(m.senderId) !== String(currentUser?.id) && m.isRead !== 1);
 
-              if (!isUserActive) {
-                if (otherUserMessages.length > 0) {
-                  const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
-                  if (!savedUnreadCounts.private[userId]) {
-                    savedUnreadCounts.private[userId] = 0;
-                  }
-                  savedUnreadCounts.private[userId] += otherUserMessages.length;
-                  if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
+              if (otherUserMessages.length > 0) {
+                const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
+                if (!savedUnreadCounts.private[userId]) {
+                  savedUnreadCounts.private[userId] = 0;
                 }
+                savedUnreadCounts.private[userId] += otherUserMessages.length;
+                if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
               }
             }
 
@@ -1014,16 +998,12 @@ export const useStorageStore = defineStore('storage', () => {
           const newMessages = cachePublicMessages.filter(m => !existingPublicMessageIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
 
           if (newMessages.length > 0) {
-            const isUserActive = isUserFocusedOnChat('public', null);
-
             const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
 
-            if (!isUserActive) {
-              if (otherUserMessages.length > 0) {
-                const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
-                savedUnreadCounts.global += otherUserMessages.length;
-                if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
-              }
+            if (otherUserMessages.length > 0) {
+              const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
+              savedUnreadCounts.global += otherUserMessages.length;
+              if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
             }
           }
 
@@ -1043,14 +1023,12 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cacheGroupMessages[groupId].filter(m => !existingIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
 
             if (newMessages.length > 0) {
-              const isUserActive = isUserFocusedOnChat('group', groupId);
-
               const mutedGroups = JSON.parse(localStorage.getItem('mutedGroups') || '[]');
               const isMuted = mutedGroups.includes(groupId.toString());
 
               const otherUserMessages = newMessages.filter(m => String(m.userId) !== String(currentUser?.id) && !m.isRead);
 
-              if (!isMuted && !isUserActive) {
+              if (!isMuted) {
                 if (otherUserMessages.length > 0) {
                   const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
                   if (!savedUnreadCounts.groups[groupId]) {
@@ -1079,19 +1057,15 @@ export const useStorageStore = defineStore('storage', () => {
             const newMessages = cachePrivateMessages[userId].filter(m => !existingIds.has(m.id) && m.messageType !== 101 && m.messageType !== 102);
 
             if (newMessages.length > 0) {
-              const isUserActive = isUserFocusedOnChat('private', userId);
-
               const otherUserMessages = newMessages.filter(m => String(m.senderId) !== String(currentUser?.id) && m.isRead !== 1);
 
-              if (!isUserActive) {
-                if (otherUserMessages.length > 0) {
-                  const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
-                  if (!savedUnreadCounts.private[userId]) {
-                    savedUnreadCounts.private[userId] = 0;
-                  }
-                  savedUnreadCounts.private[userId] += otherUserMessages.length;
-                  if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
+              if (otherUserMessages.length > 0) {
+                const savedUnreadCounts = unreadStore.loadUnreadCountsFromStorage ? unreadStore.loadUnreadCountsFromStorage() : { global: 0, groups: {}, private: {} };
+                if (!savedUnreadCounts.private[userId]) {
+                  savedUnreadCounts.private[userId] = 0;
                 }
+                savedUnreadCounts.private[userId] += otherUserMessages.length;
+                if (unreadStore.saveUnreadCountsToLocalStorageDirect) unreadStore.saveUnreadCountsToLocalStorageDirect(savedUnreadCounts);
               }
             }
 
@@ -1148,32 +1122,56 @@ export const useStorageStore = defineStore('storage', () => {
   }
 
   function updateUserInfoInMessages(userId, updates) {
-    const updateMsg = (msg) => {
-      if (updates.nickname) msg.nickname = updates.nickname;
-      if (updates.avatarUrl) msg.avatarUrl = updates.avatarUrl;
+    const doUpdateMsgContent = (msg) => {
       if (msg.messageType === 100 && msg.content && typeof msg.content === 'string' && updates.nickname) {
         try {
           const parsed = JSON.parse(msg.content);
-          if (parsed && parsed.action && parsed[String(userId)] !== undefined) {
-            parsed[String(userId)] = updates.nickname;
+          let changed = false;
+          const traverseAndUpdate = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+            for (const key of Object.keys(obj)) {
+              if (key === String(userId) && typeof obj[key] === 'string') {
+                if (obj[key] !== updates.nickname) {
+                  obj[key] = updates.nickname;
+                  changed = true;
+                }
+              } else if (typeof obj[key] === 'object') {
+                traverseAndUpdate(obj[key]);
+              }
+            }
+          };
+          traverseAndUpdate(parsed);
+          if (changed) {
             msg.content = JSON.stringify(parsed);
           }
         } catch {}
       }
     };
+    const updateMsg = (msg) => {
+      if (updates.nickname) msg.nickname = updates.nickname;
+      if (updates.avatarUrl) msg.avatarUrl = updates.avatarUrl;
+      doUpdateMsgContent(msg);
+    };
+    const updateMsgContentOnly = (msg) => {
+      doUpdateMsgContent(msg);
+    };
 
     if (fullPublicMessages.value) {
       fullPublicMessages.value.forEach(msg => {
-        if (String(msg.userId) === String(userId)) {
+        if (String(msg.userId) === String(userId) || String(msg.sender_id) === String(userId) || String(msg.senderId) === String(userId)) {
           updateMsg(msg);
+        } else if (msg.messageType === 100 && updates.nickname) {
+          updateMsgContentOnly(msg);
         }
       });
     }
 
     Object.keys(fullGroupMessages.value).forEach(groupId => {
       fullGroupMessages.value[groupId].forEach(msg => {
-        if (String(msg.userId) === String(userId)) {
+        if (String(msg.userId) === String(userId) || String(msg.sender_id) === String(userId) || String(msg.senderId) === String(userId)) {
           updateMsg(msg);
+        } else if (msg.messageType === 100 && updates.nickname) {
+          updateMsgContentOnly(msg);
         }
       });
     });
@@ -1182,6 +1180,8 @@ export const useStorageStore = defineStore('storage', () => {
       fullPrivateMessages.value[otherUserId].forEach(msg => {
         if (String(msg.senderId) === String(userId) || String(msg.receiverId) === String(userId)) {
           updateMsg(msg);
+        } else if (msg.messageType === 100 && updates.nickname) {
+          updateMsgContentOnly(msg);
         }
       });
     });
@@ -1227,8 +1227,7 @@ export const useStorageStore = defineStore('storage', () => {
 
       switch (parsed.action) {
         case 'create': {
-          const otherIds = Object.keys(parsed).filter(k => k !== 'action' && k !== String(userId) && k !== 'groupName' && k !== 'content' && k !== 'otherNames');
-          const otherNamesStr = otherIds.map(id => parsed[id] || '用户').join('、');
+          const otherNamesStr = parsed.otherNames || '';
           return otherNamesStr
             ? `${displayName}创建了群组，同时加入群组的有：${otherNamesStr}`
             : `${displayName}创建了群组`;
@@ -1408,24 +1407,8 @@ export const useStorageStore = defineStore('storage', () => {
       const currentUser = baseStore.currentUser;
       if (!currentUser) return false;
 
-      // 调用后端接口删除服务器记录
-      const response = await fetch(`${SERVER_URL}/api/delete-deleted-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'user-id': String(currentUser.id),
-          'session-token': baseStore.currentSessionToken || ''
-        },
-        body: JSON.stringify({ type, id })
-      });
-
-      const data = await response.json();
-
-      // 如果服务器返回404（记录已不存在），继续处理本地删除
-      if (response.status === 404) {
-      } else if (data.status !== 'success' && data.success !== true) {
-        throw new Error(data.message || '服务器删除失败');
-      }
+      // 调用后端接口删除服务器记录（任何错误都忽略）
+      try { await deleteDeletedSession(type, id); } catch (e) { /* 忽略 */ }
       
       // 检查是否正在查看要删除的会话，如果是则先关闭
       if (type === 'group' && String(sessionStore.currentGroupId) === String(id)) {
@@ -1613,8 +1596,22 @@ export const useStorageStore = defineStore('storage', () => {
       if (msg.messageType === 100 && msg.content && typeof msg.content === 'string' && updates.nickname) {
         try {
           const parsed = JSON.parse(msg.content);
-          if (parsed && parsed.action && parsed[String(userId)] !== undefined) {
-            parsed[String(userId)] = updates.nickname;
+          let changed = false;
+          const traverseAndUpdate = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+            for (const key of Object.keys(obj)) {
+              if (key === String(userId) && typeof obj[key] === 'string') {
+                if (obj[key] !== updates.nickname) {
+                  obj[key] = updates.nickname;
+                  changed = true;
+                }
+              } else if (typeof obj[key] === 'object') {
+                traverseAndUpdate(obj[key]);
+              }
+            }
+          };
+          traverseAndUpdate(parsed);
+          if (changed) {
             msg.content = JSON.stringify(parsed);
           }
         } catch {}

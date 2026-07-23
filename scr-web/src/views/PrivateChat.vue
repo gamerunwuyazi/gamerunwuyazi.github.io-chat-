@@ -20,7 +20,7 @@
           </div>
         </div>
         <div class="private-actions">
-          <button id="privateUserInfoButton" title="查看用户资料" @click="handlePrivateUserInfoClick"><img src="/icon/User-Profile-256-2.ico" alt="查看用户资料" style="width: 15px; height: 15px;"></button>
+          <button id="privateUserInfoButton" title="查看用户资料" @click="handlePrivateUserInfoClick"><img :src="userInfoIconSrc" alt="查看用户资料" style="width: 15px; height: 15px;"></button>
         </div>
       </div>
 
@@ -89,19 +89,19 @@
         </div>
         <div v-if="showMoreFunctions" class="more-functions" id="privateMoreFunctions">
           <button id="privateImageUploadButton" title="上传图片" @click="handlePrivateImageUploadClick">
-            📷 <span class="button-text">发送图片</span>
+            <i class="fas fa-image"></i> <span class="button-text">发送图片</span>
           </button>
           <button id="privateFileUploadButton" title="上传文件" @click="handlePrivateFileUploadClick">
-          📤 <span class="button-text">发送文件</span>
+          <i class="fas fa-file-upload"></i> <span class="button-text">发送文件</span>
         </button>
         <button id="privateVideoUploadButton" title="上传视频" @click="handlePrivateVideoUploadClick">
-          🎬 <span class="button-text">发送视频</span>
+          <i class="fas fa-video"></i> <span class="button-text">发送视频</span>
         </button>
           <button id="privateSendGroupCardButton" title="发送群名片" @click="handleSendGroupCard">
-            📱 <span class="button-text">发送群名片</span>
+            <i class="fas fa-address-card"></i> <span class="button-text">发送群名片</span>
           </button>
           <button id="privateSearchMessageButton" title="查找消息" @click="openSearchModal">
-            🔍 <span class="button-text">查找消息</span>
+            <i class="fas fa-search"></i> <span class="button-text">查找消息</span>
           </button>
         </div>
         <input v-if="showImageInput" type="file" ref="privateImageInputRef" id="privateImageInput" style="display: none;" accept="image/*" @change="handlePrivateImageUpload" @cancel="handlePrivateImageCancel">
@@ -244,6 +244,22 @@ let previousPrivateMessageLength = 0;
 
 const currentUserId = computed(() => baseStore.currentUser?.id);
 
+const isDarkMode = ref(document.body.classList.contains('dark-mode'));
+const userInfoIconSrc = computed(() => {
+  return isDarkMode.value
+    ? '/icon/User-Profile-256.ico'
+    : '/icon/User-Profile-256-2.ico';
+});
+
+let darkModeObserver = null;
+
+if (typeof MutationObserver !== 'undefined') {
+  darkModeObserver = new MutationObserver(() => {
+    isDarkMode.value = document.body.classList.contains('dark-mode');
+  });
+  darkModeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+}
+
 const privateMessages = computed(() => {
   return friendStore.privateMessages[sessionStore.currentPrivateChatUserId] || [];
 });
@@ -307,7 +323,7 @@ const displayCurrentUserName = computed(() => {
       return currentFriend.remark.trim();
     }
   }
-  return currentUserName.value || '好友昵称';
+  return sessionStore.currentPrivateChatNickname || currentUserName.value || '好友昵称';
 });
 
 function applySavedPrivateState() {
@@ -385,11 +401,20 @@ function handlePrivateMessageInput() {
   }
 }
 
+function isMobileDevice() {
+  return window.innerWidth <= 768;
+}
+
 function handlePrivateMessageInputKeydown(e) {
+  const isMobile = isMobileDevice();
+  
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+    if (isMobile) {
+      return;
+    }
     e.preventDefault();
     handleSendPrivateMessage();
-  } else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
+  } else if (e.key === 'Enter' && (e.ctrlKey || (isMobile && !e.shiftKey))) {
     e.preventDefault();
     insertPrivateNewLine();
   } else if (e.key === 'm' && e.ctrlKey) {
@@ -665,17 +690,19 @@ async function executeSearch(keyword) {
     if (matchedMessages.length > 0) {
       searchResults.value = [...matchedMessages].reverse();
 
-      // 为搜索结果补充头像信息
+      // 为搜索结果补充头像信息（同时设置 avatarUrl 和 avatar_url）
       const currentUserId_ = baseStore.currentUser?.id;
       const friendId_ = sessionStore.currentPrivateChatUserId;
       const myAvatar = baseStore.currentUser?.avatarUrl || baseStore.currentUser?.avatar_url || '';
-      const friendAvatar = sessionStore.currentPrivateChatAvatarUrl || '';
+      let friendAvatar = sessionStore.currentPrivateChatAvatarUrl || '';
       searchResults.value.forEach(msg => {
         const msgUserId = String(msg.userId || msg.senderId || '');
         if (msgUserId === String(currentUserId_)) {
-          msg.avatarUrl = msg.avatarUrl || myAvatar;
+          msg.avatarUrl = myAvatar;
+          msg.avatar_url = myAvatar;
         } else {
-          msg.avatarUrl = msg.avatarUrl || friendAvatar;
+          msg.avatarUrl = friendAvatar;
+          msg.avatar_url = friendAvatar;
         }
       });
       
@@ -738,14 +765,8 @@ function formatTime(timestamp) {
 
 function scrollToMessage(message) {
   closeSearchModal();
-  const friendId = sessionStore.currentPrivateChatUserId;
-  const messages = friendStore.privateMessages[friendId] || [];
-  const messageIndex = messages.findIndex(m => m.id === message.id);
-  if (messageIndex !== -1 && privateMessageContainerRef.value) {
-    const messageElements = privateMessageContainerRef.value.querySelectorAll('.message');
-    const targetElement = messageElements[messageIndex];
-    if (targetElement) scrollAndHighlight(targetElement);
-  }
+  const targetElement = privateMessageContainerRef.value?.querySelector(`[data-id="${message.id}"]`);
+  if (targetElement) scrollAndHighlight(targetElement);
 }
 
 function isUserOnline(userId) {

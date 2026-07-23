@@ -5,16 +5,7 @@ import path from 'path';
 const avatarDir = path.join(process.cwd(), 'public', 'avatars');
 
 export function getClientIP(req) {
-  if (req.headers['x-forwarded-for']) {
-    const forwardedFor = req.headers['x-forwarded-for'].trim();
-    const ips = forwardedFor.split(',');
-    const clientIP = ips[0].trim();
-    return clientIP;
-  }
-  
-  return req.connection.remoteAddress ||
-      req.socket.remoteAddress ||
-      (req.connection.socket ? req.connection.socket.remoteAddress : null);
+  return req.ip;
 }
 
 export function generateSessionToken() {

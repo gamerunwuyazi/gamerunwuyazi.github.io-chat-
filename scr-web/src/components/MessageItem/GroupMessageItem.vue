@@ -122,6 +122,7 @@ import QuotedMessage from './QuotedMessage.vue';
 import { useBaseStore } from '@/stores/baseStore';
 import { useUserStore } from '@/stores/userStore';
 import { useGroupStore } from '@/stores/groupStore';
+import { useFriendStore } from '@/stores/friendStore';
 import { useModalStore } from '@/stores/modalStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useInputStore } from '@/stores/inputStore';
@@ -146,6 +147,7 @@ const props = defineProps({
 const baseStore = useBaseStore();
 const userStore = useUserStore();
 const groupStore = useGroupStore();
+const friendStore = useFriendStore();
 const modalStore = useModalStore();
 const sessionStore = useSessionStore();
 const inputStore = useInputStore();
@@ -203,7 +205,13 @@ const senderNickname = computed(() => {
     return props.message.groupNickname;
   }
 
-  // 3. 中等优先级：使用 userStore 中的全局昵称（实时更新）
+  // 3. 如果是好友，优先显示备注
+  const friend = friendStore.friendsList?.find(f => String(f.id) === String(messageUserId));
+  if (friend && friend.remark?.trim()) {
+    return friend.remark.trim();
+  }
+
+  // 4. 中等优先级：使用 userStore 中的全局昵称（实时更新）
   const onlineUsers = userStore.onlineUsers;
   if (onlineUsers && onlineUsers.length > 0) {
     const onlineUser = onlineUsers.find(u => String(u.id) === String(messageUserId));
@@ -212,7 +220,8 @@ const senderNickname = computed(() => {
     }
   }
 
-  // 4. 兜底：使用消息中存储的原始昵称
+  // 5. 兜底：使用消息中存储的原始昵称或好友昵称
+  if (friend) return friend.nickname || messageUser.value.nickname;
   return messageUser.value.nickname || '未知用户';
 });
 const senderInitials = computed(() => senderNickname.value ? senderNickname.value.charAt(0).toUpperCase() : 'U');
@@ -379,16 +388,13 @@ const messageData = computed(() => {
 
             switch (parsed.action) {
               case 'create': {
-                const otherIds = Object.keys(parsed).filter(k => k !== 'action' && k !== String(userId) && k !== 'groupName' && k !== 'content' && k !== 'otherNames');
-                const otherNamesStr = otherIds.map(id => {
-                  if (members && members.length > 0) {
-                    const m = members.find(m => String(m.id) === String(id));
-                    if (m) return m.group_nickname || m.nickname || parsed[id];
-                  }
-                  return parsed[id] || '用户';
-                }).join('、');
-                sysContent = otherNamesStr
-                  ? `${displayName}创建了群组，同时加入群组的有：${otherNamesStr}`
+                let otherCreateNamesStr = '';
+                if (parsed.otherNames && typeof parsed.otherNames === 'object' && !Array.isArray(parsed.otherNames)) {
+                  const names = Object.values(parsed.otherNames);
+                  otherCreateNamesStr = names.join('、');
+                }
+                sysContent = otherCreateNamesStr
+                  ? `${displayName}创建了群组，同时加入群组的有：${otherCreateNamesStr}`
                   : `${displayName}创建了群组`;
                 break;
               }
@@ -857,9 +863,8 @@ function handleContextMenu(event) {
     let quotedMsgData = {};
     if (messageType === 4) {
       const parsedContent = JSON.parse(props.message.content);
-      // 从引用消息JSON中剥离出被引用的原始消息内容
-      const quotedInner = parsedContent.quoted || parsedContent.quotedMessage || parsedContent.quoted_message;
-      const innerContent = quotedInner?.content || quotedInner?.text || parsedContent.text || parsedContent.content || '';
+      // 直接读取引用消息JSON的content
+      const innerContent = parsedContent.text || parsedContent.content || '';
       quotedMsgData = {
         id: messageId,
         userId: userId,
@@ -885,24 +890,71 @@ function handleContextMenu(event) {
   
   contextMenu.appendChild(quoteMenuItem);
   
-  const copyMenuItem = document.createElement('div');
-  copyMenuItem.className = 'context-menu-item';
-  copyMenuItem.textContent = '复制';
-  copyMenuItem.style.padding = '8px 15px';
-  copyMenuItem.style.cursor = 'pointer';
-  copyMenuItem.style.fontSize = '14px';
-  copyMenuItem.style.whiteSpace = 'nowrap';
-  copyMenuItem.addEventListener('mouseenter', () => copyMenuItem.style.backgroundColor = '#f0f0f0');
-  copyMenuItem.addEventListener('mouseleave', () => copyMenuItem.style.backgroundColor = 'transparent');
-  copyMenuItem.addEventListener('click', () => {
-    const textContent = (messageType === 4)
-      ? (() => { try { return JSON.parse(props.message.content).text || ''; } catch { return props.message.content || ''; } })()
-      : (props.message.content || '');
-    navigator.clipboard.writeText(textContent).catch(() => {});
-    toast.info('已复制到剪贴板', 1500);
-    hideContextMenu();
-  });
-  contextMenu.appendChild(copyMenuItem);
+  const showCopyMenuItem = [0, 1, 2, 5].includes(messageType);
+  if (showCopyMenuItem) {
+    const copyMenuItem = document.createElement('div');
+    copyMenuItem.className = 'context-menu-item';
+    copyMenuItem.textContent = '复制';
+    copyMenuItem.style.padding = '8px 15px';
+    copyMenuItem.style.cursor = 'pointer';
+    copyMenuItem.style.fontSize = '14px';
+    copyMenuItem.style.whiteSpace = 'nowrap';
+    copyMenuItem.addEventListener('mouseenter', () => copyMenuItem.style.backgroundColor = '#f0f0f0');
+    copyMenuItem.addEventListener('mouseleave', () => copyMenuItem.style.backgroundColor = 'transparent');
+    copyMenuItem.addEventListener('click', async () => {
+      let label = '已复制到剪贴板';
+      
+      if (messageType === 0) {
+        const text = props.message.content || '';
+        navigator.clipboard.writeText(text).catch(() => {});
+      } else if (messageType === 1) {
+        try {
+          const imgData = JSON.parse(props.message.content);
+          const imgUrl = imgData.url || '';
+          if (imgUrl) {
+            try {
+              const fullImgUrl = imgUrl.startsWith('http') ? imgUrl : `${baseStore.SERVER_URL}${imgUrl}`;
+              const response = await fetch(fullImgUrl);
+              const blob = await response.blob();
+              await navigator.clipboard.write([
+                new ClipboardItem({ [blob.type]: blob })
+              ]);
+              label = '已复制图片';
+            } catch {
+              navigator.clipboard.writeText(imgUrl).catch(() => {});
+              label = '已复制图片链接';
+            }
+          }
+        } catch { /* ignore */ }
+      } else if (messageType === 2) {
+        try {
+          const fileData = JSON.parse(props.message.content);
+          const fileUrl = fileData.url || '';
+          if (fileUrl) {
+            try {
+              const fullFileUrl = fileUrl.startsWith('http') ? fileUrl : `${baseStore.SERVER_URL}${fileUrl}`;
+              const response = await fetch(fullFileUrl);
+              const blob = await response.blob();
+              await navigator.clipboard.write([
+                new ClipboardItem({ [blob.type]: blob })
+              ]);
+              label = '已复制文件';
+            } catch {
+              navigator.clipboard.writeText(fileUrl).catch(() => {});
+              label = '已复制文件链接';
+            }
+          }
+        } catch { /* ignore */ }
+      } else if (messageType === 5) {
+        const text = props.message.content || '';
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+      
+      toast.info(label, 1500);
+      hideContextMenu();
+    });
+    contextMenu.appendChild(copyMenuItem);
+  }
   
   const isOwnMessage = messageUser.value && String(messageUser.value.id) === String(currentUserId);
   

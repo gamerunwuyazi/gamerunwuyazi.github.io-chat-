@@ -15,11 +15,13 @@ import { ref, onMounted, watch } from 'vue'
 
 import { useBaseStore } from '@/stores/baseStore'
 import { useUnreadStore } from '@/stores/unreadStore'
+import { useGroupStore } from '@/stores/groupStore'
 import { initializeChat } from "@/utils/chat"
 
 const userLoggedIn = ref(false)
 const baseStore = useBaseStore()
 const unreadStore = useUnreadStore()
+const groupStore = useGroupStore()
 const originalTitle = ref(document.title)
 
 function checkLoginStatus() {
@@ -41,25 +43,30 @@ onMounted(() => {
 })
 
 watch(
-  () => unreadStore.unreadMessages,
-  (unreadMessages) => {
+  [
+    () => unreadStore.unreadMessages,
+    () => groupStore.groupsWithAtMe,
+    () => unreadStore.hasPublicAtMe
+  ],
+  () => {
+    const unreadMessages = unreadStore.unreadMessages
     if (!unreadMessages) return
-    
+
     let totalUnread = unreadMessages.global || 0
-    
+
     if (unreadMessages.groups) {
       for (const groupId in unreadMessages.groups) {
         totalUnread += unreadMessages.groups[groupId] || 0
       }
     }
-    
+
     let mutedPrivateChats = []
     try {
       mutedPrivateChats = JSON.parse(localStorage.getItem('mutedPrivateChats') || '[]')
     } catch {
       mutedPrivateChats = []
     }
-    
+
     if (unreadMessages.private) {
       for (const userId in unreadMessages.private) {
         if (!mutedPrivateChats.includes(userId)) {
@@ -67,9 +74,19 @@ watch(
         }
       }
     }
-    
+
+    // 检查是否有@我的消息（群组或主聊天室）
+    const groupsWithAtMe = groupStore.groupsWithAtMe || {}
+    const hasAnyGroupAtMe = Object.values(groupsWithAtMe).some(v => v === true)
+    const hasPublicAtMe = unreadStore.hasPublicAtMe || false
+    const hasAnyAtMe = hasAnyGroupAtMe || hasPublicAtMe
+
     if (totalUnread > 0) {
-      document.title = `（${totalUnread}条未读）${originalTitle.value}`
+      if (hasAnyAtMe) {
+        document.title = `（@我的消息）${originalTitle.value}`
+      } else {
+        document.title = `（${totalUnread}条未读）${originalTitle.value}`
+      }
     } else {
       document.title = originalTitle.value
     }

@@ -17,6 +17,8 @@ import {
 } from '@/stores/index.js';
 import { unescapeHtml } from './message.js';
 import { navigateTo } from './routerInstance.js';
+import { getFriendsList, addFriend as apiAddFriend, removeFriend, getUserInfo } from '@/api/friend.js';
+import { searchUsers as apiSearchUsers } from '@/api/user.js';
 
 let friendsList = [];
 
@@ -138,16 +140,9 @@ async function loadFriendsList() {
   if (!currentUser || !currentSessionToken) return;
 
   try {
-    const response = await fetch(`${SERVER_URL}/api/user/friends`, {
-      headers: {
-        'user-id': currentUser.id,
-        'session-token': currentSessionToken
-      }
-    });
-    const data = await response.json();
-    if (data.status === 'success') {
-      await updateFriendsList(data.friends);
-    }
+    const res = await getFriendsList();
+    const data = res.data;
+    await updateFriendsList(data.friends);
   } catch (e) {
     console.error('加载好友列表失败:', e);
   }
@@ -259,15 +254,9 @@ async function updateFriendsList(friends) {
             
             if (!updatedSessionData.nickname) {
               try {
-                const response = await fetch(`${SERVER_URL}/api/user/${friendId}`, {
-                  method: 'GET',
-                  headers: {
-                    'user-id': userId,
-                    'session-token': localStorage.getItem('currentSessionToken')
-                  }
-                });
-                if (response.ok) {
-                  const responseData = await response.json();
+                const res = await getUserInfo(friendId);
+                if (res.status === 200) {
+                  const responseData = res.data;
                   if (responseData.status === 'success' && responseData.user) {
                     if (!updatedSessionData.nickname && responseData.user.nickname) {
                       updatedSessionData.nickname = responseData.user.nickname;
@@ -295,6 +284,10 @@ async function updateFriendsList(friends) {
     }
 
     const allFriends = [];
+    // 构建服务端好友映射，用于合并 is_disturb 等字段
+    const serverFriendMap = new Map();
+    friends.forEach(f => serverFriendMap.set(String(f.id), f));
+
     for (const friendId of localFriendIdsFromKeys) {
       try {
         const key = `${prefix}-private-${friendId}`;
@@ -304,14 +297,9 @@ async function updateFriendsList(friends) {
           
           if (!data.nickname) {
             try {
-              const response = await fetch(`/api/user/${friendId}`, {
-                method: 'GET',
-                headers: {
-                  'session-token': localStorage.getItem('currentSessionToken')
-                }
-              });
-              if (response.ok) {
-                const responseData = await response.json();
+              const res = await getUserInfo(friendId);
+              if (res.status === 200) {
+                const responseData = res.data;
                 if (responseData.status === 'success' && responseData.user) {
                   if (!data.nickname && responseData.user.nickname) {
                     friendNickname = responseData.user.nickname;
@@ -332,14 +320,16 @@ async function updateFriendsList(friends) {
               console.error('获取用户信息失败:', e);
             }
           }
-          
+
+          const serverFriend = serverFriendMap.get(friendId);
           const friend = {
             id: friendId,
             nickname: friendNickname,
             username: data.username || 'user',
-            avatarUrl: data.avatarUrl,
-            deleted_at: data.deleted_at,
-            remark: data.remark || null
+            avatarUrl: data.avatarUrl ?? null,
+            deleted_at: data.deleted_at ?? null,
+            remark: data.remark || null,
+            is_disturb: serverFriend ? serverFriend.is_disturb : null
           };
           
           if (data.last_message_time) {
@@ -375,33 +365,20 @@ async function updateFriendsList(friends) {
   }
 }
 
-export function addFriend(userId) {
+export function addFriend(userId, message = '') {
   const baseStore = useBaseStore();
   const currentUser = baseStore.currentUser;
   const currentSessionToken = baseStore.currentSessionToken;
 
   if (!currentUser || !currentSessionToken) return;
 
-  fetch(`${SERVER_URL}/api/user/add-friend`, {
-    method: 'POST',
-    headers: {
-      'user-id': currentUser.id,
-      'session-token': currentSessionToken,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ friendId: userId })
+  apiAddFriend(userId, message).then(res => {
+    const data = res.data;
+    loadFriendsList();
+    toast.success(data.message);
   })
-  .then(response => response.json())
-  .then(data => {
-    if (data.status === 'success') {
-      loadFriendsList();
-      toast.success(data.message);
-    } else {
-      toast.error(data.message || '操作失败');
-    }
-  })
-  .catch(() => {
-    toast.error('网络错误');
+  .catch(err => {
+    toast.error(err.response?.data?.message || err.message || '操作失败');
   });
 }
 
@@ -416,41 +393,28 @@ async function deleteFriend(userId) {
 
   const confirmed = await modal.confirm('确定要删除这个好友吗？', '删除好友');
   if (confirmed) {
-    fetch(`${SERVER_URL}/api/user/remove-friend`, {
-      method: 'POST',
-      headers: {
-        'user-id': currentUser.id,
-        'session-token': currentSessionToken,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ friendId: userId })
-    })
-      .then(response => response.json())
-      .then(data => {
-        if (data.status === 'success') {
-          if (friendStore && friendStore.markFriendAsDeleted) {
-            friendStore.markFriendAsDeleted(userId, true);
-          }
-          
-          loadFriendsList();
-
-          const currentPrivateChatUserId = sessionStore.currentPrivateChatUserId;
-          if (currentPrivateChatUserId === userId) {
-            const privateChatInterface = document.getElementById('privateChatInterface');
-            const privateEmptyState = document.getElementById('privateEmptyState');
-            if (privateChatInterface && privateEmptyState) {
-              privateChatInterface.style.display = 'none';
-              privateEmptyState.style.display = 'flex';
-            }
-          }
-
-          toast.success('删除好友成功');
-        } else {
-          toast.error('删除好友失败: ' + data.message);
+    removeFriend(userId).then(res => {
+      const data = res.data;
+        if (friendStore && friendStore.markFriendAsDeleted) {
+          friendStore.markFriendAsDeleted(userId, true);
         }
+        
+        loadFriendsList();
+
+        const currentPrivateChatUserId = sessionStore.currentPrivateChatUserId;
+        if (currentPrivateChatUserId === userId) {
+          const privateChatInterface = document.getElementById('privateChatInterface');
+          const privateEmptyState = document.getElementById('privateEmptyState');
+          if (privateChatInterface && privateEmptyState) {
+            privateChatInterface.style.display = 'none';
+            privateEmptyState.style.display = 'flex';
+          }
+        }
+
+        toast.success('删除好友成功');
       })
-      .catch(() => {
-        toast.error('删除好友失败: 网络错误');
+      .catch(err => {
+        toast.error('删除好友失败: ' + (err.response?.data?.message || err.message || '网络错误'));
       });
   }
 }
@@ -472,16 +436,10 @@ function showUserProfile(user) {
   const currentUserInfo = baseStore.currentUser;
   const sessionToken = baseStore.currentSessionToken;
 
-  fetch(`${SERVER_URL}/api/user/${user.id}`, {
-    headers: {
-      'user-id': currentUserInfo?.id || '',
-      'session-token': sessionToken || ''
-    }
-  })
-    .then(response => response.json())
-    .then(data => {
+  getUserInfo(user.id).then(res => {
+    const data = res.data;
       let fullUser = user;
-      if (data.status === 'success' && data.user) {
+      if (data.user) {
         fullUser = {
           id: data.user.id,
           username: data.user.username,
@@ -519,27 +477,14 @@ function searchUsers(keyword) {
   
   if (!currentUser || !currentSessionToken) return;
 
-  fetch(`${SERVER_URL}/api/user/search?keyword=${encodeURIComponent(keyword)}`, {
-    headers: {
-      'user-id': currentUser.id,
-      'session-token': currentSessionToken
-    }
-  })
-    .then(response => response.json())
-    .then(data => {
-      if (data.status === 'success') {
-        displaySearchResults(data.users);
-      } else {
-        const searchResults = document.getElementById('searchResults');
-        if (searchResults) {
-          searchResults.innerHTML = '<div class="search-result-item">搜索失败: ' + data.message + '</div>';
-        }
-      }
+  apiSearchUsers(keyword).then(res => {
+    const data = res.data;
+      displaySearchResults(data.users);
     })
-    .catch(() => {
+    .catch(err => {
       const searchResults = document.getElementById('searchResults');
       if (searchResults) {
-        searchResults.innerHTML = '<div class="search-result-item">搜索失败: 网络错误</div>';
+        searchResults.innerHTML = '<div class="search-result-item">搜索失败: ' + (err.response?.data?.message || err.message || '未知错误') + '</div>';
       }
     });
 }
@@ -547,6 +492,9 @@ function searchUsers(keyword) {
 function displaySearchResults(users) {
   const searchResults = document.getElementById('searchResults');
   if (!searchResults) return;
+
+  const baseStore = useBaseStore();
+  const currentUser = baseStore.currentUser;
 
   searchResults.innerHTML = '';
 
@@ -604,7 +552,11 @@ function displaySearchResults(users) {
 
     const addFriendBtn = resultItem.querySelector('.add-friend-btn');
     addFriendBtn.addEventListener('click', () => {
-      addFriend(user.id);
+      const defaultMsg = `我是${currentUser?.nickname || '用户'}`;
+      const message = prompt('给对方留言：', defaultMsg);
+      if (message !== null) {
+        addFriend(user.id, message);
+      }
     });
 
     const resultAvatar = resultItem.querySelector('.user-avatar');
@@ -629,8 +581,13 @@ function getMutedPrivateChats() {
 }
 
 function isPrivateMuted(userId) {
-    const mutedPrivateChats = getMutedPrivateChats();
-    return mutedPrivateChats.includes(userId.toString());
+    try {
+      const friendStore = useFriendStore();
+      const friend = friendStore.friendsList.find(f => String(f.id) === String(userId));
+      return friend ? friend.is_disturb == 1 : false;
+    } catch {
+      return false;
+    }
 }
 
 function togglePrivateMute(userId) {

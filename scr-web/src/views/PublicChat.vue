@@ -91,19 +91,19 @@
       </div>
       <div v-if="showMoreFunctions" class="more-functions" id="mainMoreFunctions">
         <button id="imageUploadButton" title="上传图片" @click="handleImageUploadClick">
-          📷 <span class="button-text">发送图片</span>
+          <i class="fas fa-image"></i> <span class="button-text">发送图片</span>
         </button>
         <button id="fileUploadButton" title="上传文件" @click="handleFileUploadClick">
-          📤 <span class="button-text">发送文件</span>
+          <i class="fas fa-file-upload"></i> <span class="button-text">发送文件</span>
         </button>
         <button id="videoUploadButton" title="上传视频" @click="handleVideoUploadClick">
-          🎬 <span class="button-text">发送视频</span>
+          <i class="fas fa-video"></i> <span class="button-text">发送视频</span>
         </button>
         <button id="sendGroupCardButton" title="发送群名片" @click="handleSendGroupCard">
-          📱 <span class="button-text">发送群名片</span>
+          <i class="fas fa-address-card"></i> <span class="button-text">发送群名片</span>
         </button>
         <button id="searchMessageButton" title="查找消息" @click="openSearchModal">
-          🔍 <span class="button-text">查找消息</span>
+          <i class="fas fa-search"></i> <span class="button-text">查找消息</span>
         </button>
       </div>
       <input v-if="showImageInput" type="file" ref="imageInputRef" id="imageInput" style="display: none;" accept="image/*" @change="handleImageUpload" @cancel="handleImageCancel">
@@ -249,6 +249,7 @@ import { useInputStore } from "@/stores/inputStore";
 import { useDraftStore } from "@/stores/draftStore";
 import { useGroupStore } from "@/stores/groupStore";
 import { useFriendStore } from "@/stores/friendStore";
+import { useUnreadStore } from "@/stores/unreadStore";
 import { 
   uploadImage,
   uploadFile,
@@ -256,7 +257,9 @@ import {
   initializeScrollLoading,
   sendMessage,
   showSendGroupCardModal,
-  resetLoadingState
+  resetLoadingState,
+  sendClearGlobalUnread,
+  updateUnreadCountsDisplay
 } from "@/utils/chat";
 import { clearContentEditable } from "@/utils/chat/message.js";
 import { useMessageHighlight } from "@/composables/useMessageHighlight";
@@ -280,6 +283,7 @@ function navigateToPrevSearchResult() {
 }
 const groupStore = useGroupStore();
 const friendStore = useFriendStore();
+const unreadStore = useUnreadStore();
 const route = useRoute();
 
 let prevPublicScrollHeight = undefined;
@@ -409,6 +413,11 @@ watch(
           scrollingInitialized.public = true;
         }
       }, 600);
+
+      // 切换到主聊天室时绑定一次性点击事件清除未读
+      setTimeout(() => {
+        bindOneTimePublicUnreadClear();
+      }, 100);
     }
   }
 );
@@ -487,7 +496,30 @@ onMounted(() => {
   document.addEventListener('contextmenu', function(e) {
     hideAtPickerOnClick(e);
   });
+
+  // 初始化时绑定一次性点击事件清除主聊天室未读
+  setTimeout(() => {
+    bindOneTimePublicUnreadClear();
+  }, 300);
 });
+
+function bindOneTimePublicUnreadClear() {
+  const isMainChat = route.path === '/chat' || route.path === '/chat/';
+  if (!isMainChat) return;
+
+  const publicChatEl = document.querySelector('.chat-content[data-content="public-chat"]');
+  if (!publicChatEl) return;
+
+  function onFirstClick() {
+    if (unreadStore) {
+      unreadStore.clearGlobalUnread();
+      sendClearGlobalUnread();
+      updateUnreadCountsDisplay();
+    }
+    publicChatEl.removeEventListener('click', onFirstClick);
+  }
+  publicChatEl.addEventListener('click', onFirstClick, { once: true });
+}
 
 const showMarkdownToolbar = ref(false);
 const showMoreFunctions = ref(false);
@@ -645,6 +677,10 @@ function handleCompositionEnd() {
   handleMessageInput();
 }
 
+function isMobileDevice() {
+  return window.innerWidth <= 768;
+}
+
 function handleMessageInputKeydown(e) {
   if (showAtPicker.value) {
     if (e.key === 'ArrowDown') {
@@ -678,10 +714,15 @@ function handleMessageInputKeydown(e) {
     }, 0);
   }
   
+  const isMobile = isMobileDevice();
+  
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+    if (isMobile) {
+      return;
+    }
     e.preventDefault();
     handleSendMessage();
-  } else if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey) {
+  } else if (e.key === 'Enter' && (e.ctrlKey || (isMobile && !e.shiftKey))) {
     e.preventDefault();
     insertNewLine();
   } else if (e.key === 'm' && e.ctrlKey) {

@@ -4,15 +4,18 @@ import { ref, computed, onUnmounted } from 'vue';
 
 import { useBaseStore } from '@/stores/baseStore';
 import { useGroupStore } from '@/stores/groupStore';
+import { useFriendStore } from '@/stores/friendStore';
 import { useUnreadStore } from '@/stores/unreadStore';
 import { useDraftStore } from '@/stores/draftStore';
 import { useModalStore } from '@/stores/modalStore';
 import { useStorageStore } from '@/stores/storageStore';
 import { openGroupCardPopup } from '@/stores/index.js';
 import { switchToGroupChat } from '@/utils/chat/group';
+import { setGroupDisturb } from '@/api/group.js';
 
 const baseStore = useBaseStore();
 const groupStore = useGroupStore();
+const friendStore = useFriendStore();
 const unreadStore = useUnreadStore();
 const draftStore = useDraftStore();
 const modalStore = useModalStore();
@@ -90,43 +93,31 @@ function getGroupLastMessage(group) {
     }
   }
   
-  const lastMessage = group.lastMessage || storageStore.getGroupLastMessage(group.id);
-  if (!lastMessage) return '';
+  if (!group.lastMessage) return '';
 
-  let content = storageStore.formatMessageContent(lastMessage);
+  const { content, messageType, groupNickname } = group.lastMessage;
 
-  const recallNickname = tryGetRecallNickname(lastMessage.content);
-  if (lastMessage.messageType === 101 || lastMessage.isRecalled || recallNickname) {
-    if (recallNickname) {
-      return `${recallNickname}撤回了一条消息`;
-    }
-    return '撤回了一条消息';
+  // 100/102 系统消息直接显示格式化后的内容
+  if (messageType === 100 || messageType === 102) {
+    return storageStore.formatMessageContent({ content, messageType });
   }
 
-  if (lastMessage.messageType === 100 || lastMessage.messageType === 102) {
-    return content;
+  // 101 撤回消息
+  if (messageType === 101) {
+    const recallNickname = tryGetRecallNickname(content);
+    return recallNickname ? `${recallNickname}撤回了一条消息` : '撤回了一条消息';
   }
 
-  let senderName = lastMessage.nickname || '群成员';
-  
-  if (lastMessage.groupNickname) {
-    senderName = lastMessage.groupNickname;
+  // 普通消息
+  const formatted = storageStore.formatMessageContent({ content, messageType });
+  if (groupNickname) {
+    return `${groupNickname}: ${formatted}`;
   }
-
-  return `${senderName}: ${content}`;
+  return formatted;
 }
 
 function hasDraft(group) {
   return draftStore.drafts && draftStore.drafts.groups && draftStore.drafts.groups[group.id];
-}
-
-// 获取免打扰群组列表
-function getMutedGroups() {
-  try {
-    return JSON.parse(localStorage.getItem('mutedGroups') || '[]');
-  } catch {
-    return [];
-  }
 }
 
 // 工具函数：获取群组显示名称（优先备注，其次群组名）
@@ -137,24 +128,30 @@ function getGroupDisplayName(group) {
   return group.name || '未知群组';
 }
 
-// 检查群组是否被免打扰
+// 检查群组是否被免打扰（使用store中的is_disturb）
 function isGroupMuted(groupId) {
-  const mutedGroups = getMutedGroups();
-  return mutedGroups.includes(String(groupId));
+  const group = groupStore.groupsList.find(g => String(g.id) === String(groupId));
+  return group ? group.is_disturb == 1 : false;
 }
 
-function toggleGroupMute(groupId) {
-  const mutedGroups = getMutedGroups();
-  const index = mutedGroups.indexOf(String(groupId));
-  
-  if (index === -1) {
-    mutedGroups.push(String(groupId));
-    unreadStore.clearGroupUnread(groupId);
-  } else {
-    mutedGroups.splice(index, 1);
+async function toggleGroupMute(groupId) {
+  const group = groupStore.groupsList.find(g => String(g.id) === String(groupId));
+  if (!group) return;
+
+  const newIsDisturb = !(group.is_disturb == 1);
+
+  try {
+    const res = await setGroupDisturb(groupId, newIsDisturb);
+    const data = res.data;
+    group.is_disturb = data.is_disturb;
+    if (newIsDisturb) {
+      unreadStore.clearGroupUnread(groupId);
+    }
+  } catch (err) {
+    console.error('设置群组免打扰请求失败:', err);
+    const errorMessage = err.response?.data?.message || err.message || '设置群组免打扰失败';
+    console.error('设置群组免打扰失败:', errorMessage);
   }
-  
-  localStorage.setItem('mutedGroups', JSON.stringify(mutedGroups));
   
   hideContextMenu();
 }
@@ -188,10 +185,10 @@ function clearGroupSearch() {
 }
 
 // 处理群组点击
-function handleGroupClick(group) {
+async function handleGroupClick(group) {
   hideContextMenu();
   const originalGroupName = getGroupDisplayName(group);
-  switchToGroupChat(group.id, originalGroupName, group.avatar_url || group.avatarUrl || '');
+  await switchToGroupChat(group.id, originalGroupName, group.avatar_url || group.avatarUrl || '');
 }
 
 // 处理群组右键点击
@@ -277,20 +274,20 @@ function handleGroupAvatarError(event, group) {
                     @contextmenu.prevent="handleGroupRightClick($event, group)">
                     <span v-if="getGroupAvatarUrl(group) && !isSvgAvatar(getGroupAvatarUrl(group))" class="group-avatar">
                         <img :src="`${baseStore.SERVER_URL}${getGroupAvatarUrl(group)}`" :alt="getGroupDisplayName(group)" @error="handleGroupAvatarError($event, group)">
-                        <span v-if="group.deleted_at" class="deleted-icon">🗑️</span>
+                        <span v-if="group.deleted_at" class="deleted-icon"><i class="fas fa-trash-alt"></i></span>
                     </span>
                     <span v-else class="group-avatar">
                         {{ getGroupDisplayName(group).charAt(0).toUpperCase() }}
-                        <span v-if="group.deleted_at" class="deleted-icon">🗑️</span>
+                        <span v-if="group.deleted_at" class="deleted-icon"><i class="fas fa-trash-alt"></i></span>
                     </span>
                     <div class="group-info">
-                        <span class="group-name" :style="{ color: group.deleted_at ? '#000' : '' }">{{ getGroupDisplayName(group) }} <span v-if="group.deleted_at" style="font-size: 12px;">(已删除)</span></span>
+                        <span class="group-name" :style="group.deleted_at ? { color: '#000' } : {}">{{ getGroupDisplayName(group) }} <span v-if="group.deleted_at" style="font-size: 12px;">(已删除)</span></span>
                         <span v-if="groupStore.hasGroupAtMe && groupStore.hasGroupAtMe(group.id) && !group.deleted_at" class="group-last-message at-me-text">[有人@我]</span>
                         <span v-else-if="hasDraft(group) && !group.deleted_at" class="group-last-message draft-text">{{ getGroupLastMessage(group) }}</span>
                         <span v-else-if="group.deleted_at" class="group-last-message" style="color: #000;">该会话已被删除</span>
                         <span v-else class="group-last-message">{{ getGroupLastMessage(group) }}</span>
                     </div>
-                    <span v-if="isGroupMuted(group.id) && !group.deleted_at" class="mute-icon" style="margin-left: 5px; font-size: 12px;" title="已免打扰">🔕</span>
+                    <span v-if="isGroupMuted(group.id) && !group.deleted_at" class="mute-icon" style="margin-left: 5px; font-size: 12px;" title="已免打扰"><i class="fas fa-bell-slash"></i></span>
                     <div class="unread-count group-unread-count" v-if="unreadStore.unreadMessages.groups && unreadStore.unreadMessages.groups[group.id] && !isGroupMuted(group.id)">
                         {{ unreadStore.unreadMessages.groups[group.id] }}
                     </div>
@@ -325,13 +322,13 @@ function handleGroupAvatarError(event, group) {
 }
 
 .deleted-item {
-    opacity: 0.7;
-    background-color: #f5f5f5 !important;
-    border-left: 3px solid #e74c3c;
+    opacity: 0.6;
+    background-color: #fef2f2 !important;
+    border-left: 3px solid #ef4444;
 }
 
 .deleted-item:hover {
-    background-color: #ececec !important;
+    background-color: #fee2e2 !important;
 }
 
 .deleted-item .group-avatar {
@@ -343,15 +340,16 @@ function handleGroupAvatarError(event, group) {
     position: absolute;
     bottom: -2px;
     right: -2px;
-    background: #fff;
+    background: #ffffff;
     border-radius: 50%;
-    font-size: 12px;
+    font-size: 10px;
     width: 18px;
     height: 18px;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    color: #ef4444;
 }
 
 .context-menu-item {
@@ -393,11 +391,12 @@ function handleGroupAvatarError(event, group) {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: #1e293b;
 }
 
 .group-last-message {
     font-size: 12px;
-    color: #999;
+    color: #94a3b8;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

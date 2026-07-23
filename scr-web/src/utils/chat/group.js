@@ -4,6 +4,20 @@ import modal from '../modal.js';
 
 import { SERVER_URL, toast } from './config.js';
 import {
+  getGroupList,
+  leaveGroup,
+  dissolveGroup as apiDissolveGroup,
+  getGroupMembers,
+  removeGroupMember,
+  addGroupMembers,
+  updateGroupName as apiUpdateGroupName,
+  updateGroupDescription,
+  uploadGroupAvatar as apiUploadGroupAvatar,
+  joinGroupWithToken as apiJoinGroupWithToken,
+  getGroupInfo,
+  generateGroupToken
+} from '@/api/group.js';
+import {
   encryptMessageForRecipients,
   fetchGroupChatPublicKeys,
   fetchPrivateChatPublicKeys,
@@ -62,16 +76,9 @@ async function loadGroupList() {
     if (!currentUser || !currentSessionToken) return;
 
     try {
-        const response = await fetch(`${SERVER_URL}/api/user-groups/${currentUser.id}`, {
-            headers: {
-                'user-id': currentUser.id,
-                'session-token': currentSessionToken
-            }
-        });
-        const data = await response.json();
-        if (data.status === 'success') {
-            await updateGroupList(data.groups);
-        }
+        const res = await getGroupList(currentUser.id);
+        const data = res.data;
+        await updateGroupList(data.groups);
     } catch (e) {
         console.error('加载群组列表失败:', e);
     }
@@ -83,8 +90,13 @@ function getMutedGroups() {
 }
 
 function isGroupMuted(groupId) {
-    const mutedGroups = getMutedGroups();
-    return mutedGroups.includes(groupId.toString());
+    try {
+      const groupStore = useGroupStore();
+      const group = groupStore.groupsList.find(g => String(g.id) === String(groupId));
+      return group ? group.is_disturb == 1 : false;
+    } catch {
+      return false;
+    }
 }
 
 function toggleGroupMute(groupId) {
@@ -124,53 +136,39 @@ async function handleLeaveGroup(groupId) {
     }
     
     try {
-        const response = await fetch(`${SERVER_URL}/api/leave-group`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'user-id': currentUser.id,
-                'session-token': currentSessionToken
-            },
-            body: JSON.stringify({
-                groupId: groupId
-            })
-        });
+        const res = await leaveGroup(groupId);
+        const data = res.data;
+        toast.success('已成功退出群组');
+        loadGroupList();
+
+        if (modalStore) {
+            modalStore.closeModal('groupInfo');
+        }
+        if (sessionStore) {
+            sessionStore.setCurrentGroupId(null);
+        }
         
-        const data = await response.json();
-        if (data.success || data.status === 'success') {
-            toast.success('已成功退出群组');
-            loadGroupList();
+        if (groupStore) {
+            await groupStore.markGroupAsDeleted(groupId, true);
+        }
 
-            if (modalStore) {
-                modalStore.closeModal('groupInfo');
-            }
-            if (sessionStore) {
-                sessionStore.setCurrentGroupId(null);
-            }
-            
-            if (groupStore) {
-                await groupStore.markGroupAsDeleted(groupId, true);
-            }
+        const groupEmptyState = document.getElementById('groupEmptyState');
+        const groupChatInterface = document.getElementById('groupChatInterface');
+        const currentGroupNameElement = document.getElementById('currentGroupName');
 
-            const groupEmptyState = document.getElementById('groupEmptyState');
-            const groupChatInterface = document.getElementById('groupChatInterface');
-            const currentGroupNameElement = document.getElementById('currentGroupName');
-
-            if (groupEmptyState) {
-                groupEmptyState.style.display = 'flex';
-            }
-            if (groupChatInterface) {
-                groupChatInterface.style.display = 'none';
-            }
-            if (currentGroupNameElement) {
-                currentGroupNameElement.textContent = '群组名称';
-            }
-        } else {
-            toast.error('退出群组失败: ' + (data.message || '未知错误'));
+        if (groupEmptyState) {
+            groupEmptyState.style.display = 'flex';
+        }
+        if (groupChatInterface) {
+            groupChatInterface.style.display = 'none';
+        }
+        if (currentGroupNameElement) {
+            currentGroupNameElement.textContent = '群组名称';
         }
     } catch (error) {
         console.error('退出群组失败:', error);
-        toast.error('退出群组失败，网络错误');
+        const errorMessage = error.response?.data?.message || error.message || '未知错误';
+        toast.error('退出群组失败: ' + errorMessage);
     }
 }
 
@@ -190,40 +188,24 @@ async function dissolveGroup(groupId) {
         return;
     }
 
-    fetch(`${SERVER_URL}/api/dissolve-group`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({
-            userId: currentUser.id,
-            groupId: groupId
-        })
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success || data.status === 'success') {
-                toast.success('群组已成功解散，所有群消息已删除');
+    apiDissolveGroup(currentUser.id, groupId)
+        .then(res => { const data = res.data;
+            toast.success('群组已成功解散，所有群消息已删除');
 
-                if (sessionStore) {
-                    sessionStore.setCurrentGroupId(null);
-                    sessionStore.currentGroupName = '';
-                    sessionStore.setCurrentActiveChat('main');
-                }
-                
-                if (groupStore) {
-                    groupStore.markGroupAsDeleted(groupId, true);
-                }
-
-                loadGroupList();
-            } else {
-                toast.error('解散群组失败: ' + (data.message || '未知错误'));
+            if (sessionStore) {
+                sessionStore.setCurrentGroupId(null);
+                sessionStore.currentGroupName = '';
+                sessionStore.setCurrentActiveChat('main');
             }
+            
+            if (groupStore) {
+                groupStore.markGroupAsDeleted(groupId, true);
+            }
+
+            loadGroupList();
         })
-        .catch(() => {
-            toast.error('解散群组失败，网络错误');
+        .catch(err => {
+            toast.error('解散群组失败: ' + (err.response?.data?.message || err.message || '网络错误'));
         });
 }
 
@@ -242,27 +224,15 @@ function loadGroupMembers(groupId, isOwner) {
     groupMembersContainer.innerHTML = '<div class="loading-members">正在加载成员列表...</div>';
 
 
-    fetch(`${SERVER_URL}/api/group-members/${groupId}`, {
-        headers: {
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        }
-    })
-        .then(response => response.json())
-        .then(data => {
+    getGroupMembers(groupId)
+        .then(res => { const data = res.data;
 
-
-            if (data.status === 'success') {
-
-                updateGroupMembersList(data.members, isOwner, groupId);
-                modalGroupMemberCount.textContent = data.members.length;
-            } else {
-                const errorMsg = data.message || '未知错误';
-                groupMembersContainer.innerHTML = `<div class="loading-members">加载成员列表失败: ${errorMsg}</div>`;
-            }
+            updateGroupMembersList(data.members, isOwner, groupId);
+            modalGroupMemberCount.textContent = data.members.length;
         })
-        .catch(() => {
-            groupMembersContainer.innerHTML = '<div class="loading-members">加载成员列表失败，网络错误</div>';
+        .catch(err => {
+            const errorMsg = err.response?.data?.message || err.message || '未知错误';
+            groupMembersContainer.innerHTML = `<div class="loading-members">加载成员列表失败: ${errorMsg}</div>`;
         });
 }
 
@@ -336,31 +306,15 @@ async function removeMemberFromGroup(groupId, memberId, memberName) {
         return;
     }
 
-    fetch(`${SERVER_URL}/api/remove-group-member`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({
-            groupId: groupId,
-            memberId: memberId
-        })
-    })
-        .then(response => response.json())
-        .then(data => {
+    removeGroupMember(groupId, memberId)
+        .then(res => { const data = res.data;
 
-            if (data.status === 'success' || (data.message && data.message.includes('成功'))) {
-                toast.success(`已成功踢出成员 ${memberName}`);
-                loadGroupMembers(groupId, true);
-            } else {
-                toast.error('踢出成员失败: ' + (data.message || '未知错误'));
-            }
+            toast.success(`已成功踢出成员 ${memberName}`);
+            loadGroupMembers(groupId, true);
         })
         .catch(error => {
             console.error('踢出成员失败:', error);
-            toast.error('踢出成员失败，网络错误');
+            toast.error('踢出成员失败: ' + (error.response?.data?.message || error.message || '网络错误'));
         });
 }
 
@@ -424,40 +378,22 @@ let currentAddingGroupId = null;
 
 
 
-    fetch(`${SERVER_URL}/api/add-group-members`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({
-            groupId: groupId,
-            memberIds: selectedMemberIds
-        })
-    })
-        .then(response => response.json())
-        .then(data => {
+    addGroupMembers(groupId, selectedMemberIds)
+        .then(res => { const data = res.data;
 
+            addMembersMessage.textContent = '成员添加成功';
+            addMembersMessage.className = 'create-group-message success';
 
-            if (data.status === 'success' || (data.message && data.message.includes('成功'))) {
-                addMembersMessage.textContent = '成员添加成功';
-                addMembersMessage.className = 'create-group-message success';
-
-                setTimeout(() => {
-                    if (modalStore) {
-                        modalStore.closeModal('addGroupMember');
-                    }
-                    loadGroupMembers(groupId, true);
-                }, 1000);
-            } else {
-                addMembersMessage.textContent = data.message || '添加成员失败';
-                addMembersMessage.className = 'create-group-message error';
-            }
+            setTimeout(() => {
+                if (modalStore) {
+                    modalStore.closeModal('addGroupMember');
+                }
+                loadGroupMembers(groupId, true);
+            }, 1000);
         })
         .catch(error => {
             console.error(`❌ [添加成员] 添加成员到群组 ${groupId} 失败:`, error);
-            addMembersMessage.textContent = '添加成员失败，网络错误';
+            addMembersMessage.textContent = error.response?.data?.message || error.message || '添加成员失败';
             addMembersMessage.className = 'create-group-message error';
         });
 }
@@ -473,71 +409,55 @@ function updateGroupName(groupId, newGroupName) {
         return;
     }
 
-    fetch(`${SERVER_URL}/api/update-group-name`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({
-            groupId: groupId,
-            newGroupName: newGroupName
-        })
-    })
-        .then(response => response.json())
-        .then(async data => {
-            if (data.status === 'success') {
-                const groupName = data.newGroupName;
-                const currentGroupNameElement = document.getElementById('currentGroupName');
-                if (currentGroupNameElement) {
-                    currentGroupNameElement.textContent = groupName;
+    apiUpdateGroupName(groupId, newGroupName)
+        .then(async res => { const data = res.data;
+            const groupName = data.newGroupName;
+            const currentGroupNameElement = document.getElementById('currentGroupName');
+            if (currentGroupNameElement) {
+                currentGroupNameElement.textContent = groupName;
+            }
+            const modalGroupName = document.getElementById('modalGroupName');
+            if (modalGroupName) {
+                modalGroupName.textContent = `${groupName} - 群组信息`;
+            }
+            
+            if (sessionStore && String(sessionStore.currentGroupId) === String(groupId)) {
+                sessionStore.currentGroupName = groupName;
+            }
+            
+            if (groupStore && groupStore.groupsList) {
+                const group = groupStore.groupsList.find(g => String(g.id) === String(groupId));
+                if (group) {
+                    group.name = groupName;
                 }
-                const modalGroupName = document.getElementById('modalGroupName');
-                if (modalGroupName) {
-                    modalGroupName.textContent = `${groupName} - 群组信息`;
+            }
+            
+            try {
+                const userId = currentUser.id;
+                const prefix = `chats-${userId}`;
+                const key = `${prefix}-group-${groupId}`;
+                const existingData = await localForage.getItem(key);
+                if (existingData) {
+                    const updatedSessionData = { ...existingData };
+                    updatedSessionData.name = groupName;
+                    await localForage.setItem(key, updatedSessionData);
                 }
-                
-                if (sessionStore && String(sessionStore.currentGroupId) === String(groupId)) {
-                    sessionStore.currentGroupName = groupName;
-                }
-                
-                if (groupStore && groupStore.groupsList) {
-                    const group = groupStore.groupsList.find(g => String(g.id) === String(groupId));
-                    if (group) {
-                        group.name = groupName;
-                    }
-                }
-                
-                try {
-                    const userId = currentUser.id;
-                    const prefix = `chats-${userId}`;
-                    const key = `${prefix}-group-${groupId}`;
-                    const existingData = await localForage.getItem(key);
-                    if (existingData) {
-                        const updatedSessionData = { ...existingData };
-                        updatedSessionData.name = groupName;
-                        await localForage.setItem(key, updatedSessionData);
-                    }
-                } catch (e) {
-                    console.error('更新群组名称到 IndexedDB 失败:', e);
-                }
-                
-                if (sessionStore && String(sessionStore.currentGroupId) === String(groupId)) {
-                    sessionStore.currentGroupName = groupName;
-                }
-                
-                toast.success('群组名称已成功更新');
-                const manageGroupModal = document.getElementById('manageGroupModal');
-                if (manageGroupModal && manageGroupModal.style.display !== 'none') {
-                    manageGroupModal.style.display = 'none';
-                }
-            } else {
-                toast.error('修改群组名称失败: ' + (data.message || '未知错误'));
+            } catch (e) {
+                console.error('更新群组名称到 IndexedDB 失败:', e);
+            }
+            
+            if (sessionStore && String(sessionStore.currentGroupId) === String(groupId)) {
+                sessionStore.currentGroupName = groupName;
+            }
+            
+            toast.success('群组名称已成功更新');
+            const manageGroupModal = document.getElementById('manageGroupModal');
+            if (manageGroupModal && manageGroupModal.style.display !== 'none') {
+                manageGroupModal.style.display = 'none';
             }
         })
-        .catch(() => {
-            toast.error('修改群组名称失败，网络错误');
+        .catch(err => {
+            toast.error('修改群组名称失败: ' + (err.response?.data?.message || err.message || '网络错误'));
         });
 }
 
@@ -550,33 +470,12 @@ function updateGroupNotice(groupId, newNotice) {
         return;
     }
 
-    fetch(`${SERVER_URL}/api/update-group-description`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({
-            groupId: groupId,
-            newDescription: newNotice
+    updateGroupDescription(groupId, newNotice)
+        .then(res => { const data = res.data;
+            toast.success('群组公告已成功更新');
         })
-    })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP错误! 状态码: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.status === 'success') {
-                toast.success('群组公告已成功更新');
-            } else {
-                toast.error('修改群组公告失败: ' + (data.message || '未知错误'));
-            }
-        })
-        .catch(() => {
-            toast.error('修改群组公告失败，网络错误');
+        .catch(err => {
+            toast.error('修改群组公告失败: ' + (err.response?.data?.message || err.message || '网络错误'));
         });
 }
 
@@ -596,29 +495,17 @@ function uploadGroupAvatar(groupId, file) {
 
     toast.info('正在上传群头像，请稍候...');
 
-    fetch(`${SERVER_URL}/api/upload-group-avatar/${groupId}`, {
-        method: 'POST',
-        headers: {
-            'session-token': currentSessionToken,
-            'user-id': currentUser.id
-        },
-        body: formData
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                toast.success('群头像上传成功');
-                const modal = document.getElementById('groupInfoModal');
-                if (modal) {
-                    modal.style.display = 'none';
-                }
-                loadGroupList();
-            } else {
-                toast.error('上传群头像失败: ' + (data.message || '未知错误'));
+    apiUploadGroupAvatar(groupId, formData)
+        .then(res => { const data = res.data;
+            toast.success('群头像上传成功');
+            const modal = document.getElementById('groupInfoModal');
+            if (modal) {
+                modal.style.display = 'none';
             }
+            loadGroupList();
         })
-        .catch(() => {
-            toast.error('上传群头像失败，网络错误');
+        .catch(err => {
+            toast.error('上传群头像失败: ' + (err.response?.data?.message || err.message || '网络错误'));
         });
 }
 
@@ -626,30 +513,17 @@ function joinGroupWithToken(token, groupId, groupName, popup, isFromGroupCard = 
     const baseStore = useBaseStore();
     const currentUser = baseStore.currentUser;
     const currentSessionToken = baseStore.currentSessionToken;
-    fetch(`${SERVER_URL}/api/join-group-with-token`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({ token: token, isFromGroupCard: isFromGroupCard })
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                toast.success(`成功加入群组: ${groupName}`);
-                if (popup) {
-                    popup.remove();
-                }
-                loadGroupList();
-            } else {
-                toast.error('加入群组失败: ' + (data.message || '未知错误'));
+    apiJoinGroupWithToken(token, isFromGroupCard)
+        .then(res => { const data = res.data;
+            toast.success(`成功加入群组: ${groupName}`);
+            if (popup) {
+                popup.remove();
             }
+            loadGroupList();
         })
         .catch(error => {
             console.error('加入群组失败:', error);
-            toast.error('加入群组失败，网络错误');
+            toast.error('加入群组失败: ' + (error.response?.data?.message || error.message || '网络错误'));
         });
 }
 
@@ -677,27 +551,68 @@ function moveGroupToTop(groupId) {
     }
 }
 
-function switchToGroupChat(groupId, groupName) {
+async function switchToGroupChat(groupId, groupName) {
     const sessionStore = useSessionStore();
     const groupStore = useGroupStore();
     const baseStore = useBaseStore();
     const draftStore = useDraftStore();
     
-    const currentGroupId = sessionStore?.currentGroupId;
-    if (currentGroupId) {
+    // 先保存旧群组草稿
+    const oldGroupId = sessionStore?.currentGroupId;
+    if (oldGroupId) {
       const groupMessageInput = document.getElementById('groupMessageInput');
       if (groupMessageInput) {
         const content = groupMessageInput.textContent || groupMessageInput.innerHTML || '';
-        if (draftStore) draftStore.saveDraft('group', currentGroupId, content);
+        if (draftStore) draftStore.saveDraft('group', oldGroupId, content);
       }
-      if (draftStore) draftStore.setLastMessageToDraft('group', currentGroupId);
+      if (draftStore) draftStore.setLastMessageToDraft('group', oldGroupId);
     }
     
-    const oldCurrentActiveChat = sessionStore.currentActiveChat;
+    // 先请求群组信息和成员列表（5秒超时），成功后才设置状态
+    try {
+      const results = await Promise.race([
+        Promise.all([
+          getGroupInfo(groupId),
+          getGroupMembers(groupId)
+        ]),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('加载超时')), 5000)
+        )
+      ]);
+
+      const [infoRes, membersRes] = results;
+      const groupInfo = infoRes.data;
+      const membersData = membersRes.data;
+
+      // 将成员同步到 groupStore
+      if (membersData.members && membersData.members.length > 0) {
+        const storeMembers = membersData.members.map(m => ({
+          id: Number(m.id),
+          nickname: m.nickname || '',
+          avatarUrl: m.avatarUrl || '',
+          is_admin: Number(m.is_admin) || 0,
+          is_muted: m.is_muted || null,
+          group_nickname: m.group_nickname || null
+        }));
+        groupStore.currentGroupMembers = storeMembers;
+        if (groupStore.updateGroupNicknameInMessages) {
+          groupStore.updateGroupNicknameInMessages(groupId, storeMembers);
+        }
+        if (groupStore.detectAndUpdateGroupNicknames) {
+          groupStore.detectAndUpdateGroupNicknames(groupId);
+        }
+      } else {
+        groupStore.currentGroupMembers = [];
+      }
+    } catch (err) {
+      console.error('打开群组聊天失败:', err);
+      toast.error('打开聊天失败: ' + (err.message || '网络错误'));
+      return;
+    }
     
+    // API 成功后才设置状态
     sessionStore.currentGroupId = groupId;
     sessionStore.currentGroupName = groupName;
-    sessionStore.currentActiveChat = `group_${groupId}`;
     sessionStore.currentSendChatType = 'group';
     sessionStore.selectedGroupIdForCard = groupId;
     
@@ -713,14 +628,7 @@ function switchToGroupChat(groupId, groupName) {
         unreadStore.clearGroupUnread(groupId);
     }
     
-    if (sessionStore) {
-        sessionStore.setCurrentGroupId(groupId);
-        sessionStore.setCurrentActiveChat(`group_${groupId}`);
-    }
-    
-    sessionStore.currentGroupId = groupId;
-    sessionStore.currentActiveChat = `group_${groupId}`;
-    
+    // 导航
     setActiveChatDirect('group', groupId, true);
 
     if (baseStore.currentUser && baseStore.currentSessionToken) {
@@ -837,22 +745,14 @@ async function updateGroupList(groups) {
                         
                         if (!updatedSessionData.name) {
                             try {
-                                const response = await fetch(`${SERVER_URL}/api/group-info/${groupId}`, {
-                                    method: 'GET',
-                                    headers: {
-                                        'user-id': userId,
-                                        'session-token': localStorage.getItem('currentSessionToken')
+                                const res = await getGroupInfo(groupId);
+                                const responseData = res.data;
+                                if (responseData.group) {
+                                    if (!updatedSessionData.name && responseData.group.name) {
+                                        updatedSessionData.name = responseData.group.name;
                                     }
-                                });
-                                if (response.ok) {
-                                    const responseData = await response.json();
-                                    if (responseData.status === 'success' && responseData.group) {
-                                        if (!updatedSessionData.name && responseData.group.name) {
-                                            updatedSessionData.name = responseData.group.name;
-                                        }
-                                        if (!updatedSessionData.avatarUrl && responseData.group.avatar_url) {
-                                            updatedSessionData.avatarUrl = responseData.group.avatar_url;
-                                        }
+                                    if (!updatedSessionData.avatarUrl && responseData.group.avatar_url) {
+                                        updatedSessionData.avatarUrl = responseData.group.avatar_url;
                                     }
                                 }
                             } catch (e) {
@@ -870,6 +770,10 @@ async function updateGroupList(groups) {
         }
 
         const allGroups = [];
+        // 构建服务端群组映射，用于合并 is_disturb 等字段
+        const serverGroupMap = new Map();
+        groups.forEach(g => serverGroupMap.set(String(g.id), g));
+
         for (const groupId of localGroupIdsFromKeys) {
             try {
                 const key = `${prefix}-group-${groupId}`;
@@ -879,45 +783,41 @@ async function updateGroupList(groups) {
                     
                     if (!data.name) {
                         try {
-                            const response = await fetch(`${SERVER_URL}/api/group-info/${groupId}`, {
-                                method: 'GET',
-                                headers: {
-                                    'user-id': userId,
-                                    'session-token': localStorage.getItem('currentSessionToken')
-                                }
-                            });
-                            if (response.ok) {
-                                const responseData = await response.json();
-                                if (responseData.status === 'success' && responseData.group) {
-                                    if (!data.name && responseData.group.name) {
-                                        groupName = responseData.group.name;
-                                        data.name = responseData.group.name;
+                            const res = await getGroupInfo(groupId);
+                            if (res.data.group) {
+                                    if (!data.name && res.data.group.name) {
+                                        groupName = res.data.group.name;
+                                        data.name = res.data.group.name;
                                     }
-                                    if (!data.avatarUrl && responseData.group.avatar_url) {
-                                        data.avatarUrl = responseData.group.avatar_url;
+                                    if (!data.avatarUrl && res.data.group.avatar_url) {
+                                        data.avatarUrl = res.data.group.avatar_url;
                                     }
                                     const key = `${prefix}-group-${groupId}`;
                                     const updatedData = { ...data };
                                     await localForage.setItem(key, updatedData);
                                 }
-                            }
                         } catch (e) {
                             console.error('获取群组信息失败:', e);
                         }
                     }
                     
+                    const serverGroup = serverGroupMap.get(groupId);
                     const group = {
                         id: groupId,
                         name: groupName,
-                        avatarUrl: data.avatarUrl,
-                        deleted_at: data.deleted_at
+                        avatarUrl: data.avatarUrl ?? null,
+                        deleted_at: data.deleted_at ?? null,
+                        is_disturb: serverGroup ? serverGroup.is_disturb : null
                     };
                     
                     if (data.last_message_time) {
                         group.last_message_time = data.last_message_time;
                     }
                     
-                    if (data.messages && data.messages.length > 0) {
+                    // 优先使用服务器返回的 lastMessage（已含群昵称替换）
+                    if (serverGroup && serverGroup.lastMessage) {
+                        group.lastMessage = serverGroup.lastMessage;
+                    } else if (data.messages && data.messages.length > 0) {
                         const validMessages = data.messages.filter(m => m.messageType !== 101 && m.messageType !== 102);
                         if (validMessages.length > 0) {
                             group.lastMessage = validMessages[validMessages.length - 1];
@@ -975,98 +875,79 @@ function sendGroupCard() {
     const currentSessionToken = baseStore.currentSessionToken;
     const chatSocket = getChatSocket();
 
-    fetch(`${SERVER_URL}/api/generate-group-token`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'user-id': currentUser.id,
-            'session-token': currentSessionToken
-        },
-        body: JSON.stringify({ groupId: selectedGroupIdForCard })
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                const token = data.token;
+    generateGroupToken(selectedGroupIdForCard)
+        .then(res => { const data = res.data;
+            const token = data.token;
 
-                fetch(`${SERVER_URL}/api/group-info/${selectedGroupIdForCard}`, {
-                    headers: {
-                        'user-id': currentUser.id,
-                        'session-token': currentSessionToken
-                    }
-                })
-                    .then(response => response.json())
-                    .then(async groupData => {
-                        if (groupData.status === 'success') {
-                            const group = groupData.group;
-                            
-                            const groupCardContent = JSON.stringify({
-                                type: 'group_card',
-                                group_id: group.id,
-                                group_name: group.name || '',
-                                group_description: group.description || '',
-                                invite_token: token,
-                                avatar_url: group.avatar_url || group.avatarUrl || ''
-                            });
-
-                            if (chatSocket) {
-                                if (currentSendChatType === 'main') {
-                                    chatSocket.emit('send-message', {
-                                        content: groupCardContent,
-                                        messageType: 3,
-                                        sessionToken: currentSessionToken,
-                                        userId: Number(currentUser.id)
-                                    });
-                                } else if (currentSendChatType === 'group') {
-                                    const encryptionPayload = await encryptGroupCardForGroup(groupCardContent, currentUser, currentSessionToken, currentGroupId);
-                                    chatSocket.emit('send-message', {
-                                        content: encryptionPayload.ciphertext,
-                                        encrypted: true,
-                                        encryption: encryptionPayload,
-                                        encryptionMetadata: encryptionPayload,
-                                        messageType: 3,
-                                        groupId: Number(currentGroupId),
-                                        sessionToken: currentSessionToken,
-                                        userId: Number(currentUser.id)
-                                    });
-                                } else if (currentSendChatType === 'private' && currentPrivateChatUserId) {
-                                    const encryptionPayload = await encryptGroupCardForPrivate(groupCardContent, currentUser, currentSessionToken, currentPrivateChatUserId);
-                                    chatSocket.emit('send-private-message', {
-                                        content: encryptionPayload.ciphertext,
-                                        encrypted: true,
-                                        encryption: encryptionPayload,
-                                        encryptionMetadata: encryptionPayload,
-                                        messageType: 3,
-                                        receiverId: Number(currentPrivateChatUserId),
-                                        sessionToken: currentSessionToken,
-                                        userId: Number(currentUser.id)
-                                    });
-                                }
-                            }
-
-                            if (modalStore) {
-                                modalStore.closeModal('sendGroupCard');
-                            }
-                            
-                            setTimeout(() => {
-                                let container = null;
-                                if (currentSendChatType === 'main') {
-                                    container = document.getElementById('messageContainer');
-                                } else if (currentSendChatType === 'group') {
-                                    container = document.getElementById('groupMessageContainer');
-                                } else if (currentSendChatType === 'private') {
-                                    container = document.getElementById('privateMessageContainer');
-                                }
-                                if (container) {
-                                    container.scrollTop = container.scrollHeight;
-                                }
-                            }, 100);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('获取群组信息失败:', error);
+            getGroupInfo(selectedGroupIdForCard)
+                .then(async res => { const groupData = res.data;
+                    const group = groupData.group;
+                    
+                    const groupCardContent = JSON.stringify({
+                        type: 'group_card',
+                        group_id: group.id,
+                        group_name: group.name || '',
+                        group_description: group.description || '',
+                        invite_token: token,
+                        avatar_url: group.avatar_url || group.avatarUrl || ''
                     });
-            }
+
+                    if (chatSocket) {
+                        if (currentSendChatType === 'main') {
+                            chatSocket.emit('send-message', {
+                                content: groupCardContent,
+                                messageType: 3,
+                                sessionToken: currentSessionToken,
+                                userId: Number(currentUser.id)
+                            });
+                        } else if (currentSendChatType === 'group') {
+                            const encryptionPayload = await encryptGroupCardForGroup(groupCardContent, currentUser, currentSessionToken, currentGroupId);
+                            chatSocket.emit('send-message', {
+                                content: encryptionPayload.ciphertext,
+                                encrypted: true,
+                                encryption: encryptionPayload,
+                                encryptionMetadata: encryptionPayload,
+                                messageType: 3,
+                                groupId: Number(currentGroupId),
+                                sessionToken: currentSessionToken,
+                                userId: Number(currentUser.id)
+                            });
+                        } else if (currentSendChatType === 'private' && currentPrivateChatUserId) {
+                            const encryptionPayload = await encryptGroupCardForPrivate(groupCardContent, currentUser, currentSessionToken, currentPrivateChatUserId);
+                            chatSocket.emit('send-private-message', {
+                                content: encryptionPayload.ciphertext,
+                                encrypted: true,
+                                encryption: encryptionPayload,
+                                encryptionMetadata: encryptionPayload,
+                                messageType: 3,
+                                receiverId: Number(currentPrivateChatUserId),
+                                sessionToken: currentSessionToken,
+                                userId: Number(currentUser.id)
+                            });
+                        }
+                    }
+
+                    if (modalStore) {
+                        modalStore.closeModal('sendGroupCard');
+                    }
+                    
+                    setTimeout(() => {
+                        let container = null;
+                        if (currentSendChatType === 'main') {
+                            container = document.getElementById('messageContainer');
+                        } else if (currentSendChatType === 'group') {
+                            container = document.getElementById('groupMessageContainer');
+                        } else if (currentSendChatType === 'private') {
+                            container = document.getElementById('privateMessageContainer');
+                        }
+                        if (container) {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    }, 100);
+                })
+                .catch(error => {
+                    console.error('获取群组信息失败:', error);
+                });
         })
         .catch(error => {
             console.error('生成群组邀请Token失败:', error);

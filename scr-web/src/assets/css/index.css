@@ -1,8 +1,9 @@
 body {
     margin: 0;
     padding: 0;
-    font-family: Arial, sans-serif;
-    background-color: #f0f2f5;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background-color: #f1f5f9;
+    color: #1e293b;
 }
 
 /* === 基础按钮样式 === */
@@ -382,7 +383,23 @@ body.dark-mode .public-chat-header,
 body.dark-mode .public-header,
 body.dark-mode .group-header {
     background-color: #161b22;
-    border-color: #30363d;
+    border-bottom-color: #30363d;
+}
+
+body.dark-mode .group-header h2 {
+    color: #c9d1d9;
+}
+
+body.dark-mode .group-actions button {
+    background-color: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+}
+
+body.dark-mode .group-actions button:hover {
+    background-color: #30363d;
+    border-color: #484f58;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 body.dark-mode .private-user-details h2,
@@ -433,8 +450,8 @@ body.dark-mode .more-functions {
 }
 
 body.dark-mode .more-functions button {
-    color: #c9d1d9 !important;
-    background-color: #21262d !important;
+    color: #ffffff !important;
+    background-color: #64748b !important;
 }
 
 /* 所有更多功能按钮的深色模式覆盖（覆盖带 ID 的更高优先级选择器） */
@@ -515,7 +532,7 @@ body.dark-mode .more-button,
 body.dark-mode #moreButton,
 body.dark-mode #groupMoreButton,
 body.dark-mode #privateMoreButton {
-    background-color: #374151 !important;
+    background-color: #64748b !important;
     color: #ffffff !important;
 }
 
@@ -524,7 +541,7 @@ body.dark-mode .more-button:hover:not(:disabled),
 body.dark-mode #moreButton:hover:not(:disabled),
 body.dark-mode #groupMoreButton:hover:not(:disabled),
 body.dark-mode #privateMoreButton:hover:not(:disabled) {
-    background-color: #4b5563 !important;
+    background-color: #475569 !important;
     color: #ffffff !important;
 }
 
@@ -539,7 +556,8 @@ body.dark-mode .message.other-message .msg-bubble {
 }
 
 body.dark-mode .message.own-message .msg-bubble {
-    background: #0d419d;
+    background: #1e3a5f;
+    border-color: #2d4f7a;
 }
 
 body.dark-mode .msg-bubble-content,
@@ -556,8 +574,19 @@ body.dark-mode .msg-avatar {
     background-color: #30363d;
 }
 
+body.dark-mode .quoted-sender-avatar-fallback,
+body.dark-mode .quoted-group-card-avatar-fallback,
+body.dark-mode .quoted-preview-avatar-fallback,
+body.dark-mode .quoted-preview-group-card-avatar-fallback {
+    background-color: #30363d;
+}
+
+body.dark-mode .user-avatar-small {
+    background: #30363d !important;
+}
+
 body.dark-mode .msg-avatar .msg-avatar-initials {
-    color: #8b949e;
+    color: #c9d1d9 !important;
 }
 
 body.dark-mode .msg-sender-name,
@@ -650,8 +679,35 @@ body.dark-mode .secondary-sidebar {
     border-color: #30363d;
 }
 
+body.dark-mode #sidebar {
+    background-color: #161b22;
+    border-right-color: #30363d;
+}
+
+body.dark-mode .sidebar-header {
+    border-bottom-color: #30363d;
+}
+
+body.dark-mode .menu-item:hover {
+    background-color: #21262d;
+}
+
+body.dark-mode .menu-item.active {
+    background-color: #1f6feb;
+}
+
+body.dark-mode #secondary-sidebar {
+    background-color: #161b22;
+    border-right: 1px solid #30363d;
+    color: #c9d1d9;
+}
+
 body.dark-mode .sidebar-section h3 {
     color: #8b949e;
+}
+
+body.dark-mode .sidebar-section {
+    border-bottom-color: #30363d;
 }
 
 body.dark-mode .settings-item,
@@ -688,6 +744,25 @@ body.dark-mode .secondary-sidebar .secondary-list-item .secondary-list-time {
 
 body.dark-mode .secondary-sidebar .secondary-list-item.active {
     background-color: #1f3a5f;
+}
+
+body.dark-mode .user-list li:hover,
+body.dark-mode .settings-list li:hover {
+    background-color: #21262d !important;
+}
+
+body.dark-mode .user-list li .group-name,
+body.dark-mode .user-list li .friend-name {
+    color: #c9d1d9;
+}
+
+body.dark-mode .user-name {
+    color: #c9d1d9;
+}
+
+body.dark-mode .user-list li .group-last-message,
+body.dark-mode .user-list li .friend-last-message {
+    color: #8b949e;
 }
 
 /* === 模态框 === */
@@ -787,6 +862,21 @@ body.dark-mode .search-input-container input {
     border-color: #30363d;
 }
 
+body.dark-mode .search-input {
+    background-color: #21262d;
+    color: #c9d1d9;
+    border-color: #30363d;
+}
+
+body.dark-mode .search-input::placeholder {
+    color: #6b7280;
+}
+
+body.dark-mode .search-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
 body.dark-mode .form-group label {
     color: #8b949e;
 }
@@ -827,14 +917,21 @@ body.dark-mode .toggle-btn:hover {
 body.dark-mode #sendButton,
 body.dark-mode #sendPrivateMessage,
 body.dark-mode #sendGroupMessage {
-    background-color: #238636;
-    border-color: #2ea043;
+    background-color: #2563eb;
+    border: none;
 }
 
 body.dark-mode #sendButton:hover,
 body.dark-mode #sendPrivateMessage:hover,
 body.dark-mode #sendGroupMessage:hover {
-    background-color: #2ea043;
+    background-color: #3b82f6;
+}
+
+body.dark-mode #imageUploadButton,
+body.dark-mode #fileUploadButton {
+    background-color: #21262d;
+    color: #8b949e;
+    border-color: #30363d;
 }
 
 body.dark-mode .more-button {
@@ -1821,6 +1918,17 @@ body.dark-mode .settings-container {
     background-color: #0d1117;
 }
 
+body.dark-mode .settings-detail .empty-requests {
+    background-color: #0d1117 !important;
+    color: #8b949e !important;
+    border: 1px solid #30363d !important;
+}
+
+body.dark-mode .settings-detail .verification-toggle {
+    background-color: #0d1117 !important;
+    border: 1px solid #30363d !important;
+}
+
 body.dark-mode .settings-detail {
     background-color: #161b22;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
@@ -1850,7 +1958,23 @@ body.dark-mode .settings-detail .form-group textarea::placeholder {
 }
 
 body.dark-mode .settings-detail .form-message {
-    color: #c9d1d9;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+
+body.dark-mode .settings-detail .form-message.success {
+    background-color: #052e16;
+    color: #86efac;
+    border-color: #166534;
+}
+
+body.dark-mode .settings-detail .form-message.error {
+    background-color: #450a0a;
+    color: #fca5a5;
+    border-color: #991b1b;
 }
 
 body.dark-mode .settings-detail .gender-option span {
@@ -1934,6 +2058,22 @@ body.dark-mode .empty-list {
 
 body.dark-mode .empty-list-icon {
     color: #484f58;
+}
+
+body.dark-mode .user-list .empty-friends,
+body.dark-mode .user-list .empty-text,
+body.dark-mode .user-list li:has(.empty-text),
+body.dark-mode #offlineUserList li:only-child,
+body.dark-mode #userList li:only-child {
+    color: #8b949e;
+}
+
+body.dark-mode #offlineUserList li:first-child:last-child {
+    color: #8b949e;
+}
+
+body.dark-mode .user-list li:has(.empty-text) {
+    color: #8b949e;
 }
 
 /* === 工具提示 === */
@@ -2206,8 +2346,8 @@ noscript {
     align-items: center;
     justify-content: space-between;
     padding: 10px 15px;
-    background-color: white;
-    border-bottom: 1px solid #eee;
+    background-color: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
 }
 
 .private-user-info {
@@ -2447,7 +2587,8 @@ noscript {
     background-color: #2c3e50;
     color: white;
     box-sizing: border-box;
-    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+    box-shadow: none;
+    border-right: 1px solid #1e2b3a;
 }
 
 .sidebar-header {
@@ -2457,7 +2598,7 @@ noscript {
     align-items: center;
     width: 100%;
     padding: 10px 0;
-    border-bottom: 1px solid #34495e;
+    border-bottom: 1px solid #334155;
 }
 
 .user-profile {
@@ -2539,20 +2680,19 @@ noscript {
 }
 
 .menu-item:hover {
-    background-color: #34495e;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    background-color: #64748b;
+    transform: translateY(-1px);
 }
 
 .menu-item.active {
-    background-color: #3498db;
+    background-color: #3b82f6;
     color: white;
-    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4);
+    box-shadow: none;
 }
 
 .menu-item.active:hover {
-    background-color: #2980b9;
-    transform: translateY(-2px);
+    background-color: #2563eb;
+    transform: translateY(-1px);
 }
 
 .chat-avatar {
@@ -2581,17 +2721,18 @@ noscript {
     min-width: 250px;
     max-width: 250px;
     height: 100%;
-    background-color: #34495e;
-    color: white;
+    background-color: #f5f6f8;
+    color: #1e293b;
     box-sizing: border-box;
     padding: 15px;
     overflow-y: auto;
-    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+    box-shadow: none;
+    border-right: 2px solid #cbd5e1;
 }
 
 .sidebar-section {
     margin-bottom: 25px;
-    border-bottom: 1px solid #2c3e50;
+    border-bottom: 1px solid #cbd5e1;
     padding-bottom: 15px;
 }
 
@@ -2601,19 +2742,21 @@ noscript {
 
 .section-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
     margin-bottom: 10px;
 }
 
 .sidebar-section h3 {
-    font-size: 16px;
+    font-size: 13px;
     font-weight: 600;
     margin: 0 0 10px 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
     cursor: pointer;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .toggle-section {
@@ -2623,7 +2766,7 @@ noscript {
 }
 
 .toggle-section:hover {
-    color: #3498db;
+    color: #3b82f6;
 }
 
 .user-list, .settings-list {
@@ -2642,8 +2785,8 @@ noscript {
 }
 
 .user-list li:hover, .settings-list li:hover {
-    background-color: #2c3e50;
-    transform: translateX(5px);
+    background-color: #dde1e7;
+    transform: translateX(3px);
 }
 
 /* 二层侧边栏内容切换样式 */
@@ -2836,14 +2979,14 @@ noscript {
 }
 
 #sendGroupMessage {
-    background-color: #3498db;
+    background-color: #3b82f6;
     color: white;
 }
 
 #sendGroupMessage:hover:not(:disabled) {
-    background-color: #2980b9;
+    background-color: #2563eb;
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
 }
 
 #groupImageUploadButton, #groupFileUploadButton {
@@ -2972,12 +3115,13 @@ noscript {
 }
 
 .message.other-message .msg-bubble {
-    background: #ffffff;
-    border: 1px solid #e8e8e8;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
 }
 
 .message.own-message .msg-bubble {
-    background: rgb(232, 245, 232);
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
 }
 
 .msg-bubble-content {
@@ -3166,7 +3310,7 @@ noscript {
 
 .user-name {
     font-size: 14px;
-    color: #ecf0f1;
+    color: #1e293b;
 }
 
 .user-status {
@@ -3189,7 +3333,7 @@ noscript {
 /* 群组列表项样式 */
 .group-name {
     font-size: 14px;
-    color: #ecf0f1;
+    color: #fff;
     font-weight: 500;
     flex: 1;
 }
@@ -3201,10 +3345,10 @@ noscript {
 
 /* 未读计数样式 */
 .unread-count {
-    background-color: #e74c3c;
+    background-color: #ef4444;
     color: white;
-    font-size: 12px;
-    font-weight: bold;
+    font-size: 11px;
+    font-weight: 600;
     border-radius: 10px;
     min-width: 20px;
     height: 20px;
@@ -3212,8 +3356,8 @@ noscript {
     justify-content: center;
     align-items: center;
     padding: 0 6px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-    transition: all 0.3s ease;
+    box-shadow: none;
+    transition: all 0.2s;
     z-index: 10;
 }
 
@@ -3270,16 +3414,16 @@ noscript {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 15px 20px;
-    background-color: #3498db;
-    color: white;
-    border-bottom: 1px solid #2980b9;
+    padding: 10px 15px;
+    background-color: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
 }
 
 .group-header h2 {
     margin: 0;
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 600;
+    color: #1e293b;
 }
 
 .group-actions {
@@ -3289,24 +3433,30 @@ noscript {
 
 .group-actions button {
     padding: 8px 16px;
-    border: none;
+    border: 1px solid #e2e8f0;
     border-radius: 6px;
     font-size: 14px;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.2s;
     font-weight: 500;
-    background-color: rgba(255, 255, 255, 0.2);
-    color: white;
+    color: #475569;
+    background-color: #f1f5f9;
 }
 
 .group-actions button:hover {
-    background-color: rgba(255, 255, 255, 0.3);
+    background-color: #e2e8f0;
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 #leaveGroupButton {
-    background-color: rgba(231, 76, 60, 0.8);
+    background-color: #fef2f2 !important;
+    color: #dc2626 !important;
+    border-color: #fecaca !important;
+}
+
+#leaveGroupButton:hover {
+    background-color: #fee2e2 !important;
 }
 
 #leaveGroupButton:hover {
@@ -3337,6 +3487,39 @@ noscript {
     color: #495057;
     border-bottom: 1px solid #e9ecef;
     padding-bottom: 10px;
+}
+
+.form-message {
+    margin: 10px 0;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+
+.form-message.success {
+    background-color: #f0fdf4;
+    color: #166534;
+    border-color: #bbf7d0;
+}
+
+.form-message.error {
+    background-color: #fef2f2;
+    color: #991b1b;
+    border-color: #fecaca;
+}
+
+body.dark-mode .form-message.success {
+    background-color: #052e16;
+    color: #86efac;
+    border-color: #166534;
+}
+
+body.dark-mode .form-message.error {
+    background-color: #450a0a;
+    color: #fca5a5;
+    border-color: #991b1b;
 }
 
 /* 群组头像样式 */
@@ -3385,8 +3568,8 @@ noscript {
 }
 
 #groupList li:hover {
-    background-color: #2c3e50;
-    transform: translateX(5px);
+    background-color: #dde1e7;
+    transform: translateX(3px);
 }
 
 #groupList li.active {
@@ -3987,29 +4170,30 @@ noscript {
     position: relative;
     margin-left: -2.5px;
     margin-right: -2.5px;
+    width: 100%;
 }
 
 .search-input {
     width: 100%;
     padding: 8px 12px;
     padding-right: 30px;
-    border: 1px solid #2c3e50;
+    border: 1px solid #d1d5db;
     border-radius: 20px;
-    background-color: #2c3e50;
-    color: white;
-    font-size: 14px;
+    background-color: #ffffff;
+    color: #1e293b;
+    font-size: 13px;
     box-sizing: border-box;
     transition: all 0.3s ease;
 }
 
 .search-input:focus {
     outline: none;
-    border-color: #3498db;
-    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
 .search-input::placeholder {
-    color: #95a5a6;
+    color: #9ca3af;
 }
 
 .clear-search-btn {
@@ -4019,17 +4203,22 @@ noscript {
     transform: translateY(-50%);
     background: none;
     border: none;
-    color: #95a5a6;
+    color: #9ca3af;
     cursor: pointer;
     font-size: 16px;
     padding: 2px;
     border-radius: 50%;
-    transition: all 0.3s ease;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
 }
 
 .clear-search-btn:hover {
     color: white;
-    background-color: #e74c3c;
+    background-color: #ef4444;
 }
 
 .create-group-btn {
@@ -4037,7 +4226,7 @@ noscript {
     right: 8px;
     top: 50%;
     transform: translateY(-50%);
-    background-color: #4CAF50;
+    background-color: #3b82f6;
     color: white;
     border: none;
     border-radius: 50%;
@@ -4049,11 +4238,14 @@ noscript {
     align-items: center;
     justify-content: center;
     line-height: 1;
-    transition: background-color 0.3s ease;
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+    transition: all 0.2s;
 }
 
 .create-group-btn:hover {
-    background-color: #45a049;
+    background-color: #2563eb;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    transform: translateY(-50%) scale(1.05);
 }
 
 /* 聊天主界面样式 */
@@ -4062,9 +4254,9 @@ noscript {
     display: flex;
     flex-direction: column;
     height: 100%;
-    background-color: white;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-    position: relative; /* 添加相对定位，使Markdown工具栏的绝对定位相对于它 */
+    background-color: #ffffff;
+    box-shadow: none;
+    position: relative;
     overflow: hidden;
 }
 
@@ -4099,21 +4291,20 @@ noscript {
 }
 
 .markdown-btn {
-    background-color: white;
-    border: 1px solid #dee2e6;
-    border-radius: 4px;
+    background-color: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
     padding: 6px 12px;
-    font-size: 14px;
+    font-size: 13px;
     cursor: pointer;
-    transition: all 0.3s ease;
-    color: #495057;
+    transition: all 0.2s;
+    color: #475569;
 }
 
 .markdown-btn:hover {
-    background-color: #e9ecef;
-    border-color: #3498db;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    background-color: #f1f5f9;
+    border-color: #3b82f6;
+    color: #3b82f6;
 }
 
 /* 消息列表样式 */
@@ -4121,7 +4312,7 @@ noscript {
     flex: 1 1 auto;
     overflow-y: auto;
     padding: 10px;
-    background-color: #fafafa;
+    background-color: #f8fafc;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -4133,7 +4324,7 @@ noscript {
     flex: 1 1 auto;
     overflow-y: auto;
     padding: 10px;
-    background-color: #fafafa;
+    background-color: #f8fafc;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -4167,8 +4358,8 @@ noscript {
     display: flex;
     flex-direction: column;
     padding: 15px;
-    background-color: white;
-    border-top: 1px solid #e9ecef;
+    background-color: #ffffff;
+    border-top: 1px solid #e2e8f0;
     gap: 10px;
 }
 
@@ -4177,18 +4368,18 @@ noscript {
     pointer-events: auto;
     z-index: 100;
     position: relative;
-    background-color: #95a5a6;
+    background-color: #64748b;
     color: white;
     border: none;
-    border-radius: 5px;
+    border-radius: 6px;
     padding: 8px 15px;
     cursor: pointer;
     font-size: 14px;
-    transition: background-color 0.3s;
+    transition: all 0.2s;
 }
 
 .input-buttons .more-button:hover {
-    background-color: #7f8c8d;
+    background-color: #475569;
 }
 
 /* 确保更多功能容器显示正确 */
@@ -4196,13 +4387,14 @@ noscript {
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
-    gap: 20px;
+    gap: 12px;
     margin-top: 10px;
-    padding: 10px;
-    background-color: #f8f9fa;
-    border-radius: 6px;
-    border: 1px solid #e9ecef;
+    padding: 12px;
+    background-color: #f8fafc;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
     width: 100%;
+    box-sizing: border-box;
     justify-content: flex-start;
 }
 
@@ -4212,11 +4404,11 @@ noscript {
 
 .input-container {
     position: relative;
-    background-color: #f8f9fa;
-    border: 1px solid #dee2e6;
+    background-color: #f8fafc;
+    border: 1px solid #d1d5db;
     border-radius: 8px;
     padding: 10px;
-    transition: all 0.3s ease;
+    transition: all 0.2s;
     max-height: 220px;
     overflow-y: auto;
 }
@@ -4226,8 +4418,8 @@ noscript {
 }
 
 .input-container:focus-within {
-    border-color: #3498db;
-    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
 }
 
 .drop-overlay {
@@ -4418,19 +4610,31 @@ noscript {
 }
 
 #sendButton {
-    background-color: #3498db;
+    background-color: #3b82f6;
     color: white;
 }
 
 #sendButton:hover:not(:disabled) {
-    background-color: #2980b9;
+    background-color: #2563eb;
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+}
+
+#sendPrivateMessage {
+    background-color: #3b82f6;
+    color: white;
+}
+
+#sendPrivateMessage:hover:not(:disabled) {
+    background-color: #2563eb;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
 }
 
 #imageUploadButton, #fileUploadButton {
-    background-color: #27ae60;
-    color: white;
+    background-color: #f1f5f9;
+    color: #475569;
+    border: 1px solid #d1d5db;
 }
 
 #imageUploadButton:hover:not(:disabled), #fileUploadButton:hover:not(:disabled) {
@@ -4446,14 +4650,14 @@ noscript {
 
 /* 更多按钮样式 */
 .more-button {
-    background-color: #95a5a6 !important;
+    background-color: #64748b !important;
     color: white;
 }
 
 .more-button:hover:not(:disabled) {
-    background-color: #7f8c8d !important;
+    background-color: #475569 !important;
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(149, 165, 166, 0.4);
+    box-shadow: 0 4px 12px rgba(100, 116, 139, 0.3);
 }
 
 /* 更多功能容器样式 */
@@ -4461,13 +4665,14 @@ noscript {
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
-    gap: 20px;
+    gap: 12px;
     margin-top: 10px;
-    padding: 10px;
-    background-color: #f8f9fa;
-    border-radius: 6px;
-    border: 1px solid #e9ecef;
+    padding: 12px;
+    background-color: #f8fafc;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
     width: 100%;
+    box-sizing: border-box;
     justify-content: flex-start;
 }
 
@@ -4478,31 +4683,31 @@ noscript {
 .more-functions button {
     margin: 5px 10px;
     padding: 8px 16px;
-    background-color: #3498db;
+    background-color: #64748b;
     color: white;
     border: none;
-    border-radius: 5px;
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 14px;
-    transition: all 0.3s ease;
+    font-size: 13px;
+    transition: all 0.2s;
 }
 
 .more-functions button:hover:not(:disabled) {
-    background-color: #2980b9;
+    background-color: #475569;
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4);
+    box-shadow: 0 4px 12px rgba(100, 116, 139, 0.3);
 }
 
 /* 发送群名片按钮样式 */
 #sendGroupCardButton, #sendGroupCardButtonGroup, #privateSendGroupCardButton {
-    background-color: #e67e22 !important;
+    background-color: #64748b !important;
     color: white;
 }
 
 #sendGroupCardButton:hover:not(:disabled), #sendGroupCardButtonGroup:hover:not(:disabled), #privateSendGroupCardButton:hover:not(:disabled) {
-    background-color: #d35400 !important;
+    background-color: #475569 !important;
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(230, 126, 34, 0.4);
+    box-shadow: 0 4px 12px rgba(100, 116, 139, 0.3);
 }
 
 /* 输入容器提升样式 */

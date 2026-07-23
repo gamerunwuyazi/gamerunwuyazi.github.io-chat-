@@ -116,7 +116,7 @@ export async function uploadGroupAvatar(req, res, next) {
     const avatarPath = `/avatars/${req.file.filename}`;
     
     // 清理该群组的旧头像文件
-    const avatarDir = path.join(__dirname, '..', '..', 'public', 'avatars');
+    const avatarDir = path.join(process.cwd(), 'public', 'avatars');
     const groupAvatarFiles = fs.readdirSync(avatarDir).filter(file => {
       return file.startsWith(`group_avatar_${groupId}.`);
     });
@@ -271,16 +271,16 @@ export async function createGroup(req, res) {
     const creatorNickname = creatorInfo[0]?.nickname || '用户';
     const createContentObj = { [String(userId)]: creatorNickname, action: 'create' };
     
-    // 如果有同时加入的成员，添加到消息内容
+    // 如果有同时加入的成员，otherNames 存储 id:昵称 键值对对象
     const otherMemberIds = allMemberIds.filter(id => id !== parseInt(userId));
     if (otherMemberIds.length > 0) {
       const [otherMembersInfo] = await pool.execute(
         `SELECT u.id, u.nickname FROM scr_users u WHERE u.id IN (${otherMemberIds.map(() => '?').join(',')})`,
         otherMemberIds
       );
-      createContentObj.otherNames = otherMembersInfo.map(m => m.nickname || '用户').join('、');
+      createContentObj.otherNames = {};
       otherMembersInfo.forEach(m => {
-        createContentObj[String(m.id)] = m.nickname || '用户';
+        createContentObj.otherNames[String(m.id)] = m.nickname || '用户';
       });
     }
     
@@ -342,7 +342,7 @@ export async function getUserGroups(req, res) {
     }
 
     const [groups] = await pool.execute(`
-      SELECT g.*, gm.remark as user_remark
+      SELECT g.*, gm.remark as user_remark, gm.is_disturb
       FROM scr_groups g
       JOIN scr_group_members gm ON g.id = gm.group_id
       WHERE gm.user_id = ? AND g.deleted_at IS NULL AND gm.deleted_at IS NULL
@@ -356,6 +356,103 @@ export async function getUserGroups(req, res) {
       creator_id: Number(group.creator_id),
       is_mute_all: Number(group.is_mute_all)
     }));
+
+    // 批量查询每个群组的最后一条消息（含发送者当前 group_nickname）
+    if (normalizedGroups.length > 0) {
+      const groupIds = normalizedGroups.map(g => g.id);
+      const placeholders = groupIds.map(() => '?').join(',');
+      const [lastMessages] = await pool.execute(`
+        SELECT m.group_id, m.content, m.message_type, gm.group_nickname
+        FROM scr_messages m
+        LEFT JOIN scr_group_members gm ON m.group_id = gm.group_id AND m.user_id = gm.user_id AND gm.deleted_at IS NULL
+        WHERE m.group_id IN (${placeholders})
+        AND m.message_type != 102
+        AND m.id = (
+          SELECT MAX(m2.id) FROM scr_messages m2
+          WHERE m2.group_id = m.group_id AND m2.message_type != 102
+        )
+      `, groupIds);
+
+      const lastMsgMap = {};
+      for (const msg of lastMessages) {
+        const msgGroupId = Number(msg.group_id);
+        // 如果 lastMessage 的发送者有群昵称则保存
+        const lastMsg = {
+          content: msg.content,
+          messageType: msg.message_type,
+          groupNickname: msg.group_nickname || null,
+        };
+
+        // 对 100+ 的消息，解析 content 中所有用户 ID 的昵称并替换为群昵称（有则替换，无则保留）
+        if (msg.message_type >= 100 && msg.content && typeof msg.content === 'string') {
+          try {
+            const parsed = JSON.parse(msg.content);
+            if (parsed && typeof parsed === 'object') {
+              // 收集数字 key：顶层 + 101 消息的 nickname 子对象
+              let numericKeys = Object.keys(parsed).filter(k => /^\d+$/.test(k));
+              // 101 撤回消息嵌套结构: {"id": X, "nickname": {"userId": "昵称"}}
+              if (msg.message_type === 101 && parsed.nickname && typeof parsed.nickname === 'object') {
+                numericKeys = numericKeys.concat(Object.keys(parsed.nickname).filter(k => /^\d+$/.test(k)));
+              }
+              if (numericKeys.length > 0) {
+                // 批量查询这些用户在群中的 group_nickname
+                const userIdPlaceholders = numericKeys.map(() => '?').join(',');
+                const [groupNicknames] = await pool.execute(`
+                  SELECT user_id, group_nickname
+                  FROM scr_group_members
+                  WHERE group_id = ? AND user_id IN (${userIdPlaceholders}) AND deleted_at IS NULL
+                `, [msgGroupId, ...numericKeys.map(Number)]);
+
+                const nicknameMap = {};
+                groupNicknames.forEach(row => {
+                  if (row.group_nickname) {
+                    nicknameMap[String(row.user_id)] = row.group_nickname;
+                  }
+                });
+
+                let updated = false;
+                // 替换顶层数字 key
+                for (const key of numericKeys) {
+                  if (nicknameMap[key] && typeof parsed[key] === 'string' && parsed[key] !== nicknameMap[key]) {
+                    parsed[key] = nicknameMap[key];
+                    updated = true;
+                  }
+                }
+                // 替换 101 消息 nickname 子对象中的数字 key
+                if (msg.message_type === 101 && parsed.nickname && typeof parsed.nickname === 'object') {
+                  for (const key of Object.keys(parsed.nickname).filter(k => /^\d+$/.test(k))) {
+                    if (nicknameMap[key] && typeof parsed.nickname[key] === 'string' && parsed.nickname[key] !== nicknameMap[key]) {
+                      parsed.nickname[key] = nicknameMap[key];
+                      updated = true;
+                    }
+                  }
+                  // 还要更新顶层数字 key（101 消息有时也直接在顶层存 key）
+                  for (const key of Object.keys(parsed).filter(k => /^\d+$/.test(k))) {
+                    if (nicknameMap[key] && typeof parsed[key] === 'string' && parsed[key] !== nicknameMap[key]) {
+                      parsed[key] = nicknameMap[key];
+                      updated = true;
+                    }
+                  }
+                }
+                if (updated) {
+                  lastMsg.content = JSON.stringify(parsed);
+                }
+              }
+            }
+          } catch (e) {
+            // JSON 解析失败，保持原内容
+          }
+        }
+
+        lastMsgMap[msgGroupId] = lastMsg;
+      }
+
+      normalizedGroups.forEach(group => {
+        if (lastMsgMap[group.id]) {
+          group.lastMessage = lastMsgMap[group.id];
+        }
+      });
+    }
 
     const responseData = {
       status: 'success',
@@ -1190,7 +1287,7 @@ export async function dissolveGroup(req, res) {
         try {
           // 去掉 URL 中的 ?v= 参数，并构建正确的文件路径
           const avatarPathWithoutVersion = groupAvatarUrl.split('?')[0];
-          const fullAvatarPath = path.join(__dirname, '..', '..', 'public', avatarPathWithoutVersion);
+          const fullAvatarPath = path.join(process.cwd(), 'public', avatarPathWithoutVersion);
           if (fs.existsSync(fullAvatarPath)) {
             fs.unlinkSync(fullAvatarPath);
           }
@@ -1883,5 +1980,54 @@ export async function getGroupEncryptionPublicKeys(req, res) {
   } catch (err) {
     console.error('获取群成员公钥失败:', err.message);
     res.status(500).json({ status: 'error', message: '获取群成员公钥失败' });
+  }
+}
+
+export async function handleSetGroupDisturb(req, res) {
+  try {
+    const userId = parseInt(req.userId);
+    const { groupId, isDisturb } = req.body;
+
+    if (!groupId) {
+      return res.status(400).json({ status: 'error', message: '群组ID不能为空' });
+    }
+
+    if (typeof isDisturb !== 'boolean') {
+      return res.status(400).json({ status: 'error', message: 'isDisturb必须是布尔值' });
+    }
+
+    const [result] = await pool.execute(
+      'UPDATE scr_group_members SET is_disturb = ? WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+      [isDisturb ? 1 : 0, groupId, userId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ status: 'error', message: '未找到该群组成员记录' });
+    }
+
+    // 取消免打扰时，设置用户的该群组最后已读消息id为当前群组最大消息id
+    if (!isDisturb) {
+      try {
+        const [maxRows] = await pool.execute(
+          'SELECT MAX(id) as maxId FROM scr_messages WHERE group_id = ?',
+          [groupId]
+        );
+        const maxMessageId = maxRows[0]?.maxId || 0;
+        if (maxMessageId > 0) {
+          await redisClient.set(`scr:read:group:${groupId}:${userId}`, String(maxMessageId));
+        }
+      } catch (e) {
+        console.error('设置群组最后已读消息id失败:', e.message);
+      }
+    }
+
+    res.json({
+      status: 'success',
+      message: isDisturb ? '已开启免打扰' : '已关闭免打扰',
+      is_disturb: isDisturb ? 1 : 0
+    });
+  } catch (err) {
+    console.error('设置群组免打扰失败:', err.message);
+    res.status(500).json({ status: 'error', message: '设置群组免打扰失败' });
   }
 }
