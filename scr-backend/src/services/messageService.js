@@ -8,6 +8,17 @@ let io = null;
 let getAllOnlineUsersFn = null;
 let isAuthenticatedUserFn = null;
 
+function normalizeEncryptionFields({ isEncrypted, encryptedContent, encryptionMetadata, content }) {
+  const encrypted = isEncrypted === true || isEncrypted === 1 || isEncrypted === '1' || isEncrypted === 'true';
+  const cipherText = encrypted ? (encryptedContent || content) : null;
+  return {
+    isEncrypted: encrypted,
+    encryptedContent: cipherText,
+    encryptionMetadata: encrypted && encryptionMetadata !== undefined ? encryptionMetadata : null,
+    content: encrypted ? cipherText : content
+  };
+}
+
 export function setSocketDependencies(socketIo, getOnlineUsersFn, authUserFn) {
   io = socketIo;
   getAllOnlineUsersFn = getOnlineUsersFn;
@@ -39,11 +50,15 @@ async function isGroupAdmin(groupId, userId) {
 
 export async function getGlobalMessages(limit = 50, olderThan = null, userId = null) {
   try {
-    let query = 'SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl,'
-      + 'm.content, m.at_userid, m.message_type as messageType, m.group_id as groupId, m.timestamp'
-      + ' FROM scr_messages m'
-      + ' JOIN scr_users u ON m.user_id = u.id'
-      + ' WHERE m.group_id IS NULL';
+    let query = `
+      SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl,
+             m.content, m.is_encrypted as isEncrypted, m.encrypted_content as encryptedContent,
+             m.encryption_metadata as encryptionMetadata,
+             m.at_userid, m.message_type as messageType, m.group_id as groupId, m.timestamp
+      FROM scr_messages m
+      JOIN scr_users u ON m.user_id = u.id
+      WHERE m.group_id IS NULL
+    `;
 
     const params = [];
 
@@ -103,6 +118,9 @@ export async function getGlobalMessages(limit = 50, olderThan = null, userId = n
         nickname: msg.nickname,
         avatarUrl: msg.avatarUrl,
         content: msg.content,
+        isEncrypted: Boolean(msg.isEncrypted),
+        encryptedContent: msg.encryptedContent,
+        encryptionMetadata: msg.encryptionMetadata,
         at_userid: atUserIds,
         messageType: msg.messageType,
         groupId: msg.groupId !== null && msg.groupId !== undefined ? parseInt(msg.groupId) : null,
@@ -164,13 +182,17 @@ export async function getGroupMessages(groupId, limit = 50, olderThan = null, us
       safeLimit = 20;
     }
 
-    let query = 'SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl,'
-      + 'm.content, m.at_userid, m.message_type as messageType, m.group_id as groupId, m.timestamp,'
-      + 'gm.group_nickname as groupNickname'
-      + ' FROM scr_messages m'
-      + ' JOIN scr_users u ON m.user_id = u.id'
-      + ' LEFT JOIN scr_group_members gm ON m.user_id = gm.user_id AND m.group_id = gm.group_id AND gm.deleted_at IS NULL'
-      + ' WHERE m.group_id = ?';
+    let query = `
+      SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl,
+             m.content, m.is_encrypted as isEncrypted, m.encrypted_content as encryptedContent,
+             m.encryption_metadata as encryptionMetadata,
+             m.at_userid, m.message_type as messageType, m.group_id as groupId, m.timestamp,
+             gm.group_nickname as groupNickname
+      FROM scr_messages m
+      JOIN scr_users u ON m.user_id = u.id
+      LEFT JOIN scr_group_members gm ON m.user_id = gm.user_id AND m.group_id = gm.group_id AND gm.deleted_at IS NULL
+      WHERE m.group_id = ?
+    `;
     const params = [safeGroupId];
 
     const isOlderThanValid = olderThan !== null && olderThan !== undefined && olderThan !== '' && olderThan !== 0 && String(olderThan).trim() !== '';
@@ -234,6 +256,9 @@ export async function getGroupMessages(groupId, limit = 50, olderThan = null, us
         nickname: msg.nickname,
         avatarUrl: msg.avatarUrl,
         content: msg.content,
+        isEncrypted: Boolean(msg.isEncrypted),
+        encryptedContent: msg.encryptedContent,
+        encryptionMetadata: msg.encryptionMetadata,
         at_userid: atUserIds,
         messageType: msg.messageType,
         groupId: msg.groupId !== null && msg.groupId !== undefined ? parseInt(msg.groupId) : null,
@@ -290,7 +315,7 @@ export async function getGroupMessages(groupId, limit = 50, olderThan = null, us
 
 export async function sendMessage(req, res) {
   try {
-    const { content, groupId, at_userid } = req.body;
+    const { content, groupId, at_userid, isEncrypted, encryptedContent, encryptionMetadata } = req.body;
     const userId = req.userId;
 
     const rateLimitResult = await checkRateLimit(userId);
@@ -319,10 +344,11 @@ export async function sendMessage(req, res) {
     }
 
     const user = users[0];
+    const encryptionFields = normalizeEncryptionFields({ isEncrypted, encryptedContent, encryptionMetadata, content });
 
     const [result] = await pool.execute(
-        'INSERT INTO scr_messages (user_id, content, at_userid, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
-        [userId, content, at_userid ? JSON.stringify(at_userid) : null, groupId || null]
+        'INSERT INTO scr_messages (user_id, content, is_encrypted, encrypted_content, encryption_metadata, at_userid, group_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
+        [userId, encryptionFields.content, encryptionFields.isEncrypted ? 1 : 0, encryptionFields.encryptedContent, encryptionFields.encryptionMetadata ? JSON.stringify(encryptionFields.encryptionMetadata) : null, at_userid ? JSON.stringify(at_userid) : null, groupId || null]
     );
 
     const rawMessage = {
@@ -330,7 +356,10 @@ export async function sendMessage(req, res) {
       userId,
       nickname: user.nickname,
       avatarUrl: user.avatar_url,
-      content: content,
+      content: encryptionFields.content,
+      isEncrypted: encryptionFields.isEncrypted,
+      encryptedContent: encryptionFields.encryptedContent,
+      encryptionMetadata: encryptionFields.encryptionMetadata,
       atUserid: at_userid,
       messageType: 0,
       groupId: groupId || null,
@@ -383,7 +412,10 @@ export async function getOfflineMessages(req, res) {
         m.user_id as userId, 
         u.nickname, 
         u.avatar_url as avatarUrl, 
-        m.content, 
+        m.content,
+        m.is_encrypted as isEncrypted,
+        m.encrypted_content as encryptedContent,
+        m.encryption_metadata as encryptionMetadata,
         m.at_userid as atUserid,
         m.message_type as messageType, 
         m.timestamp,
@@ -437,7 +469,10 @@ export async function getOfflineMessages(req, res) {
             m.user_id as userId, 
             u.nickname, 
             u.avatar_url as avatarUrl, 
-            m.content, 
+            m.content,
+            m.is_encrypted as isEncrypted,
+            m.encrypted_content as encryptedContent,
+            m.encryption_metadata as encryptionMetadata,
             m.at_userid as atUserid,
             m.message_type as messageType, 
             m.timestamp,
@@ -480,6 +515,9 @@ export async function getOfflineMessages(req, res) {
         p.sender_id as senderId,
         p.receiver_id as receiverId,
         p.content,
+        p.is_encrypted as isEncrypted,
+        p.encrypted_content as encryptedContent,
+        p.encryption_metadata as encryptionMetadata,
         p.at_userid as atUserid,
         p.message_type as messageType,
         p.is_read as isRead,
@@ -500,6 +538,7 @@ export async function getOfflineMessages(req, res) {
     `, [userId, userId, userId, userId, threeMonthsAgo, privateMinId, privateLimit]);
 
     const processRecallMessage = (msg) => {
+      msg.isEncrypted = Boolean(msg.isEncrypted);
       if (msg.messageType === 101) {
         if (msg.type === 'group' && msg.groupId) {
           try {

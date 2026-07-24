@@ -22,7 +22,7 @@ export default [
     },
     rules: {
       'no-undef': 'error',
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
       'no-redeclare': 'error',
       'prefer-const': 'warn',
       'no-var': 'error'

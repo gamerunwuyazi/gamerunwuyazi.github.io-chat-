@@ -26,6 +26,18 @@ export function filterMessageFields(message, messageType) {
     timestampISO: timestampISO
   };
 
+  if (message.isEncrypted !== undefined) {
+    baseFields.isEncrypted = Boolean(message.isEncrypted);
+  }
+
+  if (message.encryptedContent !== undefined && message.encryptedContent !== null) {
+    baseFields.encryptedContent = message.encryptedContent;
+  }
+
+  if (message.encryptionMetadata !== undefined && message.encryptionMetadata !== null) {
+    baseFields.encryptionMetadata = message.encryptionMetadata;
+  }
+
   function processAtUserid(atUseridValue) {
     if (atUseridValue === undefined || atUseridValue === null) return null;
 

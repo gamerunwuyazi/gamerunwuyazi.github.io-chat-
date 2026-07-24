@@ -99,8 +99,8 @@ export function updateGender(gender) {
 /**
  * 修改密码
  */
-export function changePassword(oldPassword, newPassword, sessionId, nonce) {
- return request.post('/api/user/change-password', { oldPassword, newPassword, sessionId, nonce });
+export function changePassword(oldPassword, newPassword, sessionId, nonce, encryptionPrivateKeyBackup) {
+ return request.post('/api/user/change-password', { oldPassword, newPassword, sessionId, nonce, encryptionPrivateKeyBackup });
 }
 
 /**

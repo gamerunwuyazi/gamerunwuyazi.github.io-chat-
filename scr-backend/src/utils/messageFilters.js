@@ -47,6 +47,18 @@ export function filterMessageFields(message, messageType) {
     timestampISO: timestampISO
   };
 
+  if (message.isEncrypted !== undefined) {
+    baseFields.isEncrypted = Boolean(message.isEncrypted);
+  }
+
+  if (message.encryptedContent !== undefined && message.encryptedContent !== null) {
+    baseFields.encryptedContent = message.encryptedContent;
+  }
+
+  if (message.encryptionMetadata !== undefined && message.encryptionMetadata !== null) {
+    baseFields.encryptionMetadata = message.encryptionMetadata;
+  }
+
   // 如果有群昵称，作为独立字段传递（不覆盖 nickname）
   if (message.groupNickname) {
     baseFields.groupNickname = message.groupNickname;

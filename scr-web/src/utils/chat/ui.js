@@ -11,7 +11,7 @@ import {
   toggleGroupMute 
 } from './group.js';
 import { loadFriendsList, showUserAvatarPopup } from './private.js';
-import { navigateTo, getRouter } from './routerInstance.js';
+import { getRouter, navigateTo } from './routerInstance.js';
 import {
   useBaseStore,
   useUserStore,
@@ -58,6 +58,7 @@ function logout() {
   localStorage.removeItem('currentSessionToken');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('chatUserId');
+  localStorage.removeItem('chatUsername');
   localStorage.removeItem('nickname');
   localStorage.removeItem('sessionToken');
   localStorage.removeItem('chatSessionToken');

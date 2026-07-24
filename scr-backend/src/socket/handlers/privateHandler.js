@@ -2,12 +2,34 @@ import { SocketEvents } from '../events.js';
 import path from 'path';
 import fs from 'fs';
 
+function normalizeEncryptionFields({ isEncrypted, encrypted, encryptedContent, encryptionMetadata, encryption, content }) {
+  const encryptedFlag = isEncrypted ?? encrypted;
+  const isEncryptedMessage = encryptedFlag === true || encryptedFlag === 1 || encryptedFlag === '1' || encryptedFlag === 'true';
+  const metadata = encryptionMetadata ?? encryption;
+  const cipherText = isEncryptedMessage ? (encryptedContent || content) : null;
+  return {
+    isEncrypted: isEncryptedMessage,
+    encryptedContent: cipherText,
+    encryptionMetadata: isEncryptedMessage && metadata !== undefined ? metadata : null,
+    content: isEncryptedMessage ? cipherText : content
+  };
+}
+
 export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, validateMessageContent, filterMessageFields, getAllOnlineUsers }) {
   
   // 发送私信
   socket.on(SocketEvents.SEND_PRIVATE_MESSAGE, async (messageData) => {
     try {
       const { userId, content, receiverId, sessionToken, at_userid } = messageData;
+      const encryptionFields = normalizeEncryptionFields({
+        isEncrypted: messageData.isEncrypted,
+        encrypted: messageData.encrypted,
+        encryptedContent: messageData.encryptedContent,
+        encryptionMetadata: messageData.encryptionMetadata,
+        encryption: messageData.encryption,
+        content
+      });
+      const contentForValidation = encryptionFields.content;
 
       // 速率限制检查
       const rateLimitResult = await checkRateLimit(userId);
@@ -25,12 +47,12 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
       }
 
       // 验证消息内容
-      if (!validateMessageContent(content)) {
+      if (!validateMessageContent(contentForValidation)) {
         socket.emit(SocketEvents.PRIVATE_MESSAGE_SENT, {
           success: false,
           error: {
             code: 'INVALID_CONTENT',
-            message: '消息内容格式错误或超过 10000 字符限制'
+            message: '消息内容格式错误或超过 50000 字符限制'
           }
         });
         return;
@@ -111,7 +133,7 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
       }
 
       // 不进行严格转义，保持原始内容格式，让前端处理安全的解析和链接显示
-      const cleanContent = content;
+      const cleanContent = contentForValidation;
 
       // 获取当前精确时间戳（毫秒级和ISO格式）
       const now = new Date();
@@ -121,11 +143,11 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
       // 插入私信到数据库
       const messageType = messageData.message_type || messageData.messageType || 0;
       
-      const messageContent = cleanContent;
+      const messageContent = encryptionFields.content;
       
       const [result] = await pool.execute(
-          'INSERT INTO scr_private_messages (sender_id, receiver_id, content, at_userid, message_type, is_read, timestamp) VALUES (?, ?, ?, ?, ?, 0, NOW())',
-          [userId, receiverId, messageContent, at_userid ? JSON.stringify(at_userid) : null, messageType]
+          'INSERT INTO scr_private_messages (sender_id, receiver_id, content, is_encrypted, encrypted_content, encryption_metadata, at_userid, message_type, is_read, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())',
+          [userId, receiverId, messageContent, encryptionFields.isEncrypted ? 1 : 0, encryptionFields.encryptedContent, encryptionFields.encryptionMetadata ? JSON.stringify(encryptionFields.encryptionMetadata) : null, at_userid ? JSON.stringify(at_userid) : null, messageType]
       );
 
       // 构建私信消息对象
@@ -137,6 +159,9 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
         senderId: userId,
         receiverId: parseInt(receiverId),
         content: messageContent,
+        isEncrypted: encryptionFields.isEncrypted,
+        encryptedContent: encryptionFields.encryptedContent,
+        encryptionMetadata: encryptionFields.encryptionMetadata,
         messageType: messageType,
         isRead: 0,
         timestamp: timestampMs,
@@ -224,8 +249,11 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
         // 有文件需要删除
         const fileUrl = contentData.url;
         const filePath = path.join(process.cwd(), 'public', fileUrl);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
+        try {
+          await fs.promises.access(filePath);
+          await fs.promises.unlink(filePath);
+        } catch (fileErr) {
+          if (fileErr.code !== 'ENOENT') throw fileErr;
         }
       }
       

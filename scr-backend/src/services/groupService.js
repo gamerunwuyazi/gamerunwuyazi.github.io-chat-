@@ -1687,17 +1687,47 @@ export async function setMuteAll(req, res) {
       [isMuteAll ? 1 : 0, groupId]
     );
 
-    // 向所有群组成员广播全员禁言状态变更事件
+    const now = new Date();
+    const [operatorInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
+      [userId]
+    );
+    const operatorNickname = operatorInfo[0]?.nickname || '管理员';
+    const noticeContent = JSON.stringify({
+      [String(userId)]: operatorNickname,
+      content: isMuteAll ? '已开启全员禁言，只有群主和管理员可以发言' : '已关闭全员禁言，所有成员都可以发言',
+      action: isMuteAll ? 'mute_all_on' : 'mute_all_off'
+    });
+    const [insertResult] = await pool.execute(
+      'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      [userId, noticeContent, 100, groupId]
+    );
+    const rawType100Message = {
+      id: insertResult.insertId,
+      userId: userId,
+      nickname: operatorNickname,
+      avatarUrl: operatorInfo[0]?.avatar_url || '',
+      content: noticeContent,
+      messageType: 100,
+      groupId: groupId,
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+    const noticeMessage = filterMessageFields(rawType100Message, 'group');
+
+    // 向所有群组成员广播全员禁言状态变更事件和群内提示
     io.to(`group_${groupId}`).emit('mute-all-changed', {
       groupId: groupId,
       isMuteAll: isMuteAll,
       operatedBy: userId
     });
+    io.to(`group_${groupId}`).emit('message-received', noticeMessage);
 
     res.json({
       status: 'success',
       message: isMuteAll ? '已开启全员禁言' : '已关闭全员禁言',
-      isMuteAll: isMuteAll
+      isMuteAll: isMuteAll,
+      noticeMessage
     });
   } catch (err) {
     console.error('设置全员禁言失败:', err.message);
@@ -1750,7 +1780,7 @@ export async function getMuteStatus(req, res) {
             if (diffMs > 0) {
               // 未过期，返回禁言状态和截止时间
               isMuted = true;
-              mutedUntil = m.is_muted;
+              mutedUntil = mutedValue;
             }
             // 已过期的不设置 isMuted，相当于自动解除禁言
           }
@@ -1938,6 +1968,49 @@ export async function getGroupNickname(req, res) {
   } catch (err) {
     console.error('获取群昵称失败:', err.message);
     res.status(500).json({ status: 'error', message: '获取群昵称失败' });
+  }
+}
+
+export async function getGroupEncryptionPublicKeys(req, res) {
+  try {
+    const userId = parseInt(req.userId);
+    const groupId = parseInt(req.params.groupId);
+
+    if (!userId) {
+      return res.status(401).json({ status: 'error', message: '未授权访问' });
+    }
+
+    if (!groupId || isNaN(groupId)) {
+      return res.status(400).json({ status: 'error', message: '群组ID无效' });
+    }
+
+    const [memberCheck] = await pool.execute(
+      'SELECT id FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+      [groupId, userId]
+    );
+
+    if (memberCheck.length === 0) {
+      return res.status(403).json({ status: 'error', message: '您不是该群组成员，无法获取群成员公钥' });
+    }
+
+    const [members] = await pool.execute(`
+      SELECT u.id, u.encryption_public_key
+      FROM scr_group_members gm
+      JOIN scr_users u ON gm.user_id = u.id
+      WHERE gm.group_id = ? AND gm.deleted_at IS NULL
+    `, [groupId]);
+
+    res.json({
+      status: 'success',
+      groupId: groupId,
+      publicKeys: members.map(member => ({
+        userId: Number(member.id),
+        encryptionPublicKey: member.encryption_public_key
+      }))
+    });
+  } catch (err) {
+    console.error('获取群成员公钥失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取群成员公钥失败' });
   }
 }
 

@@ -10,6 +10,7 @@ import { pool, redisClient } from './models/database.js';
 import { validateIPAndSession, isIPBanned, isUserBanned, getUserSession, checkRateLimit } from './middleware/auth.js';
 import { notFoundHandler, globalErrorHandler } from './middleware/errorHandler.js';
 import { setupAllRoutes } from './routes/index.js';
+import { initAdminRoutes } from './routes/admin.js';
 import { setupSocketIO } from './socket/index.js';
 import { setSocketDependencies as setGroupDeps, isGroupAdmin } from './services/groupService.js';
 import { setSocketDependencies as setMessageDeps, getGlobalMessages, getGroupMessages } from './services/messageService.js';
@@ -168,6 +169,8 @@ async function initializeDatabase() {
         nickname VARCHAR(255) NOT NULL,
         gender TINYINT DEFAULT 0 COMMENT '性别：0=保密，1=男，2=女',
         signature VARCHAR(500) DEFAULT NULL COMMENT '用户个性签名',
+        encryption_public_key TEXT DEFAULT NULL COMMENT '端到端加密公钥',
+        encryption_private_key_backup LONGTEXT DEFAULT NULL COMMENT '密码派生密钥加密后的端到端私钥备份',
         avatar_url VARCHAR(500) DEFAULT NULL,
         last_online TIMESTAMP NULL DEFAULT NULL,
         created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
@@ -178,6 +181,32 @@ async function initializeDatabase() {
         INDEX idx_users_friend_verification (friend_verification)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    const [userColumns] = await pool.execute(`
+      SELECT COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'scr_users' AND COLUMN_NAME = 'encryption_public_key'
+    `);
+
+    if (userColumns.length === 0) {
+      await pool.execute(`
+        ALTER TABLE scr_users
+        ADD COLUMN encryption_public_key TEXT DEFAULT NULL COMMENT '端到端加密公钥'
+      `);
+    }
+
+    const [privateKeyBackupColumns] = await pool.execute(`
+      SELECT COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'scr_users' AND COLUMN_NAME = 'encryption_private_key_backup'
+    `);
+
+    if (privateKeyBackupColumns.length === 0) {
+      await pool.execute(`
+        ALTER TABLE scr_users
+        ADD COLUMN encryption_private_key_backup LONGTEXT DEFAULT NULL COMMENT '密码派生密钥加密后的端到端私钥备份'
+      `);
+    }
 
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS scr_file_request_logs (
@@ -275,7 +304,10 @@ async function initializeDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         content TEXT,
-        message_type INT NOT NULL DEFAULT 0 COMMENT '0代表文字，1代表图片，2代表文件',
+        is_encrypted TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为端到端加密消息',
+        encrypted_content LONGTEXT DEFAULT NULL COMMENT '端到端加密密文内容',
+        encryption_metadata JSON DEFAULT NULL COMMENT '端到端加密元数据',
+        message_type INT NOT NULL DEFAULT 0 COMMENT '0代表文字，1代表图片，2代表文件，4代表引用消息',
         group_id INT DEFAULT NULL,
         timestamp TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
         at_userid TEXT,
@@ -285,6 +317,26 @@ async function initializeDatabase() {
         FOREIGN KEY (user_id) REFERENCES scr_users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    const messageEncryptionColumns = [
+      { name: 'is_encrypted', definition: "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为端到端加密消息'" },
+      { name: 'encrypted_content', definition: "LONGTEXT DEFAULT NULL COMMENT '端到端加密密文内容'" },
+      { name: 'encryption_metadata', definition: "JSON DEFAULT NULL COMMENT '端到端加密元数据'" }
+    ];
+
+    for (const tableName of ['scr_private_messages', 'scr_messages']) {
+      for (const column of messageEncryptionColumns) {
+        const [columns] = await pool.execute(`
+          SELECT COLUMN_NAME
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+        `, [tableName, column.name]);
+
+        if (columns.length === 0) {
+          await pool.execute(`ALTER TABLE ${tableName} ADD COLUMN ${column.name} ${column.definition}`);
+        }
+      }
+    }
 
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS scr_group_members (
@@ -476,6 +528,7 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
     cleanupExpiredSessions();
 
     await initializeDatabase();
+    await initAdminRoutes();
     await syncBannedIPsToRedis();
 
     await redisClient.del('scr:online_users');

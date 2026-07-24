@@ -99,7 +99,7 @@ import { useRouter } from 'vue-router';
 
 import { login } from '@/utils/chat';
 import { checkUsername, register, autoLogin as apiLogin } from '@/api/user.js';
-import { humanVerify } from 'human-verify';
+import { runHumanVerify } from '@/utils/humanVerify.js';
 
 const loginNotice = import.meta.env.VITE_LOGIN_NOTICE || '';
 const noticeColor = import.meta.env.VITE_LOGIN_NOTICE_COLOR || '';
@@ -328,7 +328,7 @@ async function doRegisterRequest() {
   captchaStatus.value = '准备验证...';
 
   try {
-    verifyResult = await humanVerify({
+    verifyResult = await runHumanVerify({
       challengeUrl: `${serverUrl}/api/verify/challenge`,
       powChallengeUrl: `${serverUrl}/api/verify/pow-challenge`,
       onProgress: (progress, status) => {
@@ -341,7 +341,7 @@ async function doRegisterRequest() {
     captchaVisible.value = false;
   } catch (err) {
     console.error('人机验证出错:', err);
-    showMessage('人机验证失败，请重试', 'error');
+    showMessage(err.message || '人机验证失败，请重试', 'error');
     isSubmitting.value = false;
     return;
   }
@@ -389,6 +389,14 @@ async function doRegisterRequest() {
 
     localStorage.setItem('currentSessionToken', sessionToken);
     localStorage.setItem('chatUserId', userData.id);
+    localStorage.setItem('chatUsername', formData.username);
+
+    window.__scrLoginEncryptionOptions = {
+      username: formData.username,
+      password: formData.password,
+      privateKeyBackup: loginData.encryptionPrivateKeyBackup || loginData.encryption_private_key_backup,
+      publicKey: loginData.encryptionPublicKey || loginData.encryption_public_key
+    };
 
     if (refreshToken) {
       localStorage.setItem('refreshToken', refreshToken);

@@ -1,5 +1,13 @@
 import { toast } from './config.js';
 import {
+  encryptMessageForRecipients,
+  ensureLocalIdentityKey,
+  fetchGroupChatPublicKeys,
+  fetchPrivateChatPublicKeys,
+  getCachedSessionPublicKeys,
+  publishLocalPublicKey
+} from './encryption.js';
+import {
   useBaseStore,
   useSessionStore,
   useDraftStore,
@@ -21,6 +29,49 @@ export function unescapeHtml(html) {
   const text = document.createElement('textarea');
   text.innerHTML = html;
   return text.value;
+}
+
+
+async function withCurrentUserPublicKey(publicKeys, currentUser, currentSessionToken) {
+  const userId = String(currentUser.id);
+  if (publicKeys[userId]) return publicKeys;
+
+  const identity = await ensureLocalIdentityKey(userId);
+  await publishLocalPublicKey(userId, currentSessionToken).catch(error => {
+    console.error('上传本人加密公钥失败:', error);
+  });
+
+  return {
+    ...publicKeys,
+    [userId]: identity.publicKey
+  };
+}
+
+async function getPrivateMessageEncryptionPayload(content, currentUser, currentSessionToken, receiverId) {
+  const publicKeys = await withCurrentUserPublicKey({
+    ...(await getCachedSessionPublicKeys(String(currentUser.id), 'private', String(receiverId))),
+    ...(await fetchPrivateChatPublicKeys(String(currentUser.id), currentSessionToken, String(receiverId)))
+  }, currentUser, currentSessionToken);
+  if (!publicKeys[String(receiverId)]) {
+    throw new Error('缺少私聊对象加密公钥');
+  }
+  return encryptMessageForRecipients(content, publicKeys, {
+    currentUserId: currentUser.id,
+    sessionType: 'private',
+    sessionId: receiverId
+  });
+}
+
+async function getGroupMessageEncryptionPayload(content, currentUser, currentSessionToken, groupId) {
+  const publicKeys = await withCurrentUserPublicKey({
+    ...(await getCachedSessionPublicKeys(String(currentUser.id), 'group', String(groupId))),
+    ...(await fetchGroupChatPublicKeys(String(currentUser.id), currentSessionToken, String(groupId)))
+  }, currentUser, currentSessionToken);
+  return encryptMessageForRecipients(content, publicKeys, {
+    currentUserId: currentUser.id,
+    sessionType: 'group',
+    sessionId: groupId
+  });
 }
 
 function setCursorToEnd(element) {
@@ -63,6 +114,8 @@ export function clearContentEditable(element) {
     }
   }
 }
+
+
 
 export function sendMessage() {
   const messageInput = document.getElementById('messageInput');
@@ -209,7 +262,7 @@ export function sendMessage() {
   }
 }
 
-export function sendGroupMessage() {
+export async function sendGroupMessage() {
   const sessionStore = useSessionStore();
   const baseStore = useBaseStore();
   const draftStore = useDraftStore();
@@ -291,9 +344,22 @@ export function sendGroupMessage() {
       });
     }
     
+    let encryptionPayload;
+    try {
+      encryptionPayload = await getGroupMessageEncryptionPayload(messageContent, currentUser, currentSessionToken, currentGroupId);
+    } catch (error) {
+      console.error('群聊消息加密失败:', error);
+      toast.error(error.message || '消息加密失败，无法发送');
+      return;
+    }
+
+    const { ciphertext, ...encryptionMetadataPayload } = encryptionPayload;
     const messageData = {
       groupId: Number(currentGroupId),
-      content: messageContent,
+      content: encryptionPayload.ciphertext,
+      encrypted: true,
+      encryption: encryptionMetadataPayload,
+      encryptionMetadata: encryptionMetadataPayload,
       sessionToken: currentSessionToken,
       userId: Number(currentUser.id),
       at_userid: atUserIds.map(id => Number(id))
@@ -377,7 +443,7 @@ export function sendGroupMessage() {
   }
 }
 
-export function sendPrivateMessage() {
+export async function sendPrivateMessage() {
   const baseStore = useBaseStore();
   const sessionStore = useSessionStore();
   const draftStore = useDraftStore();
@@ -444,9 +510,22 @@ export function sendPrivateMessage() {
     });
   }
   
+  let encryptionPayload;
+  try {
+    encryptionPayload = await getPrivateMessageEncryptionPayload(messageContent, currentUser, currentSessionToken, currentPrivateChatUserId);
+  } catch (error) {
+    console.error('私聊消息加密失败:', error);
+    toast.error(error.message || '消息加密失败，无法发送');
+    return;
+  }
+
+  const { ciphertext, ...encryptionMetadataPayload } = encryptionPayload;
   const messageData = {
     userId: currentUser.id,
-    content: messageContent,
+    content: encryptionPayload.ciphertext,
+    encrypted: true,
+    encryption: encryptionMetadataPayload,
+    encryptionMetadata: encryptionMetadataPayload,
     receiverId: currentPrivateChatUserId,
     sessionToken: currentSessionToken,
     at_userid: atUserIds

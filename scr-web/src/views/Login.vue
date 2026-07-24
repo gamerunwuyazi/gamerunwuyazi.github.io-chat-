@@ -67,7 +67,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
-import { humanVerify } from 'human-verify';
+import { runHumanVerify } from '@/utils/humanVerify.js';
 import { login } from "@/utils/chat";
 import { login as apiLogin } from '@/api/user.js';
 
@@ -145,7 +145,7 @@ async function handleLoginClick() {
 
  try {
   // 人机验证（函数模式）
-  const verifyResult = await humanVerify({
+  const verifyResult = await runHumanVerify({
     challengeUrl: `${serverUrl}/api/verify/challenge`,
     powChallengeUrl: `${serverUrl}/api/verify/pow-challenge`,
     powVerifyUrl: `${serverUrl}/api/login`,
@@ -194,6 +194,14 @@ async function handleLoginClick() {
 
   localStorage.setItem('currentSessionToken', sessionToken);
   localStorage.setItem('chatUserId', userData.id);
+  localStorage.setItem('chatUsername', formData.username);
+
+  window.__scrLoginEncryptionOptions = {
+    username: formData.username,
+    password: formData.password,
+    privateKeyBackup: data.encryptionPrivateKeyBackup || data.encryption_private_key_backup,
+    publicKey: data.encryptionPublicKey || data.encryption_public_key
+  };
 
   if (refreshToken) {
     localStorage.setItem('refreshToken', refreshToken);
@@ -204,7 +212,9 @@ async function handleLoginClick() {
     login();
   }, 500);
  } catch (error) {
-  let errorMessage = error.response?.data?.message || error.response?.data?.msg || error.message || '登录失败';
+  captchaVisible.value = false;
+  const responseData = error.response?.data;
+  let errorMessage = responseData?.message || responseData?.msg || (typeof responseData === 'string' ? responseData : '') || error.message || '登录失败';
   if (error.response?.status === 401 || errorMessage.includes('用户名') || errorMessage.includes('密码')) {
     showMessage(errorMessage, 'error');
     isSubmitting.value = false;

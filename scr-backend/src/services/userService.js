@@ -202,7 +202,7 @@ export async function login(req, res) {
       let users;
       try {
         const [rows] = await pool.execute(
-          'SELECT id, username, password, nickname, gender, avatar_url FROM scr_users WHERE username = ?',
+          'SELECT id, username, password, nickname, gender, avatar_url, encryption_public_key, encryption_private_key_backup FROM scr_users WHERE username = ?',
           [username]
         );
         users = rows;
@@ -280,6 +280,8 @@ export async function login(req, res) {
           gender: user.gender,
           avatar_url: user.avatar_url
         },
+        encryptionPublicKey: user.encryption_public_key,
+        encryptionPrivateKeyBackup: user.encryption_private_key_backup ? JSON.parse(user.encryption_private_key_backup) : null,
         ...session
       });
       return;
@@ -461,7 +463,7 @@ export async function changePassword(req, res) {
   try {
     const userId = req.userId;
     const clientIP = getClientIP(req);
-    const { oldPassword, newPassword, sessionId, nonce } = req.body;
+    const { oldPassword, newPassword, sessionId, nonce, encryptionPrivateKeyBackup } = req.body;
 
     if (!oldPassword || !newPassword || !sessionId || !nonce) {
       return res.status(400).json({ status: 'error', message: '缺少必要参数' });
@@ -493,15 +495,105 @@ export async function changePassword(req, res) {
     }
 
     const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-    await pool.execute(
-      'UPDATE scr_users SET password = ? WHERE id = ?',
-      [hashedNewPassword, userId]
-    );
+    if (encryptionPrivateKeyBackup !== undefined) {
+      await pool.execute(
+        'UPDATE scr_users SET password = ?, encryption_private_key_backup = ? WHERE id = ?',
+        [hashedNewPassword, JSON.stringify(encryptionPrivateKeyBackup), userId]
+      );
+    } else {
+      await pool.execute(
+        'UPDATE scr_users SET password = ? WHERE id = ?',
+        [hashedNewPassword, userId]
+      );
+    }
 
     res.json({ status: 'success', message: '密码修改成功' });
   } catch (err) {
     console.error('修改密码失败:', err.message);
     res.status(500).json({ status: 'error', message: '修改密码失败' });
+  }
+}
+
+export async function updateEncryptionPublicKey(req, res) {
+  try {
+    const userId = req.userId;
+    const { encryptionPublicKey, publicKey, encryptionPrivateKeyBackup, privateKeyBackup, encryptionPrivateKey, privateKey } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ status: 'error', message: '未授权访问' });
+    }
+
+    if (encryptionPrivateKey || privateKey) {
+      return res.status(400).json({ status: 'error', message: '不能上传明文私钥' });
+    }
+
+    const publicKeyValue = encryptionPublicKey || publicKey;
+    if (!publicKeyValue || typeof publicKeyValue !== 'string' || publicKeyValue.trim().length === 0) {
+      return res.status(400).json({ status: 'error', message: '公钥不能为空' });
+    }
+
+    if (publicKeyValue.length > 10000) {
+      return res.status(400).json({ status: 'error', message: '公钥长度超出限制' });
+    }
+
+    const privateKeyBackupValue = encryptionPrivateKeyBackup || privateKeyBackup;
+
+    if (privateKeyBackupValue !== undefined) {
+      await pool.execute(
+        'UPDATE scr_users SET encryption_public_key = ?, encryption_private_key_backup = ? WHERE id = ?',
+        [publicKeyValue.trim(), JSON.stringify(privateKeyBackupValue), userId]
+      );
+    } else {
+      await pool.execute(
+        'UPDATE scr_users SET encryption_public_key = ? WHERE id = ?',
+        [publicKeyValue.trim(), userId]
+      );
+    }
+
+    res.json({ status: 'success', message: '公钥更新成功' });
+  } catch (err) {
+    console.error('更新加密公钥失败:', err.message);
+    res.status(500).json({ status: 'error', message: '更新加密公钥失败' });
+  }
+}
+
+export async function getPrivateChatEncryptionPublicKey(req, res) {
+  try {
+    const userId = parseInt(req.userId);
+    const targetUserId = parseInt(req.params.id);
+
+    if (!targetUserId || isNaN(targetUserId)) {
+      return res.status(400).json({ status: 'error', message: '用户ID无效' });
+    }
+
+    if (userId !== targetUserId) {
+      const [friends] = await pool.execute(
+        'SELECT id FROM scr_friends WHERE user_id = ? AND friend_id = ? AND status = 1',
+        [userId, targetUserId]
+      );
+
+      if (friends.length === 0) {
+        return res.status(403).json({ status: 'error', message: '只能获取好友的公钥' });
+      }
+    }
+
+    const [users] = await pool.execute(
+      'SELECT id, encryption_public_key FROM scr_users WHERE id = ?',
+      [targetUserId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ status: 'error', message: '用户不存在' });
+    }
+
+    res.json({
+      status: 'success',
+      userId: users[0].id,
+      encryptionPublicKey: users[0].encryption_public_key
+    });
+  } catch (err) {
+    console.error('获取私聊公钥失败:', err.message);
+    res.status(500).json({ status: 'error', message: '获取私聊公钥失败' });
   }
 }
 
