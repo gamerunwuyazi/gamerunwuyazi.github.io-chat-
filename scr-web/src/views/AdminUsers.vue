@@ -50,7 +50,8 @@
               <td>
                 <div class="user-info">
                   <div class="avatar-wrapper">
-                    <img :src="user.avatar_url || '/icon/User-Profile-256.ico'" alt="头像" class="avatar">
+                    <img v-if="getAvatarUrl(user)" :src="getAvatarUrl(user)" alt="头像" class="avatar">
+                    <div v-else class="avatar-fallback">{{ getAvatarInitial(user.nickname || user.username) }}</div>
                     <span v-if="user.isOnline" class="online-indicator"></span>
                   </div>
                   <div class="user-details">
@@ -125,7 +126,8 @@
         <div v-if="selectedUser" class="modal-body">
           <div class="detail-section">
             <div class="detail-avatar">
-              <img :src="selectedUser.avatar_url || '/icon/User-Profile-256.ico'" alt="头像">
+              <img v-if="getAvatarUrl(selectedUser)" :src="getAvatarUrl(selectedUser)" alt="头像">
+              <div v-else class="detail-avatar-fallback">{{ getAvatarInitial(selectedUser.nickname || selectedUser.username) }}</div>
             </div>
             <div class="detail-info">
               <p><strong>昵称：</strong>{{ selectedUser.nickname }}</p>
@@ -182,7 +184,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
-import { getUsers, getUserDetail, banIP, unbanIP, kickSession, getBannedList } from '@/utils/adminApi';
+import { getUsers, getUserDetail, banIP, unbanIP, kickSession, getBannedList, getAdminResourceUrl } from '@/utils/adminApi';
 import toast from '@/utils/toast';
 
 const searchQuery = ref('');
@@ -371,6 +373,15 @@ async function executeAction() {
   }
 }
 
+function getAvatarUrl(user) {
+  const url = user?.avatar_url || user?.avatarUrl || user?.avatar || '';
+  return url ? getAdminResourceUrl(url) : '';
+}
+
+function getAvatarInitial(name) {
+  return (name || 'U').trim().charAt(0).toUpperCase();
+}
+
 function formatTime(dateString) {
   if (!dateString) return '未知';
   const date = new Date(dateString);
@@ -525,11 +536,25 @@ function formatTime(dateString) {
   position: relative;
 }
 
-.avatar {
+.avatar,
+.avatar-fallback {
   width: 40px;
   height: 40px;
   border-radius: 50%;
+}
+
+.avatar {
   object-fit: cover;
+}
+
+.avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #3498db;
+  color: white;
+  font-weight: 600;
+  font-size: 18px;
 }
 
 .online-indicator {
@@ -799,11 +824,29 @@ function formatTime(dateString) {
   gap: 20px;
 }
 
+.detail-avatar {
+  width: 80px;
+  height: 80px;
+}
+
 .detail-avatar img {
   width: 80px;
   height: 80px;
   border-radius: 50%;
   object-fit: cover;
+}
+
+.detail-avatar-fallback {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #3498db;
+  color: white;
+  font-weight: 600;
+  font-size: 28px;
 }
 
 .detail-info p {

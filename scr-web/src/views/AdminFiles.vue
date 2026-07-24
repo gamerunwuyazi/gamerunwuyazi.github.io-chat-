@@ -35,7 +35,7 @@
               <a 
                 v-if="file.fileUrl" 
                 class="action-btn download-btn" 
-                :href="file.fileUrl" 
+                :href="getAdminResourceUrl(file.fileUrl)" 
                 target="_blank"
               >
                 <i class="fas fa-download"></i>
@@ -94,7 +94,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue';
-import { getFiles, deleteFile as apiDeleteFile } from '@/utils/adminApi';
+import { getFiles, deleteFile as apiDeleteFile, getAdminResourceUrl } from '@/utils/adminApi';
 import toast from '@/utils/toast';
 
 const searchQuery = ref('');

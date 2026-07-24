@@ -114,7 +114,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue';
-import { getMessages, getPrivateMessages, deleteMessage as apiDeleteMessage } from '@/utils/adminApi';
+import { getMessages, getPrivateMessages, deleteMessage as apiDeleteMessage, getAdminResourceUrl } from '@/utils/adminApi';
 import toast from '@/utils/toast';
 
 const searchQuery = ref('');
@@ -137,12 +137,23 @@ onMounted(async () => {
   await loadMessages();
 });
 
+let loadSeq = 0;
+
 watch([searchQuery, activeTab], () => {
   currentPage.value = 1;
   loadMessages();
 });
 
+function normalizeMessagesResponse(data) {
+  const payload = data?.data || data || {};
+  return {
+    messages: payload.messages || payload.list || payload.records || [],
+    pagination: payload.pagination || payload.page || {}
+  };
+}
+
 async function loadMessages() {
+  const seq = ++loadSeq;
   loading.value = true;
   try {
     let data;
@@ -152,13 +163,18 @@ async function loadMessages() {
       const type = activeTab.value === 'public' ? 'public' : 'group';
       data = await getMessages(currentPage.value, 20, type, searchQuery.value);
     }
-    messages.value = data.messages || [];
-    totalPages.value = data.pagination?.totalPages || 1;
+    if (seq !== loadSeq) return;
+    const normalized = normalizeMessagesResponse(data);
+    messages.value = normalized.messages;
+    totalPages.value = normalized.pagination?.totalPages || normalized.pagination?.pages || 1;
   } catch (error) {
+    if (seq !== loadSeq) return;
     toast.error(error.message);
     messages.value = [];
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) {
+      loading.value = false;
+    }
   }
 }
 
@@ -177,10 +193,8 @@ function nextPage() {
 }
 
 function getAvatar(message) {
-  if (message.source === 'private') {
-    return message.senderAvatarUrl || '/icon/User-Profile-256.ico';
-  }
-  return message.avatarUrl || '/icon/User-Profile-256.ico';
+  const avatarUrl = message.source === 'private' ? message.senderAvatarUrl : message.avatarUrl;
+  return getAdminResourceUrl(avatarUrl);
 }
 
 function getAuthorName(message) {

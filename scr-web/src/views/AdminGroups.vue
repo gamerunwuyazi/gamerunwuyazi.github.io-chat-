@@ -25,7 +25,7 @@
         <div v-for="group in groups" :key="group.id" class="group-card">
           <div class="group-header">
             <img 
-              :src="group.avatarUrl || '/icon/User-Group-256.ico'" 
+              :src="getAdminResourceUrl(group.avatarUrl, '/icon/User-Group-256.ico')" 
               alt="群组头像" 
               class="group-avatar"
             >
@@ -90,11 +90,10 @@
         </div>
         <div v-if="selectedGroup" class="modal-body">
           <div class="detail-header">
-            <img 
-              :src="selectedGroup.avatarUrl || '/icon/User-Group-256.ico'" 
-              alt="群组头像" 
-              class="detail-avatar"
-            >
+            <div class="detail-avatar-wrap">
+              <img v-if="getAvatarUrl(selectedGroup)" :src="getAvatarUrl(selectedGroup)" alt="群组头像" class="detail-avatar">
+              <div v-else class="group-avatar-fallback detail-avatar-fallback">{{ getAvatarInitial(selectedGroup.name) }}</div>
+            </div>
             <div class="detail-info">
               <h2>{{ selectedGroup.name }}</h2>
               <p>创建者: {{ selectedGroup.creatorNickname }}</p>
@@ -117,7 +116,7 @@
                 class="member-item"
               >
                 <img 
-                  :src="member.avatarUrl || '/icon/User-Profile-256.ico'" 
+                  :src="getAdminResourceUrl(member.avatarUrl)" 
                   alt="头像" 
                   class="member-avatar"
                 >
@@ -183,7 +182,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue';
-import { getGroups, getGroupDetail, dissolveGroup, muteGroupMember, kickGroupMember } from '@/utils/adminApi';
+import { getGroups, getGroupDetail, dissolveGroup, muteGroupMember, kickGroupMember, getAdminResourceUrl } from '@/utils/adminApi';
 import toast from '@/utils/toast';
 
 const searchQuery = ref('');
@@ -328,6 +327,15 @@ async function refreshGroupDetail() {
     const data = await getGroupDetail(selectedGroup.value.id);
     selectedGroup.value = data.group;
   }
+}
+
+function getAvatarUrl(entity) {
+  const url = entity?.avatarUrl || entity?.avatar_url || entity?.avatar || '';
+  return url ? getAdminResourceUrl(url) : '';
+}
+
+function getAvatarInitial(name) {
+  return (name || 'G').trim().charAt(0).toUpperCase();
 }
 
 function formatTime(dateString) {
@@ -617,11 +625,23 @@ function formatTime(dateString) {
   border-bottom: 1px solid #30363d;
 }
 
+.detail-avatar-wrap {
+  width: 80px;
+  height: 80px;
+}
+
 .detail-avatar {
   width: 80px;
   height: 80px;
   border-radius: 12px;
   object-fit: cover;
+}
+
+.detail-avatar-fallback {
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+  font-size: 24px;
 }
 
 .detail-info h2 {
@@ -670,11 +690,23 @@ function formatTime(dateString) {
   border-radius: 8px;
 }
 
+.member-avatar-wrap {
+  width: 40px;
+  height: 40px;
+}
+
 .member-avatar {
   width: 40px;
   height: 40px;
   border-radius: 50%;
   object-fit: cover;
+}
+
+.member-avatar-fallback {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 16px;
 }
 
 .member-info {

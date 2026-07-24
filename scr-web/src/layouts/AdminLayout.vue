@@ -66,7 +66,8 @@ const menuItems = [
  { path: '/admin/groups', label: '群组管理', icon: 'fas fa-users' },
  { path: '/admin/messages', label: '消息管理', icon: 'fas fa-message' },
  { path: '/admin/files', label: '文件管理', icon: 'fas fa-file' },
- { path: '/admin/logs', label: '审计日志', icon: 'fas fa-file-alt' }
+ { path: '/admin/logs', label: '日志封禁', icon: 'fas fa-file-alt' },
+ { path: '/admin/accounts', label: '后台账号', icon: 'fas fa-user-shield' }
 ];
 const currentPageTitle = computed(() => {
  const currentItem = menuItems

@@ -1,5 +1,16 @@
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
+export const ADMIN_DEFAULT_AVATAR = '';
+
+export function getAdminResourceUrl(url, fallback = ADMIN_DEFAULT_AVATAR) {
+  if (!url) return fallback;
+  if (/^(https?:)?\/\//i.test(url) || url.startsWith('data:') || url.startsWith('blob:')) {
+    return url;
+  }
+  if (!SERVER_URL) return url;
+  return `${SERVER_URL}${url.startsWith('/') ? url : `/${url}`}`;
+}
+
 export async function adminLogin(username, password) {
   const response = await fetch(`${SERVER_URL}/api/admin/login`, {
     method: 'POST',
@@ -441,11 +452,12 @@ export async function deleteFile(messageId) {
   return response.json();
 }
 
-export async function getAuditLogs(page = 1, limit = 50, action = '', userId = '') {
+export async function getAuditLogs(page = 1, limit = 50, action = '', search = '', userId = '') {
   const token = localStorage.getItem('adminToken');
   const params = new URLSearchParams({ page, limit });
   if (action) params.set('action', action);
   if (userId) params.set('userId', userId);
+  if (search) params.set('search', search);
   const url = `${SERVER_URL}/api/admin/audit-logs?${params.toString()}`;
   
   const response = await fetch(url, {
@@ -477,5 +489,100 @@ export async function getAuditActions() {
     throw new Error(data.message || '获取操作类型失败');
   }
   
+  return response.json();
+}
+
+export async function getLoginIPs() {
+  const token = localStorage.getItem('adminToken');
+  const response = await fetch(`${SERVER_URL}/api/admin/login-ips`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || '获取IP日志失败');
+  }
+  return response.json();
+}
+
+export async function getApiLogs(page = 1, limit = 50) {
+  const token = localStorage.getItem('adminToken');
+  const params = new URLSearchParams({ page, limit });
+  const response = await fetch(`${SERVER_URL}/api/admin/api-logs?${params.toString()}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || '获取API日志失败');
+  }
+  return response.json();
+}
+
+export async function getAdminAccounts() {
+  const token = localStorage.getItem('adminToken');
+  const response = await fetch(`${SERVER_URL}/api/admin/admin-accounts`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || '获取管理员账号失败');
+  }
+  return response.json();
+}
+
+export async function createAdminAccount(username, password) {
+  const token = localStorage.getItem('adminToken');
+  const response = await fetch(`${SERVER_URL}/api/admin/admin-accounts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ username, password })
+  });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || '创建管理员账号失败');
+  }
+  return response.json();
+}
+
+export async function updateAdminAccount(accountId, payload) {
+  const token = localStorage.getItem('adminToken');
+  const response = await fetch(`${SERVER_URL}/api/admin/admin-accounts/${accountId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || '更新管理员账号失败');
+  }
+  return response.json();
+}
+
+export async function deleteAdminAccount(accountId) {
+  const token = localStorage.getItem('adminToken');
+  const response = await fetch(`${SERVER_URL}/api/admin/admin-accounts/${accountId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || '删除管理员账号失败');
+  }
   return response.json();
 }

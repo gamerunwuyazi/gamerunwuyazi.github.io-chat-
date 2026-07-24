@@ -1,6 +1,7 @@
 import { pool, redisClient } from '../models/database.js';
 import { ADMIN_PASSWORD } from '../config/index.js';
 import { getOnlineUser, removeOnlineUser, getAllOnlineUsers } from '../utils/session.js';
+import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -74,8 +75,33 @@ export async function initAdminRoutes() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     console.log('✅ 审计日志表初始化完成');
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS scr_admin_accounts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(255) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        is_enabled TINYINT(1) DEFAULT 1,
+        created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        last_login_at TIMESTAMP NULL DEFAULT NULL,
+        INDEX idx_admin_username (username)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    if (ADMIN_PASSWORD) {
+      const [admins] = await pool.execute('SELECT id FROM scr_admin_accounts WHERE username = ?', ['admin']);
+      if (admins.length === 0) {
+        const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+        await pool.execute(
+          'INSERT INTO scr_admin_accounts (username, password) VALUES (?, ?)',
+          ['admin', passwordHash]
+        );
+      }
+    }
+    console.log('✅ 管理员账号表初始化完成');
   } catch (err) {
-    console.error('❌ 审计日志表初始化失败:', err.message);
+    console.error('❌ 管理后台基础表初始化失败:', err.message);
   }
 }
 
@@ -104,13 +130,25 @@ export function setupRoutes(app, io) {
         return res.status(400).json({ success: false, status: 'error', message: '请输入用户名和密码' });
       }
 
-      if (username !== 'admin' || password !== ADMIN_PASSWORD) {
+      const [admins] = await pool.execute(
+        'SELECT id, username, password, is_enabled FROM scr_admin_accounts WHERE username = ?',
+        [username]
+      );
+      const admin = admins[0];
+      const legacyAdminValid = username === 'admin' && password === ADMIN_PASSWORD;
+      const accountValid = admin && admin.is_enabled && await bcrypt.compare(password, admin.password);
+
+      if (!legacyAdminValid && !accountValid) {
         await logAudit('admin_login_failed', 'admin', null, { username }, null, clientIP);
         return res.status(401).json({ success: false, status: 'error', message: '管理员账号或密码错误' });
       }
 
+      if (admin) {
+        await pool.execute('UPDATE scr_admin_accounts SET last_login_at = NOW() WHERE id = ?', [admin.id]);
+      }
+
       const token = createAdminToken(username);
-      await logAudit('admin_login', 'admin', null, { username }, null, clientIP);
+      await logAudit('admin_login', 'admin', admin?.id || null, { username }, null, clientIP);
 
       res.json({
         success: true,
@@ -132,6 +170,90 @@ export function setupRoutes(app, io) {
       adminTokens.delete(bearerToken);
     }
     res.json({ success: true, status: 'success', message: '已退出登录' });
+  });
+
+  app.get('/api/admin/admin-accounts', authenticateAdmin, async (req, res) => {
+    try {
+      const [accounts] = await pool.execute(`
+        SELECT id, username, is_enabled as isEnabled, created_at as createdAt, updated_at as updatedAt, last_login_at as lastLoginAt
+        FROM scr_admin_accounts
+        ORDER BY created_at DESC
+      `);
+      res.json({ status: 'success', accounts });
+    } catch (err) {
+      console.error('获取管理员账号失败:', err.message);
+      res.status(500).json({ status: 'error', message: '获取管理员账号失败' });
+    }
+  });
+
+  app.post('/api/admin/admin-accounts', authenticateAdmin, async (req, res) => {
+    try {
+      const { username, password } = req.body || {};
+      const clientIP = req.clientIP || req.connection.remoteAddress;
+      if (!username || !password) {
+        return res.status(400).json({ status: 'error', message: '请输入管理员用户名和密码' });
+      }
+      const passwordHash = await bcrypt.hash(password, 10);
+      const [result] = await pool.execute(
+        'INSERT INTO scr_admin_accounts (username, password) VALUES (?, ?)',
+        [username, passwordHash]
+      );
+      await logAudit('create_admin_account', 'admin', result.insertId, { username }, null, clientIP);
+      res.json({ status: 'success', message: '管理员账号已创建', id: result.insertId });
+    } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({ status: 'error', message: '管理员用户名已存在' });
+      }
+      console.error('创建管理员账号失败:', err.message);
+      res.status(500).json({ status: 'error', message: '创建管理员账号失败' });
+    }
+  });
+
+  app.patch('/api/admin/admin-accounts/:id', authenticateAdmin, async (req, res) => {
+    try {
+      const accountId = parseInt(req.params.id);
+      const { password, isEnabled } = req.body || {};
+      const updates = [];
+      const params = [];
+      if (password) {
+        updates.push('password = ?');
+        params.push(await bcrypt.hash(password, 10));
+      }
+      if (isEnabled !== undefined) {
+        updates.push('is_enabled = ?');
+        params.push(isEnabled ? 1 : 0);
+      }
+      if (updates.length === 0) {
+        return res.status(400).json({ status: 'error', message: '没有可更新的内容' });
+      }
+      params.push(accountId);
+      await pool.execute(`UPDATE scr_admin_accounts SET ${updates.join(', ')} WHERE id = ?`, params);
+      await logAudit('update_admin_account', 'admin', accountId, { isEnabled }, null, req.clientIP || req.connection.remoteAddress);
+      res.json({ status: 'success', message: '管理员账号已更新' });
+    } catch (err) {
+      console.error('更新管理员账号失败:', err.message);
+      res.status(500).json({ status: 'error', message: '更新管理员账号失败' });
+    }
+  });
+
+  app.delete('/api/admin/admin-accounts/:id', authenticateAdmin, async (req, res) => {
+    try {
+      const accountId = parseInt(req.params.id);
+      const [target] = await pool.execute('SELECT username, is_enabled FROM scr_admin_accounts WHERE id = ?', [accountId]);
+      if (target.length === 0) {
+        return res.status(404).json({ status: 'error', message: '管理员账号不存在' });
+      }
+      const [enabledAdmins] = await pool.execute('SELECT COUNT(*) as count FROM scr_admin_accounts WHERE is_enabled = 1');
+      if (target[0].is_enabled && enabledAdmins[0].count <= 1) {
+        return res.status(400).json({ status: 'error', message: '至少保留一个启用的管理员账号' });
+      }
+      await pool.execute('DELETE FROM scr_admin_accounts WHERE id = ?', [accountId]);
+      await logAudit('delete_admin_account', 'admin', accountId, { username: target[0].username }, null, req.clientIP || req.connection.remoteAddress);
+      res.json({ status: 'success', message: '管理员账号已删除' });
+    } catch (err) {
+      console.error('删除管理员账号失败:', err.message);
+      res.status(500).json({ status: 'error', message: '删除管理员账号失败' });
+    }
   });
 
   app.get('/api/sessions', authenticateAdmin, async (req, res) => {
@@ -224,6 +346,7 @@ export function setupRoutes(app, io) {
       const offset = (page - 1) * limit;
       const action = req.query.action;
       const userId = req.query.userId;
+      const search = req.query.search?.trim();
 
       let query = `
         SELECT al.*, u.username, u.nickname
@@ -231,24 +354,43 @@ export function setupRoutes(app, io) {
         LEFT JOIN scr_users u ON al.user_id = u.id
         WHERE 1=1
       `;
+      let countQuery = `
+        SELECT COUNT(*) as total
+        FROM scr_audit_logs al
+        LEFT JOIN scr_users u ON al.user_id = u.id
+        WHERE 1=1
+      `;
       const params = [];
+      const countParams = [];
 
       if (action) {
         query += ' AND al.action = ?';
+        countQuery += ' AND al.action = ?';
         params.push(action);
+        countParams.push(action);
       }
 
       if (userId) {
         query += ' AND al.user_id = ?';
+        countQuery += ' AND al.user_id = ?';
         params.push(userId);
+        countParams.push(userId);
+      }
+
+      if (search) {
+        const searchClause = ' AND (u.username LIKE ? OR u.nickname LIKE ? OR al.action LIKE ? OR al.details LIKE ? OR al.ip_address LIKE ?)';
+        query += searchClause;
+        countQuery += searchClause;
+        const likeValues = [`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`];
+        params.push(...likeValues);
+        countParams.push(...likeValues);
       }
 
       query += ' ORDER BY al.timestamp DESC LIMIT ? OFFSET ?';
       params.push(limit, offset);
 
       const [logs] = await pool.query(query, params);
-
-      const [countResult] = await pool.query('SELECT COUNT(*) as total FROM scr_audit_logs');
+      const [countResult] = await pool.query(countQuery, countParams);
       const total = countResult[0].total;
 
       res.json({
