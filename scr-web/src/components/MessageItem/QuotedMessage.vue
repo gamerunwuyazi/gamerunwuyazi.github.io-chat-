@@ -1,6 +1,8 @@
 <template>
   <div 
+    ref="wrapperRef"
     class="quoted-message-display quoted-message-wrapper" 
+    :style="{ maxWidth: wrapperMaxWidth }"
     @click="handleQuotedMessageClick"
   >
     <div class="quoted-message-header">
@@ -71,7 +73,7 @@
 import DOMPurify from 'dompurify';
 import localForage from 'localforage';
 import { marked } from 'marked';
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 
 import { useMessageHighlight } from '@/composables/useMessageHighlight';
 import { useBaseStore } from '@/stores/baseStore';
@@ -101,6 +103,71 @@ const storageStore = useStorageStore();
 const groupCardAvatarLoadFailed = ref(false);
 const senderAvatarError = ref(false);
 const { scrollAndHighlight } = useMessageHighlight();
+const wrapperRef = ref(null);
+const wrapperMaxWidth = ref('400px');
+
+const HALF_MAX_WIDTH = 400; // px — 消息最大宽度约 800px（80% 容器），一半即 400px
+
+// 离屏测量文字的自然单行宽度：不受气泡当前宽度影响，避免测量→改宽→再测量的反馈循环
+function measureNaturalWidth(textEl) {
+  const clone = textEl.cloneNode(true);
+  const s = clone.style;
+  s.position = 'absolute';
+  s.visibility = 'hidden';
+  s.whiteSpace = 'nowrap';
+  s.width = 'auto';
+  s.maxWidth = 'none';
+  s.left = '-9999px';
+  s.top = '0';
+  document.body.appendChild(clone);
+  const w = clone.getBoundingClientRect().width;
+  document.body.removeChild(clone);
+  return w;
+}
+
+function updateLayout() {
+  const el = wrapperRef.value;
+  if (!el) return;
+  const parent = el.parentElement;
+  if (!parent) return;
+
+  // 找同级的消息正文元素
+  const textEl = parent.querySelector(':scope > .message-text');
+
+  if (!textEl) {
+    // 没有文字正文（如图片/文件/群名片消息）— 引用占满消息宽度
+    wrapperMaxWidth.value = '100%';
+    return;
+  }
+
+  // 用文字的自然宽度判断（稳定值，不随气泡宽度变化）
+  const textWidth = measureNaturalWidth(textEl);
+  const narrow = textWidth < HALF_MAX_WIDTH;
+
+  // 引用容器 max-width：窄文字 → 限制半宽；宽文字 → 占满消息宽度
+  wrapperMaxWidth.value = narrow ? `${HALF_MAX_WIDTH}px` : '100%';
+}
+
+let resizeObserver = null;
+
+onMounted(() => {
+  // Vue 渲染完下一帧再测量，确保 DOM 已就位
+  requestAnimationFrame(() => {
+    updateLayout();
+    const parent = wrapperRef.value?.parentElement?.parentElement;
+    if (parent) {
+      resizeObserver = new ResizeObserver(() => updateLayout());
+      resizeObserver.observe(parent);
+    }
+  });
+});
+
+onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+});
 
 function getQuotedUserInfo() {
   const msgId = props.quotedMessageData?.id;
@@ -244,12 +311,16 @@ const displayContent = computed(() => {
     let content = msg.content || '';
     try {
       content = escapeHtmlForMarkdown(content);
-      marked.setOptions({ breaks: true, gfm: true });
+      const renderer = new marked.Renderer();
+      renderer.codespan = function(token) {
+        return `<code>` + token.text + `</code>`;
+      };
+      marked.setOptions({ breaks: true, gfm: true, renderer });
       let parsed = marked.parse(content).trim();
       parsed = parsed.replace(/<svg[^>]*>.*?<\/svg>/gi, '[SVG图片]');
-      parsed = parsed.replace(/<(?!\/?(a|img|div|span|br|p|h[1-6]|strong|em|code|pre|ul|ol|li|blockquote|figure|table|tbody|tr|td|i)\b)[^>]*>/gi, '');
+      parsed = parsed.replace(/<(?!\/?(a|img|div|span|br|p|h[1-6]|strong|em|code|pre|ul|ol|li|blockquote|figure|table|thead|tbody|tr|th|td|i)\b)[^>]*>/gi, '');
       parsed = parsed.replace(/<img/g, '<img style="max-width: 100%; height: auto;"');
-      parsed = parsed.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer" style="color: #3498db;"');
+      parsed = parsed.replace(/<table/g, '<table style="border-collapse: collapse; width: 100%; margin-bottom: 8px;"');  parsed = parsed.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer" style="color: #3498db;"');
       return DOMPurify.sanitize(parsed);
     } catch {
       return content;

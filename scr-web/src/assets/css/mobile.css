@@ -138,9 +138,10 @@
     height: 52px;
     min-height: 52px;
     padding: 0 12px;
-    background: #2c3e50;
-    color: #fff;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    background: #f8fafc;
+    color: #334155;
+    border-bottom: 1px solid #e2e8f0;
+    box-shadow: none;
     z-index: 10;
     flex-shrink: 0;
 }
@@ -148,7 +149,7 @@
 .mobile-back-btn {
     background: none;
     border: none;
-    color: #fff;
+    color: #475569;
     font-size: 16px;
     padding: 8px 4px;
     cursor: pointer;
@@ -168,9 +169,9 @@
 }
 
 .mobile-user-list-btn {
-    background: rgba(255,255,255,0.15);
-    border: 1px solid rgba(255,255,255,0.3);
-    color: #fff;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    color: #475569;
     font-size: 13px;
     padding: 6px 12px;
     border-radius: 6px;
@@ -180,9 +181,9 @@
 }
 
 .mobile-header-action {
-    background: rgba(255,255,255,0.15);
-    border: 1px solid rgba(255,255,255,0.3);
-    color: #fff;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    color: #475569;
     font-size: 13px;
     padding: 6px 12px;
     border-radius: 6px;
@@ -259,6 +260,43 @@
     font-size: 14px;
     line-height: 1.5;
     padding: 8px 10px;
+}
+
+.mobile-chat-view .msg-bubble-content {
+    max-height: 200px;
+}
+
+.mobile-chat-view .msg-bubble-content table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 8px;
+}
+.mobile-chat-view .msg-bubble-content th,
+.mobile-chat-view .msg-bubble-content td {
+    border: 1px solid #d0d5dd;
+    padding: 6px 10px;
+    text-align: left;
+}
+.mobile-chat-view .msg-bubble-content th {
+    background-color: #f5f7fa;
+    font-weight: 600;
+}
+
+.mobile-chat-view .msg-bubble-content ol,
+.mobile-chat-view .msg-bubble-content ul {
+    margin: 0;
+    padding: 0 0 0 20px;
+    line-height: 1.5;
+    font-size: inherit;
+    white-space: normal;
+}
+.mobile-chat-view .msg-bubble-content li {
+    display: list-item;
+    margin: 0;
+    padding: 0;
+    line-height: inherit;
+    font-size: inherit;
+    min-height: 0;
 }
 
 .mobile-chat-view .input-container {
@@ -511,16 +549,13 @@
 }
 
 .tab-icon-img {
-    width: 22px;
-    height: 22px;
-    opacity: 0.55;
-    filter: brightness(0);
-    transition: opacity 0.15s;
+    font-size: 22px;
+    color: #94a3b8;
+    transition: color 0.15s;
 }
 
 .mobile-tab.active .tab-icon-img {
-    opacity: 1;
-    filter: brightness(0);
+    color: #3498db;
 }
 
 .mobile-tab-label {
@@ -589,11 +624,22 @@ body.dark-mode #mobile-app .search-input {
 
 body.dark-mode .mobile-chat-header {
     background: #161b22;
+    color: #c9d1d9;
+    border-bottom-color: #30363d;
 }
 
+body.dark-mode .mobile-back-btn {
+    color: #c9d1d9;
+}
+
+body.dark-mode .mobile-user-list-btn,
 body.dark-mode .mobile-header-action {
     background: rgba(255,255,255,0.1);
     border-color: rgba(255,255,255,0.2);
+    color: #c9d1d9;
+}
+
+body.dark-mode .mobile-chat-title {
     color: #c9d1d9;
 }
 
@@ -608,13 +654,11 @@ body.dark-mode #mobile-tab-bar {
 }
 
 body.dark-mode .tab-icon-img {
-    opacity: 0.5;
-    filter: brightness(0) invert(1);
+    color: #6e7681;
 }
 
 body.dark-mode .mobile-tab.active .tab-icon-img {
-    opacity: 1;
-    filter: brightness(0.4) invert(1);
+    color: #58a6ff;
 }
 
 body.dark-mode .mobile-drawer-panel {

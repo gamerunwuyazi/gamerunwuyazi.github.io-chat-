@@ -226,8 +226,13 @@ function tryClearUnreadForCurrentRoute() {
     if (unreadStore && unreadStore.clearGroupUnread) {
       unreadStore.clearGroupUnread(sessionStore.currentGroupId);
       updateUnreadCountsDisplay();
-      return true;
     }
+    // 页面切回且群组已聚焦时，清除被@标记
+    const groupStore = useGroupStore();
+    if (groupStore && groupStore.clearGroupHasAtMe) {
+      groupStore.clearGroupHasAtMe(sessionStore.currentGroupId);
+    }
+    return true;
   } else if (isPrivateRoute && sessionStore && sessionStore.currentPrivateChatUserId) {
     if (unreadStore && unreadStore.clearPrivateUnread) {
       unreadStore.clearPrivateUnread(sessionStore.currentPrivateChatUserId);

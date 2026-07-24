@@ -66,22 +66,22 @@
     <!-- 底部导航栏 -->
     <div id="mobile-tab-bar">
       <div class="mobile-tab" :class="{ active: currentTab === 'public' }" @click="switchTab('public')">
-        <span class="mobile-tab-icon"><img src="/icon/Message-256.ico" alt="公共" class="tab-icon-img"></span>
+        <span class="mobile-tab-icon"><i class="fas fa-comments tab-icon-img"></i></span>
         <span class="mobile-tab-label">公共</span>
         <span v-if="publicUnread" class="mobile-tab-badge">{{ publicUnread > 99 ? '99+' : publicUnread }}</span>
       </div>
       <div class="mobile-tab" :class="{ active: currentTab === 'group' }" @click="switchTab('group')">
-        <span class="mobile-tab-icon"><img src="/icon/User-Group-256.ico" alt="群组" class="tab-icon-img"></span>
+        <span class="mobile-tab-icon"><i class="fas fa-user-group tab-icon-img"></i></span>
         <span class="mobile-tab-label">群组</span>
         <span v-if="groupUnread" class="mobile-tab-badge">{{ groupUnread > 99 ? '99+' : groupUnread }}</span>
       </div>
       <div class="mobile-tab" :class="{ active: currentTab === 'private' }" @click="switchTab('private')">
-        <span class="mobile-tab-icon"><img src="/icon/User-Profile-256.ico" alt="私信" class="tab-icon-img"></span>
+        <span class="mobile-tab-icon"><i class="fas fa-user tab-icon-img"></i></span>
         <span class="mobile-tab-label">私信</span>
         <span v-if="privateUnread" class="mobile-tab-badge">{{ privateUnread > 99 ? '99+' : privateUnread }}</span>
       </div>
       <div class="mobile-tab" :class="{ active: currentTab === 'settings' }" @click="switchTab('settings')">
-        <span class="mobile-tab-icon"><img src="/icon/Settings-01-256.ico" alt="设置" class="tab-icon-img"></span>
+        <span class="mobile-tab-icon"><i class="fas fa-gear tab-icon-img"></i></span>
         <span class="mobile-tab-label">设置</span>
         <span v-if="friendRequestUnread" class="mobile-tab-badge">{{ friendRequestUnread > 99 ? '99+' : friendRequestUnread }}</span>
       </div>

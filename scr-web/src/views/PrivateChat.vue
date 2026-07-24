@@ -20,7 +20,7 @@
           </div>
         </div>
         <div class="private-actions">
-          <button id="privateUserInfoButton" title="查看用户资料" @click="handlePrivateUserInfoClick"><img :src="userInfoIconSrc" alt="查看用户资料" style="width: 15px; height: 15px;"></button>
+          <button id="privateUserInfoButton" title="查看用户资料" @click="handlePrivateUserInfoClick"><i class="fas fa-circle-info"></i></button>
         </div>
       </div>
 
@@ -243,22 +243,6 @@ let dragCounter = 0;
 let previousPrivateMessageLength = 0;
 
 const currentUserId = computed(() => baseStore.currentUser?.id);
-
-const isDarkMode = ref(document.body.classList.contains('dark-mode'));
-const userInfoIconSrc = computed(() => {
-  return isDarkMode.value
-    ? '/icon/User-Profile-256.ico'
-    : '/icon/User-Profile-256-2.ico';
-});
-
-let darkModeObserver = null;
-
-if (typeof MutationObserver !== 'undefined') {
-  darkModeObserver = new MutationObserver(() => {
-    isDarkMode.value = document.body.classList.contains('dark-mode');
-  });
-  darkModeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-}
 
 const privateMessages = computed(() => {
   return friendStore.privateMessages[sessionStore.currentPrivateChatUserId] || [];

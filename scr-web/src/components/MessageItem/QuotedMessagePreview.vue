@@ -209,12 +209,16 @@ const displayContent = computed(() => {
  let content = msg.content || '';
  try {
  content = escapeHtmlForMarkdown(content);
- marked.setOptions({ breaks: true, gfm: true });
+ const renderer = new marked.Renderer();
+ renderer.codespan = function(token) {
+ return `<code>` + token.text + `</code>`;
+ };
+ marked.setOptions({ breaks: true, gfm: true, renderer });
  let parsed = marked.parse(content).trim();
  parsed = parsed.replace(/<svg[^>]*>.*?<\/svg>/gi, '[SVG图片]');
- parsed = parsed.replace(/<(?!\/?(a|img|div|span|br|p|h[1-6]|strong|em|code|pre|ul|ol|li|blockquote|figure|table|tbody|tr|td|i)\b)[^>]*>/gi, '');
+ parsed = parsed.replace(/<(?!\/?(a|img|div|span|br|p|h[1-6]|strong|em|code|pre|ul|ol|li|blockquote|figure|table|thead|tbody|tr|th|td|i)\b)[^>]*>/gi, '');
  parsed = parsed.replace(/<img/g, '<img style="max-width: 100%; height: auto;"');
- parsed = parsed.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer" style="color: #3498db;"');
+ parsed = parsed.replace(/<table/g, '<table style="border-collapse: collapse; width: 100%; margin-bottom: 8px;"');  parsed = parsed.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer" style="color: #3498db;"');
  return DOMPurify.sanitize(parsed);
  } catch {
  return content;

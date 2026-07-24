@@ -31,7 +31,9 @@ body {
     background: #f5f5f5;
     border-radius: 4px;
     cursor: pointer;
+    width: 100%;
     max-width: 400px;
+    box-sizing: border-box;
     overflow: hidden;
 }
 
@@ -690,6 +692,20 @@ body.dark-mode .sidebar-header {
 
 body.dark-mode .menu-item:hover {
     background-color: #21262d;
+}
+
+body.dark-mode .chat-avatar i,
+body.dark-mode .sidebar-icon {
+    color: #8b949e;
+}
+
+body.dark-mode .menu-item.active .chat-avatar i,
+body.dark-mode .menu-item.active .sidebar-icon {
+    color: white;
+}
+
+body.dark-mode .menu-item:hover .chat-avatar i {
+    color: #c9d1d9;
 }
 
 body.dark-mode .menu-item.active {
@@ -2584,11 +2600,11 @@ noscript {
     height: 100%;
     min-height: 100%;
     max-height: 100%;
-    background-color: #2c3e50;
-    color: white;
+    background-color: #f8fafc;
+    color: #334155;
     box-sizing: border-box;
     box-shadow: none;
-    border-right: 1px solid #1e2b3a;
+    border-right: 1px solid #e2e8f0;
 }
 
 .sidebar-header {
@@ -2598,7 +2614,7 @@ noscript {
     align-items: center;
     width: 100%;
     padding: 10px 0;
-    border-bottom: 1px solid #334155;
+    border-bottom: 1px solid #bfdbfe;
 }
 
 .user-profile {
@@ -2618,7 +2634,7 @@ noscript {
     border-radius: 50%;
     overflow: hidden;
     border: 2px solid #3498db;
-    background-color: #34495e;
+    background-color: #3498db;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -2680,7 +2696,7 @@ noscript {
 }
 
 .menu-item:hover {
-    background-color: #64748b;
+    background-color: #e2e8f0;
     transform: translateY(-1px);
 }
 
@@ -3126,11 +3142,53 @@ noscript {
 
 .msg-bubble-content {
     color: #343a40;
-    overflow: visible;
+    max-height: 300px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 transparent;
+}
+
+.msg-bubble-content.has-scroll {
+    padding-right: 8px;
+}
+
+.msg-bubble-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.msg-bubble-content::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 3px;
+}
+
+.msg-bubble-content::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.msg-bubble-content::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
 }
 
 .msg-bubble-content p {
     margin: 0;
+}
+
+.msg-bubble-content ol,
+.msg-bubble-content ul {
+    margin: 0;
+    padding: 0 0 0 20px;
+    line-height: 1.5;
+    font-size: inherit;
+    white-space: normal;
+}
+.msg-bubble-content li {
+    display: list-item;
+    margin: 0;
+    padding: 0;
+    line-height: inherit;
+    font-size: inherit;
+    min-height: 0;
 }
 
 .msg-time {
@@ -3185,7 +3243,7 @@ noscript {
 
 .message-content .message-text {
     max-height: 300px;
-    overflow: visible;
+    overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: #c1c1c1 transparent;
 }
@@ -5280,6 +5338,23 @@ body.dark-mode .send-group-card-container p {
 /* 消息高亮样式 */
 .highlight-message {
     animation: highlight-fade 3s ease-out;
+}
+
+/* 消息内表格样式（marked 渲染） */
+.msg-bubble-content table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 8px;
+}
+.msg-bubble-content th,
+.msg-bubble-content td {
+    border: 1px solid #d0d5dd;
+    padding: 6px 10px;
+    text-align: left;
+}
+.msg-bubble-content th {
+    background-color: #f5f7fa;
+    font-weight: 600;
 }
 
 @keyframes highlight-fade {

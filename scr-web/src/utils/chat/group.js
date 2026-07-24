@@ -566,12 +566,6 @@ async function switchToGroupChat(groupId, groupName) {
           group_nickname: m.group_nickname || null
         }));
         groupStore.currentGroupMembers = storeMembers;
-        if (groupStore.updateGroupNicknameInMessages) {
-          groupStore.updateGroupNicknameInMessages(groupId, storeMembers);
-        }
-        if (groupStore.detectAndUpdateGroupNicknames) {
-          groupStore.detectAndUpdateGroupNicknames(groupId);
-        }
       } else {
         groupStore.currentGroupMembers = [];
       }

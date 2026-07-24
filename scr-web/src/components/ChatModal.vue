@@ -334,7 +334,7 @@
         </div>
         <div class="modal-footer" style="flex-shrink: 0; gap: 10px; padding: 12px 16px;">
           <button id="cancelCreateGroup" class="cancel-btn" @click="modalStore.closeModal('createGroup')" style="background: #ff4757; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">取消</button>
-          <button id="submitCreateGroup" class="save-btn" @click="handleCreateGroup" style="background: #2ed573; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">创建群组</button>
+          <button id="submitCreateGroup" class="save-btn" @click="handleCreateGroup" :disabled="isCreatingGroup" style="background: #2ed573; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">{{ isCreatingGroup ? '创建中...' : '创建群组' }}</button>
         </div>
       </div>
     </div>
@@ -536,7 +536,7 @@
                 <div class="user-nickname" style="font-weight: 600; font-size: 15px;">{{ user.nickname }}</div>
                 <div class="user-username" style="color: #666; font-size: 13px;">@{{ user.username }}</div>
               </div>
-              <button v-if="isSearchResultUserFriend(user.id)" class="message-friend-btn" @click="handleMessageFriendFromSearch(user)" style="width: 32px; height: 32px; border-radius: 50%; background: #27ae60; color: white; border: none; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;" title="发消息"><img src="/icon/Message-256.ico" alt="发消息" style="width: 16px; height: 16px;"></button>
+              <button v-if="isSearchResultUserFriend(user.id)" class="message-friend-btn" @click="handleMessageFriendFromSearch(user)" style="width: 32px; height: 32px; border-radius: 50%; background: #27ae60; color: white; border: none; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;" title="发消息"><i class="fas fa-comment-dots" style="font-size: 16px;"></i></button>
               <button v-else class="add-friend-btn" @click="handleAddFriend(user)" style="width: 32px; height: 32px; border-radius: 50%; background: #3498db; color: white; border: none; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;" title="添加好友">+</button>
             </div>
           </div>
@@ -1200,6 +1200,7 @@ const newGroupName = ref('');
 const newGroupDesc = ref('');
 const createGroupMessage = ref('');
 const createGroupMessageType = ref('');
+const isCreatingGroup = ref(false);
 const showAddGroupMembersModal = ref(false);
 const groupAvatarInput = ref(null);
 const groupNameInput = ref(null);
@@ -1998,6 +1999,7 @@ function handleSelectAllMembers(event) {
 }
 
 async function handleCreateGroup() {
+  if (isCreatingGroup.value) return;
   const groupName = newGroupName.value.trim();
   const groupDescription = newGroupDesc.value.trim();
   const selectedMemberIds = selectedMembers.value;
@@ -2009,6 +2011,7 @@ async function handleCreateGroup() {
   }
 
   createGroupMessage.value = '';
+  isCreatingGroup.value = true;
 
   try {
     const user = baseStore.currentUser;
@@ -2035,19 +2038,19 @@ async function handleCreateGroup() {
       groupStore.addGroupMessage(data.createMessage.groupId, data.createMessage);
     }
 
-    loadGroupList();
-
     setTimeout(() => {
       modalStore.closeModal('createGroup');
       newGroupName.value = '';
       newGroupDesc.value = '';
       selectedMembers.value = [];
       createGroupMessage.value = '';
+      isCreatingGroup.value = false;
     }, 1000);
   } catch (error) {
     console.error('创建群组失败:', error);
     createGroupMessage.value = error.response?.data?.message || error.message || '群组创建失败';
     createGroupMessageType.value = 'error';
+    isCreatingGroup.value = false;
   }
 }
 

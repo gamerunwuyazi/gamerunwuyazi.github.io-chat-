@@ -28,7 +28,7 @@ async function isGroupOwner(groupId, userId) {
   }
 }
 
-async function isGroupAdmin(groupId, userId) {
+export async function isGroupAdmin(groupId, userId) {
   try {
     const [groups] = await pool.execute(
       'SELECT creator_id FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
@@ -315,7 +315,8 @@ export async function createGroup(req, res) {
       groupId: groupId,
       groupName: groupName,
       creatorId: userId,
-      members: groupMembers
+      members: groupMembers,
+      createMessage: type100Message
     });
 
     res.json({
