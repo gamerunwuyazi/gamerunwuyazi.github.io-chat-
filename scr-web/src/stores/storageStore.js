@@ -816,33 +816,37 @@ export const useStorageStore = defineStore('storage', () => {
       const res = await getOfflineMessages(publicAndGroupMinIdParam, privateMinIdParam);
       const data = res.data;
 
+      const processTasks = [];
+
       if (data.publicMessages && data.publicMessages.length > 0) {
         data.publicMessages.forEach(message => {
-          if (message.message_type === 102) {
+          if ((message.messageType ?? message.message_type) === 102) {
             userInfoUpdateMessages.push({ ...message, type: 'public' });
           } else {
-            processOfflineMessage({ ...message, type: 'public' }, onlySaveToDB);
+            processTasks.push(processOfflineMessage({ ...message, type: 'public' }, onlySaveToDB));
           }
         });
       }
       if (data.groupMessages && data.groupMessages.length > 0) {
         data.groupMessages.forEach(message => {
-          if (message.message_type === 102) {
+          if ((message.messageType ?? message.message_type) === 102) {
             userInfoUpdateMessages.push({ ...message, type: 'group' });
           } else {
-            processOfflineMessage({ ...message, type: 'group' }, onlySaveToDB);
+            processTasks.push(processOfflineMessage({ ...message, type: 'group' }, onlySaveToDB));
           }
         });
       }
       if (data.privateMessages && data.privateMessages.length > 0) {
         data.privateMessages.forEach(message => {
-          if (message.message_type === 102) {
+          if ((message.messageType ?? message.message_type) === 102) {
             userInfoUpdateMessages.push({ ...message, type: 'private' });
           } else {
-            processOfflineMessage({ ...message, type: 'private' }, onlySaveToDB);
+            processTasks.push(processOfflineMessage({ ...message, type: 'private' }, onlySaveToDB));
           }
         });
       }
+
+      await Promise.all(processTasks);
       
       baseStore.hasReceivedHistory = true;
       baseStore.hasReceivedGroupHistory = true;
@@ -986,9 +990,7 @@ export const useStorageStore = defineStore('storage', () => {
         await saveToStorage();
 
         if (userInfoUpdateMessages.length > 0) {
-          userInfoUpdateMessages.forEach(message => {
-            processOfflineMessage(message, onlySaveToDB);
-          });
+          await Promise.all(userInfoUpdateMessages.map(message => processOfflineMessage(message, onlySaveToDB)));
         }
 
         setTimeout(() => {
@@ -1089,9 +1091,7 @@ export const useStorageStore = defineStore('storage', () => {
         await saveToStorage();
 
         if (userInfoUpdateMessages.length > 0) {
-          userInfoUpdateMessages.forEach(message => {
-            processOfflineMessage(message, onlySaveToDB);
-          });
+          await Promise.all(userInfoUpdateMessages.map(message => processOfflineMessage(message, onlySaveToDB)));
         }
 
         await saveMinIds();
