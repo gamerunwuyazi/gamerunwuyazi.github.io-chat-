@@ -12,7 +12,7 @@ import { notFoundHandler, globalErrorHandler } from './middleware/errorHandler.j
 import { setupAllRoutes } from './routes/index.js';
 import { initAdminRoutes } from './routes/admin.js';
 import { setupSocketIO } from './socket/index.js';
-import { setSocketDependencies as setGroupDeps } from './services/groupService.js';
+import { setSocketDependencies as setGroupDeps, isGroupAdmin } from './services/groupService.js';
 import { setSocketDependencies as setMessageDeps, getGlobalMessages, getGroupMessages } from './services/messageService.js';
 import { initUserService } from './services/userService.js';
 import { initFileService } from './services/fileService.js';
@@ -127,7 +127,7 @@ const io = setupSocketIO(server, {
   validateMessageContent,
   checkRateLimit,
   filterMessageFields,
-  isGroupAdmin: async () => false,
+  isGroupAdmin,
   getGlobalMessages,
   getGroupMessages
 });

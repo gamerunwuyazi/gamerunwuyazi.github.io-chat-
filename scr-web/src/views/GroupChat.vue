@@ -491,10 +491,6 @@ function loadCurrentGroupInfo() {
         group_nickname: m.group_nickname || null
       }));
       groupStore.currentGroupMembers = storeMembers;
-      // 检测群昵称变更并更新消息列表中的 stored groupNickname
-      groupStore.updateGroupNicknameInMessages(sessionStore.currentGroupId, storeMembers);
-      // 检测最后消息的 stored groupNickname 是否与成员信息一致
-      groupStore.detectAndUpdateGroupNicknames(sessionStore.currentGroupId);
     } else {
       groupStore.currentGroupMembers = [];
     }
@@ -729,7 +725,7 @@ function handleGroupMessageInput() {
               cursorPos: cursorPos
             };
             
-            const members = groupMembers.value || [];
+            const members = groupStore.currentGroupMembers || [];
             const onlineUserIds = new Set((userStore.onlineUsers || []).map(user => String(user.id)));
             
             // 检查是否是群主或管理员
@@ -764,7 +760,7 @@ function handleGroupMessageInput() {
             
             atSuggestions.value = atSuggestions.value.concat(
               members
-                .filter(member => member)
+                .filter(member => member && String(member.userId || member.id) !== String(currentUserId.value))
                 .map(member => {
                   const userId = member.userId || member.id;
                   const isOnline = onlineUserIds.has(String(userId));

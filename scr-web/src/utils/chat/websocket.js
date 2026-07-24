@@ -772,6 +772,9 @@ function initializeWebSocket() {
             if (message.atUserid && currentUser) {
                 const atUserIds = Array.isArray(message.atUserid) ? message.atUserid : [message.atUserid];
                 const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.id) || String(id) === '-1');
+                // 页面聚焦且正处于该群组会话时，仍弹 toast，但不标记@我（避免替换标题）
+                const isPageVisibleForAt = !document.hidden && document.hasFocus();
+                const isFocusedOnThisGroup = isUserActiveOnChat('group', String(message.groupId)) && isPageVisibleForAt;
                 if (isCurrentUserAt) {
                     // 查找群组名称
                     let groupName = '未知群组';
@@ -782,8 +785,8 @@ function initializeWebSocket() {
                         }
                     }
                     toast.info(`群组 ${groupName} 有@你的消息`);
-                    // 设置该群组有@我的消息标记
-                    if (groupStore && groupStore.setGroupHasAtMe) {
+                    // 仅在未聚焦于该群组会话时，设置@我标记（用于替换标题）
+                    if (!isFocusedOnThisGroup && groupStore && groupStore.setGroupHasAtMe) {
                         groupStore.setGroupHasAtMe(message.groupId);
                     }
                 }
@@ -844,9 +847,13 @@ function initializeWebSocket() {
             if (message.atUserid && currentUser) {
                 const atUserIds = Array.isArray(message.atUserid) ? message.atUserid : [message.atUserid];
                 const isCurrentUserAt = atUserIds.some(id => String(id) === String(currentUser.id));
+                // 页面聚焦且正处于主聊天室会话时，仍弹 toast，但不标记@我（避免替换标题）
+                const isPageVisibleForAt = !document.hidden && document.hasFocus();
+                const isFocusedOnPublic = isUserActiveOnChat('public', null) && isPageVisibleForAt;
                 if (isCurrentUserAt) {
                     toast.info('主聊天室有@你的消息');
-                    if (unreadStore && unreadStore.setPublicHasAtMe) {
+                    // 仅在未聚焦于主聊天室会话时，设置@我标记（用于替换标题）
+                    if (!isFocusedOnPublic && unreadStore && unreadStore.setPublicHasAtMe) {
                         unreadStore.setPublicHasAtMe();
                     }
                 }
@@ -1170,9 +1177,12 @@ function initializeWebSocket() {
 
     // 群组创建事件
     socket.on('group-created', async (data) => {
+        const groupStore = useGroupStore();
+        const storageStore = useStorageStore();
+
         // 先等待群组列表刷新完成
         await loadGroupList();
-        
+
         // 保存群组名称和头像到 IndexedDB
         if (data && data.groupId) {
             try {
@@ -1187,6 +1197,22 @@ function initializeWebSocket() {
                 await localForage.setItem(key, updatedSessionData);
             } catch (e) {
                 console.error('保存群组信息到 IndexedDB 失败:', e);
+            }
+        }
+
+        // 更新群组最后消息，保证创建消息参与排序
+        if (data && data.createMessage && groupStore && groupStore.groupsList) {
+            const group = groupStore.groupsList.find(g => String(g.id) === String(data.groupId));
+            if (group) {
+                const msg = data.createMessage;
+                const newTime = new Date(msg.timestamp || Date.now()).toISOString();
+                group.last_message_time = newTime;
+                group.session_last_active_time = newTime;
+                group.lastMessage = msg;
+                groupStore.sortGroupsByLastMessageTime();
+                if (storageStore.updateSessionLastMessageTime) {
+                    storageStore.updateSessionLastMessageTime('group', data.groupId, newTime);
+                }
             }
         }
     });

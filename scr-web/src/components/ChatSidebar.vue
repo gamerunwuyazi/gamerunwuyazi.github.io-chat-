@@ -177,7 +177,7 @@ async function handleMenuClick(section) {
     <div class="menu-section">
         <ul class="menu-list">
             <li :class="['menu-item', { active: activeMenuItem === 'public-chat' }]" data-section="public-chat" @click="handleMenuClick('public-chat')">
-                <div class="chat-avatar"><img src="/icon/Message-256.ico" alt="公共聊天" style="width: 24px; height: 24px;"></div>
+                <div class="chat-avatar"><i class="fas fa-comments"></i></div>
                 <div v-if="publicUnreadCount > 0" class="unread-count">{{ publicUnreadCount }}</div>
             </li>
         </ul>
@@ -186,7 +186,7 @@ async function handleMenuClick(section) {
     <div class="menu-section">
         <ul class="menu-list">
             <li :class="['menu-item', { active: activeMenuItem === 'group-chat' }]" data-section="group-chat" @click="handleMenuClick('group-chat')">
-                <div class="chat-avatar"><img src="/icon/User-Group-256.ico" alt="群组聊天" style="width: 24px; height: 24px;"></div>
+                <div class="chat-avatar"><i class="fas fa-user-group"></i></div>
                 <div v-if="groupUnreadCount > 0" class="unread-count">{{ groupUnreadCount }}</div>
             </li>
         </ul>
@@ -195,7 +195,7 @@ async function handleMenuClick(section) {
     <div class="menu-section">
         <ul class="menu-list">
             <li :class="['menu-item', { active: activeMenuItem === 'private-chat' }]" data-section="private-chat" @click="handleMenuClick('private-chat')">
-                <div class="chat-avatar"><img src="/icon/User-Profile-256.ico" alt="私信聊天" style="width: 24px; height: 24px;"></div>
+                <div class="chat-avatar"><i class="fas fa-user" style="font-size: 22px;"></i></div>
                 <div v-if="privateUnreadCount > 0" class="unread-count">{{ privateUnreadCount }}</div>
             </li>
         </ul>
@@ -205,7 +205,7 @@ async function handleMenuClick(section) {
         <ul class="menu-list">
             <li :class="['menu-item', { active: activeMenuItem === 'user-settings' }]" data-section="user-settings" @click="handleMenuClick('user-settings')">
                 <div class="chat-avatar">
-                    <img src="/icon/Settings-01-256.ico" alt="用户设置" style="width: 24px; height: 24px;">
+                    <i class="fas fa-gear"></i>
                 </div>
                 <span v-if="friendRequestUnreadCount > 0" class="unread-count">{{ friendRequestUnreadCount > 99 ? '99+' : friendRequestUnreadCount }}</span>
             </li>
@@ -227,6 +227,24 @@ async function handleMenuClick(section) {
 <style scoped>
 .chat-avatar {
   position: relative;
+}
+
+.chat-avatar i {
+  font-size: 22px;
+  color: #475569;
+  transition: all 0.3s ease;
+}
+
+.menu-item.active .chat-avatar i {
+  color: white;
+}
+
+.menu-item:hover .chat-avatar i {
+  color: #1e293b;
+}
+
+.menu-item.active:hover .chat-avatar i {
+  color: white;
 }
 
 .chat-avatar .unread-count {

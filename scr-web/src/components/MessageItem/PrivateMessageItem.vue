@@ -25,7 +25,7 @@
     </div>
     <div class="msg-body" :class="{ 'own-body': isOwn }">
       <div class="msg-bubble">
-        <div class="msg-bubble-content">
+        <div class="msg-bubble-content" v-scroll-padding>
       <div v-if="imageUrl" class="message-image-container">
         <img 
           :src="fullImageUrl" 
@@ -560,6 +560,11 @@ const quotedMessageParsedContent = computed(() => {
     </figure>`;
   };
 
+  renderer.codespan = function(token) {
+    return `<code>` + token.text + `</code>`;
+  };
+
+
   marked.setOptions({
     breaks: true,
     gfm: true,
@@ -568,10 +573,10 @@ const quotedMessageParsedContent = computed(() => {
 
   let parsed = marked.parse(contentToParse).trim();
   parsed = parsed.replace(/<svg[^>]*>.*?<\/svg>/gi, '[SVG图片]');
-  parsed = parsed.replace(/<(?!\/?(a|img|div|span|br|p|h[1-6]|strong|em|code|pre|ul|ol|li|blockquote|figure|table|tbody|tr|td|i)\b)[^>]*>/gi, '');
+  parsed = parsed.replace(/<(?!\/?(a|img|div|span|br|p|h[1-6]|strong|em|code|pre|ul|ol|li|blockquote|figure|table|thead|tbody|tr|th|td|i)\b)[^>]*>/gi, '');
 
   parsed = parsed.replace(/<img/g, '<img class="message-image" style="max-width: 100%; height: auto; cursor: pointer;"');
-  parsed = parsed.replace(/<a/g, '<a class="message-link" target="_blank" rel="noopener noreferrer" style="color: #3498db; text-decoration: none;"');
+  parsed = parsed.replace(/<table/g, '<table style="border-collapse: collapse; width: 100%; margin-bottom: 8px;"');  parsed = parsed.replace(/<a/g, '<a class="message-link" target="_blank" rel="noopener noreferrer" style="color: #3498db; text-decoration: none;"');
 
   return DOMPurify.sanitize(parsed);
 });
@@ -749,6 +754,11 @@ const parsedContent = computed(() => {
     </figure>`;
   };
 
+  renderer.codespan = function(token) {
+    return `<code>` + token.text + `</code>`;
+  };
+
+
   marked.setOptions({
     breaks: true,
     gfm: true,
@@ -757,10 +767,10 @@ const parsedContent = computed(() => {
 
   let parsed = marked.parse(contentToParse).trim();
   parsed = parsed.replace(/<svg[^>]*>.*?<\/svg>/gi, '[SVG图片]');
-  parsed = parsed.replace(/<(?!\/?(a|img|div|span|br|p|h[1-6]|strong|em|code|pre|ul|ol|li|blockquote|figure|table|tbody|tr|td|i)\b)[^>]*>/gi, '');
+  parsed = parsed.replace(/<(?!\/?(a|img|div|span|br|p|h[1-6]|strong|em|code|pre|ul|ol|li|blockquote|figure|table|thead|tbody|tr|th|td|i)\b)[^>]*>/gi, '');
 
   parsed = parsed.replace(/<img/g, '<img class="message-image" style="max-width: 100%; height: auto; cursor: pointer;"');
-  parsed = parsed.replace(/<a/g, '<a class="message-link" target="_blank" rel="noopener noreferrer" style="color: #3498db; text-decoration: none;"');
+  parsed = parsed.replace(/<table/g, '<table style="border-collapse: collapse; width: 100%; margin-bottom: 8px;"');  parsed = parsed.replace(/<a/g, '<a class="message-link" target="_blank" rel="noopener noreferrer" style="color: #3498db; text-decoration: none;"');
 
   parsed = parsed.replace(/<a([^>]*)(href="([^"]*)")([^>]*)>([^<]*)<\/a>/g, (match, attr1, hrefAttr, href, attr2, text) => {
     const hasDownloadAttr = match.includes('download');

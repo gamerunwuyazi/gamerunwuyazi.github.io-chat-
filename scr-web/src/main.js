@@ -3,6 +3,7 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 
 import App from './App.vue'
+import scrollPadding from './directives/scrollPadding.js'
 import { createClearStorePlugin, resetAllStores, clearSpecificStore } from './stores/plugins/clearStore.js'
 import { setRouter } from './utils/chat/routerInstance.js'
 
@@ -158,6 +159,7 @@ const pinia = createPinia()
 pinia.use(createClearStorePlugin())
 
 const app = createApp(App)
+app.directive('scroll-padding', scrollPadding)
 app.use(router)
 setRouter(router)
 app.use(pinia)

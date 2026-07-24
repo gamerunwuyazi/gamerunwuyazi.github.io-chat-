@@ -251,14 +251,8 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
                   [groupId, userId]
                 );
               }
-            } else {
-              // 用户未被禁言，允许发送
             }
-          } else {
-            // 未找到成员记录
           }
-        } else {
-          // 群主无需禁言检查
         }
         
         // 检查是否包含 @全体成员 (-1)，只有群主或管理员才能发送
