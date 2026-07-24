@@ -1,7 +1,7 @@
 import { SocketEvents } from '../events.js';
 import path from 'path';
 import fs from 'fs';
-import { pool as dbPool, redisClient } from '../../models/database.js';
+import { pool as dbPool, safeRedisExecute } from '../../models/database.js';
 
 function normalizeEncryptionFields({ isEncrypted, encrypted, encryptedContent, encryptionMetadata, encryption, content }) {
   const encryptedFlag = isEncrypted ?? encrypted;
@@ -121,12 +121,12 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       }
   
       // 验证消息内容...
-      if (!validateMessageContent(content)) {
+      if (!validateMessageContent(contentForValidation)) {
         socket.emit(SocketEvents.MESSAGE_SENT, {
           success: false,
           error: {
             code: 'INVALID_CONTENT',
-            message: '消息内容格式错误或超过 10000 字符限制'
+            message: '消息内容格式错误或超过 50000 字符限制'
           }
         });
         return;
@@ -460,8 +460,11 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
         // 有文件需要删除
         const fileUrl = contentData.url;
         const filePath = path.join(process.cwd(), 'public', fileUrl);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
+        try {
+          await fs.promises.access(filePath);
+          await fs.promises.unlink(filePath);
+        } catch (fileErr) {
+          if (fileErr.code !== 'ENOENT') throw fileErr;
         }
       }
 
@@ -867,7 +870,7 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       );
       const maxMessageId = rows[0]?.maxId || 0;
 
-      await redisClient.set(`scr:read:group:${numericGroupId}:${numericUserId}`, String(maxMessageId));
+      await safeRedisExecute(redis => redis.set(`scr:read:group:${numericGroupId}:${numericUserId}`, String(maxMessageId)));
     } catch (err) {
       console.error('清除群组未读计数失败:', err.message);
     }
@@ -888,7 +891,7 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       );
       const maxMessageId = rows[0]?.maxId || 0;
 
-      await redisClient.set(`scr:read:global:${numericUserId}`, String(maxMessageId));
+      await safeRedisExecute(redis => redis.set(`scr:read:global:${numericUserId}`, String(maxMessageId)));
     } catch (err) {
       console.error('清除主聊天室未读计数失败:', err.message);
     }

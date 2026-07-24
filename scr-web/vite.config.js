@@ -62,23 +62,23 @@ export default defineConfig(({ mode }) => {
       allowedHosts: ['scr-dev.hk.xingk.xyz'],
       proxy: {
         '/api': {
-          target: 'http://localhost:5000',
+          target: 'http://localhost:3001',
           changeOrigin: true,
           secure: false
         },
         '/socket.io': {
-          target: 'http://localhost:5000',
+          target: 'http://localhost:3001',
           changeOrigin: true,
           secure: false,
           ws: true
         },
         '/avatars': {
-          target: 'http://localhost:5000',
+          target: 'http://localhost:3001',
           changeOrigin: true,
           secure: false
         },
         '/uploads': {
-          target: 'http://localhost:5000',
+          target: 'http://localhost:3001',
           changeOrigin: true,
           secure: false
         }

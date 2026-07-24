@@ -51,17 +51,21 @@ export const dbConfig = {
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+  connectionLimit: parseInt(process.env.DB_POOL_SIZE) || 50,
+  queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: parseInt(process.env.DB_KEEP_ALIVE_INITIAL_DELAY_MS) || 10000
 };
 
 // ============================================
 // 服务器配置
 // ============================================
 export const serverConfig = {
-  port: parseInt(process.env.PORT) || 3000,
+  port: parseInt(process.env.PORT) || 3001,
   nodeEnv: process.env.NODE_ENV || 'production',
-  corsOrigin: process.env.CORS_ORIGIN || undefined
+  corsOrigins: process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean)
+    : []
 };
 
 // ============================================
@@ -84,7 +88,7 @@ export const socketConfig = {
   connectTimeout: parseInt(process.env.SOCKET_CONNECT_TIMEOUT) || 45000,
   upgradeTimeout: parseInt(process.env.SOCKET_UPGRADE_TIMEOUT) || 30000,
   cors: {
-    origin: serverConfig.corsOrigin,
+    origin: serverConfig.corsOrigins.length > 0 ? serverConfig.corsOrigins : false,
     methods: ['GET', 'POST'],
     credentials: true,
     transports: ['websocket', 'polling']
@@ -125,7 +129,7 @@ export const sessionConfig = {
 // 消息配置
 // ============================================
 export const messageConfig = {
-  maxLength: parseInt(process.env.MAX_MESSAGE_LENGTH) || 10000,
+  maxLength: parseInt(process.env.MAX_MESSAGE_LENGTH) || 50000,
   offlineLimits: {
     public: parseInt(process.env.OFFLINE_MESSAGES_LIMIT_PUBLIC) || 3000,
     group: parseInt(process.env.OFFLINE_MESSAGES_LIMIT_GROUP) || 8000,

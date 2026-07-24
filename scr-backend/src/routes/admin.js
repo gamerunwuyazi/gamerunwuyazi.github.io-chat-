@@ -1,4 +1,4 @@
-import { pool, redisClient } from '../models/database.js';
+import { pool, redisClient, safeRedisExecute } from '../models/database.js';
 import { ADMIN_PASSWORD } from '../config/index.js';
 import { getOnlineUser, removeOnlineUser, getAllOnlineUsers } from '../utils/session.js';
 import bcrypt from 'bcryptjs';
@@ -11,32 +11,39 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsDir = path.resolve(__dirname, '..', '..', 'public', 'uploads');
 
-const adminTokens = new Map();
-const ADMIN_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const ADMIN_TOKEN_TTL_SECONDS = 24 * 60 * 60;
 
-function createAdminToken(username) {
+function getAdminTokenKey(token) {
+  return `scr:admin:token:${token}`;
+}
+
+async function createAdminToken(username) {
   const token = crypto.randomBytes(32).toString('hex');
-  adminTokens.set(token, {
-    username,
-    expiresAt: Date.now() + ADMIN_TOKEN_TTL_MS
-  });
+  await safeRedisExecute(redis => redis.set(getAdminTokenKey(token), JSON.stringify({ username }), {
+    EX: ADMIN_TOKEN_TTL_SECONDS
+  }));
   return token;
 }
 
-function getAdminFromToken(token) {
-  const session = adminTokens.get(token);
-  if (!session) return null;
-  if (session.expiresAt <= Date.now()) {
-    adminTokens.delete(token);
+async function getAdminFromToken(token) {
+  const sessionData = await safeRedisExecute(redis => redis.get(getAdminTokenKey(token)), null);
+  if (!sessionData) return null;
+  try {
+    return JSON.parse(sessionData);
+  } catch (err) {
+    await safeRedisExecute(redis => redis.del(getAdminTokenKey(token)));
     return null;
   }
-  return session;
+}
+
+async function deleteAdminToken(token) {
+  await safeRedisExecute(redis => redis.del(getAdminTokenKey(token)));
 }
 
 async function authenticateAdmin(req, res, next) {
   const authHeader = req.headers.authorization || '';
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  const tokenSession = bearerToken ? getAdminFromToken(bearerToken) : null;
+  const tokenSession = bearerToken ? await getAdminFromToken(bearerToken) : null;
 
   if (tokenSession) {
     req.admin = { username: tokenSession.username };
@@ -167,7 +174,7 @@ export function setupRoutes(app, io) {
     const authHeader = req.headers.authorization || '';
     const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
     if (bearerToken) {
-      adminTokens.delete(bearerToken);
+      await deleteAdminToken(bearerToken);
     }
     res.json({ success: true, status: 'success', message: '已退出登录' });
   });
@@ -453,7 +460,7 @@ export function setupRoutes(app, io) {
           [ipAddress, userId || null, reason || '违反使用规则', expiresDate]
         );
 
-        await redisClient.hSet('scr:banned_ips', ipAddress, JSON.stringify(banData));
+        await safeRedisExecute(client => client.hSet('scr:banned_ips', ipAddress, JSON.stringify(banData)));
 
         io.to(`ip_${ipAddress}`).emit('ip-banned', {
           ipAddress: ipAddress,
@@ -467,7 +474,7 @@ export function setupRoutes(app, io) {
           const user = await getOnlineUser(socket.id);
           if (user) {
             await removeOnlineUser(socket.id);
-            await redisClient.sRem('scr:authenticated_users', String(user.id));
+            await safeRedisExecute(client => client.sRem('scr:authenticated_users', String(user.id)));
 
             try {
               await pool.execute(
@@ -526,7 +533,7 @@ export function setupRoutes(app, io) {
           );
         }
 
-        await redisClient.hSet('scr:banned_users', userIdStr, JSON.stringify(banData));
+        await safeRedisExecute(client => client.hSet('scr:banned_users', userIdStr, JSON.stringify(banData)));
 
         io.to(`user_${userId}`).emit('user-banned', {
           ipAddress: ipAddress,
@@ -540,7 +547,7 @@ export function setupRoutes(app, io) {
           const user = await getOnlineUser(socket.id);
           if (user) {
             await removeOnlineUser(socket.id);
-            await redisClient.sRem('scr:authenticated_users', String(user.id));
+            await safeRedisExecute(client => client.sRem('scr:authenticated_users', String(user.id)));
 
             try {
               await pool.execute(
@@ -627,8 +634,10 @@ export function setupRoutes(app, io) {
           [ipAddress, userId]
         );
 
-        await redisClient.hDel('scr:banned_ips', ipAddress);
-        await redisClient.hDel('scr:banned_users', String(userId));
+        await safeRedisExecute(async (client) => {
+          await client.hDel('scr:banned_ips', ipAddress);
+          await client.hDel('scr:banned_users', String(userId));
+        });
       } else {
         if (ipAddress) {
           await pool.execute(
@@ -636,7 +645,7 @@ export function setupRoutes(app, io) {
             [ipAddress]
           );
 
-          await redisClient.hDel('scr:banned_ips', ipAddress);
+          await safeRedisExecute(client => client.hDel('scr:banned_ips', ipAddress));
         }
 
         if (userId) {
@@ -645,7 +654,7 @@ export function setupRoutes(app, io) {
             [userId]
           );
 
-          await redisClient.hDel('scr:banned_users', String(userId));
+          await safeRedisExecute(client => client.hDel('scr:banned_users', String(userId)));
         }
       }
 
@@ -892,7 +901,7 @@ export function setupRoutes(app, io) {
         const onlineUser = await getOnlineUser(socket.id);
         if (onlineUser) {
           await removeOnlineUser(socket.id);
-          await redisClient.sRem('scr:authenticated_users', String(onlineUser.id));
+          await safeRedisExecute(client => client.sRem('scr:authenticated_users', String(onlineUser.id)));
 
           try {
             await pool.execute(
@@ -1473,6 +1482,9 @@ export function setupRoutes(app, io) {
         [deletedAt, groupId, memberId]
       );
 
+      io.to(`group_${groupId}`).emit('member-removed', { groupId, memberId });
+      io.to(`user_${memberId}`).emit('member-removed', { groupId, memberId });
+
       await logAudit('kick_member', 'group_member', memberId, {
         groupId,
         memberId,
@@ -1530,8 +1542,11 @@ export function setupRoutes(app, io) {
           try {
             const avatarPathWithoutVersion = group[0].avatar_url.split('?')[0];
             const fullAvatarPath = path.join(__dirname, '..', '..', 'public', avatarPathWithoutVersion);
-            if (fs.existsSync(fullAvatarPath)) {
-              fs.unlinkSync(fullAvatarPath);
+            try {
+              await fs.promises.access(fullAvatarPath);
+              await fs.promises.unlink(fullAvatarPath);
+            } catch (accessError) {
+              if (accessError.code !== 'ENOENT') throw accessError;
             }
           } catch (deleteError) {
             console.error('删除群头像文件失败', deleteError.message);
@@ -1650,8 +1665,13 @@ export function setupRoutes(app, io) {
         try {
           const fileName = path.basename(new URL(parsedContent.url, 'http://local').pathname);
           const filePath = path.resolve(uploadsDir, fileName);
-          if (filePath.startsWith(uploadsDir) && fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+          if (filePath.startsWith(uploadsDir)) {
+            try {
+              await fs.promises.access(filePath);
+              await fs.promises.unlink(filePath);
+            } catch (accessErr) {
+              if (accessErr.code !== 'ENOENT') throw accessErr;
+            }
           }
         } catch (fileErr) {
           console.warn('删除物理文件失败:', fileErr.message);

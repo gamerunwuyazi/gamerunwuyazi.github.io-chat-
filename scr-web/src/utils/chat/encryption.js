@@ -21,6 +21,9 @@ export const ENCRYPTION_VERSION = 1;
 export const UNDECRYPTABLE_MESSAGE_TEXT = '无法解密此消息';
 
 const publicKeyCache = new Map();
+const sessionKeyCache = new Map();
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
 
 function getCrypto() {
   const cryptoImpl = window.crypto || window.msCrypto;
@@ -116,6 +119,23 @@ function getUserKeyStorageKey(userId) {
 
 function getPublicKeyCacheKey(userId, sessionType, sessionId) {
   return `e2ee-public-keys-${userId}-${sessionType}-${sessionId}`;
+}
+
+function getSessionKeyStorageKey(userId, sessionType, sessionId) {
+  return `e2ee-session-key-${userId}-${sessionType}-${sessionId}`;
+}
+
+function getSessionKeyCacheKey(userId, sessionType, sessionId) {
+  return `${userId}:${sessionType}:${sessionId}`;
+}
+
+function getRecipientFingerprint(recipientIds) {
+  return recipientIds.map(String).sort().join(',');
+}
+
+function createKeyId() {
+  const bytes = getCrypto().getRandomValues(new Uint8Array(12));
+  return arrayBufferToBase64(bytes.buffer);
 }
 
 function extractPublicKeysPayload(publicKeys) {
@@ -358,7 +378,106 @@ export async function getCachedSessionPublicKeys(userId, sessionType, sessionId)
   return publicKeys;
 }
 
-export async function encryptMessageForRecipients(plainText, recipientPublicKeys) {
+async function importSessionKey(rawKey) {
+  return getCrypto().subtle.importKey('raw', base64ToArrayBuffer(rawKey), SYMMETRIC_ALGORITHM, true, ['encrypt', 'decrypt']);
+}
+
+async function exportSessionKey(sessionKey) {
+  return arrayBufferToBase64(await getCrypto().subtle.exportKey('raw', sessionKey));
+}
+
+async function getStoredSessionKey(userId, sessionType, sessionId) {
+  if (!userId || !sessionType || !sessionId) return null;
+  const cacheKey = getSessionKeyCacheKey(userId, sessionType, sessionId);
+  if (sessionKeyCache.has(cacheKey)) return sessionKeyCache.get(cacheKey);
+  const stored = await localForage.getItem(getSessionKeyStorageKey(userId, sessionType, sessionId));
+  if (stored?.rawKey) {
+    sessionKeyCache.set(cacheKey, stored);
+  }
+  return stored || null;
+}
+
+async function saveSessionKey(userId, sessionType, sessionId, sessionKeyData) {
+  if (!userId || !sessionType || !sessionId || !sessionKeyData?.rawKey) return;
+  const cacheKey = getSessionKeyCacheKey(userId, sessionType, sessionId);
+  sessionKeyCache.set(cacheKey, sessionKeyData);
+  await localForage.setItem(getSessionKeyStorageKey(userId, sessionType, sessionId), sessionKeyData);
+}
+
+async function wrapSessionKeyForRecipients(sessionKey, normalizedPublicKeys, recipientIds) {
+  const cryptoImpl = getCrypto();
+  const wrappedKeys = {};
+  await Promise.all(recipientIds.map(async (recipientId) => {
+    const publicKey = await importPublicKey(normalizedPublicKeys[recipientId]);
+    const wrappedKey = await cryptoImpl.subtle.wrapKey('raw', sessionKey, publicKey, { name: 'RSA-OAEP' });
+    wrappedKeys[recipientId] = arrayBufferToBase64(wrappedKey);
+  }));
+  return wrappedKeys;
+}
+
+async function getOrCreateSessionKey({ currentUserId, sessionType, sessionId, recipientIds }) {
+  const cryptoImpl = getCrypto();
+  const recipientFingerprint = getRecipientFingerprint(recipientIds);
+  const stored = await getStoredSessionKey(currentUserId, sessionType, sessionId);
+  if (stored?.rawKey && !stored.forceRotate && stored.recipientFingerprint === recipientFingerprint) {
+    const wrapCounter = (stored.wrapCounter || 0) + 1;
+    const shouldAttachWrappedKeys = wrapCounter >= 10;
+    const updated = {
+      ...stored,
+      wrapCounter: shouldAttachWrappedKeys ? 0 : wrapCounter,
+      updatedAt: new Date().toISOString()
+    };
+    await saveSessionKey(currentUserId, sessionType, sessionId, updated);
+    return {
+      ...updated,
+      key: await importSessionKey(stored.rawKey),
+      shouldAttachWrappedKeys
+    };
+  }
+
+  const shouldGenerateNewKey = stored?.forceRotate || (stored?.rawKey && stored.recipientFingerprint !== recipientFingerprint);
+  const key = shouldGenerateNewKey || !stored?.rawKey
+    ? await cryptoImpl.subtle.generateKey(SYMMETRIC_ALGORITHM, true, ['encrypt', 'decrypt'])
+    : await importSessionKey(stored.rawKey);
+  const rawKey = await exportSessionKey(key);
+  const oldKeys = { ...(stored?.oldKeys || {}) };
+  if (shouldGenerateNewKey && stored?.keyId && stored.rawKey) {
+    oldKeys[stored.keyId] = stored.rawKey;
+  }
+  const sessionKeyData = {
+    keyId: shouldGenerateNewKey || !stored?.keyId ? createKeyId() : stored.keyId,
+    rawKey,
+    recipientFingerprint,
+    oldKeys,
+    updatedAt: new Date().toISOString()
+  };
+  await saveSessionKey(currentUserId, sessionType, sessionId, sessionKeyData);
+  return {
+    ...sessionKeyData,
+    key,
+    shouldAttachWrappedKeys: true
+  };
+}
+
+export async function clearSessionEncryptionKey(userId, sessionType, sessionId) {
+  if (!userId || !sessionType || !sessionId) return;
+  sessionKeyCache.delete(getSessionKeyCacheKey(userId, sessionType, sessionId));
+  await localForage.removeItem(getSessionKeyStorageKey(userId, sessionType, sessionId));
+}
+
+export async function rotateSessionEncryptionKey(userId, sessionType, sessionId) {
+  if (!userId || !sessionType || !sessionId) return;
+  const stored = await getStoredSessionKey(String(userId), sessionType, String(sessionId));
+  if (!stored?.rawKey) return;
+  const updated = {
+    ...stored,
+    forceRotate: true,
+    updatedAt: new Date().toISOString()
+  };
+  await saveSessionKey(String(userId), sessionType, String(sessionId), updated);
+}
+
+export async function encryptMessageForRecipients(plainText, recipientPublicKeys, options = {}) {
   const normalizedPublicKeys = normalizePublicKeyMap(recipientPublicKeys);
   const recipientIds = Object.keys(normalizedPublicKeys);
   if (!plainText || recipientIds.length === 0) {
@@ -366,27 +485,46 @@ export async function encryptMessageForRecipients(plainText, recipientPublicKeys
   }
 
   const cryptoImpl = getCrypto();
-  const messageKey = await cryptoImpl.subtle.generateKey(SYMMETRIC_ALGORITHM, true, ['encrypt', 'decrypt']);
-  const iv = cryptoImpl.getRandomValues(new Uint8Array(12));
-  const encodedContent = new TextEncoder().encode(plainText);
-  const ciphertext = await cryptoImpl.subtle.encrypt({ name: 'AES-GCM', iv }, messageKey, encodedContent);
-  const wrappedKeys = {};
+  let messageKey;
+  let keyId;
+  let wrappedKeys = null;
+  let keyMode = 'message';
 
-  for (const recipientId of recipientIds) {
-    const publicKey = await importPublicKey(normalizedPublicKeys[recipientId]);
-    const wrappedKey = await cryptoImpl.subtle.wrapKey('raw', messageKey, publicKey, { name: 'RSA-OAEP' });
-    wrappedKeys[recipientId] = arrayBufferToBase64(wrappedKey);
+  if (options.currentUserId && options.sessionType && options.sessionId) {
+    const sessionKeyData = await getOrCreateSessionKey({
+      currentUserId: String(options.currentUserId),
+      sessionType: options.sessionType,
+      sessionId: String(options.sessionId),
+      recipientIds
+    });
+    messageKey = sessionKeyData.key;
+    keyId = sessionKeyData.keyId;
+    keyMode = 'session';
+    if (sessionKeyData.shouldAttachWrappedKeys || options.forceAttachWrappedKeys) {
+      wrappedKeys = await wrapSessionKeyForRecipients(messageKey, normalizedPublicKeys, recipientIds);
+    }
+  } else {
+    messageKey = await cryptoImpl.subtle.generateKey(SYMMETRIC_ALGORITHM, true, ['encrypt', 'decrypt']);
+    wrappedKeys = await wrapSessionKeyForRecipients(messageKey, normalizedPublicKeys, recipientIds);
   }
 
-  return {
+  const iv = cryptoImpl.getRandomValues(new Uint8Array(12));
+  const ciphertext = await cryptoImpl.subtle.encrypt({ name: 'AES-GCM', iv }, messageKey, textEncoder.encode(plainText));
+
+  const payload = {
     encrypted: true,
     version: ENCRYPTION_VERSION,
     algorithm: 'AES-GCM',
     keyAlgorithm: 'RSA-OAEP',
+    keyMode,
     ciphertext: arrayBufferToBase64(ciphertext),
-    iv: arrayBufferToBase64(iv.buffer),
-    wrappedKeys
+    iv: arrayBufferToBase64(iv.buffer)
   };
+  if (keyId) payload.keyId = keyId;
+  if (options.sessionType) payload.sessionType = options.sessionType;
+  if (options.sessionId) payload.sessionId = String(options.sessionId);
+  if (wrappedKeys) payload.wrappedKeys = wrappedKeys;
+  return payload;
 }
 
 export async function decryptMessageForUser(encryptedPayload, userId) {
@@ -395,27 +533,51 @@ export async function decryptMessageForUser(encryptedPayload, userId) {
       return { success: true, text: encryptedPayload?.content || encryptedPayload };
     }
 
+    const cryptoImpl = getCrypto();
+    let messageKey = null;
+    const sessionType = encryptedPayload.sessionType;
+    const sessionId = encryptedPayload.sessionId;
+    const keyMode = encryptedPayload.keyMode || (sessionType && sessionId ? 'session' : 'message');
+
+    if (keyMode === 'session' && sessionType && sessionId) {
+      const stored = await getStoredSessionKey(String(userId), sessionType, String(sessionId));
+      if (stored?.rawKey && (!encryptedPayload.keyId || stored.keyId === encryptedPayload.keyId)) {
+        messageKey = await importSessionKey(stored.rawKey);
+      } else if (encryptedPayload.keyId && stored?.oldKeys?.[encryptedPayload.keyId]) {
+        messageKey = await importSessionKey(stored.oldKeys[encryptedPayload.keyId]);
+      }
+    }
+
     const wrappedKey = encryptedPayload.wrappedKeys?.[String(userId)] || encryptedPayload.keys?.[String(userId)];
-    if (!wrappedKey) {
+    if (!messageKey && wrappedKey) {
+      const storedIdentity = await getStoredIdentity(userId);
+      if (!storedIdentity?.privateKey) {
+        return createUndecryptableMessageState('missing-local-private-key');
+      }
+      const privateKey = await importPrivateKey(storedIdentity.privateKey);
+      messageKey = await cryptoImpl.subtle.unwrapKey(
+        'raw',
+        base64ToArrayBuffer(wrappedKey),
+        privateKey,
+        { name: 'RSA-OAEP' },
+        { name: 'AES-GCM', length: 256 },
+        true,
+        ['decrypt', 'encrypt']
+      );
+      if (keyMode === 'session' && sessionType && sessionId) {
+        await saveSessionKey(String(userId), sessionType, String(sessionId), {
+          keyId: encryptedPayload.keyId || createKeyId(),
+          rawKey: await exportSessionKey(messageKey),
+          recipientFingerprint: encryptedPayload.recipientFingerprint || '',
+          updatedAt: new Date().toISOString()
+        });
+      }
+    }
+
+    if (!messageKey) {
       return createUndecryptableMessageState('missing-key');
     }
 
-    const storedIdentity = await getStoredIdentity(userId);
-    if (!storedIdentity?.privateKey) {
-      return createUndecryptableMessageState('missing-local-private-key');
-    }
-
-    const cryptoImpl = getCrypto();
-    const privateKey = await importPrivateKey(storedIdentity.privateKey);
-    const messageKey = await cryptoImpl.subtle.unwrapKey(
-      'raw',
-      base64ToArrayBuffer(wrappedKey),
-      privateKey,
-      { name: 'RSA-OAEP' },
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['decrypt']
-    );
     const decrypted = await cryptoImpl.subtle.decrypt(
       { name: 'AES-GCM', iv: base64ToArrayBuffer(encryptedPayload.iv) },
       messageKey,
@@ -424,7 +586,7 @@ export async function decryptMessageForUser(encryptedPayload, userId) {
 
     return {
       success: true,
-      text: new TextDecoder().decode(decrypted)
+      text: textDecoder.decode(decrypted)
     };
   } catch (error) {
     console.error('解密消息失败:', error);
@@ -488,7 +650,17 @@ export async function decryptChatMessage(message, currentUserId) {
   const encryptionPayload = getMessageEncryptionPayload(message);
   if (!encryptionPayload) return message;
 
-  const result = await decryptMessageForUser({ ...encryptionPayload, encrypted: true }, String(currentUserId));
+  const sessionType = encryptionPayload.sessionType || (message.groupId || message.group_id ? 'group' : (message.receiverId || message.receiver_id || message.senderId || message.sender_id ? 'private' : null));
+  const privateSessionId = String(message.senderId || message.sender_id) === String(currentUserId)
+    ? (message.receiverId || message.receiver_id)
+    : (message.senderId || message.sender_id);
+  const sessionId = encryptionPayload.sessionId || message.groupId || message.group_id || privateSessionId;
+  const result = await decryptMessageForUser({
+    ...encryptionPayload,
+    encrypted: true,
+    sessionType,
+    sessionId: sessionId ? String(sessionId) : undefined
+  }, String(currentUserId));
   return {
     ...message,
     encrypted: true,

@@ -47,12 +47,12 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
       }
 
       // 验证消息内容
-      if (!validateMessageContent(content)) {
+      if (!validateMessageContent(contentForValidation)) {
         socket.emit(SocketEvents.PRIVATE_MESSAGE_SENT, {
           success: false,
           error: {
             code: 'INVALID_CONTENT',
-            message: '消息内容格式错误或超过 10000 字符限制'
+            message: '消息内容格式错误或超过 50000 字符限制'
           }
         });
         return;
@@ -249,8 +249,11 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
         // 有文件需要删除
         const fileUrl = contentData.url;
         const filePath = path.join(process.cwd(), 'public', fileUrl);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
+        try {
+          await fs.promises.access(filePath);
+          await fs.promises.unlink(filePath);
+        } catch (fileErr) {
+          if (fileErr.code !== 'ENOENT') throw fileErr;
         }
       }
       

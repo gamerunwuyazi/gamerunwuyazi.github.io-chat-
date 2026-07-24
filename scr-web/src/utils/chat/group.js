@@ -64,7 +64,11 @@ async function encryptGroupCardForGroup(content, currentUser, currentSessionToke
         ...(await getCachedSessionPublicKeys(String(currentUser.id), 'group', String(groupId))),
         ...(await fetchGroupChatPublicKeys(String(currentUser.id), currentSessionToken, String(groupId)))
     }, currentUser, currentSessionToken);
-    return encryptMessageForRecipients(content, publicKeys);
+    return encryptMessageForRecipients(content, publicKeys, {
+        currentUserId: currentUser.id,
+        sessionType: 'group',
+        sessionId: groupId
+    });
 }
 
 async function encryptGroupCardForPrivate(content, currentUser, currentSessionToken, receiverId) {
@@ -75,7 +79,11 @@ async function encryptGroupCardForPrivate(content, currentUser, currentSessionTo
     if (!publicKeys[String(receiverId)]) {
         throw new Error('缺少私聊对象加密公钥');
     }
-    return encryptMessageForRecipients(content, publicKeys);
+    return encryptMessageForRecipients(content, publicKeys, {
+        currentUserId: currentUser.id,
+        sessionType: 'private',
+        sessionId: receiverId
+    });
 }
 
 let groupsList = [];
@@ -910,11 +918,12 @@ function sendGroupCard() {
                             });
                         } else if (currentSendChatType === 'group') {
                             const encryptionPayload = await encryptGroupCardForGroup(groupCardContent, currentUser, currentSessionToken, currentGroupId);
+                            const { ciphertext, ...encryptionMetadataPayload } = encryptionPayload;
                             chatSocket.emit('send-message', {
                                 content: encryptionPayload.ciphertext,
                                 encrypted: true,
-                                encryption: encryptionPayload,
-                                encryptionMetadata: encryptionPayload,
+                                encryption: encryptionMetadataPayload,
+                                encryptionMetadata: encryptionMetadataPayload,
                                 messageType: 3,
                                 groupId: Number(currentGroupId),
                                 sessionToken: currentSessionToken,
@@ -922,11 +931,12 @@ function sendGroupCard() {
                             });
                         } else if (currentSendChatType === 'private' && currentPrivateChatUserId) {
                             const encryptionPayload = await encryptGroupCardForPrivate(groupCardContent, currentUser, currentSessionToken, currentPrivateChatUserId);
+                            const { ciphertext, ...encryptionMetadataPayload } = encryptionPayload;
                             chatSocket.emit('send-private-message', {
                                 content: encryptionPayload.ciphertext,
                                 encrypted: true,
-                                encryption: encryptionPayload,
-                                encryptionMetadata: encryptionPayload,
+                                encryption: encryptionMetadataPayload,
+                                encryptionMetadata: encryptionMetadataPayload,
                                 messageType: 3,
                                 receiverId: Number(currentPrivateChatUserId),
                                 sessionToken: currentSessionToken,

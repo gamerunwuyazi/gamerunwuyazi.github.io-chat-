@@ -1131,6 +1131,7 @@ import {
 } from "@/utils/chat";
 import modal from "@/utils/modal";
 import toast from "@/utils/toast";
+import { clearSessionEncryptionKey, rotateSessionEncryptionKey } from '@/utils/chat/encryption.js';
 import request from '@/utils/request.js';
 import { searchUsers, checkUserBlockStatus, cancelFriendRequest } from '@/api/user.js';
 import { getUserInfo, removeFriend, setFriendRemark } from '@/api/friend.js';
@@ -2401,6 +2402,7 @@ async function handleRemoveGroupMember(member) {
     const groupId = modalStore.modalData.groupInfo.id;
     const response = await removeGroupMember(Number(groupId), Number(member.id));
     const data = response.data;
+    await rotateSessionEncryptionKey(baseStore.currentUser?.id, 'group', groupId);
     toast.success(`已成功踢出成员 ${member.nickname || member.username}`);
     loadGroupMembers(groupId);
   } catch (error) {
@@ -2993,6 +2995,7 @@ async function handleLeaveGroup() {
   try {
     const response = await leaveGroup(groupId);
     const data = response.data;
+    await clearSessionEncryptionKey(baseStore.currentUser?.id, 'group', groupId);
     toast.success('已退出群组');
     modalStore.closeModal('groupInfo');
     sessionStore.setCurrentGroupId(null);

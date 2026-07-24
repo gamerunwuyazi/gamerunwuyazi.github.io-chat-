@@ -55,7 +55,11 @@ async function getPrivateMessageEncryptionPayload(content, currentUser, currentS
   if (!publicKeys[String(receiverId)]) {
     throw new Error('缺少私聊对象加密公钥');
   }
-  return encryptMessageForRecipients(content, publicKeys);
+  return encryptMessageForRecipients(content, publicKeys, {
+    currentUserId: currentUser.id,
+    sessionType: 'private',
+    sessionId: receiverId
+  });
 }
 
 async function getGroupMessageEncryptionPayload(content, currentUser, currentSessionToken, groupId) {
@@ -63,7 +67,11 @@ async function getGroupMessageEncryptionPayload(content, currentUser, currentSes
     ...(await getCachedSessionPublicKeys(String(currentUser.id), 'group', String(groupId))),
     ...(await fetchGroupChatPublicKeys(String(currentUser.id), currentSessionToken, String(groupId)))
   }, currentUser, currentSessionToken);
-  return encryptMessageForRecipients(content, publicKeys);
+  return encryptMessageForRecipients(content, publicKeys, {
+    currentUserId: currentUser.id,
+    sessionType: 'group',
+    sessionId: groupId
+  });
 }
 
 function setCursorToEnd(element) {
@@ -345,12 +353,13 @@ export async function sendGroupMessage() {
       return;
     }
 
+    const { ciphertext, ...encryptionMetadataPayload } = encryptionPayload;
     const messageData = {
       groupId: Number(currentGroupId),
       content: encryptionPayload.ciphertext,
       encrypted: true,
-      encryption: encryptionPayload,
-      encryptionMetadata: encryptionPayload,
+      encryption: encryptionMetadataPayload,
+      encryptionMetadata: encryptionMetadataPayload,
       sessionToken: currentSessionToken,
       userId: Number(currentUser.id),
       at_userid: atUserIds.map(id => Number(id))
@@ -510,12 +519,13 @@ export async function sendPrivateMessage() {
     return;
   }
 
+  const { ciphertext, ...encryptionMetadataPayload } = encryptionPayload;
   const messageData = {
     userId: currentUser.id,
     content: encryptionPayload.ciphertext,
     encrypted: true,
-    encryption: encryptionPayload,
-    encryptionMetadata: encryptionPayload,
+    encryption: encryptionMetadataPayload,
+    encryptionMetadata: encryptionMetadataPayload,
     receiverId: currentPrivateChatUserId,
     sessionToken: currentSessionToken,
     at_userid: atUserIds

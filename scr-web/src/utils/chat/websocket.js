@@ -32,7 +32,7 @@ import {
 } from './ui.js';
 import { navigateTo, getRouter } from './routerInstance.js';
 import { resetLoadingState } from './upload.js';
-import { decryptChatMessage, decryptChatMessages } from './encryption.js';
+import { clearSessionEncryptionKey, decryptChatMessage, decryptChatMessages, rotateSessionEncryptionKey } from './encryption.js';
 
 // 判断用户当前页面是否在指定会话中（基于路由 + sessionStore，仅判断页面级焦点）
 // 浏览器级焦点（document.hidden / document.hasFocus）由调用方单独判断
@@ -1249,6 +1249,9 @@ function initializeWebSocket() {
             } catch (e) {
                 console.error('记录群组解散状态到 IndexedDB 失败:', e);
             }
+            if (baseStore?.currentUser?.id) {
+                await clearSessionEncryptionKey(baseStore.currentUser.id, 'group', data.groupId);
+            }
             // 清除该群组的未读消息记录
             if (unreadStore && unreadStore.clearGroupUnread) {
                 unreadStore.clearGroupUnread(data.groupId);
@@ -1278,7 +1281,7 @@ function initializeWebSocket() {
     });
 
     // 群组成员移除事件
-    socket.on('member-removed', (data) => {
+    socket.on('member-removed', async (data) => {
         const baseStore = useBaseStore();
         const groupStore = useGroupStore();
         const sessionStore = useSessionStore();
@@ -1288,6 +1291,15 @@ function initializeWebSocket() {
         // 如果是自己被移除，清空当前群组并标记会话为已删除
         // 注意：后端发送的字段是 memberId，不是 userId
         const removedUserId = data.memberId || data.userId;
+        // 成员被移除后：被移除者销毁本地群密钥；其余成员下次发送时轮换新密钥，避免被移除者继续解密后续消息
+        const isCurrentUserRemoved = data?.groupId && removedUserId && baseStore && String(baseStore.currentUser?.id) === String(removedUserId);
+        if (data?.groupId && baseStore?.currentUser?.id) {
+            if (isCurrentUserRemoved) {
+                await clearSessionEncryptionKey(baseStore.currentUser.id, 'group', data.groupId);
+            } else {
+                await rotateSessionEncryptionKey(baseStore.currentUser.id, 'group', data.groupId);
+            }
+        }
         if (data && data.groupId && removedUserId) {
             // 如果是自己被移除，标记会话为已删除
             if (baseStore && String(baseStore.currentUser?.id) === String(removedUserId)) {
