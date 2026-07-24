@@ -19,9 +19,11 @@ import {
 } from '@/api/group.js';
 import {
   encryptMessageForRecipients,
+  ensureLocalIdentityKey,
   fetchGroupChatPublicKeys,
   fetchPrivateChatPublicKeys,
-  getCachedSessionPublicKeys
+  getCachedSessionPublicKeys,
+  publishLocalPublicKey
 } from './encryption.js';
 import {
   useBaseStore,
@@ -42,24 +44,36 @@ import { navigateTo } from './routerInstance.js';
 
 
 
+async function withCurrentUserPublicKey(publicKeys, currentUser, currentSessionToken) {
+    const userId = String(currentUser.id);
+    if (publicKeys[userId]) return publicKeys;
+
+    const identity = await ensureLocalIdentityKey(userId);
+    await publishLocalPublicKey(userId, currentSessionToken).catch(error => {
+        console.error('上传本人加密公钥失败:', error);
+    });
+
+    return {
+        ...publicKeys,
+        [userId]: identity.publicKey
+    };
+}
+
 async function encryptGroupCardForGroup(content, currentUser, currentSessionToken, groupId) {
-    const publicKeys = {
+    const publicKeys = await withCurrentUserPublicKey({
         ...(await getCachedSessionPublicKeys(String(currentUser.id), 'group', String(groupId))),
         ...(await fetchGroupChatPublicKeys(String(currentUser.id), currentSessionToken, String(groupId)))
-    };
-    if (!publicKeys[String(currentUser.id)]) {
-        throw new Error('缺少本人群聊加密公钥');
-    }
+    }, currentUser, currentSessionToken);
     return encryptMessageForRecipients(content, publicKeys);
 }
 
 async function encryptGroupCardForPrivate(content, currentUser, currentSessionToken, receiverId) {
-    const publicKeys = {
+    const publicKeys = await withCurrentUserPublicKey({
         ...(await getCachedSessionPublicKeys(String(currentUser.id), 'private', String(receiverId))),
         ...(await fetchPrivateChatPublicKeys(String(currentUser.id), currentSessionToken, String(receiverId)))
-    };
-    if (!publicKeys[String(currentUser.id)] || !publicKeys[String(receiverId)]) {
-        throw new Error('缺少私聊加密公钥');
+    }, currentUser, currentSessionToken);
+    if (!publicKeys[String(receiverId)]) {
+        throw new Error('缺少私聊对象加密公钥');
     }
     return encryptMessageForRecipients(content, publicKeys);
 }

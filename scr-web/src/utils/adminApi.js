@@ -67,12 +67,9 @@ export async function getRecentActivities(page = 1, limit = 10) {
 
 export async function getUsers(page = 1, limit = 10, search = '') {
   const token = localStorage.getItem('adminToken');
-  const url = new URL(`${SERVER_URL}/api/admin/users`);
-  url.searchParams.set('page', page);
-  url.searchParams.set('limit', limit);
-  if (search) {
-    url.searchParams.set('search', search);
-  }
+  const params = new URLSearchParams({ page, limit });
+  if (search) params.set('search', search);
+  const url = `${SERVER_URL}/api/admin/users?${params.toString()}`;
   
   const response = await fetch(url, {
     method: 'GET',
@@ -252,13 +249,12 @@ export async function unbanIP(ipAddress = null, userId = null) {
 
 export async function getMessages(page = 1, limit = 50, type = '', search = '', groupId = '', userId = '') {
   const token = localStorage.getItem('adminToken');
-  const url = new URL(`${SERVER_URL}/api/admin/messages`);
-  url.searchParams.set('page', page);
-  url.searchParams.set('limit', limit);
-  if (type) url.searchParams.set('type', type);
-  if (search) url.searchParams.set('search', search);
-  if (groupId) url.searchParams.set('groupId', groupId);
-  if (userId) url.searchParams.set('userId', userId);
+  const params = new URLSearchParams({ page, limit });
+  if (type) params.set('type', type);
+  if (search) params.set('search', search);
+  if (groupId) params.set('groupId', groupId);
+  if (userId) params.set('userId', userId);
+  const url = `${SERVER_URL}/api/admin/messages?${params.toString()}`;
   
   const response = await fetch(url, {
     method: 'GET',
@@ -277,11 +273,10 @@ export async function getMessages(page = 1, limit = 50, type = '', search = '', 
 
 export async function getPrivateMessages(page = 1, limit = 50, search = '', userId = '') {
   const token = localStorage.getItem('adminToken');
-  const url = new URL(`${SERVER_URL}/api/admin/private-messages`);
-  url.searchParams.set('page', page);
-  url.searchParams.set('limit', limit);
-  if (search) url.searchParams.set('search', search);
-  if (userId) url.searchParams.set('userId', userId);
+  const params = new URLSearchParams({ page, limit });
+  if (search) params.set('search', search);
+  if (userId) params.set('userId', userId);
+  const url = `${SERVER_URL}/api/admin/private-messages?${params.toString()}`;
   
   const response = await fetch(url, {
     method: 'GET',
@@ -317,10 +312,9 @@ export async function deleteMessage(messageId) {
 
 export async function getGroups(page = 1, limit = 50, search = '') {
   const token = localStorage.getItem('adminToken');
-  const url = new URL(`${SERVER_URL}/api/admin/groups`);
-  url.searchParams.set('page', page);
-  url.searchParams.set('limit', limit);
-  if (search) url.searchParams.set('search', search);
+  const params = new URLSearchParams({ page, limit });
+  if (search) params.set('search', search);
+  const url = `${SERVER_URL}/api/admin/groups?${params.toString()}`;
   
   const response = await fetch(url, {
     method: 'GET',
@@ -411,9 +405,8 @@ export async function dissolveGroup(groupId) {
 
 export async function getFiles(page = 1, limit = 50) {
   const token = localStorage.getItem('adminToken');
-  const url = new URL(`${SERVER_URL}/api/admin/files`);
-  url.searchParams.set('page', page);
-  url.searchParams.set('limit', limit);
+  const params = new URLSearchParams({ page, limit });
+  const url = `${SERVER_URL}/api/admin/files?${params.toString()}`;
   
   const response = await fetch(url, {
     method: 'GET',
@@ -435,6 +428,7 @@ export async function deleteFile(messageId) {
   const response = await fetch(`${SERVER_URL}/api/admin/file/${messageId}`, {
     method: 'DELETE',
     headers: {
+      'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     }
   });
@@ -449,11 +443,10 @@ export async function deleteFile(messageId) {
 
 export async function getAuditLogs(page = 1, limit = 50, action = '', userId = '') {
   const token = localStorage.getItem('adminToken');
-  const url = new URL(`${SERVER_URL}/api/admin/audit-logs`);
-  url.searchParams.set('page', page);
-  url.searchParams.set('limit', limit);
-  if (action) url.searchParams.set('action', action);
-  if (userId) url.searchParams.set('userId', userId);
+  const params = new URLSearchParams({ page, limit });
+  if (action) params.set('action', action);
+  if (userId) params.set('userId', userId);
+  const url = `${SERVER_URL}/api/admin/audit-logs?${params.toString()}`;
   
   const response = await fetch(url, {
     method: 'GET',

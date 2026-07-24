@@ -32,18 +32,18 @@
             <p class="file-time">{{ formatTime(file.timestamp) }}</p>
           </div>
           <div class="file-actions">
-            <button 
-              v-if="file.fileUrl" 
-              class="action-btn download-btn" 
-              :href="file.fileUrl" 
-              target="_blank"
-            >
-              <i class="fas fa-download"></i>
-            </button>
-            <button class="action-btn delete-btn" @click="showConfirmModal(file)">
-              <i class="fas fa-trash"></i>
-            </button>
-          </div>
+              <a 
+                v-if="file.fileUrl" 
+                class="action-btn download-btn" 
+                :href="file.fileUrl" 
+                target="_blank"
+              >
+                <i class="fas fa-download"></i>
+              </a>
+              <button class="action-btn delete-btn" @click="showConfirmModal(file)">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
         </div>
       </div>
 

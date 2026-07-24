@@ -71,7 +71,8 @@ async function login() {
 
       const encryptionUserId = baseStore.currentUser?.id || currentUser.id;
       try {
-        await encryptionModule.initializeEncryptionForUser(String(encryptionUserId), currentSessionToken);
+        await encryptionModule.initializeEncryptionForUser(String(encryptionUserId), currentSessionToken, window.__scrLoginEncryptionOptions || {});
+        delete window.__scrLoginEncryptionOptions;
       } catch (error) {
         console.error('初始化加密密钥失败:', error);
       }

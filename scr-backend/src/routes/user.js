@@ -53,6 +53,10 @@ export function setupRoutes(app, io) {
     getPrivateChatEncryptionPublicKey(req, res);
   });
 
+  app.get('/api/encryption/public-keys/private/:id', (req, res) => {
+    getPrivateChatEncryptionPublicKey(req, res);
+  });
+
   // 用户头像上传接口 - 使用avatarUpload中间件处理文件
   app.post('/api/upload-avatar', avatarUpload.single('avatar'), (req, res) => {
     uploadAvatar(req, res);

@@ -81,12 +81,12 @@
         
         <div v-else class="activities-list">
           <div v-for="activity in activities" :key="activity.id" class="activity-item">
-            <div class="activity-icon" :class="getIconClass(activity.action)">
-              <i :class="getIcon(activity.action)"></i>
+            <div class="activity-icon" :class="getIconClass(activity.type || activity.action)">
+              <i :class="getIcon(activity.type || activity.action)"></i>
             </div>
             <div class="activity-content">
               <p class="activity-description">{{ formatActivity(activity) }}</p>
-              <p class="activity-time">{{ formatTime(activity.createdAt) }}</p>
+              <p class="activity-time">{{ formatTime(activity.timestamp) }}</p>
             </div>
           </div>
         </div>
@@ -119,7 +119,14 @@ onMounted(async () => {
 async function loadStats() {
   try {
     const data = await getDashboardStats();
-    stats.value = data;
+    stats.value = {
+      totalUsers: data.stats?.totalUsers || 0,
+      onlineUsers: data.stats?.onlineUsers || 0,
+      totalGroups: data.stats?.totalGroups || 0,
+      totalMessages: data.stats?.totalMessages || 0,
+      totalFiles: data.stats?.fileCount || 0,
+      bannedUsers: data.stats?.bannedCount || 0
+    };
   } catch (error) {
     console.error('Failed to load stats:', error);
   }
@@ -128,8 +135,8 @@ async function loadStats() {
 async function loadActivities() {
   loadingActivities.value = true;
   try {
-    const data = await getRecentActivities(1, 10);
-    activities.value = data.data || data.records || [];
+    const data = await getDashboardStats();
+    activities.value = data.recentActivities || [];
   } catch (error) {
     console.error('Failed to load activities:', error);
     activities.value = [];
@@ -172,18 +179,18 @@ function getIconClass(action) {
 
 function formatActivity(activity) {
   const actionMap = {
-    'login': `${activity.actor} 登录了管理面板`,
-    'logout': `${activity.actor} 退出了管理面板`,
-    'ban': `${activity.actor} 封禁了用户 ${activity.target}`,
-    'unban': `${activity.actor} 解封了用户 ${activity.target}`,
-    'kick': `${activity.actor} 踢下线了用户 ${activity.target}`,
-    'create_group': `${activity.actor} 创建了群组 ${activity.target}`,
-    'delete_group': `${activity.actor} 删除了群组 ${activity.target}`,
-    'delete_message': `${activity.actor} 删除了消息`,
-    'upload_file': `${activity.target} 上传了文件`,
-    'delete_file': `${activity.actor} 删除了文件`
+    'login': `${activity.nickname || activity.username} 登录了系统`,
+    'register': `${activity.nickname || activity.username} 注册了账号`,
+    'admin_login': `${activity.username} 登录了管理面板`,
+    'admin_login_failed': `${activity.username} 尝试登录管理面板失败`,
+    'ban': `${activity.username} 被封禁`,
+    'unban': `${activity.username} 被解封`,
+    'kick_user': `${activity.username} 被踢下线`,
+    'dissolve_group': `群组被解散`,
+    'delete_message': `消息被删除`,
+    'delete_file': `文件被删除`
   };
-  return actionMap[activity.action] || `${activity.actor} 执行了 ${activity.action} 操作`;
+  return actionMap[activity.type || activity.action] || `${activity.nickname || activity.username} 执行了操作`;
 }
 
 function formatTime(dateString) {

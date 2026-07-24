@@ -1,11 +1,48 @@
 import { pool, redisClient } from '../models/database.js';
 import { ADMIN_PASSWORD } from '../config/index.js';
 import { getOnlineUser, removeOnlineUser, getAllOnlineUsers } from '../utils/session.js';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadsDir = path.resolve(__dirname, '..', '..', 'public', 'uploads');
+
+const adminTokens = new Map();
+const ADMIN_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+function createAdminToken(username) {
+  const token = crypto.randomBytes(32).toString('hex');
+  adminTokens.set(token, {
+    username,
+    expiresAt: Date.now() + ADMIN_TOKEN_TTL_MS
+  });
+  return token;
+}
+
+function getAdminFromToken(token) {
+  const session = adminTokens.get(token);
+  if (!session) return null;
+  if (session.expiresAt <= Date.now()) {
+    adminTokens.delete(token);
+    return null;
+  }
+  return session;
+}
 
 async function authenticateAdmin(req, res, next) {
-  const adminPassword = req.headers['x-admin-password'] || req.body.adminPassword;
+  const authHeader = req.headers.authorization || '';
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  const tokenSession = bearerToken ? getAdminFromToken(bearerToken) : null;
+
+  if (tokenSession) {
+    req.admin = { username: tokenSession.username };
+    return next();
+  }
+
+  const adminPassword = req.headers['x-admin-password'] || req.body?.adminPassword;
 
   if (!ADMIN_PASSWORD) {
     return res.status(500).json({ status: 'error', message: '管理员密码未配置' });
@@ -15,6 +52,7 @@ async function authenticateAdmin(req, res, next) {
     return res.status(401).json({ status: 'error', message: '管理员认证失败' });
   }
 
+  req.admin = { username: 'admin' };
   next();
 }
 
@@ -53,6 +91,49 @@ export async function logAudit(action, targetType = null, targetId = null, detai
 }
 
 export function setupRoutes(app, io) {
+  app.post('/api/admin/login', async (req, res) => {
+    try {
+      const { username, password } = req.body || {};
+      const clientIP = req.clientIP || req.connection.remoteAddress;
+
+      if (!ADMIN_PASSWORD) {
+        return res.status(500).json({ success: false, status: 'error', message: '管理员密码未配置' });
+      }
+
+      if (!username || !password) {
+        return res.status(400).json({ success: false, status: 'error', message: '请输入用户名和密码' });
+      }
+
+      if (username !== 'admin' || password !== ADMIN_PASSWORD) {
+        await logAudit('admin_login_failed', 'admin', null, { username }, null, clientIP);
+        return res.status(401).json({ success: false, status: 'error', message: '管理员账号或密码错误' });
+      }
+
+      const token = createAdminToken(username);
+      await logAudit('admin_login', 'admin', null, { username }, null, clientIP);
+
+      res.json({
+        success: true,
+        status: 'success',
+        message: '登录成功',
+        token,
+        username
+      });
+    } catch (err) {
+      console.error('管理员登录失败:', err.message);
+      res.status(500).json({ success: false, status: 'error', message: '管理员登录失败' });
+    }
+  });
+
+  app.post('/api/admin/logout', authenticateAdmin, async (req, res) => {
+    const authHeader = req.headers.authorization || '';
+    const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (bearerToken) {
+      adminTokens.delete(bearerToken);
+    }
+    res.json({ success: true, status: 'success', message: '已退出登录' });
+  });
+
   app.get('/api/sessions', authenticateAdmin, async (req, res) => {
     try {
       const [sessions] = await pool.execute(`
@@ -74,7 +155,7 @@ export function setupRoutes(app, io) {
     }
   });
 
-  app.get('/api/admin/dashboard', authenticateAdmin, async (req, res) => {
+  app.get(['/api/admin/dashboard', '/api/admin/stats'], authenticateAdmin, async (req, res) => {
     try {
       const [userCountResult] = await pool.execute('SELECT COUNT(*) as count FROM scr_users');
       const userCount = userCountResult[0].count;
@@ -532,15 +613,15 @@ export function setupRoutes(app, io) {
       let query = `
         SELECT u.*, 
           (SELECT COUNT(*) FROM scr_messages WHERE user_id = u.id) as message_count,
-          (SELECT COUNT(*) FROM scr_group_members WHERE user_id = u.id) as group_count
+          (SELECT COUNT(*) FROM scr_group_members WHERE user_id = u.id AND deleted_at IS NULL) as group_count
         FROM scr_users u
-        WHERE u.deleted_at IS NULL
+        WHERE 1 = 1
       `;
       const params = [];
 
       if (search) {
-        query += ' AND (u.username LIKE ? OR u.nickname LIKE ? OR u.email LIKE ?)';
-        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+        query += ' AND (u.username LIKE ? OR u.nickname LIKE ?)';
+        params.push(`%${search}%`, `%${search}%`);
       }
 
       query += ' ORDER BY u.created_at DESC LIMIT ? OFFSET ?';
@@ -548,16 +629,14 @@ export function setupRoutes(app, io) {
 
       const [users] = await pool.query(query, params);
 
-      const countQuery = `SELECT COUNT(*) as total FROM scr_users u WHERE u.deleted_at IS NULL`;
+      let countQuery = 'SELECT COUNT(*) as total FROM scr_users u WHERE 1 = 1';
       const countParams = [];
       if (search) {
-        const countQueryWithSearch = `${countQuery} AND (u.username LIKE ? OR u.nickname LIKE ? OR u.email LIKE ?)`;
-        const [countResult] = await pool.query(countQueryWithSearch, [`%${search}%`, `%${search}%`, `%${search}%`]);
-        res.locals.total = countResult[0].total;
-      } else {
-        const [countResult] = await pool.query(countQuery);
-        res.locals.total = countResult[0].total;
+        countQuery += ' AND (u.username LIKE ? OR u.nickname LIKE ?)';
+        countParams.push(`%${search}%`, `%${search}%`);
       }
+      const [countResult] = await pool.query(countQuery, countParams);
+      res.locals.total = countResult[0].total;
 
       const total = res.locals.total;
 
@@ -592,9 +671,9 @@ export function setupRoutes(app, io) {
       const [users] = await pool.execute(`
         SELECT u.*,
           (SELECT COUNT(*) FROM scr_messages WHERE user_id = u.id) as message_count,
-          (SELECT COUNT(*) FROM scr_group_members WHERE user_id = u.id) as group_count
+          (SELECT COUNT(*) FROM scr_group_members WHERE user_id = u.id AND deleted_at IS NULL) as group_count
         FROM scr_users u
-        WHERE u.id = ? AND u.deleted_at IS NULL
+        WHERE u.id = ?
       `, [userId]);
 
       if (users.length === 0) {
@@ -610,7 +689,7 @@ export function setupRoutes(app, io) {
         FROM scr_messages m
         LEFT JOIN scr_groups g ON m.group_id = g.id
         WHERE m.user_id = ?
-        ORDER BY m.created_at DESC
+        ORDER BY m.timestamp DESC
         LIMIT 20
       `, [userId]);
 
@@ -1039,7 +1118,9 @@ export function setupRoutes(app, io) {
       let query = `
         SELECT g.id, g.name, g.description, g.creator_id as creatorId, 
                g.avatar_url as avatarUrl, g.created_at as createdAt, g.deleted_at as deletedAt,
-               u.nickname as creatorNickname, u.avatar_url as creatorAvatarUrl
+               u.nickname as creatorNickname, u.avatar_url as creatorAvatarUrl,
+               (SELECT COUNT(*) FROM scr_group_members WHERE group_id = g.id AND deleted_at IS NULL) as memberCount,
+               (SELECT COUNT(*) FROM scr_messages WHERE group_id = g.id) as messageCount
         FROM scr_groups g
         LEFT JOIN scr_users u ON g.creator_id = u.id
         WHERE g.deleted_at IS NULL
@@ -1073,7 +1154,9 @@ export function setupRoutes(app, io) {
         creatorNickname: group.creatorNickname,
         creatorAvatarUrl: group.creatorAvatarUrl,
         avatarUrl: group.avatarUrl,
-        createdAt: group.createdAt
+        createdAt: group.createdAt,
+        memberCount: Number(group.memberCount) || 0,
+        messageCount: Number(group.messageCount) || 0
       }));
 
       res.json({
@@ -1358,10 +1441,11 @@ export function setupRoutes(app, io) {
       );
 
       const processedFiles = files.map(file => {
-        let parsedContent = { url: '', filename: 'unknown' };
+        let parsedContent;
         try {
           parsedContent = JSON.parse(file.content);
         } catch (e) {
+          parsedContent = { url: '', filename: 'unknown' };
         }
         return {
           id: file.id,
@@ -1412,19 +1496,25 @@ export function setupRoutes(app, io) {
       try {
         parsedContent = JSON.parse(fileMsg[0].content);
       } catch (e) {
-      }
-
-      if (parsedContent.url) {
-        const filePath = path.join(__dirname, '..', '..', 'public', parsedContent.url);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
+        parsedContent = { url: '' };
       }
 
       await pool.execute(
         'DELETE FROM scr_messages WHERE id = ?',
         [messageId]
       );
+
+      if (parsedContent.url) {
+        try {
+          const fileName = path.basename(new URL(parsedContent.url, 'http://local').pathname);
+          const filePath = path.resolve(uploadsDir, fileName);
+          if (filePath.startsWith(uploadsDir) && fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        } catch (fileErr) {
+          console.warn('删除物理文件失败:', fileErr.message);
+        }
+      }
 
       await logAudit('delete_file', 'file', messageId, {
         messageId,

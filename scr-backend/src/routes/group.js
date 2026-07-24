@@ -62,6 +62,10 @@ export function setupRoutes(app, io) {
     getGroupEncryptionPublicKeys(req, res);
   });
 
+  app.get('/api/encryption/public-keys/group/:groupId', (req, res) => {
+    getGroupEncryptionPublicKeys(req, res);
+  });
+
   app.post('/api/remove-group-member', (req, res) => {
     removeGroupMember(req, res);
   });

@@ -3,14 +3,16 @@ import path from 'path';
 import fs from 'fs';
 import { pool as dbPool, redisClient } from '../../models/database.js';
 
-function normalizeEncryptionFields({ isEncrypted, encryptedContent, encryptionMetadata, content }) {
-  const encrypted = isEncrypted === true || isEncrypted === 1 || isEncrypted === '1' || isEncrypted === 'true';
-  const cipherText = encrypted ? (encryptedContent || content) : null;
+function normalizeEncryptionFields({ isEncrypted, encrypted, encryptedContent, encryptionMetadata, encryption, content }) {
+  const encryptedFlag = isEncrypted ?? encrypted;
+  const isEncryptedMessage = encryptedFlag === true || encryptedFlag === 1 || encryptedFlag === '1' || encryptedFlag === 'true';
+  const metadata = encryptionMetadata ?? encryption;
+  const cipherText = isEncryptedMessage ? (encryptedContent || content) : null;
   return {
-    isEncrypted: encrypted,
+    isEncrypted: isEncryptedMessage,
     encryptedContent: cipherText,
-    encryptionMetadata: encrypted && encryptionMetadata !== undefined ? encryptionMetadata : null,
-    content: encrypted ? cipherText : content
+    encryptionMetadata: isEncryptedMessage && metadata !== undefined ? metadata : null,
+    content: isEncryptedMessage ? cipherText : content
   };
 }
 
@@ -95,8 +97,10 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       const { userId, content, groupId, sessionToken, at_userid } = messageData;
       const encryptionFields = normalizeEncryptionFields({
         isEncrypted: messageData.isEncrypted,
+        encrypted: messageData.encrypted,
         encryptedContent: messageData.encryptedContent,
         encryptionMetadata: messageData.encryptionMetadata,
+        encryption: messageData.encryption,
         content
       });
       const contentForValidation = encryptionFields.content;

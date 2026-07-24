@@ -1687,17 +1687,47 @@ export async function setMuteAll(req, res) {
       [isMuteAll ? 1 : 0, groupId]
     );
 
-    // 向所有群组成员广播全员禁言状态变更事件
+    const now = new Date();
+    const [operatorInfo] = await pool.execute(
+      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
+      [userId]
+    );
+    const operatorNickname = operatorInfo[0]?.nickname || '管理员';
+    const noticeContent = JSON.stringify({
+      [String(userId)]: operatorNickname,
+      content: isMuteAll ? '已开启全员禁言，只有群主和管理员可以发言' : '已关闭全员禁言，所有成员都可以发言',
+      action: isMuteAll ? 'mute_all_on' : 'mute_all_off'
+    });
+    const [insertResult] = await pool.execute(
+      'INSERT INTO scr_messages (user_id, content, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, NOW())',
+      [userId, noticeContent, 100, groupId]
+    );
+    const rawType100Message = {
+      id: insertResult.insertId,
+      userId: userId,
+      nickname: operatorNickname,
+      avatarUrl: operatorInfo[0]?.avatar_url || '',
+      content: noticeContent,
+      messageType: 100,
+      groupId: groupId,
+      timestamp: now.getTime(),
+      timestampISO: now.toISOString()
+    };
+    const noticeMessage = filterMessageFields(rawType100Message, 'group');
+
+    // 向所有群组成员广播全员禁言状态变更事件和群内提示
     io.to(`group_${groupId}`).emit('mute-all-changed', {
       groupId: groupId,
       isMuteAll: isMuteAll,
       operatedBy: userId
     });
+    io.to(`group_${groupId}`).emit('message-received', noticeMessage);
 
     res.json({
       status: 'success',
       message: isMuteAll ? '已开启全员禁言' : '已关闭全员禁言',
-      isMuteAll: isMuteAll
+      isMuteAll: isMuteAll,
+      noticeMessage
     });
   } catch (err) {
     console.error('设置全员禁言失败:', err.message);

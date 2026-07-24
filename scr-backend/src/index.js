@@ -170,6 +170,7 @@ async function initializeDatabase() {
         gender TINYINT DEFAULT 0 COMMENT '性别：0=保密，1=男，2=女',
         signature VARCHAR(500) DEFAULT NULL COMMENT '用户个性签名',
         encryption_public_key TEXT DEFAULT NULL COMMENT '端到端加密公钥',
+        encryption_private_key_backup LONGTEXT DEFAULT NULL COMMENT '密码派生密钥加密后的端到端私钥备份',
         avatar_url VARCHAR(500) DEFAULT NULL,
         last_online TIMESTAMP NULL DEFAULT NULL,
         created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
@@ -191,6 +192,19 @@ async function initializeDatabase() {
       await pool.execute(`
         ALTER TABLE scr_users
         ADD COLUMN encryption_public_key TEXT DEFAULT NULL COMMENT '端到端加密公钥'
+      `);
+    }
+
+    const [privateKeyBackupColumns] = await pool.execute(`
+      SELECT COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'scr_users' AND COLUMN_NAME = 'encryption_private_key_backup'
+    `);
+
+    if (privateKeyBackupColumns.length === 0) {
+      await pool.execute(`
+        ALTER TABLE scr_users
+        ADD COLUMN encryption_private_key_backup LONGTEXT DEFAULT NULL COMMENT '密码派生密钥加密后的端到端私钥备份'
       `);
     }
 

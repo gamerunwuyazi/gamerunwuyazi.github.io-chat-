@@ -14,6 +14,9 @@ const SYMMETRIC_ALGORITHM = {
   length: 256
 };
 
+const PRIVATE_KEY_BACKUP_VERSION = 1;
+const PRIVATE_KEY_BACKUP_ITERATIONS = 310000;
+
 export const ENCRYPTION_VERSION = 1;
 export const UNDECRYPTABLE_MESSAGE_TEXT = '无法解密此消息';
 
@@ -43,6 +46,68 @@ function base64ToArrayBuffer(base64) {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+async function derivePrivateKeyBackupKey(password, salt, iterations = PRIVATE_KEY_BACKUP_ITERATIONS) {
+  const cryptoImpl = getCrypto();
+  const baseKey = await cryptoImpl.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  return cryptoImpl.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations,
+      hash: 'SHA-256'
+    },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function createPrivateKeyBackup(privateKey, password) {
+  const cryptoImpl = getCrypto();
+  const iv = cryptoImpl.getRandomValues(new Uint8Array(12));
+  const salt = cryptoImpl.getRandomValues(new Uint8Array(16));
+  const backupKey = await derivePrivateKeyBackupKey(password, salt);
+  const exportedPrivateKey = await exportPrivateKey(privateKey);
+  const ciphertext = await cryptoImpl.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    backupKey,
+    new TextEncoder().encode(exportedPrivateKey)
+  );
+  return {
+    version: PRIVATE_KEY_BACKUP_VERSION,
+    algorithm: 'AES-GCM',
+    kdf: 'PBKDF2-SHA-256',
+    iterations: PRIVATE_KEY_BACKUP_ITERATIONS,
+    salt: arrayBufferToBase64(salt.buffer),
+    iv: arrayBufferToBase64(iv.buffer),
+    ciphertext: arrayBufferToBase64(ciphertext)
+  };
+}
+
+function getLegacySalt(username, userId) {
+  return new TextEncoder().encode(`scr-e2ee:${String(username || '').trim().toLowerCase()}:${String(userId)}`);
+}
+
+async function decryptPrivateKeyBackup(backup, password, username, userId) {
+  if (!backup?.ciphertext || !backup?.iv) return null;
+  const iterations = backup.iterations || PRIVATE_KEY_BACKUP_ITERATIONS;
+  const salt = backup.salt ? base64ToArrayBuffer(backup.salt) : getLegacySalt(username, userId);
+  const backupKey = await derivePrivateKeyBackupKey(password, salt, iterations);
+  const decrypted = await getCrypto().subtle.decrypt(
+    { name: 'AES-GCM', iv: base64ToArrayBuffer(backup.iv) },
+    backupKey,
+    base64ToArrayBuffer(backup.ciphertext)
+  );
+  return new TextDecoder().decode(decrypted);
 }
 
 function getUserKeyStorageKey(userId) {
@@ -131,14 +196,46 @@ async function getStoredIdentity(userId) {
   return localForage.getItem(getUserKeyStorageKey(userId));
 }
 
-export async function ensureLocalIdentityKey(userId) {
+export async function ensureLocalIdentityKey(userId, options = {}) {
   if (!userId) {
     throw new Error('缺少用户 ID，无法初始化加密密钥');
   }
 
   const storedIdentity = await getStoredIdentity(userId);
   if (storedIdentity?.publicKey && storedIdentity?.privateKey) {
+    if (options.password && !storedIdentity.privateKeyBackup) {
+      const privateKey = await importPrivateKey(storedIdentity.privateKey);
+      const identity = {
+        ...storedIdentity,
+        privateKeyBackup: await createPrivateKeyBackup(privateKey, options.password)
+      };
+      await localForage.setItem(getUserKeyStorageKey(userId), identity);
+      return identity;
+    }
     return storedIdentity;
+  }
+
+  if (options.privateKeyBackup && options.password && options.username && options.publicKey) {
+    try {
+      const privateKey = await decryptPrivateKeyBackup(options.privateKeyBackup, options.password, options.username, userId);
+      if (privateKey) {
+        const importedPrivateKey = await importPrivateKey(privateKey);
+        const importedPublicKey = await importPublicKey(options.publicKey);
+        const identity = {
+          version: ENCRYPTION_VERSION,
+          algorithm: KEY_ALGORITHM.name,
+          hash: KEY_ALGORITHM.hash,
+          publicKey: await exportPublicKey(importedPublicKey),
+          privateKey: await exportPrivateKey(importedPrivateKey),
+          createdAt: new Date().toISOString(),
+          restoredAt: new Date().toISOString()
+        };
+        await localForage.setItem(getUserKeyStorageKey(userId), identity);
+        return identity;
+      }
+    } catch (error) {
+      console.error('恢复加密私钥失败:', error);
+    }
   }
 
   const keyPair = await getCrypto().subtle.generateKey(KEY_ALGORITHM, true, ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey']);
@@ -151,16 +248,35 @@ export async function ensureLocalIdentityKey(userId) {
     createdAt: new Date().toISOString()
   };
 
+  if (options.password) {
+    identity.privateKeyBackup = await createPrivateKeyBackup(keyPair.privateKey, options.password);
+  }
+
   await localForage.setItem(getUserKeyStorageKey(userId), identity);
   return identity;
 }
 
-export async function publishLocalPublicKey(userId, sessionToken) {
+export async function rewrapLocalPrivateKeyBackup(userId, username, password) {
+  const storedIdentity = await getStoredIdentity(userId);
+  if (!storedIdentity?.privateKey) {
+    throw new Error('缺少本地私钥，无法更新密钥备份');
+  }
+  const privateKey = await importPrivateKey(storedIdentity.privateKey);
+  const privateKeyBackup = await createPrivateKeyBackup(privateKey, password);
+  const identity = {
+    ...storedIdentity,
+    privateKeyBackup
+  };
+  await localForage.setItem(getUserKeyStorageKey(userId), identity);
+  return privateKeyBackup;
+}
+
+export async function publishLocalPublicKey(userId, sessionToken, options = {}) {
   if (!userId || !sessionToken) {
     return { success: false, message: '缺少登录状态，无法上传公钥' };
   }
 
-  const identity = await ensureLocalIdentityKey(userId);
+  const identity = await ensureLocalIdentityKey(userId, options);
   const response = await fetch(`${SERVER_URL}/api/user/encryption-public-key`, {
     method: 'POST',
     headers: {
@@ -171,6 +287,7 @@ export async function publishLocalPublicKey(userId, sessionToken) {
     body: JSON.stringify({
       publicKey: identity.publicKey,
       encryptionPublicKey: identity.publicKey,
+      encryptionPrivateKeyBackup: identity.privateKeyBackup,
       keyVersion: identity.version,
       algorithm: identity.algorithm,
       hash: identity.hash
@@ -183,10 +300,10 @@ export async function publishLocalPublicKey(userId, sessionToken) {
   };
 }
 
-export async function initializeEncryptionForUser(userId, sessionToken) {
-  const identity = await ensureLocalIdentityKey(userId);
+export async function initializeEncryptionForUser(userId, sessionToken, options = {}) {
+  const identity = await ensureLocalIdentityKey(userId, options);
   try {
-    await publishLocalPublicKey(userId, sessionToken);
+    await publishLocalPublicKey(userId, sessionToken, options);
   } catch (error) {
     console.error('上传加密公钥失败:', error);
   }
@@ -206,7 +323,7 @@ export async function fetchPrivateChatPublicKeys(userId, sessionToken, targetUse
   if (!response.ok || (data.status && data.status !== 'success')) {
     throw new Error(data.message || '获取私聊公钥失败');
   }
-  const publicKeys = normalizePublicKeyMap(data.publicKeys || data.keys || data.users || data.data || data.publicKey, targetUserId);
+  const publicKeys = normalizePublicKeyMap(data.publicKeys || data.keys || data.users || data.data || data.publicKey || data, targetUserId);
   await localForage.setItem(cacheKey, publicKeys);
   publicKeyCache.set(cacheKey, publicKeys);
   return publicKeys;
@@ -325,7 +442,9 @@ export function createUndecryptableMessageState(reason = 'decrypt-failed') {
 }
 
 export function getMessageEncryptionPayload(message) {
-  if (!message || !message.encrypted) return null;
+  const encryptedFlag = message?.encrypted ?? message?.isEncrypted ?? message?.is_encrypted;
+  const isEncryptedMessage = encryptedFlag === true || encryptedFlag === 1 || encryptedFlag === '1' || encryptedFlag === 'true';
+  if (!message || !isEncryptedMessage) return null;
   const metadata = message.encryption || message.encryptionMetadata || message.encryption_metadata || message.encryptedPayload || message.encrypted_payload;
   if (typeof metadata === 'string') {
     try {
@@ -352,10 +471,10 @@ export function getMessageEncryptionPayload(message) {
       keys: metadata.keys || message.keys
     };
   }
-  if (message.ciphertext || message.iv || message.wrappedKeys || message.keys) {
+  if (message.ciphertext || message.encryptedContent || message.encrypted_content || message.iv || message.wrappedKeys || message.keys) {
     return {
       encrypted: true,
-      ciphertext: message.ciphertext || message.content,
+      ciphertext: message.ciphertext || message.encryptedContent || message.encrypted_content || message.content,
       iv: message.iv,
       wrappedKeys: message.wrappedKeys || message.wrapped_keys || message.keys,
       keys: message.keys

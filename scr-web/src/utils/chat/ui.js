@@ -58,6 +58,7 @@ function logout() {
   localStorage.removeItem('currentSessionToken');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('chatUserId');
+  localStorage.removeItem('chatUsername');
   localStorage.removeItem('nickname');
   localStorage.removeItem('sessionToken');
   localStorage.removeItem('chatSessionToken');

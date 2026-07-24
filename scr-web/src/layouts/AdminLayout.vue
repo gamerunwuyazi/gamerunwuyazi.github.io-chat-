@@ -46,10 +46,20 @@
   </div>
 </template>
 
-<script setup>import { computed } from 'vue';
+<script setup>import { computed, onMounted, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { useAdminStore } from '@/stores/adminStore';
 import { adminLogout } from '@/utils/adminApi';
+const route = useRoute();
 const adminStore = useAdminStore();
+
+onMounted(() => {
+  document.body.classList.add('dark-mode');
+});
+
+onUnmounted(() => {
+  document.body.classList.remove('dark-mode');
+});
 const menuItems = [
  { path: '/admin', label: '仪表盘', icon: 'fas fa-tachometer-alt' },
  { path: '/admin/users', label: '用户管理', icon: 'fas fa-users' },
@@ -59,7 +69,10 @@ const menuItems = [
  { path: '/admin/logs', label: '审计日志', icon: 'fas fa-file-alt' }
 ];
 const currentPageTitle = computed(() => {
- const currentItem = menuItems.find(item => $route.path.startsWith(item.path));
+ const currentItem = menuItems
+   .slice()
+   .sort((a, b) => b.path.length - a.path.length)
+   .find(item => route.path.startsWith(item.path));
  return currentItem ? currentItem.label : '仪表盘';
 });
 async function handleLogout() {

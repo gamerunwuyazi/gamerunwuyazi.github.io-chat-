@@ -8,7 +8,8 @@ import { currentSessionToken } from "@/utils/chat";
 import modal from "@/utils/modal";
 import { updateNickname, updateSignature, updateGender, changePassword, acceptFriendRequest, rejectFriendRequest, cancelFriendRequest } from '@/api/user.js';
 import { uploadAvatar } from '@/api/upload.js';
-import { humanVerify } from 'human-verify';
+import { runHumanVerify } from '@/utils/humanVerify.js';
+import { rewrapLocalPrivateKeyBackup } from '@/utils/chat/encryption.js';
 
 const baseStore = useBaseStore();
 const storageStore = useStorageStore();
@@ -144,7 +145,7 @@ async function doChangePassword() {
   captchaStatus.value = '准备验证...';
 
   try {
-    verifyResult = await humanVerify({
+    verifyResult = await runHumanVerify({
       challengeUrl: `${serverUrl}/api/verify/challenge`,
       powChallengeUrl: `${serverUrl}/api/verify/pow-challenge`,
       onProgress: (progress, status) => {
@@ -157,14 +158,18 @@ async function doChangePassword() {
     captchaVisible.value = false;
   } catch (err) {
     console.error('人机验证出错:', err);
-    passwordMessage.value = '人机验证失败，请重试';
+    passwordMessage.value = err.message || '人机验证失败，请重试';
     passwordMessageClass.value = 'error';
     return;
   }
 
   try {
-    const res = await changePassword(passwordForm.value.oldPassword, passwordForm.value.newPassword, verifyResult.sessionId, verifyResult.pow.nonce);
-    const data = res.data;
+    const encryptionPrivateKeyBackup = await rewrapLocalPrivateKeyBackup(
+      getCurrentUserId(),
+      currentUser.value?.username || baseStore.currentUser?.username || localStorage.getItem('chatUsername') || '',
+      passwordForm.value.newPassword
+    );
+    await changePassword(passwordForm.value.oldPassword, passwordForm.value.newPassword, verifyResult.sessionId, verifyResult.pow.nonce, encryptionPrivateKeyBackup);
     passwordMessage.value = '密码修改成功'
     passwordMessageClass.value = 'success'
     passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
