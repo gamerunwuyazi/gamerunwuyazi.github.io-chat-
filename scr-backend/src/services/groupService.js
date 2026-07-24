@@ -1780,7 +1780,7 @@ export async function getMuteStatus(req, res) {
             if (diffMs > 0) {
               // 未过期，返回禁言状态和截止时间
               isMuted = true;
-              mutedUntil = m.is_muted;
+              mutedUntil = mutedValue;
             }
             // 已过期的不设置 isMuted，相当于自动解除禁言
           }

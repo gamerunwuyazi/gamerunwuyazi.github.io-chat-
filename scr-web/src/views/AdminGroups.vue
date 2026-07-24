@@ -25,10 +25,12 @@
         <div v-for="group in groups" :key="group.id" class="group-card">
           <div class="group-header">
             <img 
-              :src="getAdminResourceUrl(group.avatarUrl, '/icon/User-Group-256.ico')" 
+              v-if="getAvatarUrl(group)"
+              :src="getAvatarUrl(group)" 
               alt="群组头像" 
               class="group-avatar"
             >
+            <div v-else class="group-avatar group-avatar-fallback">{{ getAvatarInitial(group.name) }}</div>
             <div class="group-info">
               <h3 class="group-name">{{ group.name }}</h3>
               <p class="group-creator">创建者: {{ group.creatorNickname }}</p>
@@ -115,11 +117,15 @@
                 :key="member.id" 
                 class="member-item"
               >
-                <img 
-                  :src="getAdminResourceUrl(member.avatarUrl)" 
-                  alt="头像" 
-                  class="member-avatar"
-                >
+                <div class="member-avatar-wrap">
+                  <img 
+                    v-if="getAvatarUrl(member)"
+                    :src="getAvatarUrl(member)" 
+                    alt="头像" 
+                    class="member-avatar"
+                  >
+                  <div v-else class="member-avatar member-avatar-fallback">{{ getAvatarInitial(member.nickname) }}</div>
+                </div>
                 <div class="member-info">
                   <p class="member-name">
                     {{ member.nickname }}
@@ -441,6 +447,17 @@ function formatTime(dateString) {
   height: 50px;
   border-radius: 8px;
   object-fit: cover;
+  flex-shrink: 0;
+}
+
+.group-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #3498db;
+  color: white;
+  font-weight: 600;
+  font-size: 20px;
 }
 
 .group-info h3 {
@@ -706,7 +723,13 @@ function formatTime(dateString) {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #3498db;
+  color: white;
+  font-weight: 600;
+  font-size: 18px;
 }
 
 .member-info {

@@ -37,10 +37,12 @@
           <div class="message-header">
             <div class="message-author">
               <img 
+                v-if="getAvatar(message)"
                 :src="getAvatar(message)" 
                 alt="头像" 
                 class="author-avatar"
               >
+              <div v-else class="author-avatar author-avatar-fallback">{{ getAvatarInitial(getAuthorName(message)) }}</div>
               <div class="author-info">
                 <span class="author-name">{{ getAuthorName(message) }}</span>
                 <span class="message-time">{{ formatTime(message.timestamp) }}</span>
@@ -194,7 +196,11 @@ function nextPage() {
 
 function getAvatar(message) {
   const avatarUrl = message.source === 'private' ? message.senderAvatarUrl : message.avatarUrl;
-  return getAdminResourceUrl(avatarUrl);
+  return avatarUrl ? getAdminResourceUrl(avatarUrl) : '';
+}
+
+function getAvatarInitial(name) {
+  return (name || 'U').trim().charAt(0).toUpperCase();
 }
 
 function getAuthorName(message) {
@@ -377,6 +383,17 @@ function formatTime(dateString) {
   height: 40px;
   border-radius: 50%;
   object-fit: cover;
+  flex-shrink: 0;
+}
+
+.author-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #3498db;
+  color: white;
+  font-weight: 600;
+  font-size: 18px;
 }
 
 .author-info {

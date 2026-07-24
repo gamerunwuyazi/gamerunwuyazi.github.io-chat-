@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Backend bundled output
+scr-backend/app.js
+scr-backend/app.js.map
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Runtime uploads and generated assets
+scr-backend/public/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Debug / local artifacts
+.dbg/
+debug-*.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
