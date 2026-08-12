@@ -14,7 +14,7 @@
     "@vueuse/core": "^14.2.1",
     "axios": "^1.18.0",
     "dompurify": "^3.3.1",
-    "human-verify": "^1.0.5",
+    "human-verify": "^1.1.2",
     "localforage": "1.10.0",
     "lodash": "^4.17.21",
     "marked": "^17.0.1",

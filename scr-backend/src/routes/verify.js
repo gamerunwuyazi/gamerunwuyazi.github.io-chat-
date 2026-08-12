@@ -6,10 +6,10 @@ import {
 } from 'human-verify/backend';
 
 export function setupVerifyRoutes(app) {
-  // 1. 创建验证会话
+  // 1. 创建验证会话（1.1.2 起需要前端上报视口尺寸，后端按视口生成全屏透明挑战图）
   app.post('/api/verify/challenge', (req, res) => {
     try {
-      const session = createSession();
+      const session = createSession({ viewport: req.body?.viewport });
       res.json(session);
     } catch (err) {
       console.error('创建验证会话失败:', err.message);
