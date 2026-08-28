@@ -220,11 +220,11 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
         console.error('❌ 解析消息内容失败:', jsonError.message);
       }
       
-      if (contentData && contentData.url) {
-        // 有文件需要删除
-        const fileUrl = contentData.url;
-        const filePath = path.join(process.cwd(), 'public', fileUrl);
-        if (fs.existsSync(filePath)) {
+      if (contentData && typeof contentData.url === 'string') {
+        // 有文件需要删除；仅允许删除 public 目录内的文件，防止路径穿越删除服务器任意文件
+        const publicDir = path.resolve(process.cwd(), 'public');
+        const filePath = path.resolve(publicDir, contentData.url);
+        if (filePath.startsWith(publicDir + path.sep) && fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
         }
       }

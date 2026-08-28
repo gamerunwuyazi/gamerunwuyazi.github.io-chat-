@@ -3,6 +3,8 @@ import { registerUserHandlers } from './handlers/userHandler.js';
 import { registerMessageHandlers } from './handlers/messageHandler.js';
 import { registerPrivateHandlers } from './handlers/privateHandler.js';
 import { socketConfig } from '../config/index.js';
+import { createBroadcastProducer } from '../utils/broadcast/producer.js';
+import { createBroadcastConsumer } from '../utils/broadcast/consumer.js';
 
 // 在线用户管理（使用 Redis）
 // 存储在 Redis key: scr:online_users (Hash: socketId -> userData)
@@ -160,12 +162,94 @@ async function isAuthenticatedUser(userId, redisClient) {
   }
 }
 
-export function setupSocketIO(server, { pool, redisClient, isIPBanned, isUserBanned, getUserSession, validateMessageContent, checkRateLimit, filterMessageFields, isGroupAdmin, getGlobalMessages, getGroupMessages }) {
+export function setupSocketIO(server, { pool, redisClient, isIPBanned, getUserSession, validateMessageContent, checkRateLimit, filterMessageFields, isGroupAdmin, getGlobalMessages, getGroupMessages }) {
   
   // 配置 Socket.IO - 使用环境变量配置
   const io = new Server(server, {
     ...socketConfig
   });
+
+  // 广播子系统：生产者 + 消费者
+  // 所有广播任务不再在 socket.on 回调里直接 io.to(room).emit，而是经生产者入队，
+  // 由独立消费者从 Redis Streams 异步扇出到本进程持有的房间客户端。
+  const broadcastProducer = createBroadcastProducer(redisClient);
+  const broadcastConsumer = createBroadcastConsumer({ io });
+  broadcastConsumer.start().catch((err) => console.error('启动广播消费者失败:', err.message));
+
+  // 优雅关闭：立即停止监听以释放端口，再停止广播消费者（持久化 lastId），随后退出进程。
+  // 关键：
+  //   1. 不能等待所有 socket 连接关闭——WebSocket/HTTP keep-alive 永不自发结束，等它们会卡死。
+  //      server.close() 会立刻停止 accept 并让 OS 释放监听端口，存量连接由进程退出一并回收。
+  //   2. 必须真正退出进程，否则 socket.io 连接 + 阻塞 XREAD 的 Redis 连接会一直持有端口，
+  //      导致重启时报 EADDRINUSE，且 SIGTERM（kill）无法退出、只能 kill -9。
+  let shuttingDown = false;
+  async function gracefulShutdown() {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log('🛑 收到退出信号，正在优雅关闭...');
+    // 立即停止监听，让新重启的进程能马上 bind 到同一端口
+    try { server.close(); } catch (e) { /* ignore */ }
+    try { if (io && typeof io.close === 'function') io.close(); } catch (e) { /* ignore */ }
+    // 兜底：无论清理流程是否卡死，最多等 N 秒后强制退出，确保端口被释放
+    const forceExit = setTimeout(() => process.exit(0), 2000);
+    if (forceExit.unref) forceExit.unref();
+    try {
+      await broadcastConsumer.stop();
+    } catch (err) {
+      console.error('停止广播消费者失败:', err.message);
+    }
+    process.exit(0);
+  }
+  process.on('SIGINT', gracefulShutdown);
+  process.on('SIGTERM', gracefulShutdown);
+
+  // Socket 事件日志批量写入（每事件一条 INSERT 会放大 DB 压力，采用缓冲批量落库）
+  const socketEventLogBuffer = [];
+  let socketEventLogFlushTimer = null;
+
+  function flushSocketEventLogs() {
+    if (socketEventLogBuffer.length === 0) return;
+    const batch = socketEventLogBuffer.splice(0, socketEventLogBuffer.length);
+    const placeholders = batch.map(() => '(?, ?, ?)').join(',');
+    const params = [];
+    for (const item of batch) {
+      params.push(item.userId, item.ip, item.eventName);
+    }
+    pool.query(
+      `INSERT INTO scr_socket_event_logs (user_id, ip_address, event_name) VALUES ${placeholders}`,
+      params
+    ).catch(err => console.error('批量写入Socket事件日志失败:', err.message));
+  }
+
+  function logSocketEvent(userId, ip, eventName) {
+    if (!eventName) return;
+    socketEventLogBuffer.push({ userId, ip, eventName });
+    if (socketEventLogBuffer.length >= 50) {
+      flushSocketEventLogs();
+    } else if (!socketEventLogFlushTimer) {
+      socketEventLogFlushTimer = setTimeout(() => {
+        socketEventLogFlushTimer = null;
+        flushSocketEventLogs();
+      }, 500);
+    }
+  }
+
+  // 获取 socket 真实客户端 IP（与 validateSocketIP 逻辑一致）
+  function getSocketClientIP(socket) {
+    let clientIP = socket.handshake.address;
+    if (socket.handshake.headers && socket.handshake.headers['x-forwarded-for']) {
+      clientIP = socket.handshake.headers['x-forwarded-for'].trim().split(',')[0].trim();
+    } else if (socket.handshake.headers && socket.handshake.headers['x-real-ip']) {
+      clientIP = socket.handshake.headers['x-real-ip'].trim();
+    }
+    if (clientIP === '::1') {
+      return '127.0.0.1';
+    }
+    if (clientIP && clientIP.startsWith('::ffff:')) {
+      return clientIP.slice(7);
+    }
+    return clientIP || null;
+  }
 
   // 封装在线用户管理函数（绑定redisClient）
   const onlineUserManager = {
@@ -185,59 +269,6 @@ export function setupSocketIO(server, { pool, redisClient, isIPBanned, isUserBan
     removeAuthenticatedUser: (userId, socket) => removeAuthenticatedUser(userId, socket, redisClient),
     isAuthenticatedUser: (userId) => isAuthenticatedUser(userId, redisClient)
   };
-
-  // Socket.IO IP封禁验证函数
-  async function validateSocketIP(socket, next) {
-    try {
-      // 首先尝试从x-forwarded-for头获取真实IP
-      let clientIP = socket.handshake.address;
-      
-      // 处理代理情况，获取真实IP
-      if (socket.handshake.headers && socket.handshake.headers['x-forwarded-for']) {
-        const forwardedFor = socket.handshake.headers['x-forwarded-for'].trim();
-        const ips = forwardedFor.split(',');
-        // 取第一个IP地址，并去除空格
-        clientIP = ips[0].trim();
-      }
-      
-      // 处理IPv6地址，转换为IPv4格式（如果是localhost的话）
-      if (clientIP === '::1') {
-        clientIP = '127.0.0.1';
-      } else if (clientIP && clientIP.startsWith('::ffff:')) {
-        // 处理IPv6格式的IPv4地址，例如::ffff:192.168.1.1
-        clientIP = clientIP.slice(7);
-      }
-      
-      // 检查IP是否被封禁，使用isIPBanned函数检查，该函数会考虑封禁过期时间
-      const banInfo = await isIPBanned(clientIP);
-      
-      if (banInfo.isBanned) {
-        // 构建封禁消息
-        let message = '您的IP已被封禁，无法访问';
-        if (banInfo.reason) {
-          message += `，原因：${banInfo.reason}`;
-        }
-        
-        // 发送详细的封禁信息，包括剩余封禁时间和封禁原因
-        socket.emit('account-banned', {
-          message: message,
-          ipAddress: clientIP,
-          isBanned: true,
-          reason: banInfo.reason,
-          remainingTime: banInfo.remainingTime,
-          status: 'error'
-        });
-        socket.disconnect();
-        return false;
-      }
-      
-      return true;
-    } catch (error) {
-      socket.emit('error', { message: '服务器错误' });
-      socket.disconnect();
-      return false;
-    }
-  }
 
   // 强制断开用户连接并清理
   async function forceDisconnectUser(socket, reason = 'session-expired', originalEventName = null, originalEventData = null) {
@@ -312,69 +343,40 @@ export function setupSocketIO(server, { pool, redisClient, isIPBanned, isUserBan
     }
   }
 
-  // Socket.IO会话验证中间件（包含IP验证）
+  // Socket.IO会话验证中间件（封禁检查已移除，仅校验会话）
   async function validateSocketPacket(socket, [eventName, ...args]) {
-    // 首先验证IP
-    const ipValid = await validateSocketIP(socket);
-    if (!ipValid) {
-      throw new Error('IP验证失败');
-    }
-    
     // 不需要验证的事件列表
     const excludedEvents = ['disconnect', 'error'];
     if (excludedEvents.includes(eventName)) {
       return true;
     }
-    
+
     const data = args[0] || {};
     const userData = data;
-    
-    // 检查用户ID是否被封禁
-    if (userData.userId) {
-      const userBanInfo = await isUserBanned(String(userData.userId));
-      if (userBanInfo.isBanned) {
-        let message = '您的账号已被封禁，无法访问';
-        if (userBanInfo.reason) {
-          message += `，原因：${userBanInfo.reason}`;
-        }
-        
-        socket.emit('account-banned', {
-          message: message,
-          userId: userData.userId,
-          isBanned: true,
-          reason: userBanInfo.reason,
-          remainingTime: userBanInfo.remainingTime,
-          status: 'error'
-        });
-        socket.disconnect();
-        throw new Error('账号被封禁');
-      }
+
+    // user-joined 是认证入口，其余事件一律要求携带有效的 userId + sessionToken（fail-closed）
+    const isJoinEvent = eventName === 'user-joined';
+
+    // 除 user-joined 外，所有事件必须携带 userId 和 sessionToken，否则拒绝，防止绕过鉴权触发任意事件
+    if (!isJoinEvent && (!userData.userId || !userData.sessionToken)) {
+      await forceDisconnectUser(socket, 'session-expired', eventName, data);
+      throw new Error('会话无效');
     }
-    
-    // user-joined 事件可以跳过认证列表检查
-    const skipAuthCheck = eventName === 'user-joined';
-    
-    // 检查用户是否在Redis已认证列表中（除非跳过检查）
-    if (!skipAuthCheck && userData.userId) {
+
+    // 检查用户是否在Redis已认证列表中（user-joined 是认证入口，跳过该检查）
+    if (!isJoinEvent) {
       const isAuth = await authUserManager.isAuthenticatedUser(parseInt(userData.userId));
       if (!isAuth) {
         await forceDisconnectUser(socket, 'session-expired', eventName, data);
         throw new Error('会话过期');
       }
     }
-    
-    // 然后验证会话（如果有用户数据）
-    if (userData.userId || userData.sessionToken) {
-      if (!userData.userId || !userData.sessionToken) {
-        await forceDisconnectUser(socket, 'session-expired', eventName, data);
-        throw new Error('会话无效');
-      }
 
-      const session = await getUserSession(parseInt(userData.userId));
-      if (!session || session.token !== userData.sessionToken) {
-        await forceDisconnectUser(socket, 'session-expired', eventName, data);
-        throw new Error('会话无效');
-      }
+    // 校验 userId + sessionToken 与 Redis 中的访问令牌一致
+    const session = await getUserSession(parseInt(userData.userId));
+    if (!session || session.token !== userData.sessionToken) {
+      await forceDisconnectUser(socket, 'session-expired', eventName, data);
+      throw new Error('会话无效');
     }
     
     // 验证通过
@@ -382,9 +384,63 @@ export function setupSocketIO(server, { pool, redisClient, isIPBanned, isUserBan
   }
 
   io.on('connection', (socket) => {
+    // 异步检查 IP 封禁（不阻塞连接）：若 IP 被封禁则立即踢下线，并销毁该用户（若已认证）的 token 与 refresh token
+    (async () => {
+      try {
+        const clientIP = getSocketClientIP(socket);
+        if (!clientIP) return;
+
+        const banInfo = await isIPBanned(clientIP);
+        if (!banInfo.isBanned) return;
+
+        socket.emit('account-banned', {
+          message: `您的IP已被封禁，无法访问${banInfo.reason ? `，原因：${banInfo.reason}` : ''}`,
+          ipAddress: clientIP,
+          isBanned: true,
+          reason: banInfo.reason,
+          remainingTime: banInfo.remainingTime,
+          status: 'error'
+        });
+
+        // 等待该连接完成认证（最多1秒），以便销毁其 token 与 refresh token
+        let user = await onlineUserManager.getOnlineUser(socket.id);
+        const waitUntil = Date.now() + 1000;
+        while (!user && Date.now() < waitUntil) {
+          await new Promise((r) => setTimeout(r, 100));
+          user = await onlineUserManager.getOnlineUser(socket.id);
+        }
+
+        if (user) {
+          await redisClient.del(`scr:token:${user.id}`);
+          try {
+            await pool.execute('DELETE FROM scr_sessions WHERE user_id = ?', [user.id]);
+          } catch (err) {
+            // ignore
+          }
+          await onlineUserManager.removeOnlineUser(socket.id);
+          await authUserManager.removeAuthenticatedUser(user.id, socket);
+        }
+
+        socket.disconnect(true);
+      } catch (err) {
+        console.error('异步IP封禁检查失败:', err.message);
+      }
+    })();
+
     // 为每个连接的 socket 设置数据包验证中间件
     socket.use(async (packet, next) => {
       try {
+        // 记录 Socket 事件日志（仅用户ID/IP/事件名，不含事件体）
+        const eventName = String(packet[0] || '').slice(0, 64);
+        let logUserId = null;
+        if (packet[1] && packet[1].userId !== undefined) {
+          const parsedUserId = parseInt(packet[1].userId);
+          if (!isNaN(parsedUserId)) {
+            logUserId = parsedUserId;
+          }
+        }
+        logSocketEvent(logUserId, getSocketClientIP(socket), eventName);
+
         await validateSocketPacket(socket, packet);
         next();
       } catch (err) {
@@ -395,6 +451,7 @@ export function setupSocketIO(server, { pool, redisClient, isIPBanned, isUserBan
     // 注册各个handler
     const context = {
       pool,
+      broadcastProducer,
       ...onlineUserManager,
       ...authUserManager,
       forceDisconnectUser,

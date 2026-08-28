@@ -1,4 +1,4 @@
-import { pool, safeRedisExecute } from '../models/database.js';
+import { pool, safeRedisExecute, RedisUnavailableError } from '../models/database.js';
 import { rateLimitConfig } from '../config/index.js';
 import { getClientIP } from '../utils/helpers.js';
 
@@ -9,40 +9,80 @@ const RATE_LIMIT_CONFIG = {
   LONG_LIMIT: rateLimitConfig.longLimit
 };
 
+// 消息发送/撤回等操作的速率限制 —— 基于 Redis Sorted Set(ZSET) 的滑动窗口，用 Lua 保证原子性。
+// 相比旧版（List + JS 过滤）的优势：读、删、写一次原子完成，无竞态；只传计数与最小分数，
+// 不传输全部记录，O(log N)；过期成员自动被清除，内存窗口固定。
+const RATE_LIMIT_LUA = `
+  local shortKey = KEYS[1]
+  local longKey = KEYS[2]
+  local now = tonumber(ARGV[1])
+  local shortLimit = tonumber(ARGV[2])
+  local longLimit = tonumber(ARGV[3])
+  local shortWindow = tonumber(ARGV[4])
+  local longWindow = tonumber(ARGV[5])
+  local member = ARGV[6]
+
+  -- 移除窗口外的旧记录
+  redis.call('ZREMRANGEBYSCORE', shortKey, 0, now - shortWindow)
+  redis.call('ZREMRANGEBYSCORE', longKey, 0, now - longWindow)
+
+  local shortCount = redis.call('ZCARD', shortKey)
+  local longCount = redis.call('ZCARD', longKey)
+
+  -- 返回 {allowed, limitType(1=短窗口,2=长窗口), retryAfter}
+  if shortCount >= shortLimit then
+    local first = redis.call('ZRANGE', shortKey, 0, 0, 'WITHSCORES')
+    local retry = shortWindow - (now - tonumber(first[2]))
+    if retry < 1 then retry = 1 end
+    return {0, 1, retry}
+  end
+
+  if longCount >= longLimit then
+    local first = redis.call('ZRANGE', longKey, 0, 0, 'WITHSCORES')
+    local retry = longWindow - (now - tonumber(first[2]))
+    if retry < 1 then retry = 1 end
+    return {0, 2, retry}
+  end
+
+  -- member 使用 "时间戳:随机串"，保证同一毫秒内多次发送也能正确计数
+  redis.call('ZADD', shortKey, now, member)
+  redis.call('ZADD', longKey, now, member)
+  -- 过期时间比窗口略长，自动清理
+  redis.call('EXPIRE', shortKey, math.ceil(shortWindow / 1000) + 1)
+  redis.call('EXPIRE', longKey, math.ceil(longWindow / 1000) + 1)
+  return {1, 0, 0}
+`;
+
 async function checkRateLimit(userId) {
   const now = Date.now();
   const shortWindowKey = `scr:rate_limit:${userId}:short`;
   const longWindowKey = `scr:rate_limit:${userId}:long`;
+  const member = `${now}:${Math.random().toString(36).slice(2, 10)}`;
 
   return safeRedisExecute(async (client) => {
-    const shortRecords = await client.lRange(shortWindowKey, 0, -1);
-    const shortTimestamps = shortRecords.map(Number).filter(ts => now - ts < RATE_LIMIT_CONFIG.SHORT_WINDOW_MS);
+    const result = await client.eval(RATE_LIMIT_LUA, {
+      keys: [shortWindowKey, longWindowKey],
+      // Lua eval 参数必须为 string|Buffer（node-redis v4 强制类型检查），这里统一转字符串
+      arguments: [
+        String(now),
+        String(RATE_LIMIT_CONFIG.SHORT_LIMIT),
+        String(RATE_LIMIT_CONFIG.LONG_LIMIT),
+        String(RATE_LIMIT_CONFIG.SHORT_WINDOW_MS),
+        String(RATE_LIMIT_CONFIG.LONG_WINDOW_MS),
+        member
+      ]
+    });
 
-    const longRecords = await client.lRange(longWindowKey, 0, -1);
-    const longTimestamps = longRecords.map(Number).filter(ts => now - ts < RATE_LIMIT_CONFIG.LONG_WINDOW_MS);
-
-    if (shortTimestamps.length >= RATE_LIMIT_CONFIG.SHORT_LIMIT) {
-      const oldestShort = shortTimestamps[0];
+    const [allowed, limitType, retryAfter] = result.map(Number);
+    if (!allowed) {
+      // Lua 返回的 retry 基于毫秒时间戳计算，单位是毫秒；对外统一换算成秒。
+      // 用 ceil 向上取整，避免显示"请0秒后再试"。
       return {
         allowed: false,
-        retryAfter: Math.ceil((oldestShort + RATE_LIMIT_CONFIG.SHORT_WINDOW_MS - now) / 1000)
+        limitType: limitType === 1 ? 'short' : 'long',
+        retryAfter: Math.ceil(retryAfter / 1000)
       };
     }
-
-    if (longTimestamps.length >= RATE_LIMIT_CONFIG.LONG_LIMIT) {
-      const oldestLong = longTimestamps[0];
-      return {
-        allowed: false,
-        retryAfter: Math.ceil((oldestLong + RATE_LIMIT_CONFIG.LONG_WINDOW_MS - now) / 1000)
-      };
-    }
-
-    await client.rPush(shortWindowKey, String(now));
-    await client.rPush(longWindowKey, String(now));
-
-    await client.expire(shortWindowKey, Math.ceil(RATE_LIMIT_CONFIG.SHORT_WINDOW_MS / 1000));
-    await client.expire(longWindowKey, Math.ceil(RATE_LIMIT_CONFIG.LONG_WINDOW_MS / 1000));
-
     return { allowed: true };
   }, { allowed: true });
 }
@@ -86,51 +126,13 @@ async function isIPBanned(ip) {
   }, { isBanned: false, reason: null, remainingTime: null });
 }
 
-async function isUserBanned(userId) {
-  return safeRedisExecute(async (client) => {
-    const userIdStr = String(userId);
-    const banDataStr = await client.hGet('scr:banned_users', userIdStr);
-
-    if (banDataStr) {
-      const banData = JSON.parse(banDataStr);
-
-      if (banData.expires_at) {
-        const expireDate = new Date(banData.expires_at);
-        const now = new Date();
-
-        if (expireDate <= now) {
-          await client.hDel('scr:banned_users', userIdStr);
-          await pool.execute(
-            'DELETE FROM scr_banned_ips WHERE user_id = ? AND expires_at IS NOT NULL AND expires_at <= NOW()',
-            [userId]
-          );
-          return { isBanned: false, reason: null, remainingTime: null };
-        }
-
-        const diff = expireDate - now;
-        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-
-        return {
-          isBanned: true,
-          reason: banData.reason || '未知原因',
-          remainingTime: { totalSeconds: Math.ceil(diff / 1000), days, hours, minutes }
-        };
-      }
-
-      return { isBanned: true, reason: banData.reason || '永久封禁', remainingTime: null };
-    }
-
-    return { isBanned: false, reason: null, remainingTime: null };
-  }, { isBanned: false, reason: null, remainingTime: null });
-}
-
 async function validateUserSession(userId, token) {
   if (!userId || !token) {
     return false;
   }
 
+  // strict: Redis 超时/不可用时抛 RedisUnavailableError，
+  // 由上层返回 503 而非误判"会话无效"(401)
   return safeRedisExecute(async (client) => {
     const userIdNum = parseInt(userId);
     const tokenKey = `scr:token:${userIdNum}`;
@@ -145,30 +147,14 @@ async function validateUserSession(userId, token) {
     }
 
     return true;
-  }, false);
+  }, false, { strict: true });
 }
 
 async function getUserSession(userId) {
   return safeRedisExecute(async (client) => {
-    const tokenKey = `scr:token:${userId}`;
-
-    const tokenData = await client.get(tokenKey);
-
-    const [rows] = await pool.execute(
-      'SELECT refresh_token, refresh_expires FROM scr_sessions WHERE user_id = ?',
-      [userId]
-    );
-    const refreshTokenData = rows.length > 0 ? rows[0].refresh_token : null;
-
-    if (!tokenData && !refreshTokenData) {
-      return null;
-    }
-
-    return {
-      token: tokenData || null,
-      refreshToken: refreshTokenData || null
-    };
-  }, null);
+    const token = await client.get(`scr:token:${userId}`);
+    return token ? { token } : null;
+  }, null, { strict: true });
 }
 
 async function validateIP(req, res, next) {
@@ -217,7 +203,6 @@ const excludedPaths = {
   '*': [
     '/api/health',
     '/api/session-check',
-    '/api/sessions',
     '/api/admin/',
     '/api/register',
     '/api/login',
@@ -289,20 +274,6 @@ async function validateIPAndSession(req, res, next) {
       return res.status(403).json({ status: 'error', message: '访问被拒绝' });
     }
 
-    const ipBanResult = await isIPBanned(clientIP);
-    if (ipBanResult.isBanned) {
-      const banInfo = {
-        reason: ipBanResult.reason,
-        banUntil: ipBanResult.remainingTime ? new Date(Date.now() + ipBanResult.remainingTime.totalSeconds * 1000) : null
-      };
-
-      return res.status(403).json({
-        status: 'error',
-        message: '您的IP地址已被封禁',
-        banInfo: banInfo
-      });
-    }
-
     req.clientIP = clientIP;
 
     const userId = req.headers['user-id'] || req.query.userId;
@@ -312,22 +283,11 @@ async function validateIPAndSession(req, res, next) {
       return res.status(401).json({ status: 'error', message: '未授权访问' });
     }
 
-    if (!(await validateUserSession(userId, sessionToken))) {
+    // 仅校验会话 token；IP/账号封禁只在 login、register、refresh-token 接口内检查
+    const sessionValid = await validateUserSession(userId, sessionToken);
+
+    if (!sessionValid) {
       return res.status(401).json({ status: 'error', message: '会话无效' });
-    }
-
-    const userBanResult = await isUserBanned(userId);
-    if (userBanResult.isBanned) {
-      const banInfo = {
-        reason: userBanResult.reason,
-        banUntil: userBanResult.remainingTime ? new Date(Date.now() + userBanResult.remainingTime.totalSeconds * 1000) : null
-      };
-
-      return res.status(403).json({
-        status: 'error',
-        message: '您的账号已被封禁',
-        banInfo: banInfo
-      });
     }
 
     req.userId = userId;
@@ -335,6 +295,16 @@ async function validateIPAndSession(req, res, next) {
 
     next();
   } catch (err) {
+    // Redis 不可用/超时：会话校验无法完成，不能判定"会话无效"，
+    // 返回 503 让前端自动重试，避免压测高峰误杀有效会话
+    if (err instanceof RedisUnavailableError) {
+      return res.status(503).json({
+        status: 'error',
+        message: '服务繁忙，请稍后重试',
+        retryable: true
+      });
+    }
+
     let clientIP = getClientIP(req);
     if (clientIP === '::1') {
       clientIP = '127.0.0.1';
@@ -351,7 +321,6 @@ export {
   checkRateLimit,
   getClientIP,
   isIPBanned,
-  isUserBanned,
   validateUserSession,
   getUserSession,
   validateIP,

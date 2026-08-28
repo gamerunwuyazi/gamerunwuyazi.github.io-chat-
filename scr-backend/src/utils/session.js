@@ -131,13 +131,20 @@ export async function getAllOnlineUsers() {
   }
 }
 
+let ipLogWritesSinceCleanup = 0;
+
 export async function logIPAction(userId, ip, action) {
   try {
     await pool.execute(
       'INSERT INTO scr_ip_logs (user_id, ip_address, action) VALUES (?, ?, ?)',
       [userId, ip, action]
     );
-    await trimIPLogs();
+
+    ipLogWritesSinceCleanup += 1;
+    if (ipLogWritesSinceCleanup >= 100) {
+      ipLogWritesSinceCleanup = 0;
+      void trimIPLogs();
+    }
   } catch (err) {
     console.error('记录IP日志失败:', err.message);
   }

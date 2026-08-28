@@ -76,7 +76,7 @@ function checkIfUserMuted(isMutedValue) {
   return result;
 }
 
-export function registerMessageHandlers(socket, io, { pool, checkRateLimit, validateMessageContent, filterMessageFields, getAllOnlineUsers, getGlobalMessages, getGroupMessages, isGroupAdmin }) {
+export function registerMessageHandlers(socket, io, { pool, checkRateLimit, validateMessageContent, filterMessageFields, getAllOnlineUsers, getGlobalMessages, getGroupMessages, isGroupAdmin, broadcastProducer }) {
   
   // 发送消息
   socket.on(SocketEvents.SEND_MESSAGE, async (messageData) => {
@@ -346,23 +346,29 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
         // 确保groupId是字符串类型，避免Map键类型不一致
         const groupIdStr = String(groupId);
         
-        // 群组消息：使用 socket.to() 广播给群组房间，避开发送者
+        // 先让发送者立即收到发送结果（大群广播异步化后，发送者无需等待广播完成）
+        socket.emit(SocketEvents.MESSAGE_SENT, { messageId: result.insertId, message: newMessage });
+        
+        // 群组消息：入队广播任务，由消费者异步扇出给群里其他成员（避开发送者）
         try {
-          socket.to(`group_${groupId}`).emit(SocketEvents.MESSAGE_RECEIVED, newMessage);
+          await broadcastProducer.enqueue(`group_${groupId}`, SocketEvents.MESSAGE_RECEIVED, newMessage, socket.id);
         } catch (directSendErr) {
           console.error('发送群组消息失败:', directSendErr.message);
         }
         
-        
       } else {
-        // 全局消息：发送给所有认证用户（避开发送者）
-        socket.to('authenticated_users').emit(SocketEvents.MESSAGE_RECEIVED, newMessage);
+        // 先让发送者立即收到发送结果
+        socket.emit(SocketEvents.MESSAGE_SENT, { messageId: result.insertId, message: newMessage });
+        
+        // 全局消息：入队广播任务（避开发送者）
+        try {
+          await broadcastProducer.enqueue('authenticated_users', SocketEvents.MESSAGE_RECEIVED, newMessage, socket.id);
+        } catch (directSendErr) {
+          console.error('发送全局消息失败:', directSendErr.message);
+        }
       }
-  
-      // 确认消息已发送，只给发送者发送确认事件
-      socket.emit(SocketEvents.MESSAGE_SENT, { messageId: result.insertId, message: newMessage });
-  
-    } catch (err) {
+
+  } catch (err) {
       console.error('❌ 保存消息失败:', err.message);
       socket.emit(SocketEvents.ERROR, { message: '发送消息失败' });
     }
@@ -431,11 +437,11 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
         console.error('❌ 解析消息内容失败:', jsonError.message);
       }
       
-      if (contentData && contentData.url) {
-        // 有文件需要删除
-        const fileUrl = contentData.url;
-        const filePath = path.join(process.cwd(), 'public', fileUrl);
-        if (fs.existsSync(filePath)) {
+      if (contentData && typeof contentData.url === 'string') {
+        // 有文件需要删除；仅允许删除 public 目录内的文件，防止路径穿越删除服务器任意文件
+        const publicDir = path.resolve(process.cwd(), 'public');
+        const filePath = path.resolve(publicDir, contentData.url);
+        if (filePath.startsWith(publicDir + path.sep) && fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
         }
       }
@@ -521,13 +527,13 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       // 发送确认事件给发送者
       socket.emit(SocketEvents.MESSAGE_SENT, { messageId: type101Message.id, message: type101Message });
       
-      // 广播类型101消息给其他用户
+      // 广播类型101消息给其他用户（发送者已通过上方确认事件立即接收，这里异步入队广播）
       if (message.group_id) {
-        // 群组消息：向群组房间广播（排除发送者）
-        socket.to(`group_${message.group_id}`).emit(SocketEvents.MESSAGE_RECEIVED, type101Message);
+        // 群组消息：向群组房间入队广播（排除发送者）
+        await broadcastProducer.enqueue(`group_${message.group_id}`, SocketEvents.MESSAGE_RECEIVED, type101Message, socket.id);
       } else {
-        // 公共消息：全局广播（发送者通过确认事件接收）
-        socket.to('authenticated_users').emit(SocketEvents.MESSAGE_RECEIVED, type101Message);
+        // 公共消息：全局入队广播（发送者通过确认事件接收）
+        await broadcastProducer.enqueue('authenticated_users', SocketEvents.MESSAGE_RECEIVED, type101Message, socket.id);
       }
       
     } catch (err) {
@@ -662,31 +668,34 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       let responseData = { type, messages: [], loadMore: loadMore };
       
       if (type === 'global') {
-        // 加载全局聊天室消息 - 完全复刻 chat-history 事件
-        if (olderThan) {
-          messages = await getGlobalMessages(limit, olderThan, numericUserId);
-        } else {
-          // 直接从数据库获取最新消息
-          messages = await getGlobalMessages(limit, null, numericUserId);
-        }
-        
-        // 收集群组最后消息时间（从消息表中动态获取）
+        const [loadedMessages, [groupMessages], [privateMessages]] = await Promise.all([
+          getGlobalMessages(limit, olderThan || null, numericUserId),
+          pool.execute(
+            `SELECT m.group_id, MAX(m.timestamp) as last_time
+             FROM scr_messages m
+             INNER JOIN scr_group_members gm
+               ON gm.group_id = m.group_id
+              AND gm.user_id = ?
+              AND gm.deleted_at IS NULL
+             WHERE m.group_id IS NOT NULL
+             GROUP BY m.group_id`,
+            [numericUserId]
+          ),
+          pool.execute(
+            'SELECT sender_id, receiver_id, MAX(timestamp) as last_time FROM scr_private_messages WHERE sender_id = ? OR receiver_id = ? GROUP BY sender_id, receiver_id',
+            [numericUserId, numericUserId]
+          )
+        ]);
+        messages = loadedMessages;
+
         const groupLastMessageTimes = {};
-        const [groupMessages] = await pool.execute(
-          'SELECT group_id, MAX(timestamp) as last_time FROM scr_messages WHERE group_id IS NOT NULL GROUP BY group_id'
-        );
         groupMessages.forEach(msg => {
           if (msg.last_time) {
             groupLastMessageTimes[msg.group_id] = msg.last_time;
           }
         });
-        
-        // 收集私信最后消息时间
+
         const privateLastMessageTimes = {};
-        const [privateMessages] = await pool.execute(
-          'SELECT sender_id, receiver_id, MAX(timestamp) as last_time FROM scr_private_messages WHERE sender_id = ? OR receiver_id = ? GROUP BY sender_id, receiver_id',
-          [numericUserId, numericUserId]
-        );
         privateMessages.forEach(msg => {
           const otherUserId = String(msg.sender_id) === String(numericUserId) ? msg.receiver_id : msg.sender_id;
           if (!privateLastMessageTimes[otherUserId] || new Date(msg.last_time) > new Date(privateLastMessageTimes[otherUserId])) {

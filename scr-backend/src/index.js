@@ -7,7 +7,7 @@ import fs from 'fs';
 import cors from 'cors';
 import schedule from 'node-schedule';
 import { pool, redisClient } from './models/database.js';
-import { validateIPAndSession, isIPBanned, isUserBanned, getUserSession, checkRateLimit } from './middleware/auth.js';
+import { validateIPAndSession, isIPBanned, getUserSession, checkRateLimit } from './middleware/auth.js';
 import { notFoundHandler, globalErrorHandler } from './middleware/errorHandler.js';
 import { setupAllRoutes } from './routes/index.js';
 import { setupSocketIO } from './socket/index.js';
@@ -121,7 +121,6 @@ const io = setupSocketIO(server, {
   pool,
   redisClient,
   isIPBanned,
-  isUserBanned,
   getUserSession,
   validateMessageContent,
   checkRateLimit,
@@ -329,6 +328,20 @@ async function initializeDatabase() {
         INDEX user_id_index (user_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS scr_socket_event_logs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT DEFAULT NULL,
+        ip_address VARCHAR(45) DEFAULT NULL,
+        event_name VARCHAR(64) NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_socket_log_user (user_id),
+        INDEX idx_socket_log_ip (ip_address),
+        INDEX idx_socket_log_event (event_name),
+        INDEX idx_socket_log_time (timestamp)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
   } catch (err) {
     console.error('❌ 数据库初始化失败:', err.message);
     throw err;
@@ -481,7 +494,8 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
     await redisClient.del('scr:online_users');
     await redisClient.del('scr:authenticated_users');
 
-    server.listen(PORT, '0.0.0.0', () => {
+    // backlog=1024：压测高峰 TCP 连接排队较多，默认 511 会被打满导致新连接被拒(502)
+    server.listen({ port: PORT, host: '0.0.0.0', backlog: 1024 }, () => {
       console.log('🚀 服务器启动成功!');
       console.log(`📍 服务器运行在端口 ${PORT}`);
       console.log(`🔍 健康检查地址: http://localhost:${PORT}/health`);
@@ -509,9 +523,8 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
   }
 }
 
-process.on('SIGINT', async () => {
-  process.exit(0);
-});
+// SIGINT/SIGTERM 的优雅关闭统一在 setupSocketIO 中处理（见 src/socket/index.js）：
+// 停止广播消费者（持久化 lastId）后退出进程，避免端口被一直占用导致 EADDRINUSE。
 
 process.on('uncaughtException', (error) => {
   console.error('💥 未捕获的异常:', error);

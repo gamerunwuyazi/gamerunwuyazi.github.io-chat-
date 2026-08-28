@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import sqlTemplateStringPlugin from './plugins/sqlCompress.mjs';
+import workerStringPlugin from './plugins/workerStringPlugin.mjs';
 
 const args = process.argv.slice(2);
 const isWatch = args.includes('--watch');
@@ -28,7 +29,7 @@ const buildOptions = {
   format: 'esm',
   sourcemap: isWatch || isDevBuild,
   keepNames: true,
-  plugins: [sqlTemplateStringPlugin],
+  plugins: [workerStringPlugin(), sqlTemplateStringPlugin],
   external: [
     'bcryptjs',
     'canvas',

@@ -186,7 +186,7 @@ export function sendMessage() {
           input.innerHTML = failedContent;
           setCursorToEnd(input);
         }
-        toast.error(data.error.message);
+        // 错误提示由 websocket.js 全局 message-sent handler 统一弹出，避免与这里重复弹两次
         return;
       }
       
@@ -350,7 +350,7 @@ export function sendGroupMessage() {
             setCursorToEnd(input);
           }
         }
-        toast.error(data.error.message);
+        // 错误提示由 websocket.js 全局 message-sent handler 统一弹出，避免重复弹两次
         return;
       }
       
@@ -489,7 +489,7 @@ export function sendPrivateMessage() {
           input.innerHTML = failedContent;
           setCursorToEnd(input);
         }
-        toast.error(data.error.message);
+        // 错误提示由 websocket.js 全局 private-message-sent handler 统一弹出，避免重复弹两次
         return;
       }
       

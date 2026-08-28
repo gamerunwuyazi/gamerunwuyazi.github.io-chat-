@@ -14,15 +14,21 @@ if (!fs.existsSync(avatarDir)) {
   fs.mkdirSync(avatarDir, { recursive: true });
 }
 
+// 仅允许纯数字 ID，防止路径穿越（如 user-id: ../../x）
+function isValidNumericId(value) {
+  return typeof value === 'string' && /^\d+$/.test(value);
+}
+
 const avatarStorage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, avatarDir);
   },
   filename: function (req, file, cb) {
-    const userId = req.headers['user-id'] || req.userId;
+    // 优先使用服务端鉴权后写入的 req.userId，且必须是纯数字
+    const userId = String(req.userId ?? req.headers['user-id'] ?? '');
 
-    if (!userId || userId === 'undefined') {
-      return cb(new Error('用户ID不能为空'), false);
+    if (!isValidNumericId(userId)) {
+      return cb(new Error('用户ID无效'), false);
     }
 
     const ext = path.extname(file.originalname).replace(/[/\0]/g, '_');
@@ -37,7 +43,11 @@ const groupAvatarStorage = multer.diskStorage({
     cb(null, avatarDir);
   },
   filename: function (req, file, cb) {
-    const groupId = req.params.groupId;
+    const groupId = String(req.params.groupId ?? '');
+
+    if (!isValidNumericId(groupId)) {
+      return cb(new Error('群组ID无效'), false);
+    }
 
     const ext = path.extname(file.originalname).replace(/[/\0]/g, '_');
     const filename = `group_avatar_${groupId}${ext}`;

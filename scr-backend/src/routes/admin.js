@@ -4,7 +4,7 @@ import { getOnlineUser, removeOnlineUser, getAllOnlineUsers } from '../utils/ses
 
 // 管理员认证中间件
 async function authenticateAdmin(req, res, next) {
-  const adminPassword = req.headers['x-admin-password'] || req.body.adminPassword;
+  const adminPassword = req.headers['x-admin-password'] || req.body?.adminPassword;
 
   if (!ADMIN_PASSWORD) {
     return res.status(500).json({ status: 'error', message: '管理员密码未配置' });
@@ -18,27 +18,6 @@ async function authenticateAdmin(req, res, next) {
 }
 
 export function setupRoutes(app, io) {
-  app.get('/api/sessions', async (req, res) => {
-    try {
-      const [sessions] = await pool.execute(`
-        SELECT s.*, u.username, u.nickname
-        FROM scr_sessions s
-        JOIN scr_users u ON s.user_id = u.id
-        ORDER BY s.last_active DESC
-        LIMIT 100
-      `);
-
-      res.json({
-        status: 'success',
-        sessions: sessions,
-        count: sessions.length
-      });
-    } catch (err) {
-      console.error('获取会话列表失败:', err.message);
-      res.status(500).json({ status: 'error', message: '获取会话列表失败' });
-    }
-  });
-
   // 封禁IP或用户（支持传 ipAddress 或 userId 任意一个参数）
   app.post('/api/admin/ban-ip', authenticateAdmin, async (req, res) => {
     try {
@@ -83,7 +62,19 @@ export function setupRoutes(app, io) {
             await removeOnlineUser(socket.id);
             await redisClient.sRem('scr:authenticated_users', String(user.id));
 
+            // 若该用户正是本次同时封禁的 userId，则跳过删除凭据（由 userId 分支统一执行一次），继续踢下一个
+            const isSameBannedUser = userId !== undefined && String(user.id) === String(userId);
+            if (!isSameBannedUser) {
+              await redisClient.del(`scr:token:${user.id}`);
+            }
+
             try {
+              if (!isSameBannedUser) {
+                await pool.execute(
+                  'DELETE FROM scr_sessions WHERE user_id = ?',
+                  [user.id]
+                );
+              }
               await pool.execute(
                 'UPDATE scr_users SET last_online = NOW() WHERE id = ?',
                 [user.id]
@@ -141,6 +132,10 @@ export function setupRoutes(app, io) {
         }
 
         await redisClient.hSet('scr:banned_users', userIdStr, JSON.stringify(banData));
+
+        // 封禁即注销该用户的登录凭据：删除 Redis 访问 token 与数据库中的 refresh token
+        await redisClient.del(`scr:token:${userIdStr}`);
+        await pool.execute('DELETE FROM scr_sessions WHERE user_id = ?', [userId]);
 
         io.to(`user_${userId}`).emit('user-banned', {
           ipAddress: ipAddress,
@@ -347,6 +342,42 @@ export function setupRoutes(app, io) {
     } catch (err) {
       console.error('获取API日志失败:', err.message);
       res.status(500).json({ status: 'error', message: '获取API日志失败' });
+    }
+  });
+
+  // 获取Socket事件日志
+  app.get('/api/admin/socket-logs', authenticateAdmin, async (req, res) => {
+    try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 3000;
+      const offset = (page - 1) * limit;
+
+      const [logs] = await pool.query(`
+        SELECT sel.*, u.username, u.nickname
+        FROM scr_socket_event_logs sel
+        LEFT JOIN scr_users u ON sel.user_id = u.id
+        ORDER BY sel.timestamp DESC
+        LIMIT ? OFFSET ?
+      `, [limit, offset]);
+
+      const [countResult] = await pool.query(
+        'SELECT COUNT(*) as total FROM scr_socket_event_logs'
+      );
+      const total = countResult[0].total;
+
+      res.json({
+        status: 'success',
+        socketLogs: logs,
+        pagination: {
+          page: page,
+          limit: limit,
+          total: total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
+    } catch (err) {
+      console.error('获取Socket日志失败:', err.message);
+      res.status(500).json({ status: 'error', message: '获取Socket日志失败' });
     }
   });
 }

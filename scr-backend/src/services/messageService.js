@@ -3,6 +3,7 @@ import { filterMessageFields } from '../utils/messageFilters.js';
 import { checkRateLimit } from '../middleware/auth.js';
 import { validateMessageContent } from '../utils/validators.js';
 import { messageConfig } from '../config/index.js';
+import { runMessageTask } from '../workers/messageWorkerClient.js';
 
 let io = null;
 let getAllOnlineUsersFn = null;
@@ -38,6 +39,11 @@ async function isGroupAdmin(groupId, userId) {
 }
 
 export async function getGlobalMessages(limit = 50, olderThan = null, userId = null) {
+  try {
+    return await runMessageTask('getGlobalMessages', { limit, olderThan, userId });
+  } catch (err) {
+    console.error('❌ 全局消息 Worker 任务失败，回退主线程逻辑:', err.message);
+  }
   try {
     let query = 'SELECT m.id, m.user_id as userId, u.nickname, u.avatar_url as avatarUrl,'
       + 'm.content, m.at_userid, m.message_type as messageType, m.group_id as groupId, m.timestamp'
@@ -143,6 +149,11 @@ export async function getGlobalMessages(limit = 50, olderThan = null, userId = n
 }
 
 export async function getGroupMessages(groupId, limit = 50, olderThan = null, userId = null) {
+  try {
+    return await runMessageTask('getGroupMessages', { groupId, limit, olderThan, userId });
+  } catch (err) {
+    console.error('❌ 群组消息 Worker 任务失败，回退主线程逻辑:', err.message);
+  }
   try {
     let safeGroupId = 0;
     try {
@@ -372,7 +383,14 @@ export async function getOfflineMessages(req, res) {
     const userId = req.userId;
     const publicAndGroupMinId = req.query.publicAndGroupMinId ? parseInt(req.query.publicAndGroupMinId) : 0;
     const privateMinId = req.query.privateMinId ? parseInt(req.query.privateMinId) : 0;
-    
+
+    try {
+      const result = await runMessageTask('getOfflineMessages', { userId, publicAndGroupMinId, privateMinId });
+      return res.json({ status: 'success', ...result });
+    } catch (err) {
+      console.error('❌ 离线消息 Worker 任务失败，回退主线程逻辑:', err.message);
+    }
+
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
     

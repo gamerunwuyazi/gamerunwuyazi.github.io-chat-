@@ -1281,7 +1281,6 @@ export async function dissolveGroup(req, res) {
       
       // 提交事务
       await connection.commit();
-      connection.release();
       
       // 删除群头像文件（如果不是默认头像）
       if (groupAvatarUrl && groupAvatarUrl !== '/avatars/default.png') {
@@ -1363,9 +1362,19 @@ export async function dissolveGroup(req, res) {
         groupName: group.name
       });
     } catch (transactionErr) {
-      await connection.rollback();
-      connection.release();
+      try {
+        await connection.rollback();
+      } catch (rollbackErr) {
+        console.error('❌ 回滚事务失败:', rollbackErr.message);
+      }
       throw transactionErr;
+    } finally {
+      // 无论成功失败都释放连接，防止连接池泄漏
+      try {
+        connection.release();
+      } catch (releaseErr) {
+        console.error('❌ 释放连接失败:', releaseErr.message);
+      }
     }
   } catch (err) {
     console.error('解散群组失败:', err.message);

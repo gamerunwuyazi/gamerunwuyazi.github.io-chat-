@@ -153,8 +153,8 @@ export async function login(req, res) {
     const { username, password, sessionId, nonce, autoLoginToken } = req.body;
     const clientIP = getClientIP(req);
 
-    // 账号密码登录（必须提供 username 和 password）
-    if (username !== undefined && password !== undefined) {
+    // 账号密码登录或自动登录 token 登录
+    if (username !== undefined && (password !== undefined || autoLoginToken)) {
       const isAutoLogin = !!autoLoginToken;
 
       if (!isAutoLogin) {
@@ -162,26 +162,9 @@ export async function login(req, res) {
           return res.status(400).json({ status: 'error', message: '请完成人机验证' });
         }
 
-        // POW 验证
         const captchaResult = await verifyHuman(req, res);
         if (!captchaResult.success) {
           return res.status(400).json({ status: 'error', message: captchaResult.message || '人机验证失败，请重试' });
-        }
-      } else {
-        const [tokenUsers] = await pool.execute(
-          'SELECT id FROM scr_users WHERE username = ?',
-          [username]
-        );
-
-        if (tokenUsers.length === 0) {
-          return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
-        }
-
-        const tokenUserId = tokenUsers[0].id;
-        const storedToken = await redisClient.get(`scr:auto_login_token:${tokenUserId}`);
-
-        if (!storedToken || storedToken !== autoLoginToken) {
-          return res.status(400).json({ status: 'error', message: '自动登录 token 无效或已过期，请使用账号密码登录' });
         }
       }
 
@@ -200,12 +183,22 @@ export async function login(req, res) {
       }
 
       let users;
+      let ipBanRows;
       try {
-        const [rows] = await pool.execute(
-          'SELECT id, username, password, nickname, gender, avatar_url FROM scr_users WHERE username = ?',
-          [username]
-        );
-        users = rows;
+        // 并行：查询用户记录 + IP封禁检查（互不依赖）
+        [users, ipBanRows] = await Promise.all([
+          (async () => {
+            const [rows] = await pool.execute(
+              'SELECT id, username, password, nickname, gender, avatar_url FROM scr_users WHERE username = ?',
+              [username]
+            );
+            return rows;
+          })(),
+          pool.execute(
+            'SELECT reason, expires_at FROM scr_banned_ips WHERE ip_address = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1',
+            [clientIP]
+          ).then(([rows]) => rows)
+        ]);
 
         if (users.length === 0) {
           await logIPAction(null, clientIP, 'login_failed');
@@ -213,23 +206,29 @@ export async function login(req, res) {
         }
       } catch (err) {
         console.error('❌ 查询用户失败:', err.message);
-        await logIPAction(null, clientIP, 'login_failed');
-        return res.status(500).json({ status: 'error', message: '查询用户失败' });
+        void logIPAction(null, clientIP, 'login_failed');
+        const isPoolSaturated = err.message?.includes('Queue limit reached');
+        return res.status(isPoolSaturated ? 503 : 500).json({
+          status: 'error',
+          message: isPoolSaturated ? '服务繁忙，请稍后重试' : '查询用户失败'
+        });
       }
 
       const user = users[0];
-      const isPasswordValid = await bcrypt.compare(password, user.password);
-
-      if (!isPasswordValid) {
-        await logIPAction(user.id, clientIP, 'login_failed');
-        return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
+      if (isAutoLogin) {
+        const storedToken = await redisClient.get(`scr:auto_login_token:${user.id}`);
+        if (!storedToken || storedToken !== autoLoginToken) {
+          return res.status(400).json({ status: 'error', message: '自动登录 token 无效或已过期，请使用账号密码登录' });
+        }
+      } else {
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+          await logIPAction(user.id, clientIP, 'login_failed');
+          return res.status(401).json({ status: 'error', message: '用户名或密码错误' });
+        }
       }
 
-      // 直接查数据库检查封禁：先查 IP，再查 user_id（不依赖 Redis）
-      const [ipBanRows] = await pool.execute(
-        'SELECT reason, expires_at FROM scr_banned_ips WHERE ip_address = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1',
-        [clientIP]
-      );
+      // IP 封禁检查（已与用户查询并行获取）
       if (ipBanRows.length > 0) {
         const banRecord = ipBanRows[0];
         let message = '您的 IP 已被封禁';
@@ -265,9 +264,11 @@ export async function login(req, res) {
         await redisClient.del(`scr:auto_login_token:${user.id}`);
       }
 
-      const session = await createUserSession(user.id);
-
-      await logIPAction(user.id, clientIP, 'login');
+      // 并行：创建会话 + 记录登录日志（互不依赖）
+      const [session] = await Promise.all([
+        createUserSession(user.id),
+        logIPAction(user.id, clientIP, 'login')
+      ]);
       console.log(`用户登录,id:${user.id},IP:${clientIP}`);
 
       res.json({
@@ -310,6 +311,32 @@ export async function refreshToken(req, res) {
     }
 
     const session = rows[0];
+
+    // 直接查数据库检查封禁：先查 IP，再查 user_id（不依赖 Redis），封禁期间禁止刷新 token
+    const clientIP = req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+                     req.headers['x-real-ip'] ||
+                     req.socket?.remoteAddress ||
+                     'unknown';
+    const [ipBanRows] = await pool.execute(
+      'SELECT reason, expires_at FROM scr_banned_ips WHERE ip_address = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1',
+      [clientIP]
+    );
+    if (ipBanRows.length > 0) {
+      const banRecord = ipBanRows[0];
+      let message = '您的 IP 已被封禁，无法刷新会话';
+      if (banRecord.reason) message += `，原因：${banRecord.reason}`;
+      return res.status(429).json({ status: 'error', message, isBanned: true });
+    }
+    const [userBanRows] = await pool.execute(
+      'SELECT reason, expires_at FROM scr_banned_ips WHERE user_id = ? AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1',
+      [parseInt(userId)]
+    );
+    if (userBanRows.length > 0) {
+      const banRecord = userBanRows[0];
+      let message = '您的账号已被封禁，无法刷新会话';
+      if (banRecord.reason) message += `，原因：${banRecord.reason}`;
+      return res.status(429).json({ status: 'error', message, isBanned: true });
+    }
 
     if (new Date(session.refresh_expires) <= new Date()) {
       await pool.execute('DELETE FROM scr_sessions WHERE user_id = ?', [parseInt(userId)]);

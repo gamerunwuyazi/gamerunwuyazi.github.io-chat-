@@ -51,8 +51,10 @@ export const dbConfig = {
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 25,
+  queueLimit: parseInt(process.env.DB_QUEUE_LIMIT) || 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0
 };
 
 // ============================================
