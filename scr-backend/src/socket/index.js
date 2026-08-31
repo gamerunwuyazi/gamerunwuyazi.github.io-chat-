@@ -1,8 +1,10 @@
 import { Server } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { createClient } from 'redis';
 import { registerUserHandlers } from './handlers/userHandler.js';
 import { registerMessageHandlers } from './handlers/messageHandler.js';
 import { registerPrivateHandlers } from './handlers/privateHandler.js';
-import { socketConfig } from '../config/index.js';
+import { socketConfig, getRedisUrl } from '../config/index.js';
 import { createBroadcastProducer } from '../utils/broadcast/producer.js';
 import { createBroadcastConsumer } from '../utils/broadcast/consumer.js';
 
@@ -169,6 +171,18 @@ export function setupSocketIO(server, { pool, redisClient, isIPBanned, getUserSe
     ...socketConfig
   });
 
+  // Redis 适配器：让单发 io.to('user_X') / 控制类操作（如 disconnectSockets）能跨进程生效。
+  // 注意：多人广播（group_X / authenticated_users）仍走下方 Redis Streams 扇出路径，
+  // 不经适配器，避免与广播消费者重复投递。
+  const pubClient = createClient({ url: getRedisUrl() });
+  const subClient = pubClient.duplicate();
+  pubClient.on('error', (err) => console.error('❌ 广播适配器 pub Redis 错误:', err.message));
+  subClient.on('error', (err) => console.error('❌ 广播适配器 sub Redis 错误:', err.message));
+  io.adapter(createAdapter(pubClient, subClient));
+  Promise.all([pubClient.connect(), subClient.connect()]).catch((err) =>
+    console.error('❌ Redis 广播适配器连接失败:', err.message)
+  );
+
   // 广播子系统：生产者 + 消费者
   // 所有广播任务不再在 socket.on 回调里直接 io.to(room).emit，而是经生产者入队，
   // 由独立消费者从 Redis Streams 异步扇出到本进程持有的房间客户端。
@@ -331,7 +345,7 @@ export function setupSocketIO(server, { pool, redisClient, isIPBanned, getUserSe
           }));
 
         // 只向已认证用户广播用户列表
-        io.to('authenticated_users').emit('users-list', {
+        broadcastProducer?.enqueue('authenticated_users', 'users-list', {
           online: onlineUsersArray,
           offline: offlineUsersArray
         });
@@ -365,20 +379,37 @@ export function setupSocketIO(server, { pool, redisClient, isIPBanned, getUserSe
 
     // 检查用户是否在Redis已认证列表中（user-joined 是认证入口，跳过该检查）
     if (!isJoinEvent) {
-      const isAuth = await authUserManager.isAuthenticatedUser(parseInt(userData.userId));
+      const uid = parseInt(userData.userId);
+      // Redis pipeline 一次往返完成 SISMEMBER + GET，避免每事件多次 Redis 调用。
+      // 注意：这里只校验 Redis 中的访问令牌（与 HTTP 鉴权 getUserSession 行为一致），
+      // 不再查询 scr_sessions 表——socket.use 中间件对同一 socket 是串行执行的，
+      // 中间件里的 DB 查询在高并发下会因连接池排队而阻塞该 socket 的全部后续上行包。
+      let replies;
+      try {
+        replies = await redisClient.multi()
+          .sIsMember('scr:authenticated_users', String(uid))
+          .get(`scr:token:${uid}`)
+          .exec();
+      } catch (err) {
+        console.error('❌ 中间件 Redis pipeline 失败:', err.message);
+        await forceDisconnectUser(socket, 'session-expired', eventName, data);
+        throw new Error('会话校验失败');
+      }
+      const isAuth = replies?.[0];
+      const token = replies?.[1] ?? null;
+
       if (!isAuth) {
         await forceDisconnectUser(socket, 'session-expired', eventName, data);
         throw new Error('会话过期');
       }
+
+      // 校验 userId + sessionToken 与 Redis 中的访问令牌一致
+      if (token !== userData.sessionToken) {
+        await forceDisconnectUser(socket, 'session-expired', eventName, data);
+        throw new Error('会话无效');
+      }
     }
 
-    // 校验 userId + sessionToken 与 Redis 中的访问令牌一致
-    const session = await getUserSession(parseInt(userData.userId));
-    if (!session || session.token !== userData.sessionToken) {
-      await forceDisconnectUser(socket, 'session-expired', eventName, data);
-      throw new Error('会话无效');
-    }
-    
     // 验证通过
     return true;
   }
@@ -468,7 +499,7 @@ export function setupSocketIO(server, { pool, redisClient, isIPBanned, getUserSe
     registerPrivateHandlers(socket, io, context);
   });
 
-  return io;
+  return { io, broadcastProducer, broadcastConsumer };
 }
 
 export default setupSocketIO;

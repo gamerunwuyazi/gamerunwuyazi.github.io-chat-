@@ -18,6 +18,7 @@ import {
 import { verifyPOWSolution } from 'human-verify/backend';
 
 let io;
+let broadcastProducer;
 
 // POW 验证函数 - 只验证 POW，行为验证已在 /api/verify/pow-challenge 完成
 async function verifyHuman(req, res) {
@@ -28,17 +29,17 @@ async function verifyHuman(req, res) {
       return { success: false, message: '缺少 POW 验证数据' };
     }
 
-    // POW 验证
-    const powResult = verifyPOWSolution(sessionId, nonce);
+    // POW 验证（1.2.x 起为异步，且无论成败都会销毁会话防重放）
+    const powResult = await verifyPOWSolution(sessionId, nonce);
     if (!powResult.success) {
       return { success: false, message: powResult.error || 'POW 验证失败' };
     }
-    
+
     if (!powResult.passed) {
       return { success: false, message: 'POW 验证未通过' };
     }
 
-    return { success: true, token: powResult.token };
+    return { success: true };
   } catch (err) {
     console.error('POW 验证失败:', err.message);
     return { success: false, message: 'POW 验证失败' };
@@ -46,7 +47,7 @@ async function verifyHuman(req, res) {
 }
 
 export function initUserService(dependencies) {
-  ({ io } = dependencies);
+  ({ io, broadcastProducer } = dependencies);
   if (io) setSessionSocketIO(io);
 }
 
@@ -420,7 +421,7 @@ export async function updateNickname(req, res) {
 
     const type102Message = filterMessageFields(rawType102Message, 'public');
 
-    io.to('authenticated_users').emit('message-received', type102Message);
+    broadcastProducer?.enqueue('authenticated_users', 'message-received', type102Message);
 
     res.json({ status: 'success', message: '昵称修改成功', nickname: nickname });
   } catch (err) {
@@ -649,7 +650,7 @@ export async function uploadAvatar(req, res) {
 
     const type102Message = filterMessageFields(rawType102Message, 'public');
 
-    io.to('authenticated_users').emit('message-received', type102Message);
+    broadcastProducer?.enqueue('authenticated_users', 'message-received', type102Message);
 
     res.json({
       status: 'success',
@@ -690,7 +691,7 @@ export async function getSelfInfo(req, res) {
         gender: user.gender,
         signature: user.signature,
         avatar_url: user.avatar_url,
-        friend_verification: user.friend_verification,
+        friend_verification: user.friend_verification === 1,
         last_online: user.last_online,
         created_at: user.created_at
       }
@@ -706,7 +707,7 @@ export async function getUserById(req, res) {
     const userId = req.params.id;
 
     const [users] = await pool.execute(
-        'SELECT id, username, nickname, gender, signature, avatar_url FROM scr_users WHERE id = ?',
+        'SELECT id, username, nickname, gender, signature, avatar_url, friend_verification FROM scr_users WHERE id = ?',
         [userId]
     );
 
@@ -716,7 +717,15 @@ export async function getUserById(req, res) {
 
     res.json({
       status: 'success',
-      user: users[0]
+      user: {
+        id: users[0].id,
+        username: users[0].username,
+        nickname: users[0].nickname,
+        gender: users[0].gender,
+        signature: users[0].signature,
+        avatar_url: users[0].avatar_url,
+        friend_verification: users[0].friend_verification === 1
+      }
     });
   } catch (err) {
     console.error('获取用户信息失败:', err.message);

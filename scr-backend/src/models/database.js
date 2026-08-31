@@ -1,17 +1,27 @@
 import mysql from 'mysql2/promise';
-import { createClient } from 'redis';
+import { createClientPool } from 'redis';
 import { dbConfig, getRedisUrl } from '../config/index.js';
 
-const redisClient = createClient({
-  url: getRedisUrl()
-});
+// Redis 连接池：原先为单连接客户端，高并发（压测）时所有命令在单条 TCP 连接上排队，
+// 出现"挤爆队列"（客户端队列堆积 → 命令超时/丢弃）。
+// node-redis v5 原生支持 createClientPool，命令 API 与单连接完全一致（含 multi/exec）。
+const REDIS_POOL_MIN = parseInt(process.env.REDIS_POOL_MIN || '4', 10);    // 常驻最小连接数
+const REDIS_POOL_MAX = parseInt(process.env.REDIS_POOL_MAX || '32', 10);   // 高峰自动扩容上限
+// 从池中获取连接的排队超时，超时抛 TimeoutError（外层还有 10s 命令超时兜底）
+const REDIS_POOL_ACQUIRE_TIMEOUT = parseInt(process.env.REDIS_POOL_ACQUIRE_TIMEOUT || '5000', 10);
+
+const redisClient = createClientPool(
+  { url: getRedisUrl() },
+  {
+    minimum: REDIS_POOL_MIN,
+    maximum: REDIS_POOL_MAX,
+    acquireTimeout: REDIS_POOL_ACQUIRE_TIMEOUT,
+    cleanupDelay: 3000 // 空闲连接延迟回收
+  }
+);
 
 redisClient.on('error', (err) => {
-  console.error('❌ Redis 连接错误:', err.message);
-});
-
-redisClient.on('reconnecting', () => {
-  console.log('⚠️  Redis 正在重连...');
+  console.error('❌ Redis 连接池错误:', err.message);
 });
 
 let isRedisConnected = false;
@@ -21,7 +31,7 @@ let isRedisConnected = false;
     await redisClient.connect();
     isRedisConnected = true;
   } catch (err) {
-    console.error('❌ Redis 连接失败:', err.message);
+    console.error('❌ Redis 连接池初始化失败:', err.message);
     isRedisConnected = false;
   }
 })();
@@ -55,7 +65,7 @@ function withRedisTimeout(operation) {
 async function safeRedisExecute(operation, fallbackValue = null, options = {}) {
   const { strict = false } = options;
 
-  if (!isRedisConnected || !redisClient || redisClient.isReady === false) {
+  if (!isRedisConnected || !redisClient || redisClient.isOpen === false) {
     console.warn('⚠️  Redis 未连接，跳过操作');
     if (strict) throw new RedisUnavailableError('Redis 未连接');
     return fallbackValue;
@@ -64,13 +74,15 @@ async function safeRedisExecute(operation, fallbackValue = null, options = {}) {
   try {
     return await withRedisTimeout(operation);
   } catch (err) {
-    if (err.message?.includes('超时')) {
+    // 覆盖两种超时：外层命令超时（中文文案）、池获取连接超时（TimeoutError，英文）
+    if (err.message?.includes('超时') || err.name === 'TimeoutError' || err.message?.includes('Timeout')) {
       console.warn('⚠️  Redis 命令执行超时，返回降级值');
       if (strict) throw new RedisUnavailableError('Redis 命令执行超时');
       return fallbackValue;
     }
     if (err.message?.includes('closed') || err.message?.includes('connection')) {
-      console.warn('⚠️  Redis 连接已关闭，尝试重连...');
+      // 连接池成员连接异常：池内成员会自动重连；若整个池被关闭则重建
+      console.warn('⚠️  Redis 连接已关闭，尝试重建连接池...');
       isRedisConnected = false;
       try {
         await redisClient.connect();

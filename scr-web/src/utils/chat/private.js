@@ -11,6 +11,7 @@ import {
   useUnreadStore,
   useDraftStore,
   useModalStore,
+  useStorageStore,
   openUserAvatarPopup,
   closeUserAvatarPopup
 } from '@/stores/index.js';
@@ -20,6 +21,27 @@ import { getFriendsList, addFriend as apiAddFriend, removeFriend, getUserInfo } 
 import { searchUsers as apiSearchUsers } from '@/api/user.js';
 
 let friendsList = [];
+
+// 已删除会话快照（存 localStorage，独立于 IndexedDB 消息缓存）。
+// 用途：清空 IndexedDB 后首次拉取时，仍能根据快照识别并显示已删除会话。
+function getDeletedFriendSnapshot() {
+  const baseStore = useBaseStore();
+  const userId = baseStore.currentUser?.id || 'guest';
+  try {
+    const v = localStorage.getItem(`chats-${userId}-deleted-friends`);
+    return (v && JSON.parse(v)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveDeletedFriendSnapshot(snapshot) {
+  const baseStore = useBaseStore();
+  const userId = baseStore.currentUser?.id || 'guest';
+  try {
+    localStorage.setItem(`chats-${userId}-deleted-friends`, JSON.stringify(snapshot));
+  } catch {}
+}
 
 function switchToPrivateChat(userId, nickname, username, avatarUrl) {
   const sessionStore = useSessionStore();
@@ -164,6 +186,9 @@ async function updateFriendsList(friends) {
 
     const serverFriendIds = new Set(friends.map(f => String(f.id)));
 
+    // 本次同步过程中统一维护已删除会话快照，末尾一次性写回 localStorage
+    let deletedSnapshot = getDeletedFriendSnapshot();
+
     let chatKeysData = null;
     try {
       chatKeysData = await localForage.getItem(prefix);
@@ -198,6 +223,8 @@ async function updateFriendsList(friends) {
 
     for (const friend of friends) {
       const existingFriend = existingFriendMap.get(String(friend.id));
+      // 后端返回 status: 1=正常好友，污点状态(0/5/6/10/11)=已删除会话
+      const isDeletedSession = friend.status !== undefined && friend.status !== 1;
 
       try {
         const key = `${prefix}-private-${friend.id}`;
@@ -213,7 +240,23 @@ async function updateFriendsList(friends) {
           updatedSessionData.remark = null;
         }
 
-        delete updatedSessionData.deleted_at;
+        if (isDeletedSession) {
+          // 污点记录：保持已删除会话状态（首次拉取 IndexedDB 为空时也能显示）
+          if (!updatedSessionData.deleted_at) {
+            updatedSessionData.deleted_at = new Date().toISOString();
+          }
+          deletedSnapshot[String(friend.id)] = {
+            nickname: updatedSessionData.nickname || friend.nickname || '',
+            avatarUrl: updatedSessionData.avatarUrl || friend.avatar_url || friend.avatarUrl || null,
+            deleted_at: updatedSessionData.deleted_at
+          };
+        } else {
+          delete updatedSessionData.deleted_at;
+          // 服务器仍返回该会话（已恢复），清除对应已删除快照
+          if (deletedSnapshot[String(friend.id)]) {
+            delete deletedSnapshot[String(friend.id)];
+          }
+        }
 
         await localForage.setItem(key, updatedSessionData);
       } catch (e) {
@@ -264,8 +307,15 @@ async function updateFriendsList(friends) {
               }
             }
             
-            updatedSessionData.deleted_at = new Date().toISOString();
+            const deletedTime = new Date().toISOString();
+            updatedSessionData.deleted_at = deletedTime;
             await localForage.setItem(key, updatedSessionData);
+            // 持久化已删除会话快照，确保清空 IndexedDB 后首屏仍能显示
+            deletedSnapshot[friendIdStr] = {
+              nickname: updatedSessionData.nickname || '',
+              avatarUrl: updatedSessionData.avatarUrl || null,
+              deleted_at: deletedTime
+            };
           }
         } catch (e) {
           console.error('更新好友deleted_at失败:', e);
@@ -343,8 +393,27 @@ async function updateFriendsList(friends) {
       }
     }
 
+    // 补入快照中的已删除会话（IndexedDB 已无该会话数据时，首次拉取也能显示）
+    const loadedFriendIds = new Set(localFriendIdsFromKeys);
+    Object.keys(deletedSnapshot).forEach(friendIdStr => {
+      if (!loadedFriendIds.has(friendIdStr)) {
+        const meta = deletedSnapshot[friendIdStr] || {};
+        allFriends.push({
+          id: Number(friendIdStr),
+          nickname: meta.nickname || '用户',
+          username: 'user',
+          avatarUrl: meta.avatarUrl || null,
+          deleted_at: meta.deleted_at || new Date().toISOString(),
+          remark: null,
+          is_disturb: null
+        });
+      }
+    });
+
     friendStore.friendsList = allFriends;
     friendStore.sortFriendsByLastMessageTime();
+
+    saveDeletedFriendSnapshot(deletedSnapshot);
   }
 
   if (typeof updateUnreadCountsDisplay === 'function') {
@@ -376,6 +445,7 @@ async function deleteFriend(userId) {
   const baseStore = useBaseStore();
   const sessionStore = useSessionStore();
   const friendStore = useFriendStore();
+  const storageStore = useStorageStore();
   const currentUser = baseStore.currentUser;
   const currentSessionToken = baseStore.currentSessionToken;
   
@@ -383,10 +453,11 @@ async function deleteFriend(userId) {
 
   const confirmed = await modal.confirm('确定要删除这个好友吗？', '删除好友');
   if (confirmed) {
-    removeFriend(userId).then(res => {
+    removeFriend(userId).then(async res => {
       const data = res.data;
-        if (friendStore && friendStore.markFriendAsDeleted) {
-          friendStore.markFriendAsDeleted(userId, true);
+        if (storageStore && storageStore.deleteSingleDeletedSession) {
+          // 彻底删除会话（含聊天记录、已删除快照），不留已删除标记
+          await storageStore.deleteSingleDeletedSession('private', userId);
         }
         
         loadFriendsList();
@@ -436,6 +507,7 @@ function showUserProfile(user) {
           nickname: data.user.nickname,
           gender: data.user.gender !== undefined ? data.user.gender : 0,
           signature: data.user.signature,
+          friend_verification: data.user.friend_verification,
           avatarUrl: data.user.avatar_url || data.user.avatarUrl || data.user.avatar
         };
       }
@@ -543,9 +615,15 @@ function displaySearchResults(users) {
     const addFriendBtn = resultItem.querySelector('.add-friend-btn');
     addFriendBtn.addEventListener('click', () => {
       const defaultMsg = `我是${currentUser?.nickname || '用户'}`;
-      const message = prompt('给对方留言：', defaultMsg);
-      if (message !== null) {
-        addFriend(user.id, message);
+      if (user.friend_verification === false) {
+        // 对方明确未开启好友验证，无需留言，直接发送
+        addFriend(user.id, defaultMsg);
+      } else {
+        // 对方开启了好友验证（或信息未知时回退为弹窗留言，避免遗漏）
+        const message = prompt('给对方留言：', defaultMsg);
+        if (message !== null) {
+          addFriend(user.id, message);
+        }
       }
     });
 

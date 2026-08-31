@@ -9,7 +9,7 @@ export async function handleGetFriends(req, res, io) {
       SELECT cu.id, cu.nickname, cu.username, cu.gender, cu.avatar_url, cf.status, cf.remark, cf.is_disturb
       FROM scr_friends cf
       JOIN scr_users cu ON cf.friend_id = cu.id
-      WHERE cf.user_id = ? AND cf.status NOT IN (0, 2, 3, 6, 7, 8, 9, 11, 12, 13, 14)
+      WHERE cf.user_id = ? AND cf.status IN (1, 0, 5, 6, 10, 11)
       ORDER BY cf.id DESC
     `, [userId]);
 
@@ -1082,6 +1082,7 @@ export async function handleRemoveFriend(req, res, io) {
     const iHaveStain = myStatus !== null && stainStatuses.includes(myStatus);
     const friendHasStain = friendStatus !== null && stainStatuses.includes(friendStatus);
 
+    // 单向删除：我方的记录按污点状态机处理（保留对向记录，等对方主动清理）
     if (myRecord.length > 0) {
       if (iHaveStain) {
         if (myStatus === 5 || myStatus === 0) {
@@ -1130,10 +1131,6 @@ export async function handleRemoveFriend(req, res, io) {
       'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
       [userId]
     );
-    const [friendInfo] = await pool.execute(
-      'SELECT id, nickname, avatar_url FROM scr_users WHERE id = ?',
-      [friendIdNum]
-    );
     
     const deletedContent = '你们的好友关系已解除';
     
@@ -1167,12 +1164,6 @@ export async function handleRemoveFriend(req, res, io) {
     io.to(`user_${userId}`).emit('private-message-received', type100Message1);
     io.to(`user_${friendIdNum}`).emit('private-message-received', type100Message2);
 
-    const friendDeletedEventForUser = {
-      friendId: friendIdNum,
-      nickname: friendInfo[0]?.nickname || '',
-      avatarUrl: friendInfo[0]?.avatar_url || '',
-      timestamp: Date.now()
-    };
     const friendDeletedEventForFriend = {
       friendId: userId,
       nickname: userInfo[0]?.nickname || '',
@@ -1180,11 +1171,9 @@ export async function handleRemoveFriend(req, res, io) {
       timestamp: Date.now()
     };
 
-    io.to(`user_${userId}`).emit('friend-deleted', friendDeletedEventForUser);
+    // 只通知被删除方（friendIdNum）；删除方自己通过 HTTP 响应处理本地，避免把自己会话误标为"已删除"
     io.to(`user_${friendIdNum}`).emit('friend-deleted', friendDeletedEventForFriend);
-
     io.to(`user_${friendIdNum}`).emit('friend-removed', { friendId: userId });
-    io.to(`user_${userId}`).emit('friend-removed', { friendId: friendIdNum });
 
     res.json({ status: 'success', message: '删除好友成功' });
   } catch (err) {
@@ -1428,15 +1417,20 @@ export async function handleSearchUsers(req, res, io) {
     const searchKeyword = `%${escapedKeyword}%`;
     
     const [users] = await pool.execute(`
-      SELECT id, nickname, username, gender, avatar_url 
+      SELECT id, nickname, username, gender, avatar_url, friend_verification 
       FROM scr_users 
       WHERE username LIKE ? OR nickname LIKE ?
       LIMIT 20
     `, [searchKeyword, searchKeyword]);
+
+    const usersWithVerification = users.map(user => ({
+      ...user,
+      friend_verification: user.friend_verification === 1
+    }));
     
     res.json({
       status: 'success',
-      users: users,
+      users: usersWithVerification,
       message: '搜索用户成功'
     });
   } catch (err) {

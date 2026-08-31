@@ -1379,6 +1379,24 @@ export const useStorageStore = defineStore('storage', () => {
 
       if (unreadStore.saveUnreadCountsToLocalStorage) unreadStore.saveUnreadCountsToLocalStorage();
 
+      // 同步清除已删除会话在 localStorage 中的快照
+      try {
+        const snapshotKeys = [`${prefix}-deleted-groups`, `${prefix}-deleted-friends`];
+        snapshotKeys.forEach(snapKey => {
+          const snap = JSON.parse(localStorage.getItem(snapKey) || '{}');
+          const groupSnap = snapKey.includes('groups');
+          const ids = groupSnap ? deletedGroupIds : deletedFriendIds;
+          let changed = false;
+          ids.forEach(idStr => {
+            if (snap[idStr]) {
+              delete snap[idStr];
+              changed = true;
+            }
+          });
+          if (changed) localStorage.setItem(snapKey, JSON.stringify(snap));
+        });
+      } catch {}
+
       publicStore.publicStored = false;
       await saveToStorage();
 
@@ -1400,10 +1418,20 @@ export const useStorageStore = defineStore('storage', () => {
       const currentUser = baseStore.currentUser;
       if (!currentUser) return false;
 
-      // 调用后端接口删除服务器记录（任何错误都忽略）
-      try { await deleteDeletedSession(type, id); } catch (e) { /* 忽略 */ }
-      
-      // 检查是否正在查看要删除的会话，如果是则先关闭
+      const prefix = getStorageKeyPrefix();
+
+      // 1. 先从 store 移除，让 UI 立即消失（避免闪现"已删除"）
+      if (type === 'group') {
+        if (groupStore.groupsList) {
+          groupStore.groupsList = groupStore.groupsList.filter(g => String(g.id) !== String(id));
+        }
+      } else if (type === 'private') {
+        if (friendStore.friendsList) {
+          friendStore.friendsList = friendStore.friendsList.filter(f => String(f.id) !== String(id));
+        }
+      }
+
+      // 2. 检查是否正在查看要删除的会话，如果是则先关闭
       if (type === 'group' && String(sessionStore.currentGroupId) === String(id)) {
         sessionStore.setCurrentGroupId(null);
         // 触发事件让视图层切换到空状态
@@ -1412,16 +1440,12 @@ export const useStorageStore = defineStore('storage', () => {
         sessionStore.setCurrentPrivateChatUserId(null);
         window.dispatchEvent(new CustomEvent('chat-session-closed', { detail: { type: 'private', id } }));
       }
-      
-      // 删除本地记录
-      const prefix = getStorageKeyPrefix();
-      
+
+      // 3. 调用后端接口删除服务器记录（任何错误都忽略）
+      try { await deleteDeletedSession(type, id); } catch (e) { /* 忽略 */ }
+
+      // 4. 再清理 IndexedDB 本地记录
       if (type === 'group') {
-        // 从群组列表中移除
-        if (groupStore.groupsList) {
-          groupStore.groupsList = groupStore.groupsList.filter(g => String(g.id) !== String(id));
-        }
-        
         // 删除本地存储
         const key = `${prefix}-group-${id}`;
         await localForage.removeItem(key);
@@ -1435,11 +1459,6 @@ export const useStorageStore = defineStore('storage', () => {
           delete unreadStore.unreadMessages.groups[id];
         }
       } else if (type === 'private') {
-        // 从好友列表中移除
-        if (friendStore.friendsList) {
-          friendStore.friendsList = friendStore.friendsList.filter(f => String(f.id) !== String(id));
-        }
-        
         // 删除本地存储
         const key = `${prefix}-private-${id}`;
         await localForage.removeItem(key);
@@ -1462,7 +1481,17 @@ export const useStorageStore = defineStore('storage', () => {
         chatKeysData.chatKeys = rawChatKeysData.chatKeys.filter(k => k !== targetKey);
         await localForage.setItem(prefix, chatKeysData);
       }
-      
+
+      // 同步清除该会话在 localStorage 中的已删除快照
+      try {
+        const key = type === 'group' ? `${prefix}-deleted-groups` : `${prefix}-deleted-friends`;
+        const snap = JSON.parse(localStorage.getItem(key) || '{}');
+        if (snap[String(id)]) {
+          delete snap[String(id)];
+          localStorage.setItem(key, JSON.stringify(snap));
+        }
+      } catch {}
+
       if (unreadStore.saveUnreadCountsToLocalStorage) {
         unreadStore.saveUnreadCountsToLocalStorage();
       }

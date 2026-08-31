@@ -33,6 +33,13 @@ export async function getUserSession(userId) {
   return { token, refreshToken };
 }
 
+// 仅读取 Redis 中的访问令牌（无 DB 查询），供 socket 每包鉴权使用，
+// 避免 socket.use 中间件每事件做一次 DB 查询导致高并发下连接池排队。
+export async function getUserToken(userId) {
+  const token = await redisClient.get(`scr:token:${userId}`);
+  return token || null;
+}
+
 export async function saveSessionToDatabase(userId, refreshToken, refreshExpires) {
   await pool.execute(
     `INSERT INTO scr_sessions (user_id, refresh_token, refresh_expires, last_active, created_at)

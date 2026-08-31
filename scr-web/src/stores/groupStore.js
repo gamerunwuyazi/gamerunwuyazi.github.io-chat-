@@ -311,6 +311,18 @@ export const useGroupStore = defineStore('group', () => {
           } catch (e) {}
         }
 
+        // 持久化已删除会话快照，确保清空 IndexedDB 后首屏仍能显示
+        try {
+          const snapKey = `${prefix}-deleted-groups`;
+          const snap = JSON.parse(localStorage.getItem(snapKey) || '{}') || {};
+          snap[String(groupId)] = {
+            name: group.name || sessionData.name || '',
+            avatarUrl: group.avatarUrl || sessionData.avatarUrl || null,
+            deleted_at: group.deleted_at
+          };
+          localStorage.setItem(snapKey, JSON.stringify(snap));
+        } catch (e) {}
+
         sessionData.deleted_at = group.deleted_at;
         await localForage.setItem(key, sessionData);
       } catch (e) {}

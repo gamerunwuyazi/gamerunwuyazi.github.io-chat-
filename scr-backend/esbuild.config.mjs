@@ -42,6 +42,12 @@ const buildOptions = {
     'redis',
     'scr-slider-captcha',
     'socket.io',
+    'socket.io-adapter',
+    '@socket.io/redis-adapter',
+    'ws',
+    'engine.io',
+    'notepack.io',
+    'uid2',
     'human-verify'
   ],
   loader: {

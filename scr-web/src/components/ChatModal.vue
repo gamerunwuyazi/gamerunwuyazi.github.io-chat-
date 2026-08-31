@@ -406,7 +406,7 @@
                 <div class="friend-details">
                   <div class="friend-name-row">
                     <h4 class="friend-name">{{ modalStore.modalData.userProfile.nickname }}</h4>
-                    <i class="gender-icon fas" :class="getGenderText(modalStore.modalData.userProfile.gender) === '男' ? 'fa-mars male' : 'fa-venus female'"></i>
+                    <i v-if="modalStore.modalData.userProfile.gender === 1 || modalStore.modalData.userProfile.gender === 2" class="gender-icon fas" :class="modalStore.modalData.userProfile.gender === 1 ? 'fa-mars male' : 'fa-venus female'"></i>
                   </div>
                   <div class="friend-id-row">
                     <span class="friend-id">ID: {{ userProfileDisplayId }}</span>
@@ -1367,7 +1367,7 @@ const userProfileAvatarUrl = computed(() => {
 const userAvatarPopupIsFriend = computed(() => {
   const userId = userAvatarPopupUserId.value;
   if (!userId) return false;
-  return friendStore.friendsList.some(friend => String(friend.id) === String(userId));
+  return friendStore.friendsList.some(friend => String(friend.id) === String(userId) && friend.deleted_at == null);
 });
 
 const userAvatarPopupIsCurrentUser = computed(() => {
@@ -1469,7 +1469,7 @@ const userProfileIsFriend = computed(() => {
   const userId = modalStore.modalData.userProfile?.id;
   if (!userId || !baseStore.currentUser) return false;
   if (String(baseStore.currentUser.id) === String(userId)) return false;
-  return friendStore.friendsList.some(friend => String(friend.id) === String(userId));
+  return friendStore.friendsList.some(friend => String(friend.id) === String(userId) && friend.deleted_at == null);
 });
 
 const groupInfoName = computed(() => {
@@ -1691,6 +1691,13 @@ async function handleUserSearch() {
 }
 
 function handleAddFriend(user) {
+  if (user && user.friend_verification === false) {
+    // 对方明确未开启好友验证，无需留言，直接发送
+    const myNickname = baseStore.currentUser?.nickname || '用户';
+    addFriend(user.id, `我是${myNickname}`);
+    return;
+  }
+  // 对方开启了好友验证（或信息未知时回退为弹窗留言，避免遗漏）
   showFriendRequestDialog(user.id, user.nickname || user.username);
 }
 
@@ -3040,10 +3047,10 @@ async function handleDeleteFriend() {
     toast.success('删除好友成功');
     modalStore.closeModal('userProfile');
     
-    await friendStore.markFriendAsDeleted(friendId, true);
+    // 彻底删除会话（含聊天记录、已删除快照），不留已删除标记
+    await storageStore.deleteSingleDeletedSession('private', friendId);
     
     loadFriendsList();
-    sessionStore.setCurrentPrivateChatUserId(null);
   } catch (error) {
     console.error('删除好友失败:', error);
     const errorMessage = error.response?.data?.message || error.message || '删除好友失败';
@@ -3186,6 +3193,7 @@ async function fetchUserInfo(userId) {
         nickname: data.user.nickname || '',
         signature: data.user.signature || '',
         gender: data.user.gender,
+        friend_verification: data.user.friend_verification,
         avatarUrl: data.user.avatar_url || data.user.avatarUrl || data.user.avatar
       };
     }
@@ -3479,10 +3487,17 @@ function handleUserAvatarPopupAddFriend() {
 
   const user = modalStore.modalData.userAvatarPopup;
   if (user) {
-    showFriendRequestDialog(
-      userAvatarPopupUserId.value,
-      user.nickname || user.username
-    );
+    if (user.friend_verification === false) {
+      // 对方明确未开启好友验证，无需留言，直接发送
+      const myNickname = baseStore.currentUser?.nickname || '用户';
+      addFriend(userAvatarPopupUserId.value, `我是${myNickname}`);
+    } else {
+      // 对方开启了好友验证（或信息未知时回退为弹窗留言，避免遗漏）
+      showFriendRequestDialog(
+        userAvatarPopupUserId.value,
+        user.nickname || user.username
+      );
+    }
   }
   hideUserAvatarPopupVue();
 }

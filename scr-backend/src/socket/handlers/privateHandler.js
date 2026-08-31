@@ -1,6 +1,7 @@
 import { SocketEvents } from '../events.js';
 import path from 'path';
 import fs from 'fs';
+import { redisClient } from '../../models/database.js';
 
 export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, validateMessageContent, filterMessageFields, getAllOnlineUsers }) {
   
@@ -127,6 +128,16 @@ export function registerPrivateHandlers(socket, io, { pool, checkRateLimit, vali
           'INSERT INTO scr_private_messages (sender_id, receiver_id, content, at_userid, message_type, is_read, timestamp) VALUES (?, ?, ?, ?, ?, 0, NOW())',
           [userId, receiverId, messageContent, at_userid ? JSON.stringify(at_userid) : null, messageType]
       );
+
+      // 同步"对方收到的我的最大消息id"缓存，供 message-read 已读回执使用（消除每次已读的 DB 查询）
+      // 每个会话方向一个键，7 天 TTL 自动回收；fire-and-forget，失败不影响消息发送
+      if (messageType < 101) {
+        redisClient.set(
+          `scr:priv:max_from:${parseInt(receiverId)}:${parseInt(userId)}`,
+          String(result.insertId),
+          { EX: 604800 }
+        ).catch(() => {});
+      }
 
       // 构建私信消息对象
       const rawMessage = {

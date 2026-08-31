@@ -4,6 +4,7 @@ import express from 'express';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
+import { hostname } from 'os';
 import cors from 'cors';
 import schedule from 'node-schedule';
 import { pool, redisClient } from './models/database.js';
@@ -106,7 +107,8 @@ app.use((req, res, next) => {
           'INSERT INTO scr_api_logs (user_id, ip_address, api_path, request_method, timestamp) VALUES (?, ?, ?, ?, NOW())',
           [userId, clientIP, req.path, req.method]
         );
-        await trimApiLogs();
+        // 注意：清理不再跟随每次请求（原每请求一次 COUNT(*)+DELETE 会放大 DB 压力并引发死锁），
+        // 改由每分钟定时任务统一清理
       } catch (err) {
         if (process.env.NODE_ENV !== 'production') {
           console.warn('记录API日志失败:', err.message);
@@ -117,7 +119,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const io = setupSocketIO(server, {
+const { io, broadcastProducer } = setupSocketIO(server, {
   pool,
   redisClient,
   isIPBanned,
@@ -146,13 +148,13 @@ const onlineUserManager = {
   }
 };
 
-setGroupDeps(io, onlineUserManager.getAllOnlineUsers);
-setMessageDeps(io, onlineUserManager.getAllOnlineUsers);
+setGroupDeps(io, onlineUserManager.getAllOnlineUsers, broadcastProducer);
+setMessageDeps(io, undefined, undefined, broadcastProducer);
 
-initUserService({ io });
-initFileService({ io, checkAvatarStorage });
+initUserService({ io, broadcastProducer });
+initFileService({ io, checkAvatarStorage, broadcastProducer });
 
-setupAllRoutes(app, io);
+setupAllRoutes(app, io, broadcastProducer);
 
 app.use(notFoundHandler);
 app.use(globalErrorHandler);
@@ -405,26 +407,46 @@ async function cleanupExpiredSessions() {
   }
 }
 
-const API_LOG_KEEP = 5000;
+const LOG_KEEP = 5000;      // 每张日志表保留的行数
+const LOG_TRIM_CHUNK = 1000; // 单次 DELETE 分块大小，短事务减少锁竞争
 
-export async function trimApiLogs() {
+// 按主键 id 升序分块删除最旧的日志行：
+// - 走主键索引，无 filesort
+// - 单块事务短，避免一次性大 DELETE 与并发 INSERT 争抢间隙锁导致死锁
+export async function trimLogTable(tableName) {
   try {
-    const [countResult] = await pool.execute('SELECT COUNT(*) as cnt FROM scr_api_logs');
-    const currentCount = countResult[0].cnt;
-    if (currentCount > API_LOG_KEEP) {
-      const toDelete = currentCount - API_LOG_KEEP;
-      await pool.query(
-        'DELETE FROM scr_api_logs ORDER BY timestamp ASC LIMIT ?',
-        [toDelete]
+    // 表名仅来自代码内部调用，非用户输入
+    const [countResult] = await pool.execute(`SELECT COUNT(*) as cnt FROM ${tableName}`);
+    let excess = countResult[0].cnt - LOG_KEEP;
+    if (excess <= 0) return 0;
+
+    let deleted = 0;
+    while (excess > 0) {
+      const chunk = Math.min(excess, LOG_TRIM_CHUNK);
+      const [result] = await pool.query(
+        `DELETE FROM ${tableName} ORDER BY id ASC LIMIT ?`,
+        [chunk]
       );
+      if (!result.affectedRows) break;
+      deleted += result.affectedRows;
+      excess -= result.affectedRows;
     }
+    return deleted;
   } catch (err) {
-    console.error('清理API日志失败:', err.message);
+    console.error(`清理${tableName}失败:`, err.message);
+    return 0;
   }
 }
 
-async function cleanupApiLogs() {
-  await trimApiLogs();
+// 兼容旧导出名：清理 API 日志
+export async function trimApiLogs() {
+  return trimLogTable('scr_api_logs');
+}
+
+// API 日志 + Socket 事件日志统一清理（每分钟检查一次）
+async function cleanupLogs() {
+  await trimLogTable('scr_api_logs');
+  await trimLogTable('scr_socket_event_logs');
 }
 
 async function cleanExpiredFiles() {
@@ -469,11 +491,14 @@ const PORT = serverConfig.port;
 
 async function startServer() {
   try {
+    // 每天凌晨2点：清理过期文件和过期会话
     schedule.scheduleJob(cronConfig.cleanupSchedule, async () => {
       await cleanExpiredFiles();
       await cleanupExpiredSessions();
-      await cleanupApiLogs();
     });
+
+    // 每分钟检查一次 API 日志 / Socket 事件日志表大小，超阈值分块清理
+    schedule.scheduleJob('* * * * *', cleanupLogs);
 
     console.log(`
 __  ___/__(_)______ ______________  /____     _________  /_______ __  /_   __________________________ ___ 
@@ -483,7 +508,7 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
                       /_/                                                                                 
     `);
 
-    console.log('⏰ 已设置定时任务：每天凌晨2点清理过期文件和过期会话');
+    console.log('⏰ 已设置定时任务：每天凌晨2点清理过期文件和过期会话；每分钟检查一次日志表');
 
     cleanExpiredFiles();
     cleanupExpiredSessions();
@@ -491,8 +516,29 @@ ____/ /_  / _  / / / / /_  /_/ /  / /  __/    / /__ _  / / / /_/ // /_     _  / 
     await initializeDatabase();
     await syncBannedIPsToRedis();
 
-    await redisClient.del('scr:online_users');
-    await redisClient.del('scr:authenticated_users');
+    // 启动时立即清理一次日志表（避免上次运行残留的超大日志表拖慢请求）
+    cleanupLogs();
+
+    // 集群安全：只让第一个启动的 worker 清空在线状态。
+    // PM2 集群下多个 worker 会同时执行到这里，若每个都 del，后启动的 worker 会
+    // 清掉仍在运行的 worker 维护的在线状态，导致用户集体掉线。
+    // 用 Redis SETNX 锁（带 60s 过期防止死锁）确保只执行一次。
+    try {
+      const lockKey = 'scr:startup-clear-online-lock';
+      const acquired = await redisClient.set(lockKey, `${hostname()}:${process.pid}`, {
+        NX: true,
+        EX: 60
+      });
+      if (acquired === 'OK') {
+        await redisClient.del('scr:online_users');
+        await redisClient.del('scr:authenticated_users');
+        console.log('🧹 首个 worker 已清空在线状态缓存');
+      } else {
+        console.log('🕐 在线状态由其他 worker 负责清理，跳过');
+      }
+    } catch (err) {
+      console.error('清理在线状态失败:', err.message);
+    }
 
     // backlog=1024：压测高峰 TCP 连接排队较多，默认 511 会被打满导致新连接被拒(502)
     server.listen({ port: PORT, host: '0.0.0.0', backlog: 1024 }, () => {

@@ -2,14 +2,26 @@ import {
   createSession,
   verifySession,
   generatePOWChallenge,
-  verifyPOWSolution
+  verifyPOWSolution,
+  configureSessionStore,
+  createRedisSessionStore
 } from 'human-verify/backend';
+import { redisClient } from '../models/database.js';
+
+// 集群环境：把验证会话存储切换到 Redis，确保多个 worker 进程共享会话
+configureSessionStore(
+  createRedisSessionStore({
+    get: (key) => redisClient.get(key),
+    set: (key, value, ttlMs) => redisClient.set(key, value, { PX: ttlMs }),
+    del: (key) => redisClient.del(key)
+  })
+);
 
 export function setupVerifyRoutes(app) {
-  // 1. 创建验证会话（1.1.2 起需要前端上报视口尺寸，后端按视口生成全屏透明挑战图）
-  app.post('/api/verify/challenge', (req, res) => {
+  // 1. 创建验证会话（需要前端上报视口尺寸，后端按视口生成全屏透明挑战图）
+  app.post('/api/verify/challenge', async (req, res) => {
     try {
-      const session = createSession({ viewport: req.body?.viewport });
+      const session = await createSession({ viewport: req.body?.viewport });
       res.json(session);
     } catch (err) {
       console.error('创建验证会话失败:', err.message);
@@ -18,15 +30,15 @@ export function setupVerifyRoutes(app) {
   });
 
   // 2. 行为验证 + POW 挑战
-  app.post('/api/verify/pow-challenge', (req, res) => {
+  app.post('/api/verify/pow-challenge', async (req, res) => {
     try {
-      const { sessionId, encryptedData, threshold } = req.body;
+      const { sessionId, encryptedData } = req.body;
 
       if (!sessionId || !encryptedData) {
         return res.status(400).json({ error: '缺少必要参数' });
       }
 
-      const result = verifySession(sessionId, encryptedData, threshold || 50);
+      const result = await verifySession(sessionId, encryptedData);
 
       if (!result.success) {
         return res.status(400).json({ error: result.error || '会话验证失败' });
@@ -40,11 +52,11 @@ export function setupVerifyRoutes(app) {
         });
       }
 
-      const pow = generatePOWChallenge(sessionId);
+      const pow = await generatePOWChallenge(sessionId);
       res.json({
         passed: true,
         score: result.score,
-        token: result.token,
+        details: result.details,
         pow
       });
     } catch (err) {

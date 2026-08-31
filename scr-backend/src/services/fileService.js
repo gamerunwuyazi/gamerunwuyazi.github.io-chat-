@@ -4,9 +4,10 @@ import { pool } from '../models/database.js';
 
 let checkAvatarStorage;
 let io;
+let broadcastProducer;
 
 export function initFileService(dependencies) {
-  ({ checkAvatarStorage, io } = dependencies);
+  ({ checkAvatarStorage, io, broadcastProducer } = dependencies);
 }
 
 const uploadDir = path.join(process.cwd(), 'public', 'uploads');
@@ -141,9 +142,9 @@ export async function uploadFile(req, res) {
     rawMessage.timestampISO = now.toISOString();
 
     if (safeGroupId) {
-      io.to(`group_${safeGroupId}`).emit('message-received', rawMessage);
+      broadcastProducer?.enqueue(`group_${safeGroupId}`, 'message-received', rawMessage);
     } else {
-      io.emit('message-received', rawMessage);
+      broadcastProducer?.enqueue('authenticated_users', 'message-received', rawMessage);
     }
 
     res.json({

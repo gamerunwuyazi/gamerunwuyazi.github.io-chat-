@@ -2486,6 +2486,7 @@ noscript {
 #privateMessageContainer {
     flex: 1 1 auto; /* 确保消息容器能填充剩余空间 */
     overflow-y: auto;
+    overflow-x: clip; /* 图片放大横向溢出时不出现滚动条，也无法横向滚动 */
     -webkit-overflow-scrolling: auto; /* 禁用触控板惯性滚动 */
     margin-bottom: 0;
     padding: 10px;
@@ -3144,6 +3145,7 @@ noscript {
     color: #343a40;
     max-height: 300px;
     overflow-y: auto;
+    overflow-x: clip; /* 图片放大横向溢出时不出现滚动条，也无法横向滚动 */
     scrollbar-width: thin;
     scrollbar-color: #c1c1c1 transparent;
 }
@@ -3319,7 +3321,6 @@ noscript {
 .message-image:hover {
     transform: scale(1.02);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    border-color: #07c160;
 }
 
 /* 用户列表项样式 */
@@ -4369,6 +4370,7 @@ body.dark-mode .form-message.error {
 #messageContainer {
     flex: 1 1 auto;
     overflow-y: auto;
+    overflow-x: clip; /* 图片放大横向溢出时不出现滚动条，也无法横向滚动 */
     padding: 10px;
     background-color: #f8fafc;
     display: flex;
@@ -4381,6 +4383,7 @@ body.dark-mode .form-message.error {
 #groupMessageContainer {
     flex: 1 1 auto;
     overflow-y: auto;
+    overflow-x: clip; /* 图片放大横向溢出时不出现滚动条，也无法横向滚动 */
     padding: 10px;
     background-color: #f8fafc;
     display: flex;

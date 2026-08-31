@@ -41,7 +41,7 @@ export function setupRoutes(app, io) {
     createGroup(req, res);
   });
 
-  app.get('/api/user-groups/:userId', (req, res) => {
+  app.get('/api/user/groups', (req, res) => {
     getUserGroups(req, res);
   });
 

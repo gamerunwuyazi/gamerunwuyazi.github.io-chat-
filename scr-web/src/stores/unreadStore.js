@@ -12,6 +12,53 @@ export const useUnreadStore = defineStore('unread', () => {
 
   const hasPublicAtMe = ref(false);
 
+  // ============================================
+  // 清除未读事件批量队列
+  // 前端把所有需要标记的会话（群组 + 主聊天室）放入列表，
+  // 每 10 秒轮询一次，有则逐条发送，没有则什么都不发
+  // ============================================
+  const pendingUnreadClear = ref([]);
+  let unreadClearPollTimer = null;
+
+  function enqueueUnreadClear(type, groupId = null) {
+    if (type === 'group' && (groupId === null || groupId === undefined)) return;
+    const exists = pendingUnreadClear.value.some(item => {
+      if (type === 'global') return item.type === 'global';
+      return item.type === 'group' && String(item.groupId) === String(groupId);
+    });
+    if (exists) return;
+    if (type === 'group') {
+      pendingUnreadClear.value.push({ type: 'group', groupId });
+    } else {
+      pendingUnreadClear.value.push({ type: 'global' });
+    }
+  }
+
+  function flushPendingUnreadClear() {
+    const queue = pendingUnreadClear.value;
+    if (!queue.length) return;
+    while (queue.length) {
+      const item = queue.shift();
+      if (item.type === 'group') {
+        sendClearGroupUnread(item.groupId);
+      } else if (item.type === 'global') {
+        sendClearGlobalUnread();
+      }
+    }
+  }
+
+  function startUnreadClearPolling() {
+    if (unreadClearPollTimer) return;
+    unreadClearPollTimer = setInterval(flushPendingUnreadClear, 10000);
+  }
+
+  function stopUnreadClearPolling() {
+    if (unreadClearPollTimer) {
+      clearInterval(unreadClearPollTimer);
+      unreadClearPollTimer = null;
+    }
+  }
+
   function clearGroupUnread(groupId) {
     loadUnreadCountsFromLocalStorage();
     const groupIdStr = String(groupId);
@@ -21,7 +68,7 @@ export const useUnreadStore = defineStore('unread', () => {
       hasUnreadToClear = true;
     }
     saveUnreadCountsToLocalStorage();
-    if (hasUnreadToClear) sendClearGroupUnread(groupId);
+    if (hasUnreadToClear) enqueueUnreadClear('group', groupId);
   }
 
   function clearPrivateUnread(userId) {
@@ -42,7 +89,7 @@ export const useUnreadStore = defineStore('unread', () => {
     unreadMessages.value.global = 0;
     hasPublicAtMe.value = false;
     saveUnreadCountsToLocalStorage();
-    if (hasUnreadToClear) sendClearGlobalUnread();
+    if (hasUnreadToClear) enqueueUnreadClear('global');
   }
 
   function incrementGroupUnread(groupId) {
@@ -153,9 +200,13 @@ export const useUnreadStore = defineStore('unread', () => {
   return {
     unreadMessages,
     hasPublicAtMe,
+    pendingUnreadClear,
     clearGroupUnread,
     clearPrivateUnread,
     clearGlobalUnread,
+    enqueueUnreadClear,
+    startUnreadClearPolling,
+    stopUnreadClearPolling,
     incrementGroupUnread,
     incrementGlobalUnread,
     incrementPrivateUnread,

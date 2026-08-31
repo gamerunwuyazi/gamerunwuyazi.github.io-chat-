@@ -31,8 +31,7 @@ import {
   disconnectWebSocket,
   setPullingMessages,
   waitForSocketConnection,
-  processAndClearBuffers,
-  sendClearGlobalUnread
+  processAndClearBuffers
 } from './websocket.js';
 import { resetAllStores } from '@/stores/plugins/clearStore.js';
 import { getSelfInfo, refreshToken as apiRefreshToken } from '@/api/user.js';
@@ -192,6 +191,41 @@ function initializeFocusListeners() {
   window.addEventListener('focus', handleFocusChange);
   window.addEventListener('blur', handleFocusChange);
   window.addEventListener('pageshow', handlePageShow);
+  document.addEventListener('mousemove', onPrivateChatAreaMousemove, { passive: true });
+  document.addEventListener('click', onPrivateChatAreaClick, true);
+}
+
+// 私信：仅当鼠标在右侧聊天区域(#chat-main)内移动/点击的那一刻，
+// 才发送已读并清除前端未读计数（收到私信时一律累加计数，见 websocket.js）
+// 触发条件直接发送并清除，不进入列表轮询
+function handlePrivateChatAreaInteraction() {
+  const router = getRouter();
+  const currentPath = router?.currentRoute?.value?.path || window.location.pathname || '';
+  if (!currentPath.startsWith('/chat/private')) return;
+
+  const sessionStore = useSessionStore();
+  const partnerId = sessionStore?.currentPrivateChatUserId;
+  if (!partnerId) return;
+
+  const unreadStore = useUnreadStore();
+  const hasUnread = Number(unreadStore?.unreadMessages?.private?.[String(partnerId)] || 0) > 0;
+  if (!hasUnread) return;
+
+  // clearPrivateUnread 内部会发送已读并清除计数
+  if (unreadStore && unreadStore.clearPrivateUnread) {
+    unreadStore.clearPrivateUnread(partnerId);
+  }
+  updateUnreadCountsDisplay();
+}
+
+function onPrivateChatAreaMousemove(e) {
+  if (!e.target || !e.target.closest || !e.target.closest('#chat-main')) return;
+  handlePrivateChatAreaInteraction();
+}
+
+function onPrivateChatAreaClick(e) {
+  if (!e.target || !e.target.closest || !e.target.closest('#chat-main')) return;
+  handlePrivateChatAreaInteraction();
 }
 
 function handlePageShow() {
@@ -234,11 +268,9 @@ function tryClearUnreadForCurrentRoute() {
     }
     return true;
   } else if (isPrivateRoute && sessionStore && sessionStore.currentPrivateChatUserId) {
-    if (unreadStore && unreadStore.clearPrivateUnread) {
-      unreadStore.clearPrivateUnread(sessionStore.currentPrivateChatUserId);
-      updateUnreadCountsDisplay();
-      return true;
-    }
+    // 私信：聚焦/页面切回不自动清除未读、不发送已读
+    // 只有鼠标在 #chat-main 内移动/点击时才触发（见 handlePrivateChatAreaInteraction）
+    return false;
   }
 
   return false;
@@ -466,7 +498,7 @@ async function initializeChat() {
                   const unreadStore = useUnreadStore();
                   if (unreadStore) {
                     unreadStore.clearGlobalUnread();
-                    sendClearGlobalUnread();
+                    unreadStore.enqueueUnreadClear('global');
                     updateUnreadCountsDisplay();
                   }
                   publicChatEl.removeEventListener('click', handleClick);

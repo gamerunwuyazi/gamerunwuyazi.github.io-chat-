@@ -6,13 +6,11 @@ import { messageConfig } from '../config/index.js';
 import { runMessageTask } from '../workers/messageWorkerClient.js';
 
 let io = null;
-let getAllOnlineUsersFn = null;
-let isAuthenticatedUserFn = null;
+let broadcastProducer = null;
 
-export function setSocketDependencies(socketIo, getOnlineUsersFn, authUserFn) {
+export function setSocketDependencies(socketIo, getOnlineUsersFn, authUserFn, producer) {
   io = socketIo;
-  getAllOnlineUsersFn = getOnlineUsersFn;
-  isAuthenticatedUserFn = authUserFn;
+  broadcastProducer = producer;
 }
 
 async function isGroupAdmin(groupId, userId) {
@@ -336,6 +334,15 @@ export async function sendMessage(req, res) {
         [userId, content, at_userid ? JSON.stringify(at_userid) : null, groupId || null]
     );
 
+    // 同步"范围内最新消息ID"缓存，供 clear-group/global-unread 使用
+    if (redisClient) {
+      if (groupId) {
+        redisClient.set(`scr:max_msg_id:group:${parseInt(groupId)}`, String(result.insertId)).catch(() => {});
+      } else {
+        redisClient.set('scr:max_msg_id:global', String(result.insertId)).catch(() => {});
+      }
+    }
+
     const rawMessage = {
       id: result.insertId,
       userId,
@@ -352,18 +359,11 @@ export async function sendMessage(req, res) {
     const newMessage = filterMessageFields(rawMessage, messageTypeStr);
 
     if (groupId) {
-      io.to(`group_${groupId}`).emit('message-received', newMessage);
+      broadcastProducer?.enqueue(`group_${groupId}`, 'message-received', newMessage);
       
     } else {
-      const allOnlineUsers = await getAllOnlineUsersFn();
-      for (const onlineUser of allOnlineUsers) {
-        if (await isAuthenticatedUserFn(onlineUser.id)) {
-          const socket = io.sockets.sockets.get(onlineUser.socketId);
-          if (socket) {
-            socket.emit('message-received', newMessage);
-          }
-        }
-      }
+      // 公共聊天消息广播给所有已认证用户（走 Redis Streams 扇出路径，集群安全）
+      broadcastProducer?.enqueue('authenticated_users', 'message-received', newMessage);
     }
 
     res.json({
@@ -511,11 +511,17 @@ export async function getOfflineMessages(req, res) {
       JOIN scr_users u1 ON p.sender_id = u1.id
       JOIN scr_users u2 ON p.receiver_id = u2.id
       WHERE ((p.sender_id = ? AND p.receiver_id != ?) OR (p.receiver_id = ? AND p.sender_id != ?))
+        AND EXISTS (
+          SELECT 1 FROM scr_friends cf
+          WHERE cf.user_id = ?
+            AND cf.friend_id = IF(p.sender_id = ?, p.receiver_id, p.sender_id)
+            AND cf.status = 1
+        )
         AND p.timestamp >= ?
         AND p.id > ?
       ORDER BY p.timestamp DESC, p.id DESC
       LIMIT ?
-    `, [userId, userId, userId, userId, threeMonthsAgo, privateMinId, privateLimit]);
+    `, [userId, userId, userId, userId, userId, userId, threeMonthsAgo, privateMinId, privateLimit]);
 
     const processRecallMessage = (msg) => {
       if (msg.messageType === 101) {

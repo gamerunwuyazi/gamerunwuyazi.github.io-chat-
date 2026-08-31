@@ -258,7 +258,6 @@ import {
   sendMessage,
   showSendGroupCardModal,
   resetLoadingState,
-  sendClearGlobalUnread,
   updateUnreadCountsDisplay
 } from "@/utils/chat";
 import { clearContentEditable } from "@/utils/chat/message.js";
@@ -513,7 +512,7 @@ function bindOneTimePublicUnreadClear() {
   function onFirstClick() {
     if (unreadStore) {
       unreadStore.clearGlobalUnread();
-      sendClearGlobalUnread();
+      unreadStore.enqueueUnreadClear('global');
       updateUnreadCountsDisplay();
     }
     publicChatEl.removeEventListener('click', onFirstClick);

@@ -40,6 +40,28 @@ let currentSharedGroup = null;
 let switchingGroupWithExistingMessages = false;
 let groupChatAllLoaded = {};
 
+// 已删除会话快照（存 localStorage，独立于 IndexedDB 消息缓存）。
+// 用途：清空 IndexedDB 后首次拉取时，仍能根据快照识别并显示已删除会话，
+// 避免"必须第二次拉取才能看到已删除的会话"。
+function getDeletedGroupSnapshot() {
+  const baseStore = useBaseStore();
+  const userId = baseStore.currentUser?.id || 'guest';
+  try {
+    const v = localStorage.getItem(`chats-${userId}-deleted-groups`);
+    return (v && JSON.parse(v)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveDeletedGroupSnapshot(snapshot) {
+  const baseStore = useBaseStore();
+  const userId = baseStore.currentUser?.id || 'guest';
+  try {
+    localStorage.setItem(`chats-${userId}-deleted-groups`, JSON.stringify(snapshot));
+  } catch {}
+}
+
 async function loadGroupList() {
     const baseStore = useBaseStore();
     const currentUser = baseStore.currentUser;
@@ -47,7 +69,7 @@ async function loadGroupList() {
     if (!currentUser || !currentSessionToken) return;
 
     try {
-        const res = await getGroupList(currentUser.id);
+        const res = await getGroupList();
         const data = res.data;
         await updateGroupList(data.groups);
     } catch (e) {
@@ -630,6 +652,9 @@ async function updateGroupList(groups) {
 
         const serverGroupIds = new Set(groups.map(g => String(g.id)));
 
+        // 本次同步过程中统一维护已删除会话快照，末尾一次性写回 localStorage
+        let deletedSnapshot = getDeletedGroupSnapshot();
+
         let chatKeysData = null;
         try {
             chatKeysData = await localForage.getItem(prefix);
@@ -674,6 +699,10 @@ async function updateGroupList(groups) {
                 else if (group.avatarUrl) updatedSessionData.avatarUrl = group.avatarUrl;
                 
                 delete updatedSessionData.deleted_at;
+                // 服务器仍返回该会话（已恢复），清除对应已删除快照
+                if (deletedSnapshot[String(group.id)]) {
+                  delete deletedSnapshot[String(group.id)];
+                }
                 
                 await localForage.setItem(key, updatedSessionData);
             } catch (e) {
@@ -718,8 +747,15 @@ async function updateGroupList(groups) {
                             }
                         }
                         
-                        updatedSessionData.deleted_at = new Date().toISOString();
+                        const deletedTime = new Date().toISOString();
+                        updatedSessionData.deleted_at = deletedTime;
                         await localForage.setItem(key, updatedSessionData);
+                        // 持久化已删除会话快照，确保清空 IndexedDB 后首屏仍能显示
+                        deletedSnapshot[groupIdStr] = {
+                          name: updatedSessionData.name || '',
+                          avatarUrl: updatedSessionData.avatarUrl || null,
+                          deleted_at: deletedTime
+                        };
                     }
                 } catch (e) {
                     console.error('更新群组deleted_at失败:', e);
@@ -792,8 +828,25 @@ async function updateGroupList(groups) {
             }
         }
 
+        // 补入快照中的已删除会话（IndexedDB 已无该会话数据时，首次拉取也能显示）
+        const loadedGroupIds = new Set(localGroupIdsFromKeys);
+        Object.keys(deletedSnapshot).forEach(groupIdStr => {
+          if (!loadedGroupIds.has(groupIdStr)) {
+            const meta = deletedSnapshot[groupIdStr] || {};
+            allGroups.push({
+              id: Number(groupIdStr),
+              name: meta.name || '群组',
+              avatarUrl: meta.avatarUrl || null,
+              deleted_at: meta.deleted_at || new Date().toISOString(),
+              is_disturb: null
+            });
+          }
+        });
+
         groupStore.groupsList = allGroups;
         groupStore.sortGroupsByLastMessageTime();
+
+        saveDeletedGroupSnapshot(deletedSnapshot);
     }
 
     updateUnreadCountsDisplay();

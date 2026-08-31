@@ -1,10 +1,10 @@
 import request from '@/utils/request.js';
 
 /**
- * 加载群组列表
+ * 加载群组列表（用户ID由后端会话推断）
  */
-export function getGroupList(userId) {
-  return request.get(`/api/user-groups/${userId}`);
+export function getGroupList() {
+  return request.get('/api/user/groups');
 }
 
 /**

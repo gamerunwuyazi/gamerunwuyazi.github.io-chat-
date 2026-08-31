@@ -17,7 +17,7 @@ async function authenticateAdmin(req, res, next) {
   next();
 }
 
-export function setupRoutes(app, io) {
+export function setupRoutes(app, io, broadcastProducer) {
   // 封禁IP或用户（支持传 ipAddress 或 userId 任意一个参数）
   app.post('/api/admin/ban-ip', authenticateAdmin, async (req, res) => {
     try {
@@ -115,7 +115,7 @@ export function setupRoutes(app, io) {
             lastOnline: u.last_online
           }));
 
-        io.to('authenticated_users').emit('users-list', {
+        broadcastProducer?.enqueue('authenticated_users', 'users-list', {
           online: onlineUsersArray,
           offline: offlineUsersArray
         });
@@ -193,7 +193,7 @@ export function setupRoutes(app, io) {
               lastOnline: u.last_online
             }));
 
-          io.to('authenticated_users').emit('users-list', {
+          broadcastProducer?.enqueue('authenticated_users', 'users-list', {
             online: onlineUsersArray,
             offline: offlineUsersArray
           });

@@ -7,10 +7,12 @@ import path from 'path';
 import fs from 'fs';
 
 let io = null;
+let broadcastProducer = null;
 let getAllOnlineUsersFn = null;
 
-export function setSocketDependencies(socketIo, getOnlineUsersFn) {
+export function setSocketDependencies(socketIo, getOnlineUsersFn, producer) {
   io = socketIo;
+  broadcastProducer = producer;
   getAllOnlineUsersFn = getOnlineUsersFn;
 }
 
@@ -147,7 +149,7 @@ export async function uploadGroupAvatar(req, res, next) {
     );
 
     // 广播群头像更新事件给所有群组成员（使用群组房间）
-    io.to(`group_${groupId}`).emit('group-avatar-updated', {
+    broadcastProducer?.enqueue(`group_${groupId}`, 'group-avatar-updated', {
       groupId: groupId,
       avatarUrl: avatarUrlWithVersion
     });
@@ -308,10 +310,10 @@ export async function createGroup(req, res) {
     const type100Message = filterMessageFields(rawType100Message, 'group');
 
     // 向所有群组成员发送100类型消息（先广播）
-    io.to(`group_${groupId}`).emit('message-received', type100Message);
+    broadcastProducer?.enqueue(`group_${groupId}`, 'message-received', type100Message);
       
     // 向所有群组成员广播群组创建事件（使用群组房间）
-    io.to(`group_${groupId}`).emit('group-created', {
+    broadcastProducer?.enqueue(`group_${groupId}`, 'group-created', {
       groupId: groupId,
       groupName: groupName,
       creatorId: userId,
@@ -334,13 +336,8 @@ export async function createGroup(req, res) {
 
 export async function getUserGroups(req, res) {
   try {
-    const userId = req.params.userId;
-
-    const sessionUserId = req.userId;
-    if (Number(userId) !== Number(sessionUserId)) {
-      console.error('权限错误: 尝试访问其他用户的群组列表');
-      return res.status(403).json({ status: 'error', message: '无权访问此用户信息' });
-    }
+    // 用户ID由会话鉴权中间件推断，不再依赖 URL 参数
+    const userId = parseInt(req.userId);
 
     const [groups] = await pool.execute(`
       SELECT g.*, gm.remark as user_remark, gm.is_disturb
@@ -643,7 +640,7 @@ export async function removeGroupMember(req, res) {
     const type100Message = filterMessageFields(rawType100Message, 'group');
 
     // 向所有群组成员发送100类型消息（先广播）
-    io.to(`group_${groupId}`).emit('message-received', type100Message);
+    broadcastProducer?.enqueue(`group_${groupId}`, 'message-received', type100Message);
     
     // 同时也向被踢出的成员的用户房间发送，确保他们能收到
     io.to(`user_${memberId}`).emit('message-received', type100Message);
@@ -667,7 +664,7 @@ export async function removeGroupMember(req, res) {
     }
 
     // 向所有群组成员广播成员被踢出事件
-    io.to(`group_${groupId}`).emit('member-removed', { groupId, memberId });
+    broadcastProducer?.enqueue(`group_${groupId}`, 'member-removed', { groupId, memberId });
 
     // 也通知被踢出的成员
     io.to(`user_${memberId}`).emit('member-removed', { groupId, memberId });
@@ -723,7 +720,7 @@ export async function setGroupAdmin(req, res) {
     );
 
     // 向所有群组成员广播管理员变更事件
-    io.to(`group_${groupId}`).emit('group-admin-changed', {
+    broadcastProducer?.enqueue(`group_${groupId}`, 'group-admin-changed', {
       groupId: groupId,
       userId: memberId,
       isAdmin: isAdmin,
@@ -882,7 +879,7 @@ export async function addGroupMembers(req, res) {
     const type100Message = filterMessageFields(rawType100Message, 'group');
 
     // 向所有群组成员发送100类型消息
-    io.to(`group_${groupId}`).emit('message-received', type100Message);
+    broadcastProducer?.enqueue(`group_${groupId}`, 'message-received', type100Message);
 
     // 向每个新成员单独发送被添加到群组的事件
     for (const memberId of newMemberIds) {
@@ -896,7 +893,7 @@ export async function addGroupMembers(req, res) {
     }
 
     // 向所有群组成员广播成员添加事件（不包括新成员，他们通过added-to-group接收）
-    io.to(`group_${groupId}`).emit('members-added', {
+    broadcastProducer?.enqueue(`group_${groupId}`, 'members-added', {
       groupId: groupId,
       newMemberIds: newMemberIds,
       members: updatedMembers
@@ -1077,7 +1074,7 @@ export async function joinGroupWithToken(req, res) {
     const type100Message = filterMessageFields(rawType100Message, 'group');
 
     // 向所有群组成员发送100类型消息（用户已经加入房间了）
-    io.to(`group_${groupId}`).emit('message-received', type100Message);
+    broadcastProducer?.enqueue(`group_${groupId}`, 'message-received', type100Message);
     
     // 同时也向新成员的用户房间发送，确保他们能收到
     io.to(`user_${userId}`).emit('message-received', type100Message);
@@ -1099,7 +1096,7 @@ export async function joinGroupWithToken(req, res) {
     });
     
     // 向所有群组成员广播成员添加事件（不包括新成员）
-    io.to(`group_${groupId}`).emit('members-added', {
+    broadcastProducer?.enqueue(`group_${groupId}`, 'members-added', {
       groupId: groupId,
       newMemberIds: [parseInt(userId)],
       members: updatedMembers
@@ -1186,7 +1183,7 @@ export async function leaveGroup(req, res) {
     const type100Message = filterMessageFields(rawType100Message, 'group');
 
     // 向所有群组成员发送100类型消息（先广播）
-    io.to(`group_${groupId}`).emit('message-received', type100Message);
+    broadcastProducer?.enqueue(`group_${groupId}`, 'message-received', type100Message);
     
     // 同时也向退出的成员的用户房间发送，确保他们能收到
     io.to(`user_${userId}`).emit('message-received', type100Message);
@@ -1210,7 +1207,7 @@ export async function leaveGroup(req, res) {
     }
 
     // 向所有群组成员广播成员退出事件
-    io.to(`group_${groupId}`).emit('member-removed', { groupId, memberId: userId });
+    broadcastProducer?.enqueue(`group_${groupId}`, 'member-removed', { groupId, memberId: userId });
 
     // 也通知退出的成员
     io.to(`user_${userId}`).emit('member-removed', { groupId, memberId: userId });
@@ -1334,8 +1331,8 @@ export async function dissolveGroup(req, res) {
       const type100Message = filterMessageFields(rawType100Message, 'group');
       
       // 广播群组解散消息和事件
-      io.to(`group_${groupId}`).emit('message-received', type100Message);
-      io.to(`group_${groupId}`).emit('group-dissolved', {
+      broadcastProducer?.enqueue(`group_${groupId}`, 'message-received', type100Message);
+      broadcastProducer?.enqueue(`group_${groupId}`, 'group-dissolved', {
         groupId: groupId,
         groupName: group.name,
         dissolvedBy: userId,
@@ -1409,7 +1406,7 @@ export async function updateGroupName(req, res) {
     );
 
     // 向所有群组成员广播群组名称更新事件（使用群组房间）
-    io.to(`group_${groupId}`).emit('group-name-updated', {
+    broadcastProducer?.enqueue(`group_${groupId}`, 'group-name-updated', {
       groupId: groupId,
       newGroupName: newGroupName
     });
@@ -1444,7 +1441,7 @@ export async function updateGroupDescription(req, res) {
     );
 
     // 向所有群组成员广播群组公告更新事件（使用群组房间）
-    io.to(`group_${groupId}`).emit('group-description-updated', {
+    broadcastProducer?.enqueue(`group_${groupId}`, 'group-description-updated', {
       groupId: groupId,
       newDescription: newDescription
     });
@@ -1588,7 +1585,7 @@ export async function muteGroupMember(req, res) {
     );
 
     // 向所有群组成员广播禁言事件
-    io.to(`group_${groupId}`).emit('member-muted', {
+    broadcastProducer?.enqueue(`group_${groupId}`, 'member-muted', {
       groupId: groupId,
       userId: memberId,
       nickname: userInfo[0]?.nickname || '',
@@ -1656,7 +1653,7 @@ export async function unmuteGroupMember(req, res) {
     );
 
     // 向所有群组成员广播解除禁言事件
-    io.to(`group_${groupId}`).emit('member-unmuted', {
+    broadcastProducer?.enqueue(`group_${groupId}`, 'member-unmuted', {
       groupId: groupId,
       userId: memberId,
       nickname: userInfo[0]?.nickname || ''
@@ -1697,7 +1694,7 @@ export async function setMuteAll(req, res) {
     );
 
     // 向所有群组成员广播全员禁言状态变更事件
-    io.to(`group_${groupId}`).emit('mute-all-changed', {
+    broadcastProducer?.enqueue(`group_${groupId}`, 'mute-all-changed', {
       groupId: groupId,
       isMuteAll: isMuteAll,
       operatedBy: userId
@@ -1911,7 +1908,7 @@ export async function setGroupNickname(req, res) {
     };
 
     // 向当前群组发送专用事件（不经过message-received通道）
-    io.to(`group_${groupId}`).emit('group-nickname-updated', nicknameEvent);
+    broadcastProducer?.enqueue(`group_${groupId}`, 'group-nickname-updated', nicknameEvent);
 
     res.json({
       status: 'success',
@@ -1975,11 +1972,19 @@ export async function handleSetGroupDisturb(req, res) {
     // 取消免打扰时，设置用户的该群组最后已读消息id为当前群组最大消息id
     if (!isDisturb) {
       try {
-        const [maxRows] = await pool.execute(
-          'SELECT MAX(id) as maxId FROM scr_messages WHERE group_id = ?',
-          [groupId]
-        );
-        const maxMessageId = maxRows[0]?.maxId || 0;
+        // 最新消息ID走 Redis 缓存（发消息/撤回路径写入），缓存未命中才回源 DB 一次
+        const cacheKey = `scr:max_msg_id:group:${groupId}`;
+        let maxMessageId = parseInt(await redisClient.get(cacheKey)) || 0;
+        if (maxMessageId <= 0) {
+          const [maxRows] = await pool.execute(
+            'SELECT MAX(id) as maxId FROM scr_messages WHERE group_id = ?',
+            [groupId]
+          );
+          maxMessageId = maxRows[0]?.maxId || 0;
+          if (maxMessageId > 0) {
+            redisClient.set(cacheKey, String(maxMessageId)).catch(() => {});
+          }
+        }
         if (maxMessageId > 0) {
           await redisClient.set(`scr:read:group:${groupId}:${userId}`, String(maxMessageId));
         }

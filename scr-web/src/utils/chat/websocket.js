@@ -66,6 +66,13 @@ let avatarVersions = {};
 let _lastMessageSendTime = 0;
 let _messageSendTimeouts = {};
 
+// ============================================
+// 私信已读规则：
+// 收到私信一律累加未读计数（不因聚焦而跳过）；
+// 只有鼠标在右侧聊天区域(#chat-main)内移动/点击的那一刻，
+// 才发送已读并清除前端未读计数（见 ui.js handlePrivateChatAreaInteraction）
+// ============================================
+
 function updateUserList(users) {
   if (!Array.isArray(users)) {
     console.error('Invalid users data:', users);
@@ -156,6 +163,12 @@ function initializeWebSocket() {
     const baseStore = useBaseStore();
     if (setChatSocket) {
         setChatSocket(socket);
+    }
+
+    // 启动清除未读事件轮询（10 秒一次，队列有内容才发送）
+    const unreadStore = useUnreadStore();
+    if (unreadStore && unreadStore.startUnreadClearPolling) {
+        unreadStore.startUnreadClearPolling();
     }
 
     // 连接成功事件
@@ -821,8 +834,10 @@ function initializeWebSocket() {
                 }
                 updateUnreadCountsDisplay();
             } else if (!isOwnMessage && !isGroupMutedLocal) {
-                // 跳过添加未读计数时（且非免打扰群组），发送清除未读事件到服务器
-                sendClearGroupUnread(message.groupId);
+                // 跳过添加未读计数时（且非免打扰群组），把该群组放入清除未读队列，由轮询统一发送
+                if (unreadStore && unreadStore.enqueueUnreadClear) {
+                    unreadStore.enqueueUnreadClear('group', message.groupId);
+                }
                 updateUnreadCountsDisplay();
             }
 
@@ -870,8 +885,10 @@ function initializeWebSocket() {
                 }
                 updateUnreadCountsDisplay();
             } else if (!isOwnMessage) {
-                // 跳过添加未读计数时，直接发送清除未读事件到服务器（不经过unreadStore的条件判断）
-                sendClearGlobalUnread();
+                // 跳过添加未读计数时，把主聊天室放入清除未读队列，由轮询统一发送
+                if (unreadStore && unreadStore.enqueueUnreadClear) {
+                    unreadStore.enqueueUnreadClear('global');
+                }
                 updateUnreadCountsDisplay();
             }
         }
@@ -2706,10 +2723,6 @@ function initializeWebSocket() {
 
         // 页面级焦点（路由 + sessionStore）
         const isUserOnThisPrivateChat = isUserActiveOnChat('private', chatPartnerId);
-        // 浏览器级焦点
-        const isPageVisible = !document.hidden && document.hasFocus();
-        // 页面级 + 浏览器级焦点
-        const isUserFocusedOnThisPrivateChat = isUserOnThisPrivateChat && isPageVisible;
         
         if (message.id && storageStore && storageStore.privateMinId !== undefined) {
             if (message.id > storageStore.privateMinId) {
@@ -2755,8 +2768,8 @@ function initializeWebSocket() {
         // 检查对方是否已被设置为免打扰
         const isPrivateMutedLocal = typeof isPrivateMuted === 'function' && isPrivateMuted(chatPartnerId);
 
-        // 判断是否应该添加未读计数
-        const shouldAddPrivateUnread = !isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && !isUserFocusedOnThisPrivateChat && !isPrivateMutedLocal;
+        // 判断是否应该添加未读计数（不因聚焦而跳过，聚焦与否只影响移到顶部等展示逻辑）
+        const shouldAddPrivateUnread = !isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && !isPrivateMutedLocal;
 
         if (shouldAddPrivateUnread) {
             // 更新未读消息计数 - 使用 chatPartnerId 作为键
@@ -2764,17 +2777,8 @@ function initializeWebSocket() {
                 unreadStore.incrementPrivateUnread(chatPartnerId);
             }
             updateUnreadCountsDisplay();
-        } else if (!isOwnMessage && !isWithdrawMessage && !isReadReceiptMessage && isUserFocusedOnThisPrivateChat && !isPrivateMutedLocal) {
-            // 用户正在关注此私信会话（非免打扰）
-            // 1. 自动发送已读事件（通知对方已读）
-            sendReadMessageEvent('private', { friendId: chatPartnerId });
-
-            // 2. 清除之前累积的未读计数
-            if (unreadStore && unreadStore.clearPrivateUnread) {
-                unreadStore.clearPrivateUnread(chatPartnerId);
-            }
-            updateUnreadCountsDisplay();
         }
+        // 已读事件的发送与未读计数的清除，统一由鼠标在 #chat-main 内移动/点击触发（见 ui.js handlePrivateChatAreaInteraction）
     });
 
     // 私信消息已读事件
@@ -3017,6 +3021,11 @@ function disconnectWebSocket() {
     }
     if (baseStore) {
         baseStore.isConnected = false;
+    }
+    // 停止清除未读事件轮询
+    const unreadStore = useUnreadStore();
+    if (unreadStore && unreadStore.stopUnreadClearPolling) {
+        unreadStore.stopUnreadClearPolling();
     }
 }
 

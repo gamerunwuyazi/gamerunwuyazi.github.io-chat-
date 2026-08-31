@@ -1,7 +1,7 @@
 import { SocketEvents } from '../events.js';
 import { trimIPLogs } from '../../utils/session.js';
 
-export function registerUserHandlers(socket, io, { pool, addOnlineUser, removeOnlineUser, getOnlineUser, getAllOnlineUsers, addAuthenticatedUser, removeAuthenticatedUser, forceDisconnectUser }) {
+export function registerUserHandlers(socket, io, { pool, addOnlineUser, removeOnlineUser, getOnlineUser, getAllOnlineUsers, addAuthenticatedUser, removeAuthenticatedUser, forceDisconnectUser, broadcastProducer }) {
   
   // 用户加入聊天室
   socket.on(SocketEvents.USER_JOINED, async (userData) => {
@@ -156,7 +156,7 @@ export function registerUserHandlers(socket, io, { pool, addOnlineUser, removeOn
         }));
 
       // 只向已认证用户广播用户列表
-      io.to('authenticated_users').emit(SocketEvents.USERS_LIST, {
+      broadcastProducer?.enqueue('authenticated_users', SocketEvents.USERS_LIST, {
         online: onlineUsersArray,
         offline: offlineUsersArray
       });
@@ -265,7 +265,7 @@ export function registerUserHandlers(socket, io, { pool, addOnlineUser, removeOn
         }));
 
       // 只向已认证用户广播用户列表
-      io.to('authenticated_users').emit(SocketEvents.USERS_LIST, {
+      broadcastProducer?.enqueue('authenticated_users', SocketEvents.USERS_LIST, {
         online: onlineUsersArray,
         offline: offlineUsersArray
       });

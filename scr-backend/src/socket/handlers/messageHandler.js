@@ -112,13 +112,13 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
   
       // 如果是群组消息，验证用户是否在群组中
       if (groupId) {
-        // 先检查群组是否存在，并获取群主信息和删除状态
-        const [groupCheck] = await pool.execute(
-          'SELECT id, creator_id, deleted_at FROM scr_groups WHERE id = ?',
+        // 合并查询1：群组存在性 + 群主 + 删除状态 + 全员禁言（原查询1+3合并为一次）
+        const [groupRows] = await pool.execute(
+          'SELECT id, creator_id, deleted_at, is_mute_all FROM scr_groups WHERE id = ?',
           [groupId]
         );
-        
-        if (groupCheck.length === 0) {
+
+        if (groupRows.length === 0) {
           socket.emit(SocketEvents.MESSAGE_SENT, { 
             success: false,
             error: {
@@ -128,9 +128,9 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
           });
           return;
         }
-        
-        const groupInfo = groupCheck[0];
-        
+
+        const groupInfo = groupRows[0];
+
         // 检查群组是否已被删除
         if (groupInfo.deleted_at !== null) {
           socket.emit(SocketEvents.MESSAGE_SENT, { 
@@ -142,13 +142,14 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
           });
           return;
         }
-        
-        const [memberCheck] = await pool.execute(
-          'SELECT id FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
+
+        // 合并查询2：成员存在性 + 管理员 + 禁言状态（原查询2+4合并为一次）
+        const [memberRows] = await pool.execute(
+          'SELECT is_admin, is_muted FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
           [groupId, userId]
         );
-        
-        if (memberCheck.length === 0) {
+
+        if (memberRows.length === 0) {
           socket.emit(SocketEvents.MESSAGE_SENT, { 
             success: false,
             error: {
@@ -158,90 +159,62 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
           });
           return;
         }
-        
-        // 获取群组信息和成员信息用于禁言检查
-        const [groupInfoResult] = await pool.execute(
-          'SELECT creator_id, is_mute_all FROM scr_groups WHERE id = ? AND deleted_at IS NULL',
-          [groupId]
-        );
-        
-        if (!groupInfoResult || groupInfoResult.length === 0) {
-          socket.emit(SocketEvents.MESSAGE_SENT, { 
-            success: false,
-            error: {
-              code: 'GROUP_NOT_FOUND',
-              message: '无法获取群组信息'
-            }
-          });
-          return;
-        }
-        
-        const muteCheckGroupInfo = groupInfoResult[0];
-        const isGroupOwner = muteCheckGroupInfo.creator_id === userId;
-        
+
+        const member = memberRows[0];
+        const isGroupOwner = groupInfo.creator_id === userId;
+
         if (!isGroupOwner) {
-          // 非群主用户需要进行禁言检查
-          const [memberInfo] = await pool.execute(
-            'SELECT is_admin, is_muted FROM scr_group_members WHERE group_id = ? AND user_id = ? AND deleted_at IS NULL',
-            [groupId, userId]
-          );
-          
-          if (memberInfo.length > 0) {
-            const member = memberInfo[0];
-            
-            // 检查全员禁言：如果开启了全员禁言，只有管理员可以发言
-            if (muteCheckGroupInfo.is_mute_all === 1 && member.is_admin !== 1) {
+          // 检查全员禁言：如果开启了全员禁言，只有管理员可以发言
+          if (groupInfo.is_mute_all === 1 && member.is_admin !== 1) {
+            socket.emit(SocketEvents.MESSAGE_SENT, { 
+              success: false,
+              error: {
+                code: 'GROUP_MUTE_ALL',
+                message: '当前已开启全员禁言，只有管理员可以发言'
+              }
+            });
+            return;
+          }
+
+          // 检查个人禁言状态（优化后的单字段设计）
+          const isUserMuted = checkIfUserMuted(member.is_muted);
+
+          if (isUserMuted.muted) {
+            if (isUserMuted.permanent) {
+              // 永久禁言
               socket.emit(SocketEvents.MESSAGE_SENT, { 
                 success: false,
                 error: {
-                  code: 'GROUP_MUTE_ALL',
-                  message: '当前已开启全员禁言，只有管理员可以发言'
+                  code: 'USER_MUTED',
+                  message: '您已被永久禁言，无法发送消息'
                 }
               });
               return;
-            }
-            
-            // 检查个人禁言状态（优化后的单字段设计）
-            const isUserMuted = checkIfUserMuted(member.is_muted);
-            
-            if (isUserMuted.muted) {
-              
-              if (isUserMuted.permanent) {
-                // 永久禁言
-                socket.emit(SocketEvents.MESSAGE_SENT, { 
-                  success: false,
-                  error: {
-                    code: 'USER_MUTED',
-                    message: '您已被永久禁言，无法发送消息'
-                  }
-                });
-                return;
-              } else if (isUserMuted.remainingMinutes > 0) {
-                // 临时禁言尚未到期
-                socket.emit(SocketEvents.MESSAGE_SENT, { 
-                  success: false,
-                  error: {
-                    code: 'USER_MUTED',
-                    message: `您已被禁言，剩余时间约${isUserMuted.remainingMinutes}分钟`
-                  }
-                });
-                return;
-              } else {
-                // 禁言已过期，自动解除禁言（设置为NULL）
-                await pool.execute(
-                  'UPDATE scr_group_members SET is_muted = NULL WHERE group_id = ? AND user_id = ?',
-                  [groupId, userId]
-                );
-              }
+            } else if (isUserMuted.remainingMinutes > 0) {
+              // 临时禁言尚未到期
+              socket.emit(SocketEvents.MESSAGE_SENT, { 
+                success: false,
+                error: {
+                  code: 'USER_MUTED',
+                  message: `您已被禁言，剩余时间约${isUserMuted.remainingMinutes}分钟`
+                }
+              });
+              return;
+            } else {
+              // 禁言已过期，自动解除禁言（设置为NULL）
+              await pool.execute(
+                'UPDATE scr_group_members SET is_muted = NULL WHERE group_id = ? AND user_id = ?',
+                [groupId, userId]
+              );
             }
           }
         }
-        
-        // 检查是否包含 @全体成员 (-1)，只有群主或管理员才能发送
+
+        // 检查是否包含 @全体成员 (-1)，只有群主或管理员才能发送（复用上面的查询结果，不再额外查询）
         if (at_userid && Array.isArray(at_userid)) {
           const hasAllMemberAt = at_userid.some(id => id === -1);
           if (hasAllMemberAt) {
-            const isAdmin = await isGroupAdmin(groupId, userId);
+            const isAdmin = isGroupOwner || member.is_admin === 1;
             if (!isAdmin) {
               socket.emit(SocketEvents.MESSAGE_SENT, { 
                 success: false,
@@ -306,6 +279,14 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
           'INSERT INTO scr_messages (user_id, content, at_userid, message_type, group_id, timestamp) VALUES (?, ?, ?, ?, ?, NOW())',
           [userId, messageContent, at_userid ? JSON.stringify(at_userid) : null, messageType, groupId || null]
       );
+
+      // 同步"范围内最新消息ID"缓存，供 clear-group/global-unread 使用（消除每包 MAX(id) DB 查询）
+      // fire-and-forget，失败不影响消息发送
+      if (groupId) {
+        redisClient.set(`scr:max_msg_id:group:${parseInt(groupId)}`, String(result.insertId)).catch(() => {});
+      } else {
+        redisClient.set('scr:max_msg_id:global', String(result.insertId)).catch(() => {});
+      }
       
       // 广播消息 - 使用已经过HTML转义的内容
       const rawMessage = {
@@ -502,6 +483,13 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
         );
       }
 
+      // 撤回(101)消息同样推进缓存
+      if (message.group_id) {
+        redisClient.set(`scr:max_msg_id:group:${parseInt(message.group_id)}`, String(insertResult.insertId)).catch(() => {});
+      } else {
+        redisClient.set('scr:max_msg_id:global', String(insertResult.insertId)).catch(() => {});
+      }
+
       // 发送101消息
       const rawType101Message = {
         id: insertResult.insertId,
@@ -601,14 +589,29 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
           // 对方不在线，保存已读回执消息（103）到数据库
           
           // 获取刚才已读的最后一条消息的id作为内容
-          const [readMessages] = await pool.execute(
-            'SELECT id FROM scr_private_messages WHERE sender_id = ? AND receiver_id = ? AND is_read = 1 ORDER BY id DESC LIMIT 1',
-            [numericFriendId, numericUserId]
-          );
-          
+          // 优先走 Redis 缓存（私信发送路径写入），未命中才回源 DB 一次
           let lastReadMessageId = 0;
-          if (readMessages.length > 0) {
-            lastReadMessageId = readMessages[0].id;
+          try {
+            const cachedMax = await redisClient.get(`scr:priv:max_from:${numericUserId}:${numericFriendId}`);
+            if (cachedMax != null) {
+              lastReadMessageId = parseInt(cachedMax) || 0;
+            } else {
+              const [readMessages] = await pool.execute(
+                'SELECT id FROM scr_private_messages WHERE sender_id = ? AND receiver_id = ? AND is_read = 1 ORDER BY id DESC LIMIT 1',
+                [numericFriendId, numericUserId]
+              );
+              lastReadMessageId = readMessages[0]?.id || 0;
+              if (lastReadMessageId > 0) {
+                redisClient.set(
+                  `scr:priv:max_from:${numericUserId}:${numericFriendId}`,
+                  String(lastReadMessageId),
+                  { EX: 604800 }
+                ).catch(() => {});
+              }
+            }
+          } catch (readIdErr) {
+            console.error('获取最后已读消息id失败:', readIdErr.message);
+            lastReadMessageId = 0;
           }
           
           // 保存已读回执消息（103）到数据库
@@ -840,11 +843,18 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       const numericGroupId = parseInt(groupId);
       if (isNaN(numericUserId) || isNaN(numericGroupId)) return;
 
-      const [rows] = await dbPool.execute(
-        'SELECT MAX(id) as maxId FROM scr_messages WHERE group_id = ?',
-        [numericGroupId]
-      );
-      const maxMessageId = rows[0]?.maxId || 0;
+      // 最新消息ID走 Redis 缓存（发消息/撤回路径写入），缓存未命中才回源 DB 一次
+      // 前端已按 10s 轮询批量发送，此 handler 不能再承担每包一次的 MAX(id) 全表/索引查询
+      const cacheKey = `scr:max_msg_id:group:${numericGroupId}`;
+      let maxMessageId = await redisClient.get(cacheKey);
+      if (maxMessageId == null) {
+        const [rows] = await dbPool.execute(
+          'SELECT MAX(id) as maxId FROM scr_messages WHERE group_id = ?',
+          [numericGroupId]
+        );
+        maxMessageId = String(rows[0]?.maxId || 0);
+        await redisClient.set(cacheKey, maxMessageId);
+      }
 
       await redisClient.set(`scr:read:group:${numericGroupId}:${numericUserId}`, String(maxMessageId));
     } catch (err) {
@@ -861,11 +871,17 @@ export function registerMessageHandlers(socket, io, { pool, checkRateLimit, vali
       const numericUserId = parseInt(userId);
       if (isNaN(numericUserId)) return;
 
-      const [rows] = await dbPool.execute(
-        'SELECT MAX(id) as maxId FROM scr_messages WHERE group_id IS NULL',
-        []
-      );
-      const maxMessageId = rows[0]?.maxId || 0;
+      // 最新消息ID走 Redis 缓存（发消息/撤回路径写入），缓存未命中才回源 DB 一次
+      const cacheKey = 'scr:max_msg_id:global';
+      let maxMessageId = await redisClient.get(cacheKey);
+      if (maxMessageId == null) {
+        const [rows] = await dbPool.execute(
+          'SELECT MAX(id) as maxId FROM scr_messages WHERE group_id IS NULL',
+          []
+        );
+        maxMessageId = String(rows[0]?.maxId || 0);
+        await redisClient.set(cacheKey, maxMessageId);
+      }
 
       await redisClient.set(`scr:read:global:${numericUserId}`, String(maxMessageId));
     } catch (err) {

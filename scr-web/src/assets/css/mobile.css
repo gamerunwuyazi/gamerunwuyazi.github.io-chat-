@@ -230,6 +230,7 @@
     padding: 10px;
     -webkit-overflow-scrolling: touch;
     overflow-y: auto;
+    overflow-x: clip;
 }
 
 .mobile-chat-view .input-area {

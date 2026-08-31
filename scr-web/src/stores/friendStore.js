@@ -316,6 +316,16 @@ export const useFriendStore = defineStore('friend', () => {
 
         sessionData.deleted_at = friend.deleted_at;
         await localForage.setItem(key, sessionData);
+
+        // 持久化已删除会话快照，确保清空 IndexedDB 后首屏仍能显示
+        const snapKey = `${prefix}-deleted-friends`;
+        const snap = JSON.parse(localStorage.getItem(snapKey) || '{}') || {};
+        snap[String(userId)] = {
+          nickname: friend.nickname || sessionData.nickname || '',
+          avatarUrl: friend.avatarUrl || sessionData.avatarUrl || null,
+          deleted_at: friend.deleted_at
+        };
+        localStorage.setItem(snapKey, JSON.stringify(snap));
       } catch (e) { /* ignore */ }
     }
   }

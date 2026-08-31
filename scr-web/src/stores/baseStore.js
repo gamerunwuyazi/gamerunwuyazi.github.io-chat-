@@ -26,7 +26,7 @@ export const useBaseStore = defineStore('base', () => {
   function setCurrentUser(user) {
     currentUser.value = user;
     if (user && user.friend_verification !== undefined) {
-      friendVerification.value = user.friend_verification === 1;
+      friendVerification.value = Boolean(user.friend_verification);
     }
   }
 

@@ -51,8 +51,11 @@ export const dbConfig = {
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 25,
-  queueLimit: parseInt(process.env.DB_QUEUE_LIMIT) || 0,
+  // MySQL 服务器 max_connections=500：主池 150 + 2×worker×15 = 180，留足余量
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 150,
+  // 连接耗尽时最多排队的查询数，超过直接报错快速失败（避免无限排队拖垮所有请求）
+  // 压测实测 50 连接 + 1000 排队会被瞬间打满报 "Queue limit reached"，扩连接后同步提高排队上限
+  queueLimit: parseInt(process.env.DB_QUEUE_LIMIT) || 3000,
   enableKeepAlive: true,
   keepAliveInitialDelay: 0
 };
